@@ -268,7 +268,7 @@
 
 /* Settings: folder exceptions */
 .oe-folder-exceptions .oe-folder-exception {
-	padding: var(--size-4-1) 0;
+	padding: var(--size-4-2) var(--size-4-4);
 	border-top: none;
 }
 
