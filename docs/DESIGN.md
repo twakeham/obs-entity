@@ -151,13 +151,13 @@ There is **one folder setting for all entities**, the *entity folder pattern* (`
 - Unknown placeholders are left as written, and the settings tab warns about them.
 - A trailing slash is fine (`entities/{group}/{entity}/`).
 - An empty pattern means the vault root.
-- Groups and types have **no folder settings of their own**.
+- **Folder exceptions:** a type can have its own pattern (`EntityTypeDef.folderPattern`, same placeholders) that replaces the global one, e.g. Person → `Contacts/{entity}`. Unset means "use the global pattern"; `""` means the vault root. Exceptions are listed under the global pattern in settings (type dropdown, pattern, remove), and the preview marks the types that use one. Groups have no folder settings.
 
 Each type has a **folder rule** (`folderMode`), which is a behaviour rather than a path:
 
 | Mode | New note goes to | Example |
 |---|---|---|
-| `type` (default) | the expanded pattern | `Entities/Directory/People/` |
+| `type` (default) | the expanded pattern (the type's exception, if it has one) | `Entities/Directory/People/` |
 | `parent` | `<the folder of the note's hierarchy parent>/<plural>/`, using the first parent field with a value. Falls back to the pattern if there's no parent. | a Note under a Project goes to `…/Projects/Apollo/Notes/` |
 | `own` | `<pattern>/<sanitised name>/`: the note gets its own folder, so children in `parent` mode nest inside it. If a parent is set, the own folder goes inside the **parent's folder** instead, e.g. a sub-project inside its project. | `Entities/Work/Projects/Apollo/Apollo.md` |
 
@@ -182,7 +182,7 @@ Appendix A has the full interfaces; this section explains them.
 | `icon` | A Lucide icon id (Obsidian's `getIconIds()` without the `lucide-` prefix). |
 | `color` | `#rrggbb`. It tints chips, cards, browser icons and graph nodes. |
 | `group` | A group key (§4.3). |
-| `folderMode` | See §3.4. Where notes go is set once for all types by the folder pattern. |
+| `folderPattern`, `folderMode` | See §3.4. `folderPattern` is an optional exception to the global folder pattern; `folderMode` is the own/parent folder rule. |
 | `template` | A file name in the templates folder. Defaults to `<name>.md`. A built-in template is used until the file exists. |
 | `sections` | Optional `## ` headings for the built-in template (otherwise Overview / Details / Notes). |
 | `shortcuts` | Switcher prefixes, e.g. `["npc"]`, so `npc ada` filters to people. |
@@ -530,7 +530,7 @@ Big icon, name, a "group · N notes · built-in/custom · `key`" line, and the t
 - **Icon.** A searchable grid of Lucide icons: prefix matches first, the first 168 shown, Enter picks the first match.
 - **Colour.** A swatch palette plus a custom colour picker. Include the colours your default pack uses, so built-in types match a swatch.
 - **Group.** Built-in pack types keep their group unless you duplicate them.
-- **Folder mode**: "In the folder pattern" / "Inside its parent's folder" / "In a folder of its own", with a live preview of the full path ("New notes go in `Entities/Directory/People/`"). There's no per-type path; the pattern is set once in settings.
+- **Folder**: "Use the entity folder pattern" or "Use its own pattern" (the exception, with `{group}`/`{entity}`), plus the folder mode ("In the folder pattern" / "Inside its parent's folder" / "In a folder of its own"), with a live preview of the full path ("New notes go in `Entities/Directory/People/`"). The same exceptions are editable in settings.
 - **Template file**, with **Open template**, which creates the file from the default template if it's missing.
 - **Search shortcuts**, as chips.
 - **More:** Duplicate, Copy as JSON, Reset to pack default (for pack types; applied as a draft), and Delete type (custom types; asks first, says how many notes use it, and leaves those notes untouched).
@@ -807,7 +807,9 @@ The command **Find entity** opens a `SuggestModal` over entities only.
 ### 8.8 Settings tab
 
 - **Folders:**
-  - **Entity folder** (`folderPattern`), with `{group}` and `{entity}` placeholders and a live preview of where each type's notes go (including the parent and own-folder rules). Unknown placeholders are flagged.
+  - **Entity folder** (`folderPattern`), with `{group}` and `{entity}` placeholders.
+  - **Folder exceptions**: per-type patterns that replace the global one. Each row has a type dropdown, a pattern box and a remove button, plus **Add exception**.
+  - A live preview of where each type's notes go (including the parent and own-folder rules), marking types with an exception. Unknown placeholders are flagged.
   - Templates folder, with a **Generate templates** button.
 - **Behaviour:**
   - open new entities in a new tab
@@ -850,6 +852,7 @@ These are proven in Story Forge and worth adding behind module toggles once the 
 | `key` | new type: not already taken | A type with the key "x" already exists. |
 | `name` | not blank | Type name is required. *(shown after a save attempt)* |
 | `group` | a known group | Choose a group. |
+| `folderPattern` | the exception uses only `{group}` / `{entity}` | Unknown placeholder in the folder: {type}. Use {group} or {entity}. |
 | `field:i:key` | valid pattern | Field key "X" must be lowercase letters, digits or underscores. *(blank → "Give this field a label.")* |
 | `field:i:key` | not a common key (`entity`, `status`, `tags`, `aliases`, `related`, `order`) | Field key "status" is reserved. |
 | `field:i:key` | unique within the type | Duplicate field key "x". |
@@ -1069,7 +1072,8 @@ export interface EntityTypeDef {
   icon: string;                   // Lucide id
   color: string;                  // #rrggbb
   group: string;                  // GroupDef.key
-  folderMode?: FolderMode;        // default "type"; paths come from the global folder pattern
+  folderPattern?: string;         // exception to the global folder pattern ({group}, {entity}); unset = global
+  folderMode?: FolderMode;        // default "type"
   template: string;               // file name in the templates folder
   sections?: string[];            // headings for the built-in default template
   shortcuts?: string[];

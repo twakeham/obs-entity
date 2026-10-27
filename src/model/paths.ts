@@ -29,6 +29,11 @@ export function unknownPlaceholders(pattern: string): string[] {
 	return Array.from(pattern.matchAll(PLACEHOLDER), (m) => m[1]).filter((p) => !known.has(p.toLowerCase()));
 }
 
+/** The pattern that applies to a type: its own exception if it has one (even ""), otherwise the global pattern. */
+export function effectiveFolderPattern(globalPattern: string, type: EntityTypeDef): string {
+	return typeof type.folderPattern === "string" ? type.folderPattern : globalPattern;
+}
+
 /**
  * Expand the folder pattern for a type: {group} → group name, {entity} → the type's plural name.
  * Values are made safe as folder names; unknown placeholders are left as written.

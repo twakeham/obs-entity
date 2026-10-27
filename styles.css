@@ -265,3 +265,39 @@
 	padding-bottom: var(--size-4-1);
 	color: var(--text-warning);
 }
+
+/* Settings: folder exceptions */
+.oe-folder-exceptions .oe-folder-exception {
+	padding: var(--size-4-1) 0;
+	border-top: none;
+}
+
+.oe-folder-exception .setting-item-info {
+	flex: 1 1 auto;
+}
+
+.oe-folder-exception .setting-item-name:empty {
+	display: none;
+}
+
+.oe-folder-exception .setting-item-control {
+	flex: 0 1 auto;
+}
+
+.oe-folder-exception-pattern {
+	width: 22em;
+	font-family: var(--font-monospace);
+}
+
+.oe-folder-preview-badge {
+	flex-shrink: 0;
+	padding: 0 6px;
+	border-radius: var(--radius-s);
+	background-color: color-mix(in srgb, var(--interactive-accent) 15%, transparent);
+	color: var(--text-accent);
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-folder-preview-box {
+	margin-top: var(--size-4-2);
+}

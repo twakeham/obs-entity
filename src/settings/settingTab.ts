@@ -17,13 +17,18 @@ export class EntitiesSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		new Setting(containerEl).setName("Folders").setHeading();
+		const warning = (pattern: string) => {
+			const unknown = unknownPlaceholders(pattern);
+			return unknown.length ? `Unknown placeholder${unknown.length === 1 ? "" : "s"}: ${unknown.map((u) => `{${u}}`).join(", ")}. Use {group} or {entity}.` : "";
+		};
+		// Folder settings only affect where new notes go: save without re-indexing.
+		const save = () => this.plugin.saveData(s);
+
 		let preview: HTMLElement;
 		const renderPreview = () => {
 			preview.empty();
-			const unknown = unknownPlaceholders(s.folderPattern);
-			if (unknown.length) {
-				preview.createDiv({ cls: "oe-folder-warning", text: `Unknown placeholder${unknown.length === 1 ? "" : "s"}: ${unknown.map((u) => `{${u}}`).join(", ")}. Use {group} or {entity}.` });
-			}
+			const text = warning(s.folderPattern);
+			if (text) preview.createDiv({ cls: "oe-folder-warning", text });
 			const list = preview.createEl("ul", { cls: "oe-folder-preview" });
 			for (const type of s.types) {
 				const base = this.plugin.factory.matchExistingCase(this.plugin.factory.baseFolder(type));
@@ -36,6 +41,7 @@ export class EntitiesSettingTab extends PluginSettingTab {
 							? `<parent's folder>/${type.plural}/, or ${base || "(vault root)"}/ without a parent`
 							: `${base || "(vault root)"}/`;
 				li.createSpan({ cls: "oe-folder-preview-path", text: where });
+				if (typeof type.folderPattern === "string") li.createSpan({ cls: "oe-folder-preview-badge", text: "exception" });
 			}
 		};
 		new Setting(containerEl)
@@ -58,11 +64,75 @@ export class EntitiesSettingTab extends PluginSettingTab {
 					.onChange(async (v) => {
 						s.folderPattern = v.trim();
 						renderPreview();
-						// Only affects where new notes go: no need to re-index.
-						await this.plugin.saveData(s);
+						await save();
 					}),
 			);
+
+		let exceptionsEl: HTMLElement;
+		let addButton: { setDisabled(d: boolean): unknown } | null = null;
+		const free = () => s.types.filter((t) => typeof t.folderPattern !== "string");
+		const renderExceptions = () => {
+			exceptionsEl.empty();
+			for (const type of s.types.filter((t) => typeof t.folderPattern === "string")) {
+				let current = type;
+				const row = new Setting(exceptionsEl).setClass("oe-folder-exception");
+				const warn = row.descEl.createDiv({ cls: "oe-folder-warning", text: warning(type.folderPattern ?? "") });
+				row.addDropdown((d) => {
+					for (const t of [type, ...free()]) d.addOption(t.key, t.plural);
+					d.setValue(type.key).onChange(async (key) => {
+						const next = s.types.find((t) => t.key === key);
+						if (!next || next === current) return;
+						next.folderPattern = current.folderPattern;
+						delete current.folderPattern;
+						current = next;
+						renderExceptions();
+						renderPreview();
+						await save();
+					});
+				});
+				row.addText((t) => {
+					t.inputEl.addClass("oe-folder-exception-pattern");
+					t.setPlaceholder("(vault root)")
+						.setValue(type.folderPattern ?? "")
+						.onChange(async (v) => {
+							current.folderPattern = v.trim();
+							warn.setText(warning(current.folderPattern));
+							renderPreview();
+							await save();
+						});
+				});
+				row.addExtraButton((b) =>
+					b
+						.setIcon("x")
+						.setTooltip("Remove exception")
+						.onClick(async () => {
+							delete current.folderPattern;
+							renderExceptions();
+							renderPreview();
+							await save();
+						}),
+				);
+			}
+			addButton?.setDisabled(free().length === 0);
+		};
+		new Setting(containerEl)
+			.setName("Folder exceptions")
+			.setDesc("Give a type its own folder pattern instead of the one above. Same placeholders.")
+			.addButton((b) => {
+				addButton = b;
+				b.setButtonText("Add exception").onClick(async () => {
+					const type = free()[0];
+					if (!type) return;
+					type.folderPattern = s.folderPattern;
+					renderExceptions();
+					renderPreview();
+					await save();
+					exceptionsEl.querySelector<HTMLInputElement>(".oe-folder-exception:last-child input")?.focus();
+				});
+			});
+		exceptionsEl = containerEl.createDiv({ cls: "oe-folder-exceptions" });
 		preview = containerEl.createDiv({ cls: "oe-folder-preview-box" });
+		renderExceptions();
 		renderPreview();
 		new Setting(containerEl)
 			.setName("Templates folder")

@@ -4,7 +4,7 @@ import { isoDateAdapter } from "../src/model/dates";
 import { buildFrontmatter, defaultFieldValue, fieldDisplay, mergeFrontmatter, toYamlValue } from "../src/model/frontmatter";
 import { asArray, parseLabelledEntry, parseLink, toLabelledWikilink, toWikilink } from "../src/model/links";
 import { CRM_PACK, STARTER_PACK, installPack, parsePack } from "../src/model/packs";
-import { DEFAULT_FOLDER_PATTERN, expandFolderPattern, joinPath, resolveEntityFolder, sanitizeFileName, uniquePath, unknownPlaceholders } from "../src/model/paths";
+import { DEFAULT_FOLDER_PATTERN, effectiveFolderPattern, expandFolderPattern, joinPath, resolveEntityFolder, sanitizeFileName, uniquePath, unknownPlaceholders } from "../src/model/paths";
 import { findTypeByPrefix, parseTypedQuery } from "../src/model/search";
 import { defaultSettings, mergeSettings } from "../src/model/settings";
 import { defaultTemplate, renderTemplate } from "../src/model/templates";
@@ -160,6 +160,11 @@ describe("validation", () => {
 		expect(at(T("place"))).toEqual([]);
 	});
 
+	it("checks placeholders in a folder exception", () => {
+		expect(at({ ...T("place"), folderPattern: "X/{entity}" })).toEqual([]);
+		expect(at({ ...T("place"), folderPattern: "X/{type}/{name}" })).toEqual(["folderPattern: Unknown placeholders in the folder: {type}, {name}. Use {group} or {entity}."]);
+	});
+
 	it("checks defaults", () => {
 		const t: EntityTypeDef = {
 			...T("place"),
@@ -218,6 +223,20 @@ describe("paths", () => {
 		expect(expandFolderPattern("", T("person"), dir)).toBe("");
 		expect(expandFolderPattern("X/{type}", T("person"), dir)).toBe("X/{type}");
 		expect(unknownPlaceholders("X/{type}/{group}/{ ENTITY }")).toEqual(["type"]);
+	});
+
+	it("uses a type's folder exception instead of the global pattern", () => {
+		const person = { ...T("person"), folderPattern: "Contacts/{entity}" };
+		expect(effectiveFolderPattern(DEFAULT_FOLDER_PATTERN, T("person"))).toBe(DEFAULT_FOLDER_PATTERN);
+		expect(effectiveFolderPattern(DEFAULT_FOLDER_PATTERN, person)).toBe("Contacts/{entity}");
+		expect(effectiveFolderPattern(DEFAULT_FOLDER_PATTERN, { ...T("person"), folderPattern: "" })).toBe("");
+		expect(expandFolderPattern(effectiveFolderPattern(DEFAULT_FOLDER_PATTERN, person), person, GROUPS[0])).toBe("Contacts/People");
+		// folder rules apply on top of the exception
+		const project = { ...T("project"), folderPattern: "Work/{entity}" };
+		const base = expandFolderPattern(effectiveFolderPattern(DEFAULT_FOLDER_PATTERN, project), project, GROUPS[1]);
+		expect(resolveEntityFolder(project, "Apollo", base)).toBe("Work/Projects/Apollo");
+		expect(cloneType(person).folderPattern).toBe("Contacts/{entity}");
+		expect(mergeSettings({ types: [person] }).types[0].folderPattern).toBe("Contacts/{entity}");
 	});
 
 	it("resolves folders for each folder mode", () => {

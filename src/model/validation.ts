@@ -1,9 +1,10 @@
+import { unknownPlaceholders } from "./paths";
 import { COMMON_KEYS, RESERVED_KEYS, isValidKey, type EntityTypeDef } from "./types";
 
 /** A problem with a type definition, tied to the control it belongs to. */
 export interface TypeIssue {
 	/**
-	 * Where: "key", "name", "group", "statuses", "parentFields", "card:subtitle", "card:fields",
+	 * Where: "key", "name", "group", "statuses", "folderPattern", "parentFields", "card:subtitle", "card:fields",
 	 * "field:<i>:key", "field:<i>:options", "field:<i>:targets", "field:<i>:default".
 	 */
 	at: string;
@@ -29,6 +30,10 @@ export function typeIssues(t: EntityTypeDef, ctx: ValidationContext): TypeIssue[
 	if (!t.name.trim()) add("name", "Type name is required.");
 	if (!ctx.groupKeys.includes(t.group)) add("group", "Choose a group.");
 	if (t.statuses && t.statuses.some((s) => !s.trim())) add("statuses", "Statuses can't be blank.");
+	if (typeof t.folderPattern === "string") {
+		const unknown = unknownPlaceholders(t.folderPattern);
+		if (unknown.length) add("folderPattern", `Unknown placeholder${unknown.length === 1 ? "" : "s"} in the folder: ${unknown.map((u) => `{${u}}`).join(", ")}. Use {group} or {entity}.`);
+	}
 
 	const seen = new Set<string>();
 	t.fields.forEach((f, i) => {

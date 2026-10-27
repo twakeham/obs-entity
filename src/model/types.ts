@@ -69,6 +69,8 @@ export interface EntityTypeDef {
 	color: string;
 	/** GroupDef.key */
 	group: string;
+	/** exception to the global folder pattern, with the same placeholders; undefined = use the global pattern */
+	folderPattern?: string;
 	/** "type" (default): the folder pattern; "parent": inside the parent's folder; "own": a folder of its own */
 	folderMode?: FolderMode;
 	/** template file name inside the templates folder */

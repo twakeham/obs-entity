@@ -1,7 +1,7 @@
 import { Notice, TFile, TFolder, moment, normalizePath } from "obsidian";
 import { buildFrontmatter, defaultFieldValue, fieldDisplay, mergeFrontmatter, type EntityFormValues, type FieldValue, type LabelledValue } from "../model/frontmatter";
 import { parseLink } from "../model/links";
-import { expandFolderPattern, joinPath, resolveEntityFolder, sanitizeFileName, uniquePath } from "../model/paths";
+import { effectiveFolderPattern, expandFolderPattern, joinPath, resolveEntityFolder, sanitizeFileName, uniquePath } from "../model/paths";
 import { defaultTemplate, renderTemplate } from "../model/templates";
 import { COMMON_KEYS, groupOf, statusesFor, type EntityTypeDef, type GroupDef } from "../model/types";
 import type EntitiesPlugin from "../main";
@@ -94,9 +94,10 @@ export class EntityFactory {
 		return null;
 	}
 
-	/** The folder pattern expanded for a type (where "type"-mode notes go). */
+	/** The folder pattern (global, or the type's exception) expanded for a type: where "type"-mode notes go. */
 	baseFolder(type: EntityTypeDef): string {
-		return expandFolderPattern(this.plugin.settings.folderPattern, type, groupOf(type, this.plugin.settings.groups));
+		const pattern = effectiveFolderPattern(this.plugin.settings.folderPattern, type);
+		return expandFolderPattern(pattern, type, groupOf(type, this.plugin.settings.groups));
 	}
 
 	/** Folder a new note of this type would be created in, using existing folders' casing where they exist. */
