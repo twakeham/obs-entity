@@ -730,21 +730,22 @@ A compact card injected at the top of entity notes, in **Live Preview and Readin
 
 **Top row:**
 - the type chip (icon and name)
-- an **editable status pill** (a select that writes `status`)
+- an **editable status pill** (a select that writes `status`), coloured by status word: done/complete/won are green, active/open are blue, on-hold/lead/prospect are orange, archived/abandoned/lost are faint, and anything else (draft, idea…) is neutral
 - the subtitle (§4.5), ellipsised
 - action buttons: Connections panel, collapse/expand (remembered globally)
 - extension buttons from modules (e.g. graph)
 
 **Body**, as configured by the type's `card` settings (§4.5):
 - The card fields, in order:
-  - Non-relation fields render as `Label: value`. Dates use the adapter's long form, booleans show "Yes" when true, and url fields are links.
+  - Non-relation fields render as `Label: value`. Dates use the adapter's long form, booleans show "Yes" when true, and url fields are links (bare emails become `mailto:`, bare domains `https://`).
   - Relation fields render as chip rows in their listed position.
 - Then, if `incoming` is on, the remaining relation groups (§5.2): inverse, symmetric and Related.
 - Each relation row shows the title, then up to `maxChips` chips, with "+N more" for the rest.
 - Chips:
   - click opens the note; Ctrl/Cmd-click opens it in a new tab
   - Ctrl + hover shows a preview
-  - right-click offers open options, and **Remove link (edits <source>)** for removable edges
+  - a labelled link shows its label after the name ("Grace Hopper · mentor"), except in groups that are already named after the label ("Mentor", "Mentor of")
+  - right-click menu: Open in new tab, Open to the right, then **Remove link** (marked as a warning, and saying "(edits <source>)" when the link is written on the other note), then the standard file menu. Removing shows a notice with **Undo**, which restores the field's previous value.
   - unresolved chips are dashed; clicking one creates the note
 
 **Injection**, from Story Forge's HeaderManager:
@@ -990,7 +991,7 @@ Drive a real Obsidian instance via the Chrome DevTools Protocol (Obsidian starte
 | # | Milestone | Scope | Exit criteria |
 |---|---|---|---|
 | M1 ✅ | **Foundation** | Scaffold (TS, esbuild, React 19, vitest, deploy-to-test-vault script); settings with groups and types; starter pack; model modules (links, frontmatter, paths, templates, validation, card subtitle, ISO date adapter, packs); EntityIndex; EntityFactory; Create dialog with relation picker; Convert; Find entity; per-type commands; **Import entity types…** (paste a pack; brought forward from M3/M5 so types can be added before the editor exists) | Can define types (via an imported pack), create typed notes with links, find them |
-| M2 | **Relationships** | RelationIndex with inverses; `groupRelations`; info card (both modes); Connections panel (list); Add/Remove link | Inverses visible on target notes; links editable without touching YAML |
+| M2 ✅ | **Relationships** | RelationIndex with inverses; `groupRelations`; `cardSections` (per-type card content); info card (both modes); Connections panel (list, filter, + Link, Mentioned in, Convert); Add/Remove link with Undo | Inverses visible on target notes; links editable without touching YAML |
 | M3 | **Entity Types view** | Full editor (§8.1): list, General/Fields/Relationships/Display tabs, guided relationship dialog, drafts, validation, save bar with migrations, preview, import/export, duplicate, reset/delete; settings button | Non-technical user can build a domain model end-to-end without editing JSON |
 | M4 | **Browser** | Groups, hierarchies from parent fields, filters, reveal active, collapse semantics, context menu with "New child here", state persistence | Large vaults navigable; hierarchy correct for mixed types |
 | M5 | **Packs & polish** | Type packs (bundled example pack + import/export of groups), template generation, ribbon options, accessibility pass (keyboard navigation in lists, ARIA on toggles), docs | Ready for a public/BRAT release |

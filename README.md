@@ -9,7 +9,7 @@ Derived from the Story Forge worldbuilding plugin, made domain-neutral. The full
 | Milestone | Scope | Status |
 |---|---|---|
 | M1 Foundation | Settings with groups and types, starter pack, create dialog, convert, find entity, per-type commands, import types | ✅ Done |
-| M2 Relationships | Inverse links, info card, Connections panel, add/remove links | Planned |
+| M2 Relationships | Inverse links, info card, Connections panel, add/remove links with Undo | ✅ Done |
 | M3 Entity Types view | Visual type editor with drafts, migrations, previews | Planned |
 | M4 Browser | Grouped, hierarchical entity browser with filters | Planned |
 | M5 Packs & polish | Pack picker on first run, accessibility, docs | Planned |
@@ -71,6 +71,7 @@ To add more types before the type editor arrives (M3), run **Import entity types
 | Create entity | Pick a type, then the create dialog |
 | Create *type* | One command per type |
 | Find entity | Entity-only switcher. `person: ada`, `people:` or a shortcut like `p ada` filters by type |
+| Open connections panel | Right sidebar panel for the open note (also a ribbon icon and a button on the card) |
 | Convert current note to entity | Adds the type's fields to an existing note (existing values win). Also in the file menu |
 | Import entity types… | Paste a type pack, single type or list of types (JSON) |
 | Generate template files | Writes editable templates for types without one |
@@ -80,6 +81,38 @@ The create dialog:
 - **Link fields:** fuzzy-searches entities of the allowed types, and offers **Create "X"** to make the linked note on the spot.
 - **Prefill:** fills in a link to the active note when a field accepts its type (parent fields first), e.g. a new note while viewing a project.
 - **Folder:** shows where the note will be created.
+
+## Relationships
+
+Only the forward link is stored, e.g. Ada's `works_for: "[[Acme Ltd]]"`. The other note shows it as a reverse link using the field's inverse label, e.g. "People: Ada Lovelace" on Acme.
+- **Labelled links** (`"[[Grace Hopper|mentor]]"`) show as "Mentor" on Ada and "Mentor of" on Grace.
+- **Symmetric fields** and `related` show the same group on both notes.
+- **Links to notes that don't exist yet** show as dashed chips. Clicking one creates the note.
+- **Body links** that aren't relationships are listed under "Mentioned in" in the panel.
+
+### Info card
+
+Shown at the top of entity notes, in both Live Preview and Reading view:
+- **Top row:** type, an editable status pill (coloured by status), the subtitle, and buttons for the Connections panel and collapse. Collapse applies to all notes and is remembered.
+- **Body:** by default, filled fields (minus subtitle fields), then links: outgoing in field order, then incoming, then Related, with up to 6 chips per row and "+N more".
+- **Per type:** the `card` settings choose the subtitle, which fields to show and in what order (link fields appear in place), whether incoming links show, empty fields, and chips per row.
+- **Turning it off:** a global setting, or `card.show: false` on a type.
+
+### Chips
+
+- **Click:** opens the note. Ctrl/Cmd-click opens it in a new tab, and Ctrl + hover shows a preview.
+- **Right-click:** Open in new tab, Open to the right, **Remove link**, then the usual file menu.
+  - Removing a reverse link edits the other note, and the menu says so, e.g. "Remove link (edits Ada Lovelace)".
+  - Every removal shows a notice with **Undo**.
+
+### Connections panel
+
+Follows the open note:
+- **Header:** type, editable status, subtitle and fields.
+- **Filter box**, plus **+ Link**: pick a field, then the target (or create it), then a label if the field has labels.
+- **Groups:** collapsible, with counts and a direction arrow (→ set here, ← set on the other note, ⇄ both ways).
+- **Mentioned in:** starts collapsed.
+- **Non-entity notes:** offers **Convert to entity**.
 
 ## Development
 
@@ -96,25 +129,30 @@ npm run dev       # watch mode
 
 ```
 src/
-  main.ts                    plugin entry: commands, ribbon, file menu, prefill
+  main.ts                    plugin entry: commands, ribbon, file menu, prefill, views
   model/                     pure, unit-tested
     types.ts                 EntityTypeDef, FieldDef, GroupDef, CardConfig, COMMON_KEYS
     validation.ts            typeIssues(): located problems
     links.ts                 wikilink parsing/formatting, labelled links
+    relations.ts             edges, groupRelations (inverses), addLink/removeLink
     frontmatter.ts           build/merge frontmatter, value conversion
-    paths.ts                 sanitising, unique paths, folder modes
+    paths.ts                 folder pattern, exceptions, folder modes, sanitising
     templates.ts             {{placeholders}}, default templates from type sections
-    card.ts                  subtitle and value display
+    card.ts                  subtitle, value display, cardSections (what the card shows)
     dates.ts                 DateAdapter + ISO adapter
     search.ts                switcher type prefixes
     packs.ts                 starter + CRM packs, parsePack, installPack
     settings.ts              defaults and merging
   services/
     entityIndex.ts           entities from the metadata cache
-    entityFactory.ts         create/convert notes, templates, folders
+    relationIndex.ts         forward + inverse edges, groupsFor, mentions
+    entityFactory.ts         create/convert notes, add/remove links (with Undo), folders
   settings/settingTab.ts
   ui/components/             entity picker, relation input
-  ui/modals/                 create, switcher, import types
-tests/model.test.ts
+  ui/modals/                 create, switcher, import types, add link
+  ui/header/cardManager.tsx  injects the info card into Live Preview and Reading view
+  ui/react/                  EntityCard, ConnectionsPanel, EntityChip, EntityBits (status, card body, groups)
+  ui/views/                  ConnectionsView (right sidebar)
+tests/                       model.test.ts, relations.test.ts
 styles.css                   all classes prefixed `oe-`
 ```

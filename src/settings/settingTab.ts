@@ -166,6 +166,15 @@ export class EntitiesSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}),
 			);
+		new Setting(containerEl)
+			.setName("Show entity info card")
+			.setDesc("A compact card with type, status, key fields and relationships at the top of entity notes. Each type chooses what its card shows.")
+			.addToggle((t) =>
+				t.setValue(s.showCard).onChange(async (v) => {
+					s.showCard = v;
+					await this.plugin.saveSettings();
+				}),
+			);
 
 		new Setting(containerEl).setName("Entity types").setHeading();
 		const custom = s.types.filter((t) => !t.builtIn).length;

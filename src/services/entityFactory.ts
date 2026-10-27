@@ -3,7 +3,8 @@ import { buildFrontmatter, defaultFieldValue, fieldDisplay, mergeFrontmatter, ty
 import { parseLink } from "../model/links";
 import { effectiveFolderPattern, expandFolderPattern, joinPath, resolveEntityFolder, sanitizeFileName, uniquePath } from "../model/paths";
 import { defaultTemplate, renderTemplate } from "../model/templates";
-import { COMMON_KEYS, groupOf, statusesFor, type EntityTypeDef, type GroupDef } from "../model/types";
+import { addLink, removeLink, type Edge } from "../model/relations";
+import { COMMON_KEYS, groupOf, isListValued, statusesFor, type EntityTypeDef, type GroupDef } from "../model/types";
 import type EntitiesPlugin from "../main";
 
 export interface CreateOptions {
@@ -148,6 +149,62 @@ export class EntityFactory {
 			await this.app.workspace.getLeaf(opts.newTab ?? this.plugin.settings.openInNewTab).openFile(file);
 		}
 		return file;
+	}
+
+	/**
+	 * Add a relationship link to a source note's frontmatter.
+	 * `fieldKey` is a relation field of the source type, or "related".
+	 */
+	async addRelation(source: TFile, fieldKey: string, target: TFile, label?: string): Promise<void> {
+		const entity = this.plugin.index.get(source.path);
+		const field = entity?.type.fields.find((f) => f.key === fieldKey && f.kind === "relation");
+		const isRelated = fieldKey === COMMON_KEYS.related;
+		if (!field && !isRelated) throw new Error(`"${fieldKey}" is not a relation field of this note.`);
+		const linktext = this.app.metadataCache.fileToLinktext(target, source.path, true);
+		await this.app.fileManager.processFrontMatter(source, (fm: Record<string, unknown>) => {
+			fm[fieldKey] = addLink(fm[fieldKey], linktext, {
+				multiple: isRelated || (!!field && isListValued(field)),
+				labelled: !!field?.labelled,
+				label,
+			});
+		});
+	}
+
+	/**
+	 * Remove the frontmatter link that produced `edge` (written on edge.source, which may be another note).
+	 * Shows a notice with Undo, which restores the field's previous value.
+	 */
+	async removeRelation(edge: Edge): Promise<void> {
+		const source = this.app.vault.getAbstractFileByPath(edge.source);
+		if (!(source instanceof TFile) || !edge.fieldKey) return;
+		const matches = (linkpath: string) => {
+			const resolved = this.app.metadataCache.getFirstLinkpathDest(linkpath, source.path)?.path ?? null;
+			return edge.target ? resolved === edge.target : !resolved && linkpath.toLowerCase() === edge.linktext.toLowerCase();
+		};
+		let previous: unknown;
+		let changed = false;
+		await this.app.fileManager.processFrontMatter(source, (fm: Record<string, unknown>) => {
+			if (fm[edge.fieldKey] === undefined) return;
+			previous = JSON.parse(JSON.stringify(fm[edge.fieldKey]));
+			const next = removeLink(fm[edge.fieldKey], matches);
+			changed = JSON.stringify(next) !== JSON.stringify(previous);
+			fm[edge.fieldKey] = next;
+		});
+		if (!changed) return;
+		const targetName = edge.target ? (this.app.vault.getAbstractFileByPath(edge.target)?.name.replace(/\.md$/, "") ?? edge.linktext) : edge.linktext;
+		const frag = document.createDocumentFragment();
+		frag.append(`Removed ${source.basename} → ${targetName} (${edge.label ?? edge.fieldLabel}). `);
+		const undo = frag.appendChild(document.createElement("a"));
+		undo.href = "#";
+		undo.textContent = "Undo";
+		const notice = new Notice(frag, 8000);
+		undo.addEventListener("click", (e) => {
+			e.preventDefault();
+			notice.hide();
+			void this.app.fileManager.processFrontMatter(source, (fm: Record<string, unknown>) => {
+				fm[edge.fieldKey] = previous;
+			});
+		});
 	}
 
 	/** Turn an existing note into an entity of the given type, adding any missing fields. Existing values win. */
