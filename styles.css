@@ -228,3 +228,40 @@
 	font-size: var(--font-ui-small);
 	white-space: pre-wrap;
 }
+
+/* Settings: folder pattern preview */
+.oe-folder-preview-box {
+	margin: calc(-1 * var(--size-4-2)) 0 var(--size-4-3);
+	padding: var(--size-4-2) var(--size-4-3);
+	border-radius: var(--radius-m);
+	background-color: var(--background-secondary);
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-folder-preview {
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.oe-folder-preview li {
+	display: flex;
+	gap: var(--size-4-3);
+	padding: 2px 0;
+}
+
+.oe-folder-preview-type {
+	flex: 0 0 8em;
+	color: var(--text-muted);
+}
+
+.oe-folder-preview-path {
+	font-family: var(--font-monospace);
+	color: var(--text-normal);
+	overflow-wrap: anywhere;
+}
+
+.oe-folder-warning {
+	padding-bottom: var(--size-4-1);
+	color: var(--text-warning);
+}

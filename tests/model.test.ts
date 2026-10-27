@@ -4,18 +4,20 @@ import { isoDateAdapter } from "../src/model/dates";
 import { buildFrontmatter, defaultFieldValue, fieldDisplay, mergeFrontmatter, toYamlValue } from "../src/model/frontmatter";
 import { asArray, parseLabelledEntry, parseLink, toLabelledWikilink, toWikilink } from "../src/model/links";
 import { CRM_PACK, STARTER_PACK, installPack, parsePack } from "../src/model/packs";
-import { joinPath, resolveEntityFolder, sanitizeFileName, uniquePath } from "../src/model/paths";
+import { DEFAULT_FOLDER_PATTERN, expandFolderPattern, joinPath, resolveEntityFolder, sanitizeFileName, uniquePath, unknownPlaceholders } from "../src/model/paths";
 import { findTypeByPrefix, parseTypedQuery } from "../src/model/search";
 import { defaultSettings, mergeSettings } from "../src/model/settings";
 import { defaultTemplate, renderTemplate } from "../src/model/templates";
 import {
 	COMMON_KEYS,
+	cloneGroup,
+	cloneType,
 	statusesFor,
 	toKey,
 	typeExplicitlyTargeted,
-	typeFolder,
 	typeMatchesTarget,
 	type EntityTypeDef,
+	type GroupDef,
 } from "../src/model/types";
 import { typeIssues, validateType } from "../src/model/validation";
 
@@ -64,13 +66,13 @@ describe("packs", () => {
 	});
 
 	it("installs a pack, adding groups and renaming clashing keys (and targets that point at them)", () => {
-		const pack = parsePack(JSON.stringify({ types: [{ ...T("person"), fields: [...T("person").fields] }, T("note")], groups: [{ key: "new", name: "New", root: "New" }] }));
+		const pack = parsePack(JSON.stringify({ types: [{ ...T("person"), fields: [...T("person").fields] }, T("note")], groups: [{ key: "new", name: "New", root: "Old/Root" }] }));
 		if (!pack.ok) throw new Error(pack.error);
 		pack.pack.types[0].group = "new";
 		const res = installPack(pack.pack, GROUPS, STARTER);
 		expect(res.renamed).toEqual({ person: "person_2", note: "note_2" });
 		expect(res.addedGroups).toEqual(["new"]);
-		expect(res.groups.find((g) => g.key === "new")?.statuses).toEqual(["draft", "active", "done"]);
+		expect(res.groups.find((g) => g.key === "new")).toEqual({ key: "new", name: "New", icon: "folder", statuses: ["draft", "active", "done"] });
 		const person2 = res.types.find((t) => t.key === "person_2")!;
 		expect(person2.group).toBe("new");
 		expect(person2.fields.find((f) => f.key === "knows")?.targets).toEqual(["person_2"]);
@@ -114,10 +116,9 @@ describe("types", () => {
 		expect(statusesFor({ ...T("note"), group: "gone" }, GROUPS)).toEqual(["draft", "active", "done"]);
 	});
 
-	it("defaults the folder to the plural only when missing", () => {
-		expect(typeFolder(T("person"))).toBe("People");
-		expect(typeFolder({ ...T("person"), folder: "" })).toBe("");
-		expect(typeFolder({ ...T("person"), folder: "Humans" })).toBe("Humans");
+	it("drops legacy per-type folders and per-group roots when cloning", () => {
+		expect(cloneType({ ...T("person"), folder: "Humans" } as EntityTypeDef)).not.toHaveProperty("folder");
+		expect(cloneGroup({ ...GROUPS[0], root: "X" } as GroupDef)).not.toHaveProperty("root");
 	});
 });
 
@@ -207,18 +208,29 @@ describe("paths", () => {
 		expect(sanitizeFileName("..hidden")).toBe("hidden");
 	});
 
+	it("expands the folder pattern", () => {
+		const dir = GROUPS[0];
+		expect(expandFolderPattern(DEFAULT_FOLDER_PATTERN, T("person"), dir)).toBe("Entities/Directory/People");
+		expect(expandFolderPattern("entities/{group}/{entity}/", T("person"), dir)).toBe("entities/Directory/People");
+		expect(expandFolderPattern("{ Entity }", T("person"), dir)).toBe("People");
+		expect(expandFolderPattern("Notes/{entity}", { ...T("person"), plural: "Q&A: misc" }, dir)).toBe("Notes/Q&A misc");
+		expect(expandFolderPattern("{group}/{entity}", T("person"), undefined)).toBe("People");
+		expect(expandFolderPattern("", T("person"), dir)).toBe("");
+		expect(expandFolderPattern("X/{type}", T("person"), dir)).toBe("X/{type}");
+		expect(unknownPlaceholders("X/{type}/{group}/{ ENTITY }")).toEqual(["type"]);
+	});
+
 	it("resolves folders for each folder mode", () => {
-		const root = "Entities/Work";
+		const base = "Entities/Work/Notes";
 		// type mode
-		expect(resolveEntityFolder(T("person"), "Ada", "Entities/Directory")).toBe("Entities/Directory/People");
-		expect(resolveEntityFolder({ ...T("person"), folder: "" }, "Ada", "Entities/Directory")).toBe("Entities/Directory");
+		expect(resolveEntityFolder(T("person"), "Ada", "Entities/Directory/People")).toBe("Entities/Directory/People");
+		expect(resolveEntityFolder(T("person"), "Ada", "")).toBe("");
 		// parent mode
-		expect(resolveEntityFolder(T("note"), "Kickoff", root, "Entities/Work/Projects/Apollo")).toBe("Entities/Work/Projects/Apollo/Notes");
-		expect(resolveEntityFolder({ ...T("note"), folder: "" }, "Kickoff", root, "Entities/Work/Projects/Apollo")).toBe("Entities/Work/Projects/Apollo");
-		expect(resolveEntityFolder(T("note"), "Kickoff", root, null)).toBe("Entities/Work/Notes");
+		expect(resolveEntityFolder(T("note"), "Kickoff", base, "Entities/Work/Projects/Apollo")).toBe("Entities/Work/Projects/Apollo/Notes");
+		expect(resolveEntityFolder(T("note"), "Kickoff", base, null)).toBe("Entities/Work/Notes");
 		// own mode
-		expect(resolveEntityFolder(T("project"), "Apollo: 11", root)).toBe("Entities/Work/Projects/Apollo 11");
-		expect(resolveEntityFolder(T("project"), "Lander", root, "Entities/Work/Projects/Apollo")).toBe("Entities/Work/Projects/Apollo/Lander");
+		expect(resolveEntityFolder(T("project"), "Apollo: 11", "Entities/Work/Projects")).toBe("Entities/Work/Projects/Apollo 11");
+		expect(resolveEntityFolder(T("project"), "Lander", "Entities/Work/Projects", "Entities/Work/Projects/Apollo")).toBe("Entities/Work/Projects/Apollo/Lander");
 	});
 
 	it("finds a unique path", () => {
@@ -449,11 +461,22 @@ describe("settings", () => {
 		expect(s.groups.map((g) => g.key)).toEqual(["directory", "work"]);
 	});
 
-	it("always has a group with statuses", () => {
+	it("always has a group with statuses, and a folder pattern", () => {
 		const s = mergeSettings({ groups: [], types: [], deletedPackTypes: STARTER.map((t) => t.key) });
-		expect(s.groups).toEqual([{ key: "entities", name: "Entities", icon: "shapes", root: "Entities", statuses: ["draft", "active", "done"] }]);
+		expect(s.groups).toEqual([{ key: "entities", name: "Entities", icon: "shapes", statuses: ["draft", "active", "done"] }]);
+		expect(s.folderPattern).toBe("Entities/{group}/{entity}");
 		const t = mergeSettings({ groups: [{ ...GROUPS[0], statuses: [] }] });
 		expect(t.groups[0].statuses).toEqual(["draft", "active", "done"]);
+		expect(mergeSettings({ folderPattern: "Notes/{entity}" }).folderPattern).toBe("Notes/{entity}");
+	});
+
+	it("drops folders saved before the folder pattern existed", () => {
+		const s = mergeSettings({
+			groups: [{ ...GROUPS[0], root: "Old" } as GroupDef],
+			types: [{ ...T("person"), folder: "Humans" } as EntityTypeDef],
+		});
+		expect(s.groups[0]).not.toHaveProperty("root");
+		expect(s.types[0]).not.toHaveProperty("folder");
 	});
 
 	it("does not share objects with the defaults", () => {

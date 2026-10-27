@@ -41,19 +41,25 @@ tags: []
 
 Installed on first run:
 
-| Group (root folder) | Statuses | Types |
+| Group | Statuses | Types |
 |---|---|---|
-| Directory (`Entities/Directory`) | draft, active, archived | Person, Organisation, Place |
-| Work (`Entities/Work`) | idea, active, on-hold, done | Project, Note |
+| Directory | draft, active, archived | Person, Organisation, Place |
+| Work | idea, active, on-hold, done | Project, Note |
 
 Hierarchies:
 - Places nest under places, and organisations under organisations (`part_of`).
 - Projects nest under projects (`parent_project`), and notes nest under projects (`project`).
 
-Folder rules:
-- **Type folder** (the default): `<group root>/<type folder>`, e.g. `Entities/Directory/People/`.
-- **Own folder** (Project): each project gets its own folder. A sub-project's folder goes inside its parent project's folder.
-- **Parent folder** (Note): a note goes in a `Notes/` folder inside its project's folder.
+## Folders
+
+One setting decides where every entity goes: **Entity folder**, default `Entities/{group}/{entity}`.
+- `{group}` is the group name and `{entity}` is the type's plural name, so Ada goes to `Entities/Directory/People/Ada Lovelace.md`.
+- The settings tab previews the folder for every type and flags unknown placeholders.
+- Existing folders are matched regardless of case, so `entities/{group}/{entity}/` still uses an existing `Entities/` folder.
+
+Some types also have a **folder rule**:
+- **Own folder** (Project): each project gets its own folder, e.g. `…/Projects/Apollo/Apollo.md`. A sub-project's folder goes inside its parent project's folder.
+- **Parent folder** (Note): a note goes in `<its project's folder>/Notes/`, or follows the pattern if it has no project.
 
 To add more types before the type editor arrives (M3), run **Import entity types…** and paste a type pack. The dialog can load the Basic CRM example.
 

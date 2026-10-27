@@ -14,8 +14,8 @@ export const STARTER_PACK: TypePack = {
 	id: "starter",
 	name: "Starter",
 	groups: [
-		{ key: "directory", name: "Directory", icon: "book-user", root: "Entities/Directory", statuses: ["draft", "active", "archived"] },
-		{ key: "work", name: "Work", icon: "briefcase", root: "Entities/Work", statuses: ["idea", "active", "on-hold", "done"] },
+		{ key: "directory", name: "Directory", icon: "book-user", statuses: ["draft", "active", "archived"] },
+		{ key: "work", name: "Work", icon: "briefcase", statuses: ["idea", "active", "on-hold", "done"] },
 	],
 	types: [
 		{
@@ -132,9 +132,9 @@ export const CRM_PACK: TypePack = {
 	id: "crm-basic",
 	name: "Basic CRM",
 	groups: [
-		{ key: "people", name: "People", icon: "users", root: "CRM/People", statuses: ["lead", "active", "inactive"] },
-		{ key: "orgs", name: "Organisations", icon: "building-2", root: "CRM/Organisations", statuses: ["prospect", "customer", "former"] },
-		{ key: "deals", name: "Deals", icon: "briefcase", root: "CRM/Deals", statuses: ["open", "won", "lost"] },
+		{ key: "people", name: "People", icon: "users", statuses: ["lead", "active", "inactive"] },
+		{ key: "orgs", name: "Organisations", icon: "building-2", statuses: ["prospect", "customer", "former"] },
+		{ key: "sales", name: "Sales", icon: "briefcase", statuses: ["open", "won", "lost"] },
 	],
 	types: [
 		{
@@ -144,7 +144,6 @@ export const CRM_PACK: TypePack = {
 			icon: "contact",
 			color: "#03a9f4",
 			group: "people",
-			folder: "",
 			template: "Contact.md",
 			shortcuts: ["c"],
 			card: { subtitle: ["role", "email"], fields: ["works_at", "knows"] },
@@ -163,7 +162,6 @@ export const CRM_PACK: TypePack = {
 			icon: "factory",
 			color: "#673ab7",
 			group: "orgs",
-			folder: "",
 			template: "Company.md",
 			parentFields: ["subsidiary_of"],
 			card: { subtitle: ["industry"], fields: ["website", "subsidiary_of"] },
@@ -180,8 +178,7 @@ export const CRM_PACK: TypePack = {
 			plural: "Deals",
 			icon: "handshake",
 			color: "#8bc34a",
-			group: "deals",
-			folder: "",
+			group: "sales",
 			template: "Deal.md",
 			card: { subtitle: ["description"], fields: ["company", "value", "close_date", "contacts"], incoming: false },
 			fields: [
@@ -279,7 +276,7 @@ export function installPack(pack: TypePack, groups: GroupDef[], types: EntityTyp
 	const addedGroups: string[] = [];
 	for (const g of pack.groups ?? []) {
 		if (groupKeys.has(g.key)) continue;
-		outGroups.push({ ...cloneGroup(g), icon: g.icon || "folder", root: g.root ?? g.name, statuses: Array.isArray(g.statuses) && g.statuses.length ? [...g.statuses] : ["draft", "active", "done"] });
+		outGroups.push({ ...cloneGroup(g), icon: g.icon || "folder", statuses: Array.isArray(g.statuses) && g.statuses.length ? [...g.statuses] : ["draft", "active", "done"] });
 		groupKeys.add(g.key);
 		addedGroups.push(g.key);
 	}

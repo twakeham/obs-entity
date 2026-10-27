@@ -69,8 +69,7 @@ export interface EntityTypeDef {
 	color: string;
 	/** GroupDef.key */
 	group: string;
-	/** relative folder; missing = plural, "" = directly in the group root (or the parent's folder) */
-	folder?: string;
+	/** "type" (default): the folder pattern; "parent": inside the parent's folder; "own": a folder of its own */
 	folderMode?: FolderMode;
 	/** template file name inside the templates folder */
 	template: string;
@@ -94,8 +93,6 @@ export interface GroupDef {
 	name: string;
 	/** Lucide icon id */
 	icon: string;
-	/** root folder for the group's types */
-	root: string;
 	/** first status = draft / not started */
 	statuses: string[];
 }
@@ -144,11 +141,6 @@ export function groupOf(type: EntityTypeDef, groups: GroupDef[]): GroupDef | und
 	return groups.find((g) => g.key === type.group);
 }
 
-/** The type's folder relative to its root: missing = plural, "" = none. */
-export function typeFolder(type: EntityTypeDef): string {
-	return type.folder === undefined ? type.plural : type.folder;
-}
-
 const KEY_RE = /^[a-z][a-z0-9_]*$/;
 
 export function isValidKey(key: string): boolean {
@@ -165,9 +157,15 @@ export function toKey(label: string): string {
 }
 
 export function cloneType(t: EntityTypeDef): EntityTypeDef {
-	return JSON.parse(JSON.stringify(t));
+	const copy = JSON.parse(JSON.stringify(t));
+	// Per-type folders were replaced by the global folder pattern.
+	delete copy.folder;
+	return copy;
 }
 
 export function cloneGroup(g: GroupDef): GroupDef {
-	return JSON.parse(JSON.stringify(g));
+	const copy = JSON.parse(JSON.stringify(g));
+	// Per-group root folders were replaced by the global folder pattern.
+	delete copy.root;
+	return copy;
 }

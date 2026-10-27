@@ -1,8 +1,11 @@
 import { STARTER_PACK } from "./packs";
+import { DEFAULT_FOLDER_PATTERN } from "./paths";
 import { cloneGroup, cloneType, DEFAULT_STATUSES, type EntityTypeDef, type GroupDef } from "./types";
 
 export interface EntitiesSettings {
 	settingsVersion: number;
+	/** Where new entities go: {group} → group name, {entity} → the type's plural name. */
+	folderPattern: string;
 	/** Folder of editable Markdown templates, one per type. */
 	templatesFolder: string;
 	/** Open newly created notes in a new tab instead of the current one. */
@@ -24,6 +27,7 @@ export const SETTINGS_VERSION = 1;
 export function defaultSettings(): EntitiesSettings {
 	return {
 		settingsVersion: SETTINGS_VERSION,
+		folderPattern: DEFAULT_FOLDER_PATTERN,
 		templatesFolder: "_templates/entities",
 		openInNewTab: false,
 		prefillFromActive: true,
@@ -65,8 +69,9 @@ export function mergeSettings(saved: Partial<EntitiesSettings> | null | undefine
 		}
 	}
 	if (merged.groups.length === 0) {
-		merged.groups.push({ key: "entities", name: "Entities", icon: "shapes", root: "Entities", statuses: [...DEFAULT_STATUSES] });
+		merged.groups.push({ key: "entities", name: "Entities", icon: "shapes", statuses: [...DEFAULT_STATUSES] });
 	}
 	for (const g of merged.groups) if (!Array.isArray(g.statuses) || g.statuses.length === 0) g.statuses = [...DEFAULT_STATUSES];
+	if (typeof merged.folderPattern !== "string") merged.folderPattern = DEFAULT_FOLDER_PATTERN;
 	return merged;
 }

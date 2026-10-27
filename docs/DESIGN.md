@@ -80,7 +80,7 @@ It is distilled from **Story Forge**, a worldbuilding / tabletop campaign plugin
 |---|---|
 | **Entity** | A Markdown note whose frontmatter contains the type key property (`entity: person`) naming a known type. |
 | **Entity type** | A definition: key, names, icon, colour, group, folder rule, template, fields, hierarchy and display options. |
-| **Group** | A user-defined bucket of types (e.g. "People", "Places", "Projects"). It gives the browser sections, status sets, root folders and `@group` relation targets. |
+| **Group** | A user-defined bucket of types (e.g. "People", "Places", "Projects"). It gives the browser sections, status sets, the `{group}` folder placeholder and `@group` relation targets. |
 | **Field** | A typed property of an entity type, stored as a frontmatter key. |
 | **Relation field** | A field whose values are links to other notes. It has allowed target types, an inverse label, and options (multiple, symmetric, labelled). |
 | **Edge** | One link written in one note's relation field. Edges are indexed and inverted. |
@@ -139,15 +139,33 @@ contacts:                              # labelled relation: the label is the lin
 
 ### 3.4 Folders
 
-Each **group** has a root folder (e.g. `People/`). Each type has a **folder rule** (`folderMode`):
+There is **one folder setting for all entities**, the *entity folder pattern* (`folderPattern`, default `Entities/{group}/{entity}`):
+
+| Placeholder | Becomes | Example |
+|---|---|---|
+| `{group}` | the type's group name | `Directory` |
+| `{entity}` | the type's plural name | `People` |
+
+- Values are made safe as folder names.
+- Placeholders are case-insensitive and may contain spaces (`{ Entity }`).
+- Unknown placeholders are left as written, and the settings tab warns about them.
+- A trailing slash is fine (`entities/{group}/{entity}/`).
+- An empty pattern means the vault root.
+- Groups and types have **no folder settings of their own**.
+
+Each type has a **folder rule** (`folderMode`), which is a behaviour rather than a path:
 
 | Mode | New note goes to | Example |
 |---|---|---|
-| `type` (default) | `<group root>/<type.folder>` | `Places/Offices/` |
-| `parent` | the folder of the note's **hierarchy parent** (first parent field with a value), plus `type.folder`. Falls back to `type` if there's no parent. | a Task created under a Project goes in the project's folder |
-| `own` | `<group root>/<type.folder>/<sanitised name>/`: the note gets its own folder, so children in `parent` mode nest inside it. If the type has parent fields and a parent is set, the own folder is created inside the **parent's folder** instead (e.g. a sub-project's folder sits inside its project's folder). | Story Forge's campaign: each campaign has its own folder |
+| `type` (default) | the expanded pattern | `Entities/Directory/People/` |
+| `parent` | `<the folder of the note's hierarchy parent>/<plural>/`, using the first parent field with a value. Falls back to the pattern if there's no parent. | a Note under a Project goes to `…/Projects/Apollo/Notes/` |
+| `own` | `<pattern>/<sanitised name>/`: the note gets its own folder, so children in `parent` mode nest inside it. If a parent is set, the own folder goes inside the **parent's folder** instead, e.g. a sub-project inside its project. | `Entities/Work/Projects/Apollo/Apollo.md` |
 
-`type.folder` defaults to the type's plural name **only when it is missing** (undefined). An explicit empty string `""` means "directly in the group root" (or directly in the parent's folder, for `parent` mode). Path joining normalises slashes and drops empty segments.
+**Paths and case:**
+- Path joining normalises slashes and drops empty segments.
+- Obsidian's path lookups are case-sensitive, but the file system may not be (Windows, macOS). Creating folders therefore **reuses existing folders whose names differ only in case**: with the pattern `entities/{group}/{entity}` and an existing `Entities/` folder, notes go in `Entities/…`.
+- Name clashes are also checked case-insensitively: "grace hopper" next to `Grace Hopper.md` becomes `grace hopper 2.md`.
+- The create dialog and the settings preview show the real casing.
 
 ---
 
@@ -164,7 +182,7 @@ Appendix A has the full interfaces; this section explains them.
 | `icon` | A Lucide icon id (Obsidian's `getIconIds()` without the `lucide-` prefix). |
 | `color` | `#rrggbb`. It tints chips, cards, browser icons and graph nodes. |
 | `group` | A group key (§4.3). |
-| `folder`, `folderMode` | See §3.4. |
+| `folderMode` | See §3.4. Where notes go is set once for all types by the folder pattern. |
 | `template` | A file name in the templates folder. Defaults to `<name>.md`. A built-in template is used until the file exists. |
 | `sections` | Optional `## ` headings for the built-in template (otherwise Overview / Details / Notes). |
 | `shortcuts` | Switcher prefixes, e.g. `["npc"]`, so `npc ada` filters to people. |
@@ -214,16 +232,16 @@ Relation options:
 ### 4.3 Groups
 
 ```ts
-interface GroupDef { key: string; name: string; icon: string; root: string; statuses: string[]; }
+interface GroupDef { key: string; name: string; icon: string; statuses: string[]; }
 ```
 
 Groups give:
 - browser sections
 - default status sets (the **first** status counts as "not started / draft")
-- root folders
+- the `{group}` placeholder in the folder pattern (§3.4)
 - `@group` relation targets
 
-There's always at least one group. A fresh install has one called "Entities", rooted at `Entities/`, with statuses `draft, active, done`.
+There's always at least one group. If every group is removed, an "Entities" group with statuses `draft, active, done` is added back. A fresh install gets the starter pack's groups (Directory, Work).
 
 ### 4.4 Date adapter (extension point)
 
@@ -512,7 +530,7 @@ Big icon, name, a "group · N notes · built-in/custom · `key`" line, and the t
 - **Icon.** A searchable grid of Lucide icons: prefix matches first, the first 168 shown, Enter picks the first match.
 - **Colour.** A swatch palette plus a custom colour picker. Include the colours your default pack uses, so built-in types match a swatch.
 - **Group.** Built-in pack types keep their group unless you duplicate them.
-- **Folder and folder mode**, with a live preview of the full path ("New notes go in `Places/Offices/`").
+- **Folder mode**: "In the folder pattern" / "Inside its parent's folder" / "In a folder of its own", with a live preview of the full path ("New notes go in `Entities/Directory/People/`"). There's no per-type path; the pattern is set once in settings.
 - **Template file**, with **Open template**, which creates the file from the default template if it's missing.
 - **Search shortcuts**, as chips.
 - **More:** Duplicate, Copy as JSON, Reset to pack default (for pack types; applied as a draft), and Delete type (custom types; asks first, says how many notes use it, and leaves those notes untouched).
@@ -788,7 +806,9 @@ The command **Find entity** opens a `SuggestModal` over entities only.
 
 ### 8.8 Settings tab
 
-- **Folders:** templates folder, with a **Generate templates** button. Group roots are edited per group in the Entity Types view.
+- **Folders:**
+  - **Entity folder** (`folderPattern`), with `{group}` and `{entity}` placeholders and a live preview of where each type's notes go (including the parent and own-folder rules). Unknown placeholders are flagged.
+  - Templates folder, with a **Generate templates** button.
 - **Behaviour:**
   - open new entities in a new tab
   - prefill relations from the active note
@@ -849,6 +869,7 @@ Deleting a type also strips its key from every other type's `targets`.
 ```ts
 interface Settings {
   settingsVersion: number;
+  folderPattern: string;          // "Entities/{group}/{entity}"
   templatesFolder: string;
   openInNewTab: boolean;
   prefillFromActive: boolean;
@@ -882,6 +903,7 @@ These come from building and testing Story Forge against real vaults.
 - **Hover previews:** call `registerHoverLinkSource(id, …)`, then trigger `hover-link` with that source.
 
 **Data**
+- **Path case:** `getAbstractFileByPath` is case-sensitive but Windows/macOS file systems aren't. Match existing folder names case-insensitively before creating folders, and check file-name clashes case-insensitively, or `vault.createFolder`/`create` fail with "already exists".
 - **Reserved keys:** keep fields like a "parent" pointer *out* of the common-keys list, or validation will reject legitimate fields. Story Forge hit this with `campaign`.
 - **Indexing cost:** rebuild from scratch on each change, with debounces of 100–150 ms. It's simpler than incremental updates and fast enough.
 - **Default colours:** match the palette to the default pack's colours, so built-in types show a selected swatch.
@@ -979,7 +1001,7 @@ Decide these when starting the new project.
 
 1. **Name and identifiers:** *decided*: Obsidian Entities, id `obs-entities`, prefix `oe-`, type key `entity`, fixed common keys, no `summary` key.
 2. **First run:** *decided*: a generic starter pack (Person, Organisation, Place, Project, Note) is installed on first run; a "Start from a pack" picker can come in M5.
-3. **Groups vs flat:** *decided*: groups are always present. The starter pack has Directory (`Entities/Directory`) and Work (`Entities/Work`).
+3. **Groups vs flat:** *decided*: groups are always present. The starter pack has Directory and Work. Folders come from one pattern, `Entities/{group}/{entity}` (§3.4), not per group or type.
 4. **Status model:** *decided*: per group (Directory: draft, active, archived; Work: idea, active, on-hold, done), with an optional per-type override.
 5. **Dates:** *decided*: ISO in v1, behind the `DateAdapter` interface from the start.
 6. **Mobile:** support from v1 (test the touch interactions: drag handles, hover alternatives), or mark desktop-only initially?
@@ -1047,8 +1069,7 @@ export interface EntityTypeDef {
   icon: string;                   // Lucide id
   color: string;                  // #rrggbb
   group: string;                  // GroupDef.key
-  folder?: string;                // relative; missing = plural, "" = group root
-  folderMode?: FolderMode;        // default "type"
+  folderMode?: FolderMode;        // default "type"; paths come from the global folder pattern
   template: string;               // file name in the templates folder
   sections?: string[];            // headings for the built-in default template
   shortcuts?: string[];
@@ -1064,7 +1085,6 @@ export interface GroupDef {
   key: string;
   name: string;
   icon: string;
-  root: string;                   // root folder
   statuses: string[];             // first = draft / not started
 }
 
@@ -1143,14 +1163,14 @@ export interface TypePack {
   "id": "crm-basic",
   "name": "Basic CRM",
   "groups": [
-    { "key": "people", "name": "People", "icon": "users", "root": "CRM/People", "statuses": ["lead", "active", "inactive"] },
-    { "key": "orgs", "name": "Organisations", "icon": "building-2", "root": "CRM/Organisations", "statuses": ["prospect", "customer", "former"] },
-    { "key": "work", "name": "Work", "icon": "briefcase", "root": "CRM/Work", "statuses": ["open", "won", "lost"] }
+    { "key": "people", "name": "People", "icon": "users", "statuses": ["lead", "active", "inactive"] },
+    { "key": "orgs", "name": "Organisations", "icon": "building-2", "statuses": ["prospect", "customer", "former"] },
+    { "key": "sales", "name": "Sales", "icon": "briefcase", "statuses": ["open", "won", "lost"] }
   ],
   "types": [
     {
       "key": "person", "name": "Person", "plural": "People", "icon": "user", "color": "#2196f3",
-      "group": "people", "folder": "", "template": "Person.md", "shortcuts": ["p"],
+      "group": "people", "template": "Person.md", "shortcuts": ["p"],
       "card": { "subtitle": ["role", "email"], "fields": ["works_at", "knows"] },
       "fields": [
         { "key": "role", "label": "Role", "kind": "text", "inModal": true },
@@ -1161,7 +1181,7 @@ export interface TypePack {
     },
     {
       "key": "company", "name": "Company", "plural": "Companies", "icon": "building-2", "color": "#3f51b5",
-      "group": "orgs", "folder": "", "template": "Company.md", "parentFields": ["subsidiary_of"],
+      "group": "orgs", "template": "Company.md", "parentFields": ["subsidiary_of"],
       "card": { "subtitle": ["industry"], "fields": ["website", "subsidiary_of"] },
       "fields": [
         { "key": "industry", "label": "Industry", "kind": "select", "options": ["Software", "Finance", "Retail", "Other"], "inModal": true },
@@ -1171,7 +1191,7 @@ export interface TypePack {
     },
     {
       "key": "deal", "name": "Deal", "plural": "Deals", "icon": "handshake", "color": "#4caf50",
-      "group": "work", "folder": "Deals", "folderMode": "parent", "template": "Deal.md", "parentFields": ["company"],
+      "group": "sales", "folderMode": "parent", "template": "Deal.md", "parentFields": ["company"],
       "card": { "subtitle": ["description"], "fields": ["company", "value", "close_date", "contacts"], "incoming": false },
       "fields": [
         { "key": "description", "label": "Description", "kind": "textarea", "inModal": true },
@@ -1185,11 +1205,11 @@ export interface TypePack {
 }
 ```
 
-Note: Deal's parent (Company) is in a different group, so in the browser deals stay flat under Work; `folderMode: "parent"` still files them in `CRM/Organisations/Deals/` next to their company. Decide whether cross-group parents should nest (§14).
+Note: Deal's parent (Company) is in a different group, so in the browser deals stay flat under Sales; `folderMode: "parent"` still files them in a `Deals/` folder next to their company (with the default pattern, `Entities/Organisations/Companies/Deals/`). Decide whether cross-group parents should nest (§14).
 
 ## Appendix C — Example note
 
-`CRM/Organisations/Deals/Acme renewal 2027.md`:
+`Entities/Organisations/Companies/Deals/Acme renewal 2027.md` (default folder pattern, deal filed next to its company):
 
 ```markdown
 ---
@@ -1235,7 +1255,7 @@ There are no incoming rows, because the type sets `incoming: false`. In link pic
 | `summary` common property | Per-type `card.subtitle` fields (§4.5) | Removed; each type chooses its own description fields |
 | Info card shows all filled fields | Per-type `card` settings, edited in the Display tab | Configurable |
 | World / story statuses (hard-coded) | `GroupDef.statuses`, `EntityTypeDef.statuses` | Configurable |
-| `worldRoot` / `storyRoot` / campaign folder rule | Group roots + `folderMode` (`type` / `parent` / `own`) | Generalised |
+| `worldRoot` / `storyRoot` / campaign folder rule | One folder pattern (`{group}`, `{entity}`) + `folderMode` (`type` / `parent` / `own`) | Generalised |
 | `TREE_GROUPS` (hard-coded Places / Storylines hierarchies) | `parentFields` per type, edited in the Display tab | Data-driven |
 | 16 built-in fantasy types | Empty list or example pack; domains as packs | Removed / packaged |
 | Fantasy calendar + date parsing | `DateAdapter` extension point; ISO default | Extracted |

@@ -1,4 +1,4 @@
-import { typeFolder, type EntityTypeDef } from "./types";
+import type { EntityTypeDef, GroupDef } from "./types";
 
 /** Join path segments with "/", dropping empties and duplicate/trailing slashes. */
 export function joinPath(...parts: string[]): string {
@@ -16,22 +16,52 @@ export function sanitizeFileName(name: string): string {
 	return name.replace(ILLEGAL, "").replace(/\s+/g, " ").trim().replace(/^\.+/, "");
 }
 
+export const DEFAULT_FOLDER_PATTERN = "Entities/{group}/{entity}";
+
+/** Placeholders allowed in the folder pattern. */
+export const FOLDER_PLACEHOLDERS = ["group", "entity"] as const;
+
+const PLACEHOLDER = /\{\s*([^{}]*?)\s*\}/g;
+
+/** Placeholders in a folder pattern that aren't recognised. */
+export function unknownPlaceholders(pattern: string): string[] {
+	const known = new Set<string>(FOLDER_PLACEHOLDERS);
+	return Array.from(pattern.matchAll(PLACEHOLDER), (m) => m[1]).filter((p) => !known.has(p.toLowerCase()));
+}
+
 /**
- * Resolve the folder a new entity note should be created in.
- *  - "type":   <group root>/<type folder>
- *  - "parent": <parent's folder>/<type folder>, or as "type" without a parent
- *  - "own":    (<parent's folder> or <group root>/<type folder>)/<name>
- * `parentFolder` is the folder of the note's hierarchy parent, if one is set.
+ * Expand the folder pattern for a type: {group} → group name, {entity} → the type's plural name.
+ * Values are made safe as folder names; unknown placeholders are left as written.
  */
-export function resolveEntityFolder(type: EntityTypeDef, name: string, groupRoot: string, parentFolder?: string | null): string {
-	const folder = typeFolder(type);
+export function expandFolderPattern(pattern: string, type: EntityTypeDef, group: GroupDef | undefined): string {
+	const expanded = pattern.replace(PLACEHOLDER, (match, raw: string) => {
+		switch (raw.toLowerCase()) {
+			case "group":
+				return sanitizeFileName(group?.name ?? "");
+			case "entity":
+				return sanitizeFileName(type.plural || type.name);
+			default:
+				return match;
+		}
+	});
+	return joinPath(expanded);
+}
+
+/**
+ * Resolve the folder a new entity note should be created in. `base` is the expanded folder pattern;
+ * `parentFolder` is the folder of the note's hierarchy parent, if one is set.
+ *  - "type":   <base>
+ *  - "parent": <parent's folder>/<plural>, or <base> without a parent
+ *  - "own":    <base>/<name>, or <parent's folder>/<name> with a parent
+ */
+export function resolveEntityFolder(type: EntityTypeDef, name: string, base: string, parentFolder?: string | null): string {
 	switch (type.folderMode ?? "type") {
 		case "parent":
-			return parentFolder != null ? joinPath(parentFolder, folder) : joinPath(groupRoot, folder);
+			return parentFolder != null ? joinPath(parentFolder, sanitizeFileName(type.plural || type.name)) : joinPath(base);
 		case "own":
-			return parentFolder != null ? joinPath(parentFolder, sanitizeFileName(name)) : joinPath(groupRoot, folder, sanitizeFileName(name));
+			return joinPath(parentFolder != null ? parentFolder : base, sanitizeFileName(name));
 		default:
-			return joinPath(groupRoot, folder);
+			return joinPath(base);
 	}
 }
 

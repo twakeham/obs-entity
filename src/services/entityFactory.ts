@@ -1,7 +1,7 @@
 import { Notice, TFile, TFolder, moment, normalizePath } from "obsidian";
 import { buildFrontmatter, defaultFieldValue, fieldDisplay, mergeFrontmatter, type EntityFormValues, type FieldValue, type LabelledValue } from "../model/frontmatter";
 import { parseLink } from "../model/links";
-import { joinPath, resolveEntityFolder, sanitizeFileName, uniquePath } from "../model/paths";
+import { expandFolderPattern, joinPath, resolveEntityFolder, sanitizeFileName, uniquePath } from "../model/paths";
 import { defaultTemplate, renderTemplate } from "../model/templates";
 import { COMMON_KEYS, groupOf, statusesFor, type EntityTypeDef, type GroupDef } from "../model/types";
 import type EntitiesPlugin from "../main";
@@ -61,16 +61,26 @@ export class EntityFactory {
 		return count;
 	}
 
-	async ensureFolder(path: string): Promise<void> {
-		if (!path) return;
+	/**
+	 * Create any missing folders along `path`, reusing existing folders whose names differ only in case
+	 * (the file system may be case-insensitive). Returns the path with the existing folders' casing.
+	 */
+	async ensureFolder(path: string): Promise<string> {
+		if (!path) return "";
 		let current = "";
 		for (const part of normalizePath(path).split("/")) {
-			current = current ? `${current}/${part}` : part;
-			const existing = this.app.vault.getAbstractFileByPath(current);
-			if (existing instanceof TFolder) continue;
-			if (existing) throw new Error(`"${current}" exists and is not a folder.`);
-			await this.app.vault.createFolder(current);
+			const parent = current ? this.app.vault.getAbstractFileByPath(current) : this.app.vault.getRoot();
+			const sibling = parent instanceof TFolder ? parent.children.find((c) => c.name.toLowerCase() === part.toLowerCase()) : undefined;
+			const next = current ? `${current}/${sibling?.name ?? part}` : (sibling?.name ?? part);
+			if (sibling instanceof TFolder) {
+				current = next;
+				continue;
+			}
+			if (sibling) throw new Error(`"${next}" exists and is not a folder.`);
+			await this.app.vault.createFolder(next);
+			current = next;
 		}
+		return current;
 	}
 
 	/** Folder of the note's hierarchy parent: the first parent field (in priority order) with a resolvable link. */
@@ -84,10 +94,26 @@ export class EntityFactory {
 		return null;
 	}
 
-	/** Folder a new note of this type would be created in. */
+	/** The folder pattern expanded for a type (where "type"-mode notes go). */
+	baseFolder(type: EntityTypeDef): string {
+		return expandFolderPattern(this.plugin.settings.folderPattern, type, groupOf(type, this.plugin.settings.groups));
+	}
+
+	/** Folder a new note of this type would be created in, using existing folders' casing where they exist. */
 	folderFor(type: EntityTypeDef, values: EntityFormValues): string {
-		const root = groupOf(type, this.plugin.settings.groups)?.root ?? "";
-		return resolveEntityFolder(type, values.name.trim(), root, this.parentFolder(type, values));
+		return this.matchExistingCase(resolveEntityFolder(type, values.name.trim(), this.baseFolder(type), this.parentFolder(type, values)));
+	}
+
+	/** Rewrite the leading segments of `path` that match existing folders case-insensitively to their real names. */
+	matchExistingCase(path: string): string {
+		let folder: TFolder | null = this.app.vault.getRoot();
+		const out: string[] = [];
+		for (const part of path.split("/").filter(Boolean)) {
+			const match: TFolder | undefined = folder?.children.find((c): c is TFolder => c instanceof TFolder && c.name.toLowerCase() === part.toLowerCase());
+			out.push(match?.name ?? part);
+			folder = match ?? null;
+		}
+		return out.join("/");
 	}
 
 	async createEntity(type: EntityTypeDef, values: EntityFormValues, opts: CreateOptions = {}): Promise<TFile> {
@@ -96,9 +122,10 @@ export class EntityFactory {
 		const baseName = sanitizeFileName(name);
 		if (!baseName) throw new Error("The name contains no usable characters.");
 
-		const folder = this.folderFor(type, values);
-		await this.ensureFolder(folder);
-		const path = normalizePath(uniquePath(folder, baseName, (p) => !!this.app.vault.getAbstractFileByPath(p)));
+		const folder = await this.ensureFolder(this.folderFor(type, values));
+		const folderObj = folder ? this.app.vault.getAbstractFileByPath(folder) : this.app.vault.getRoot();
+		const taken = new Set(folderObj instanceof TFolder ? folderObj.children.map((c) => c.path.toLowerCase()) : []);
+		const path = normalizePath(uniquePath(folder, baseName, (p) => taken.has(p.toLowerCase())));
 
 		const fieldStrings: Record<string, string> = {};
 		for (const f of type.fields) fieldStrings[f.key] = fieldDisplay(values.fields[f.key]);
