@@ -1,0 +1,9 @@
+{
+  "id": "obs-entities",
+  "name": "Obsidian Entities",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Define your own entity types with fields and typed relationships, then create, find and browse them.",
+  "author": "Tim",
+  "isDesktopOnly": false
+}
