@@ -489,6 +489,14 @@ describe("settings", () => {
 		expect(mergeSettings({ folderPattern: "Notes/{entity}" }).folderPattern).toBe("Notes/{entity}");
 	});
 
+	it("turns the info card off once for settings saved before version 2, then respects the user's choice", () => {
+		expect(mergeSettings(null).showCard).toBe(false);
+		expect(mergeSettings({ showCard: true }).showCard).toBe(false);
+		expect(mergeSettings({ showCard: true, settingsVersion: 1 }).showCard).toBe(false);
+		expect(mergeSettings({ showCard: true, settingsVersion: 2 }).showCard).toBe(true);
+		expect(mergeSettings({ showCard: true, settingsVersion: 1 }).settingsVersion).toBe(2);
+	});
+
 	it("drops folders saved before the folder pattern existed", () => {
 		const s = mergeSettings({
 			groups: [{ ...GROUPS[0], root: "Old" } as GroupDef],

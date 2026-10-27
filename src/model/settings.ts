@@ -12,7 +12,7 @@ export interface EntitiesSettings {
 	openInNewTab: boolean;
 	/** Prefill a matching relation field from the active note when creating an entity. */
 	prefillFromActive: boolean;
-	/** Show the info card at the top of entity notes (M2). */
+	/** Show the info card at the top of entity notes (off by default: the Connections panel covers it). */
 	showCard: boolean;
 	/** Info card collapsed state (shared by all notes). */
 	cardCollapsed: boolean;
@@ -22,7 +22,7 @@ export interface EntitiesSettings {
 	deletedPackTypes: string[];
 }
 
-export const SETTINGS_VERSION = 1;
+export const SETTINGS_VERSION = 2;
 
 export function defaultSettings(): EntitiesSettings {
 	return {
@@ -31,7 +31,7 @@ export function defaultSettings(): EntitiesSettings {
 		templatesFolder: "_templates/entities",
 		openInNewTab: false,
 		prefillFromActive: true,
-		showCard: true,
+		showCard: false,
 		cardCollapsed: false,
 		groups: (STARTER_PACK.groups ?? []).map(cloneGroup),
 		types: STARTER_PACK.types.map((t) => ({ ...cloneType(t), pack: STARTER_PACK.id })),
@@ -57,6 +57,8 @@ export function mergeSettings(saved: Partial<EntitiesSettings> | null | undefine
 	};
 	merged.groups = Array.isArray(saved.groups) ? saved.groups.map(cloneGroup) : base.groups;
 	merged.types = Array.isArray(saved.types) ? saved.types.map(cloneType) : base.types;
+	// Version 2: the Connections panel replaces the in-note card by default; turn the card off once.
+	if ((saved.settingsVersion ?? 1) < 2) merged.showCard = false;
 
 	const have = new Set(merged.types.map((t) => t.key));
 	const deleted = new Set(merged.deletedPackTypes);

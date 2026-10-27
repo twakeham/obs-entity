@@ -168,7 +168,7 @@ export class EntitiesSettingTab extends PluginSettingTab {
 			);
 		new Setting(containerEl)
 			.setName("Show entity info card")
-			.setDesc("A compact card with type, status, key fields and relationships at the top of entity notes. Each type chooses what its card shows.")
+			.setDesc("Off by default: the Connections panel shows a note's links. When on, a compact card with type, status, key fields and links appears at the top of entity notes. Each type chooses what its card shows.")
 			.addToggle((t) =>
 				t.setValue(s.showCard).onChange(async (v) => {
 					s.showCard = v;

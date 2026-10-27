@@ -122,7 +122,10 @@ export default class EntitiesPlugin extends Plugin {
 	}
 
 	async loadSettings(): Promise<void> {
-		this.settings = mergeSettings(await this.loadData());
+		const saved = await this.loadData();
+		this.settings = mergeSettings(saved);
+		// Persist migrations right away so data.json matches what's in use.
+		if (saved && saved.settingsVersion !== this.settings.settingsVersion) await this.saveData(this.settings);
 	}
 
 	onunload(): void {

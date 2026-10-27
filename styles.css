@@ -517,6 +517,10 @@ select.oe-status {
 	gap: var(--size-4-3);
 }
 
+.oe-panel-header .oe-type-icon {
+	--oe-type-color: inherit;
+}
+
 .oe-panel-title {
 	min-width: 0;
 }
@@ -537,15 +541,6 @@ select.oe-status {
 	align-items: center;
 	gap: var(--size-4-2);
 	color: var(--text-muted);
-	font-size: var(--font-ui-smaller);
-}
-
-.oe-panel-subtitle {
-	color: var(--text-muted);
-	font-size: var(--font-ui-small);
-}
-
-.oe-panel-fields {
 	font-size: var(--font-ui-smaller);
 }
 

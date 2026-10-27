@@ -1,15 +1,14 @@
 import { TFile } from "obsidian";
 import { useMemo, useState, type CSSProperties } from "react";
-import { cardSections } from "../../model/card";
 import type { RelationGroup } from "../../model/relations";
 import { AddRelationModal } from "../modals/addRelationModal";
 import { usePlugin, useRelationsVersion } from "./context";
-import { CardSectionsView, RelationGroups, StatusSelect } from "./EntityBits";
+import { RelationGroups } from "./EntityBits";
 import { Icon } from "./Icon";
 
 const MENTIONS_KEY = "mentions";
 
-/** Connections panel: the active note's header and all its relationships, grouped. */
+/** Connections panel: the active note's name and type, then all its relationships, grouped. */
 export function ConnectionsPanel({ path }: { path: string | null }) {
 	const plugin = usePlugin();
 	const version = useRelationsVersion();
@@ -42,8 +41,6 @@ export function ConnectionsPanel({ path }: { path: string | null }) {
 		return <div className="oe-panel-empty">Open a note to see its connections.</div>;
 	}
 
-	const fields = entity ? cardSections(entity.type, entity.frontmatter, [], plugin.dates).filter((s) => s.kind === "field") : [];
-
 	return (
 		<div className="oe-panel">
 			<div className="oe-panel-header" style={entity ? ({ "--oe-type-color": entity.type.color } as CSSProperties) : undefined}>
@@ -59,24 +56,9 @@ export function ConnectionsPanel({ path }: { path: string | null }) {
 					>
 						{entity?.name ?? file.basename}
 					</a>
-					<div className="oe-panel-meta">
-						{entity ? (
-							<>
-								<span>{entity.type.name}</span>
-								<StatusSelect entity={entity} />
-							</>
-						) : (
-							<span>Not an entity</span>
-						)}
-					</div>
+					<div className="oe-panel-meta">{entity ? entity.type.name : "Not an entity"}</div>
 				</div>
 			</div>
-			{entity?.subtitle && <div className="oe-panel-subtitle">{entity.subtitle}</div>}
-			{fields.length > 0 && (
-				<div className="oe-panel-fields">
-					<CardSectionsView sections={fields} sourcePath={path} max={0} />
-				</div>
-			)}
 
 			<div className="oe-panel-toolbar">
 				<input type="search" className="oe-panel-filter" placeholder={`Filter ${total} connection${total === 1 ? "" : "s"}…`} value={filter} onChange={(e) => setFilter(e.target.value)} />

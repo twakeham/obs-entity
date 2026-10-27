@@ -259,7 +259,7 @@ The default adapter is ISO dates via `moment`. Story Forge's calendar is a worki
 
 ### 4.5 Card display (per type)
 
-Each type decides what its compact displays show. These are the info card and Connections panel header, plus the one-line description in pickers, the switcher and browser tooltips. There is no shared `summary` property; the type's own fields take its place.
+Each type decides what its compact displays show. These are the info card (optional, off by default), plus the one-line description in pickers, the switcher and browser tooltips. There is no shared `summary` property; the type's own fields take its place.
 
 ```ts
 interface CardConfig {
@@ -274,8 +274,8 @@ interface CardConfig {
 
 | Setting | Default when unset | Used by |
 |---|---|---|
-| `subtitle` | none, so no one-liner is shown | the card's top row, the Connections panel header, the create-dialog and link pickers, the Find entity switcher, browser tooltips, and the optional dashboard |
-| `fields` | every filled field, in field order | the card body and the Connections panel header |
+| `subtitle` | none, so no one-liner is shown | the card's top row, the create-dialog and link pickers, the Find entity switcher, chip tooltips, browser tooltips, and the optional dashboard |
+| `fields` | every filled field, in field order | the card body |
 | `incoming` | `true` | the card body |
 
 **Rules:**
@@ -726,7 +726,7 @@ The search, filters, expanded node paths and collapsed sections are saved in the
 
 ### 8.4 Info card
 
-A compact card injected at the top of entity notes, in **Live Preview and Reading view**.
+A compact card injected at the top of entity notes, in **Live Preview and Reading view**. **Off by default** (`showCard: false`): the Connections panel (§8.5) is the main place to see a note's links, and fields are already in Obsidian's Properties. Turn it on in settings; each type can still opt out with `card.show: false`. Settings saved before version 2 have it switched off once by a migration.
 
 **Top row:**
 - the type chip (icon and name)
@@ -765,7 +765,7 @@ A compact card injected at the top of entity notes, in **Live Preview and Readin
 
 A right-sidebar view (ribbon `waypoints`) that **follows the active note**: on `file-open`, ignoring non-Markdown files, and handling renames and deletes.
 
-- **Header:** type icon, name (click to open), type, editable status, subtitle, and the type's non-relation card fields.
+- **Header:** type icon, name (click to open) and type name only. The panel shows **connections only**: no status, subtitle or field values (those are in Properties, and on the optional card).
 - **Filter box:** "Filter N connections…" (matches names and group titles), and **+ Link**, which opens the Add Link dialog:
   1. Choose a field, among this type's relation fields plus `related`.
   2. Fuzzy-pick the target among the types that field allows, or create it.
@@ -815,7 +815,7 @@ The command **Find entity** opens a `SuggestModal` over entities only.
 - **Behaviour:**
   - open new entities in a new tab
   - prefill relations from the active note
-  - show the info card (global; each type can also turn it off)
+  - show the info card (global, **off by default**; each type can also turn it off)
   - info card collapsed by default
 - **Entity types:** a description ("N types (M custom)") and an **Open entity types** button. The button closes the settings modal first (`app.setting.close()`), then opens the view.
 
@@ -877,7 +877,7 @@ interface Settings {
   templatesFolder: string;
   openInNewTab: boolean;
   prefillFromActive: boolean;
-  showCard: boolean;
+  showCard: boolean;              // default false (v2 migration turns it off once)
   cardCollapsed: boolean;
   groups: GroupDef[];
   types: EntityTypeDef[];

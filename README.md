@@ -90,13 +90,14 @@ Only the forward link is stored, e.g. Ada's `works_for: "[[Acme Ltd]]"`. The oth
 - **Links to notes that don't exist yet** show as dashed chips. Clicking one creates the note.
 - **Body links** that aren't relationships are listed under "Mentioned in" in the panel.
 
-### Info card
+### Connections panel
 
-Shown at the top of entity notes, in both Live Preview and Reading view:
-- **Top row:** type, an editable status pill (coloured by status), the subtitle, and buttons for the Connections panel and collapse. Collapse applies to all notes and is remembered.
-- **Body:** by default, filled fields (minus subtitle fields), then links: outgoing in field order, then incoming, then Related, with up to 6 chips per row and "+N more".
-- **Per type:** the `card` settings choose the subtitle, which fields to show and in what order (link fields appear in place), whether incoming links show, empty fields, and chips per row.
-- **Turning it off:** a global setting, or `card.show: false` on a type.
+The right sidebar is the main place to see a note's links. It follows the open note:
+- **Header:** the type icon, the note's name and its type. No field values; those are in Properties.
+- **Filter box**, plus **+ Link**: pick a field, then the target (or create it), then a label if the field has labels.
+- **Groups:** collapsible, with counts and a direction arrow (→ set here, ← set on the other note, ⇄ both ways).
+- **Mentioned in:** starts collapsed.
+- **Non-entity notes:** offers **Convert to entity**.
 
 ### Chips
 
@@ -105,14 +106,12 @@ Shown at the top of entity notes, in both Live Preview and Reading view:
   - Removing a reverse link edits the other note, and the menu says so, e.g. "Remove link (edits Ada Lovelace)".
   - Every removal shows a notice with **Undo**.
 
-### Connections panel
+### Info card (optional)
 
-Follows the open note:
-- **Header:** type, editable status, subtitle and fields.
-- **Filter box**, plus **+ Link**: pick a field, then the target (or create it), then a label if the field has labels.
-- **Groups:** collapsible, with counts and a direction arrow (→ set here, ← set on the other note, ⇄ both ways).
-- **Mentioned in:** starts collapsed.
-- **Non-entity notes:** offers **Convert to entity**.
+**Off by default.** Turn on **Show entity info card** in settings to get a compact card at the top of entity notes, in both Live Preview and Reading view:
+- **Top row:** type, an editable status pill (coloured by status), the subtitle, and buttons for the Connections panel and collapse. Collapse applies to all notes and is remembered.
+- **Body:** by default, filled fields (minus subtitle fields), then links: outgoing in field order, then incoming, then Related, with up to 6 chips per row and "+N more".
+- **Per type:** the `card` settings choose the subtitle, which fields to show and in what order (link fields appear in place), whether incoming links show, empty fields, and chips per row. A type can also opt out with `card.show: false`.
 
 ## Development
 
