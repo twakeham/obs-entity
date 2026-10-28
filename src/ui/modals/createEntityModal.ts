@@ -1,9 +1,10 @@
-import { Modal, Notice, Setting, setIcon, type TFile } from "obsidian";
+import { Modal, Notice, Setting, setIcon, type TextComponent, type TFile } from "obsidian";
 import { isEmptyValue, type EntityFormValues, type FieldValue } from "../../model/frontmatter";
 import { statusesFor, type EntityTypeDef, type FieldDef } from "../../model/types";
 import { emptyFormValues } from "../../services/entityFactory";
 import type EntitiesPlugin from "../../main";
 import { RelationInput } from "../components/relationInput";
+import { addDatePickerButton } from "../components/datePicker";
 import { TypePickerModal, renderTypeIcon } from "../components/entityPicker";
 
 export class CreateEntityModal extends Modal {
@@ -223,14 +224,26 @@ export class CreateEntityModal extends Modal {
 						setting.descEl.setText(r.error);
 					}
 				};
-				setting.addText((t) =>
-					t
-						.setPlaceholder(dates.placeholder)
+				let text: TextComponent | null = null;
+				setting.addText((t) => {
+					text = t;
+					t.setPlaceholder(dates.placeholder)
 						.setValue(String(get() ?? ""))
 						.onChange((v) => {
 							set(v.trim() || null);
 							describe(v);
-						}),
+						});
+				});
+				setting.controlEl.addClass("oe-date-control");
+				addDatePickerButton(
+					setting.controlEl,
+					dates,
+					() => (text as TextComponent | null)?.getValue() ?? "",
+					(v) => {
+						(text as TextComponent | null)?.setValue(v);
+						set(v);
+						describe(v);
+					},
 				);
 				describe(String(get() ?? ""));
 				break;

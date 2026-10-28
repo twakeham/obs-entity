@@ -1,6 +1,8 @@
 import { getIconIds } from "obsidian";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import type { DateAdapter } from "../../../model/dates";
 import { targetName } from "../../../model/typeEditing";
+import { openNativePicker } from "../../components/datePicker";
 import type { TypeIssue } from "../../../model/validation";
 import type { EntityTypeDef, GroupDef, RelationTarget } from "../../../model/types";
 import { Icon } from "../Icon";
@@ -429,6 +431,25 @@ export function OrderedPicker({
 						</option>
 					))}
 				</select>
+			)}
+		</div>
+	);
+}
+
+/** Text box for a date plus a calendar button that opens the browser's date picker (when the date adapter has one). */
+export function DateInput({ value, onChange, label, dates, invalid }: { value: string; onChange: (v: string) => void; label: string; dates: DateAdapter; invalid?: boolean }) {
+	const ref = useRef<HTMLInputElement>(null);
+	const { toPicker, fromPicker } = dates;
+	return (
+		<div className="oe-tm-inline oe-date-control">
+			<TextInput label={label} value={value} placeholder={dates.placeholder} invalid={invalid} onChange={onChange} />
+			{toPicker && fromPicker && (
+				<span className="oe-datepick">
+					<button className="clickable-icon oe-datepick-btn" aria-label="Pick a date" onClick={() => ref.current && openNativePicker(ref.current, toPicker.call(dates, value))}>
+						<Icon name="calendar" />
+					</button>
+					<input ref={ref} type="date" className="oe-datepick-native" tabIndex={-1} aria-hidden="true" onChange={(e) => e.target.value && onChange(fromPicker.call(dates, e.target.value))} />
+				</span>
 			)}
 		</div>
 	);

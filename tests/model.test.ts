@@ -4,6 +4,7 @@ import { isoDateAdapter } from "../src/model/dates";
 import { buildFrontmatter, defaultFieldValue, fieldDisplay, mergeFrontmatter, toYamlValue } from "../src/model/frontmatter";
 import { asArray, parseLabelledEntry, parseLink, toLabelledWikilink, toWikilink } from "../src/model/links";
 import { CRM_PACK, STARTER_PACK, installPack, parsePack } from "../src/model/packs";
+import { propertyTypeFor, propertyTypes } from "../src/model/propertyTypes";
 import { DEFAULT_FOLDER_PATTERN, effectiveFolderPattern, expandFolderPattern, joinPath, resolveEntityFolder, sanitizeFileName, uniquePath, unknownPlaceholders } from "../src/model/paths";
 import { findTypeByPrefix, parseTypedQuery } from "../src/model/search";
 import { defaultSettings, mergeSettings } from "../src/model/settings";
@@ -173,6 +174,8 @@ describe("validation", () => {
 				{ key: "b", label: "B", kind: "multiselect", options: ["x"], default: ["x", "z"] },
 				{ key: "c", label: "C", kind: "number", default: "lots" },
 				{ key: "d", label: "D", kind: "select", options: ["x"], default: "x" },
+				{ key: "e", label: "E", kind: "date", default: "next week" },
+				{ key: "f", label: "F", kind: "date", default: "2026-10-28" },
 			],
 			parentFields: [],
 			card: {},
@@ -181,6 +184,7 @@ describe("validation", () => {
 			'field:0:default: Default "y" isn\'t one of the options.',
 			'field:1:default: Default "z" isn\'t one of the options.',
 			'field:2:default: Default "lots" isn\'t a number.',
+			'field:4:default: Default "next week" isn\'t a date. Use YYYY-MM-DD.',
 		]);
 	});
 
@@ -417,6 +421,44 @@ describe("dates", () => {
 		const v = (s: string) => (isoDateAdapter.parse(s) as { value: number }).value;
 		expect(v("2026-01-01")).toBeLessThan(v("2026-01-02"));
 		expect(v("1999-12-31")).toBeLessThan(v("2000-01-01"));
+	});
+
+	it("converts to and from the browser's date picker", () => {
+		expect(isoDateAdapter.toPicker!("1815-12-10")).toBe("1815-12-10");
+		expect(isoDateAdapter.toPicker!("2026-1-5")).toBe("2026-01-05");
+		expect(isoDateAdapter.toPicker!("")).toBeNull();
+		expect(isoDateAdapter.toPicker!("someday")).toBeNull();
+		expect(isoDateAdapter.toPicker!("-44-03-15")).toBeNull();
+		expect(isoDateAdapter.fromPicker!("2027-03-31")).toBe("2027-03-31");
+	});
+});
+
+describe("property types", () => {
+	it("maps field kinds to Obsidian property types", () => {
+		const f = (kind: string, extra = {}) => ({ key: "k", label: "K", kind, ...extra }) as never;
+		expect(propertyTypeFor(f("date"))).toBe("date");
+		expect(propertyTypeFor(f("number"))).toBe("number");
+		expect(propertyTypeFor(f("boolean"))).toBe("checkbox");
+		expect(propertyTypeFor(f("list"))).toBe("multitext");
+		expect(propertyTypeFor(f("multiselect"))).toBe("multitext");
+		expect(propertyTypeFor(f("relation", { multiple: true }))).toBe("multitext");
+		expect(propertyTypeFor(f("relation", { labelled: true }))).toBe("multitext");
+		expect(propertyTypeFor(f("relation"))).toBeNull();
+		expect(propertyTypeFor(f("text"))).toBeNull();
+		expect(propertyTypeFor(f("url"))).toBeNull();
+	});
+
+	it("covers every starter type and skips keys used for different kinds", () => {
+		const { types, conflicts } = propertyTypes(STARTER);
+		expect(types).toMatchObject({ birthday: "date", due: "date", start: "date", noted_on: "date", knows: "multitext", team: "multitext", about: "multitext", related: "multitext", order: "number" });
+		expect(types).not.toHaveProperty("role");
+		expect(types).not.toHaveProperty("works_for");
+		expect(conflicts).toEqual([]);
+		const clash: EntityTypeDef = { ...T("place"), key: "x", fields: [{ key: "due", label: "Due", kind: "text" }, { key: "budget", label: "Budget", kind: "number" }] };
+		const r = propertyTypes([...STARTER, clash]);
+		expect(r.conflicts).toEqual(["due"]);
+		expect(r.types).not.toHaveProperty("due");
+		expect(r.types.budget).toBe("number");
 	});
 });
 

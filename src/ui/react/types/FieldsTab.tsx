@@ -2,8 +2,9 @@ import { Menu } from "obsidian";
 import { useState, type CSSProperties, type DragEvent, type MouseEvent } from "react";
 import { newUid, renameFieldRefs, targetName } from "../../../model/typeEditing";
 import { toKey, type EntityTypeDef, type FieldDef, type FieldKind } from "../../../model/types";
+import { usePlugin } from "../context";
 import { Icon } from "../Icon";
-import { ChipsInput, Issues, Row, Segmented, TargetPicker, TextInput, Toggle } from "./controls";
+import { ChipsInput, DateInput, Issues, Row, Segmented, TargetPicker, TextInput, Toggle } from "./controls";
 import { KIND_INFO, KIND_ORDER, useEditor } from "./editor";
 
 /** Menu of field kinds for "+ Add field". */
@@ -355,6 +356,7 @@ function FieldDetails({ index }: { index: number }) {
 
 /** Default value for the create dialog, with a control that suits the field kind. */
 function DefaultRow({ field: f, index }: { field: FieldDef; index: number }) {
+	const plugin = usePlugin();
 	const { update, issuesAt } = useEditor();
 	const set = (v: unknown) =>
 		update((t) => {
@@ -395,8 +397,11 @@ function DefaultRow({ field: f, index }: { field: FieldDef; index: number }) {
 		case "number":
 			control = <TextInput label="Default" value={f.default === undefined ? "" : String(f.default)} invalid={issues.length > 0} placeholder="None" onChange={(v) => set(v.trim() === "" ? undefined : Number.isFinite(Number(v)) ? Number(v) : v)} />;
 			break;
+		case "date":
+			control = <DateInput label="Default" value={typeof f.default === "string" ? f.default : ""} dates={plugin.dates} invalid={issues.length > 0} onChange={(v) => set(v.trim())} />;
+			break;
 		default:
-			control = <TextInput label="Default" value={typeof f.default === "string" ? f.default : ""} placeholder={f.kind === "date" ? "YYYY-MM-DD" : "None"} onChange={(v) => set(v)} />;
+			control = <TextInput label="Default" value={typeof f.default === "string" ? f.default : ""} placeholder="None" onChange={(v) => set(v)} />;
 	}
 	return (
 		<Row label="Default" desc="Prefilled when creating a note." issues={issues} stacked={f.kind === "multiselect" || f.kind === "list"}>

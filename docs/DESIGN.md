@@ -252,10 +252,28 @@ interface DateAdapter {
   parse(raw: unknown): { ok: true; value: Comparable; display: string } | { ok: false; error: string } | null;
   format(value: Comparable, style: "short" | "long"): string;
   placeholder: string;               // e.g. "2026-10-27"
+  toPicker?(raw: unknown): string | null;   // value as YYYY-MM-DD for the browser's date picker; omit for no picker
+  fromPicker?(iso: string): string;         // a picked YYYY-MM-DD in the adapter's format
 }
 ```
 
-The default adapter is ISO dates via `moment`. Story Forge's calendar is a working example of a custom adapter.
+The default adapter is ISO dates (pure code, no `moment`). Its picker hooks pass dates straight through and return null for years the browser's picker can't show (before 0001 or after 9999). Story Forge's calendar is a working example of a custom adapter; a custom calendar would omit the picker hooks, so date fields show only the text box.
+
+**Date pickers:** date fields in the create dialog and the type editor's Default have a text box plus a **calendar button**. The button opens the browser's native date picker, anchored to a hidden `<input type="date">` and starting at the current value; the picked date is written back via `fromPicker`. Typing still works.
+
+### 4.4.1 Obsidian property types
+
+Obsidian's Properties panel picks an editor per property name from `.obsidian/types.json`. On load and after every settings save, the plugin sets these through `app.metadataTypeManager.setType` (only where `getAssignedWidget` differs, so the file isn't rewritten needlessly):
+
+| Field kind | Obsidian type |
+|---|---|
+| `date` | `date` (Obsidian's date picker) |
+| `number`, and `order` | `number` |
+| `boolean` | `checkbox` |
+| `list`, `multiselect`, multi-link `relation`, and `related` | `multitext` |
+| `text`, `textarea`, `select`, `url`, single `relation` | left as text |
+
+Property types are vault-wide by name, so a key that different types use for different kinds is skipped (`propertyTypes()` reports it as a conflict).
 
 ### 4.5 Card display (per type)
 
@@ -690,7 +708,7 @@ Opened from:
 - From context: "New child here" prefills the parent field (§8.3). A double-click elsewhere can prefill any field.
 - From field `default` values.
 
-**Date fields** show the adapter's live preview or error underneath.
+**Date fields** have a calendar button (§4.4) and show the adapter's live preview or error underneath.
 
 **AC:**
 - [ ] Every field is written to frontmatter, with empty values for unset ones.

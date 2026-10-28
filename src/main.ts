@@ -2,6 +2,7 @@ import { Keymap, Notice, Plugin, TFile, type PaneType, type WorkspaceLeaf } from
 import { isoDateAdapter, type DateAdapter } from "./model/dates";
 import type { EntityFormValues, FieldValue } from "./model/frontmatter";
 import { mergeSettings, type EntitiesSettings } from "./model/settings";
+import { propertyTypes } from "./model/propertyTypes";
 import { typeExplicitlyTargeted, type EntityTypeDef, type RelationTarget } from "./model/types";
 import { EntityFactory } from "./services/entityFactory";
 import { EntityIndex } from "./services/entityIndex";
@@ -45,6 +46,7 @@ export default class EntitiesPlugin extends Plugin {
 		this.relations.load();
 		this.index.load();
 		this.card.load();
+		this.app.workspace.onLayoutReady(() => this.syncPropertyTypes());
 
 		this.registerView(CONNECTIONS_VIEW, (leaf) => new ConnectionsView(leaf, this));
 		this.registerView(TYPES_VIEW, (leaf) => new TypesView(leaf, this));
@@ -154,6 +156,19 @@ export default class EntitiesPlugin extends Plugin {
 		this.card?.unload();
 	}
 
+	/**
+	 * Tell Obsidian's Properties panel which editor to use for each field: a date picker for date fields,
+	 * number, checkbox, or list. Keys that different types use for different kinds are left alone.
+	 */
+	syncPropertyTypes(): void {
+		const mtm = (this.app as unknown as { metadataTypeManager?: { setType?(name: string, type: string): void; getAssignedWidget?(name: string): string | null | undefined } })
+			.metadataTypeManager;
+		if (typeof mtm?.setType !== "function") return;
+		for (const [key, type] of Object.entries(propertyTypes(this.settings.types).types)) {
+			if (mtm.getAssignedWidget?.(key) !== type) mtm.setType(key, type);
+		}
+	}
+
 	/** Show the Connections panel in the right sidebar (reusing an existing one). */
 	async activateConnectionsView(): Promise<void> {
 		const { workspace } = this.app;
@@ -191,6 +206,7 @@ export default class EntitiesPlugin extends Plugin {
 	async saveSettings(): Promise<void> {
 		await this.saveData(this.settings);
 		this.registerTypeCommands();
+		this.syncPropertyTypes();
 		// Type definitions may have changed; re-resolve every entity against them.
 		if (this.index?.isReady()) this.index.rebuild();
 	}

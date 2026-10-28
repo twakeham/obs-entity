@@ -96,6 +96,8 @@ function checkDefault(kind: string, value: unknown, options: string[] | undefine
 		}
 		case "number":
 			return typeof value === "number" || Number.isFinite(Number(value)) ? null : `Default "${String(value)}" isn't a number.`;
+		case "date":
+			return /^-?\d{1,6}-\d{1,2}-\d{1,2}$/.test(String(value)) ? null : `Default "${String(value)}" isn't a date. Use YYYY-MM-DD.`;
 		case "boolean":
 			return typeof value === "boolean" ? null : "Default must be true or false.";
 		case "relation":

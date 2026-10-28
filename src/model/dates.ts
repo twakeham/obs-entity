@@ -4,6 +4,10 @@ export interface DateAdapter {
 	parse(raw: unknown): DateParse | null;
 	format(value: number, style: "short" | "long"): string;
 	placeholder: string;
+	/** The value as YYYY-MM-DD for the browser's date picker, or null if it can't be shown there. Omit to have no picker. */
+	toPicker?(raw: unknown): string | null;
+	/** A date picked in the browser's date picker (YYYY-MM-DD), in this adapter's format. */
+	fromPicker?(iso: string): string;
 }
 
 export type DateParse = { ok: true; value: number; display: string } | { ok: false; error: string };
@@ -44,5 +48,15 @@ export const isoDateAdapter: DateAdapter = {
 	format(value: number, style: "short" | "long"): string {
 		const [y, m, d] = civilFromDays(value);
 		return style === "short" ? `${pad(y, 4)}-${pad(m)}-${pad(d)}` : `${d} ${MONTHS[m - 1]} ${y}`;
+	},
+	toPicker(raw: unknown): string | null {
+		const r = isoDateAdapter.parse(raw);
+		if (!r?.ok) return null;
+		const s = isoDateAdapter.format(r.value, "short");
+		// The browser's picker only handles years 0001–9999.
+		return /^\d{4}-\d{2}-\d{2}$/.test(s) && !s.startsWith("0000") ? s : null;
+	},
+	fromPicker(iso: string): string {
+		return iso;
 	},
 };

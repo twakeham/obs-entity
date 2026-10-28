@@ -34,7 +34,13 @@ tags: []
 
 - **Fixed properties:** `entity`, `status`, `tags`, `aliases`, `related`, `order`. Everything else comes from the type's fields.
 - **Relations** are wikilinks, so backlinks, the graph and renames keep working. Labelled relations put the label in the alias: `"[[Grace Hopper|mentor]]"`.
-- **Dates** are ISO (`YYYY-MM-DD`).
+- **Dates** are ISO (`YYYY-MM-DD`). In the create dialog and the type editor, date fields have a **calendar button** that opens a date picker. You can still type a date.
+- **Property types:** the plugin tells Obsidian which editor to use in the Properties panel:
+  - date fields get Obsidian's date picker
+  - number fields get a number editor, and checkboxes a checkbox
+  - list, multiple-choice and multi-link fields (plus `related`) get a list editor
+  
+  This is stored in the vault's `.obsidian/types.json`. Obsidian's property types are vault-wide by name, so a key that two types use for different kinds is left alone.
 - There is no shared summary property. Each type picks **subtitle fields** (`card.subtitle`), whose values are shown under the name in pickers and search, e.g. a person's role.
 
 ## Starter pack
@@ -173,7 +179,8 @@ src/
     paths.ts                 folder pattern, exceptions, folder modes, sanitising
     templates.ts             {{placeholders}}, default templates from type sections
     card.ts                  subtitle, value display, cardSections (what the card shows)
-    dates.ts                 DateAdapter + ISO adapter
+    dates.ts                 DateAdapter + ISO adapter (with date-picker hooks)
+    propertyTypes.ts         Obsidian property types for fields (date, number, checkbox, list)
     search.ts                switcher type prefixes
     packs.ts                 starter + CRM packs, parsePack, installPack
     typeEditing.ts           type/group drafts, field + status renames, migrations, import/export, previews
@@ -183,7 +190,7 @@ src/
     relationIndex.ts         forward + inverse edges, groupsFor, mentions
     entityFactory.ts         create/convert notes, add/remove links (with Undo), folders
   settings/settingTab.ts
-  ui/components/             entity picker, relation input
+  ui/components/             entity picker, relation input, date picker button
   ui/modals/                 create, switcher, import types, add link
   ui/header/cardManager.tsx  injects the info card into Live Preview and Reading view
   ui/react/                  EntityCard, ConnectionsPanel, EntityChip, EntityBits (status, card body, groups)
