@@ -180,7 +180,7 @@ export class EntitiesSettingTab extends PluginSettingTab {
 		const custom = s.types.filter((t) => !t.builtIn).length;
 		new Setting(containerEl)
 			.setName("Types")
-			.setDesc(`${s.types.length} types (${custom} custom) in ${s.groups.length} group${s.groups.length === 1 ? "" : "s"}: ${s.types.map((t) => t.name).join(", ")}.`)
+			.setDesc(`${s.types.length} types (${custom} custom) in ${s.groups.length} group${s.groups.length === 1 ? "" : "s"}: ${s.types.map((t) => t.name).join(", ")}. Edit fields, relationships, groups and how types look in the Entity types view.`)
 			.addButton((b) =>
 				b.setButtonText("Import types…").onClick(() => {
 					const modal = new ImportPackModal(this.plugin);
@@ -190,6 +190,15 @@ export class EntitiesSettingTab extends PluginSettingTab {
 					};
 					modal.open();
 				}),
+			)
+			.addButton((b) =>
+				b
+					.setButtonText("Open entity types")
+					.setCta()
+					.onClick(() => {
+						(this.app as unknown as { setting?: { close(): void } }).setting?.close();
+						void this.plugin.activateTypes();
+					}),
 			);
 	}
 }

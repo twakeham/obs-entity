@@ -14,6 +14,8 @@ import { EntitySwitcherModal } from "./ui/modals/entitySwitcherModal";
 import { ImportPackModal } from "./ui/modals/importPackModal";
 import { HOVER_SOURCE } from "./ui/react/EntityChip";
 import { CONNECTIONS_VIEW, ConnectionsView } from "./ui/views/ConnectionsView";
+import { TYPES_VIEW, TypesView } from "./ui/views/TypesView";
+import type { GroupDraft, TypeDraft } from "./model/typeEditing";
 
 /** Obsidian 1.7+ lazily loads background tabs; make sure the leaf's real view exists. */
 async function loadIfDeferred(leaf: WorkspaceLeaf): Promise<void> {
@@ -30,6 +32,9 @@ export default class EntitiesPlugin extends Plugin {
 	/** Date handling for date fields (ISO for now; a custom calendar can replace it). */
 	dates: DateAdapter = isoDateAdapter;
 	private typeCommandIds = new Set<string>();
+	/** Entity Types view drafts, kept for the session so closing the view doesn't lose edits. */
+	typeDrafts = new Map<string, TypeDraft>();
+	groupDrafts = new Map<string, GroupDraft>();
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -42,11 +47,13 @@ export default class EntitiesPlugin extends Plugin {
 		this.card.load();
 
 		this.registerView(CONNECTIONS_VIEW, (leaf) => new ConnectionsView(leaf, this));
+		this.registerView(TYPES_VIEW, (leaf) => new TypesView(leaf, this));
 		this.registerHoverLinkSource(HOVER_SOURCE, { display: "Obsidian Entities", defaultMod: true });
 
 		this.addSettingTab(new EntitiesSettingTab(this.app, this));
 		this.addRibbonIcon("book-plus", "Entities: create entity", () => this.openCreateModal(null));
 		this.addRibbonIcon("waypoints", "Entities: connections", () => void this.activateConnectionsView());
+		this.addRibbonIcon("shapes", "Entities: entity types", () => void this.activateTypes());
 
 		this.addCommand({
 			id: "create-entity",
@@ -62,6 +69,14 @@ export default class EntitiesPlugin extends Plugin {
 			id: "open-connections",
 			name: "Open connections panel",
 			callback: () => void this.activateConnectionsView(),
+		});
+		this.addCommand({
+			id: "configure-entity-types",
+			name: "Configure entity types",
+			callback: () => {
+				const active = this.index.getByFile(this.app.workspace.getActiveFile());
+				void this.activateTypes(active?.type.key);
+			},
 		});
 		this.addCommand({
 			id: "convert-to-entity",
@@ -101,6 +116,13 @@ export default class EntitiesPlugin extends Plugin {
 				if (!(file instanceof TFile) || file.extension !== "md") return;
 				const entity = this.index.get(file.path);
 				if (entity) {
+					menu.addItem((item) =>
+						item
+							.setTitle(`Configure the ${entity.type.name} type`)
+							.setIcon("shapes")
+							.setSection("action")
+							.onClick(() => void this.activateTypes(entity.type.key)),
+					);
 					menu.addItem((item) =>
 						item
 							.setTitle("Change entity type…")
@@ -144,6 +166,20 @@ export default class EntitiesPlugin extends Plugin {
 		}
 		await loadIfDeferred(leaf);
 		await workspace.revealLeaf(leaf);
+	}
+
+	/** Open the Entity Types view in the main area (reusing an existing tab), optionally on one type. */
+	async activateTypes(typeKey?: string | null): Promise<void> {
+		const { workspace } = this.app;
+		let leaf = workspace.getLeavesOfType(TYPES_VIEW)[0];
+		if (!leaf) {
+			leaf = workspace.getLeaf("tab");
+			await leaf.setViewState({ type: TYPES_VIEW, active: true });
+		}
+		await loadIfDeferred(leaf);
+		if (typeKey && leaf.view instanceof TypesView) leaf.view.update({ selected: typeKey });
+		await workspace.revealLeaf(leaf);
+		workspace.setActiveLeaf(leaf, { focus: true });
 	}
 
 	/** Open a note by path. A mouse/keyboard event with Mod opens a new tab; a pane type opens there. */

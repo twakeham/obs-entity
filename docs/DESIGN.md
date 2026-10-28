@@ -513,27 +513,46 @@ A main-area tab, opened from:
 #### Type list (left)
 
 - Search box, and **+ New**, which offers:
-  - a blank type
+  - a blank type (in the current type's group)
   - duplicate the selected type
-  - import a type pack (JSON paste or file)
-- Types are grouped by group. Each row shows the icon (in the type colour), name, note count, a `custom`/`new` badge, and an **orange dot when the type has unsaved changes**.
+  - a new group
+  - **Import pack…** (JSON paste or file)
+  - **Copy all types as a pack**
+- Types are listed under their **group headings**. Each row shows the icon (in the type colour), name, note count, a `custom`/`new` badge, and an **orange dot when the type has unsaved changes**. Types whose group doesn't exist are listed under "No group".
+- **Group headings** can be clicked to open the group editor (below), and dragged onto another heading to reorder groups. The order is saved immediately.
+
+#### Group editor
+
+Opened by clicking a group heading, or with the pencil next to a type's Group.
+- **Name**, **key** (follows the name for a new group; fixed once saved) and **icon**.
+- **Statuses:** one row per status, reorderable by drag, with the first marked "starting". Rename a status by editing its name; the row shows "was X". Add a status, or remove one (at least one must remain).
+- **Types** in the group, as chips that open the type, plus **New type here**.
+- **Save / Discard bar.** When statuses were renamed, it offers `☑ Also update N notes: archived → retired`. This covers notes of the group's types that don't have their own statuses.
+- **Delete group:** only enabled when the group has no types. It asks first, then removes `@group` targets from relation fields.
+- **Validation:** name required, key valid and unique, at least one status, no blank or duplicate statuses.
 
 #### Header
 
-Big icon, name, a "group · N notes · built-in/custom · `key`" line, and the tabs with counts. A tab shows a red dot when its contents have validation problems.
+Big icon, name, a "group · N notes · starter/custom · `key`" line, and the tabs with counts. A tab shows a red dot when its contents have validation problems.
 
 #### General tab
 
 - **Name.** For a new type, the key follows the name until it's edited by hand.
 - **Plural**, with the placeholder `<name>s`.
-- **Key.** Read-only once saved, with the explanation "Written as `entity: person` in each note".
+- **Key.** Read-only once saved, with the explanation "Written as `entity: person` in each note. To rename the type, change its name and plural; the key stays." Changing a key would mean rewriting every note, so there's no "change key" action.
 - **Icon.** A searchable grid of Lucide icons: prefix matches first, the first 168 shown, Enter picks the first match.
-- **Colour.** A swatch palette plus a custom colour picker. Include the colours your default pack uses, so built-in types match a swatch.
-- **Group.** Built-in pack types keep their group unless you duplicate them.
-- **Folder**: "Use the entity folder pattern" or "Use its own pattern" (the exception, with `{group}`/`{entity}`), plus the folder mode ("In the folder pattern" / "Inside its parent's folder" / "In a folder of its own"), with a live preview of the full path ("New notes go in `Entities/Directory/People/`"). The same exceptions are editable in settings.
+- **Colour.** A swatch palette (including the starter and CRM pack colours) plus a custom colour picker.
+- **Group**, with a pencil button to edit that group. Any type, starter ones included, can move to another group.
+- **Statuses:** "Group's" (shows the group's list) or "Custom". Custom starts with a copy of the group's statuses, edited as chips.
+- **Folder:** "Entity folder pattern" or "Own pattern" (the exception, with `{group}`/`{entity}`; unknown placeholders are flagged).
+- **Folder rule:** "In the folder" / "Own folder each" / "Inside its parent", with a live preview of the path, e.g. "New notes go in `Entities/Work/Projects/<name>/`, or inside their parent's folder".
 - **Template file**, with **Open template**, which creates the file from the default template if it's missing.
 - **Search shortcuts**, as chips.
-- **More:** Duplicate, Copy as JSON, Reset to pack default (for pack types; applied as a draft), and Delete type (custom types; asks first, says how many notes use it, and leaves those notes untouched).
+- **More:**
+  - Duplicate
+  - Copy as JSON (a pack with this type and its group)
+  - **Reset to starter**, for starter types; applied as a draft
+  - **Delete type**, for any type. It asks first and says how many notes use it. The notes are left untouched and keep `entity: <key>`. Deleted starter types are recorded so they don't come back.
 
 #### Fields tab (two columns)
 
@@ -612,21 +631,22 @@ New in Obsidian Entities.
 
 #### Preview panel
 
-A collapsible panel at the bottom, with its state saved in the view:
-- **Info card:** the card as it will look, including the subtitle in the top row.
-- **Create dialog:** which fields show, and how many are under "Show more fields". Required fields get an asterisk.
-- **Picker row:** how a note of this type looks in link pickers and the switcher (icon, name and subtitle).
+A collapsible panel at the bottom, with its state saved in the view. Modes, in order:
+- **Create dialog:** which fields show (create-dialog, required and subtitle fields), and how many are under "Show more fields". Required fields get an asterisk.
+- **Picker row:** how a note of this type looks in link pickers and the switcher (icon, name, subtitle and type).
+- **Info card:** the card as it will look, built with the real `cardSections` and real chips. For an existing sample note, its actual incoming links are included. If the card is off in settings, the preview says so.
 
 **Sample values:**
 - They come from the type's **existing note with the most filled-in fields**, read through each field's *original* key so renames preview correctly.
-- If the type has no notes, values are made up from field kinds: "Example label", 3, today's date, the first option, `[[<target type name>]]`.
+- If the type has no notes, values are made up from field kinds: "Example label", 3, today's date, the first options, `https://example.com`, `[[<target type name>]]`.
 
 #### Import / export
 
-- **Copy as JSON:** `{ "obsEntitiesPack": 1, "types": [ … ], "groups": [ … ] }`. Story Forge used a single-type form, which import should also accept.
-- **Import** checks that it's valid JSON, that each type has a name and a field list, and that every field kind is valid.
-  - A key that's already taken gets a suffix (`person_2`), with a Notice.
+- **Copy as JSON:** `{ "obsEntitiesPack": 1, "groups": [ … ], "types": [ … ] }`, with the groups the types use (no `builtIn` or `pack` markers). **Copy all types as a pack** exports everything.
+- **Import pack…** accepts a pack, a single type or a list of types. It checks that the input is valid JSON, that each type has a name and a field list, and that every field kind is valid.
+  - A key that's already taken gets a suffix (`person_2`), and relation targets inside the pack follow the rename.
   - Imported types open as **new drafts** to review and save.
+  - Groups the pack needs that don't exist yet are added straight away (empty groups can be deleted).
 
 **AC:**
 - [ ] Creating a type with fields and a relationship and saving it makes notes of that type creatable, indexed and browsable without a reload.
@@ -992,7 +1012,7 @@ Drive a real Obsidian instance via the Chrome DevTools Protocol (Obsidian starte
 |---|---|---|---|
 | M1 ✅ | **Foundation** | Scaffold (TS, esbuild, React 19, vitest, deploy-to-test-vault script); settings with groups and types; starter pack; model modules (links, frontmatter, paths, templates, validation, card subtitle, ISO date adapter, packs); EntityIndex; EntityFactory; Create dialog with relation picker; Convert; Find entity; per-type commands; **Import entity types…** (paste a pack; brought forward from M3/M5 so types can be added before the editor exists) | Can define types (via an imported pack), create typed notes with links, find them |
 | M2 ✅ | **Relationships** | RelationIndex with inverses; `groupRelations`; `cardSections` (per-type card content); info card (both modes); Connections panel (list, filter, + Link, Mentioned in, Convert); Add/Remove link with Undo | Inverses visible on target notes; links editable without touching YAML |
-| M3 | **Entity Types view** | Full editor (§8.1): list, General/Fields/Relationships/Display tabs, guided relationship dialog, drafts, validation, save bar with migrations, preview, import/export, duplicate, reset/delete; settings button | Non-technical user can build a domain model end-to-end without editing JSON |
+| M3 ✅ | **Entity Types view** | Full editor (§8.1): sidebar with groups, group editor (statuses with rename migration, reorder, delete when empty), General/Fields/Relationships/Display tabs, guided relationship dialog, drafts, validation, save bar with migrations, preview (dialog / picker / card), pack import/export, duplicate, reset to starter, delete; settings button, ribbon, command, file menu | Non-technical user can build a domain model end-to-end without editing JSON |
 | M4 | **Browser** | Groups, hierarchies from parent fields, filters, reveal active, collapse semantics, context menu with "New child here", state persistence | Large vaults navigable; hierarchy correct for mixed types |
 | M5 | **Packs & polish** | Type packs (bundled example pack + import/export of groups), template generation, ribbon options, accessibility pass (keyboard navigation in lists, ARIA on toggles), docs | Ready for a public/BRAT release |
 | M6+ | **Modules** | Graph, overview dashboard, bulk edit, Bases generation, domain views | Each behind a module toggle |

@@ -10,7 +10,7 @@ Derived from the Story Forge worldbuilding plugin, made domain-neutral. The full
 |---|---|---|
 | M1 Foundation | Settings with groups and types, starter pack, create dialog, convert, find entity, per-type commands, import types | ✅ Done |
 | M2 Relationships | Inverse links, info card, Connections panel, add/remove links with Undo | ✅ Done |
-| M3 Entity Types view | Visual type editor with drafts, migrations, previews | Planned |
+| M3 Entity Types view | Visual editor for types and groups: fields, relationships, display, drafts, note migrations, previews, import/export | ✅ Done |
 | M4 Browser | Grouped, hierarchical entity browser with filters | Planned |
 | M5 Packs & polish | Pack picker on first run, accessibility, docs | Planned |
 
@@ -62,7 +62,41 @@ Some types also have a **folder rule**:
 - **Own folder** (Project): each project gets its own folder, e.g. `…/Projects/Apollo/Apollo.md`. A sub-project's folder goes inside its parent project's folder.
 - **Parent folder** (Note): a note goes in `<its project's folder>/Notes/`, or follows the pattern if it has no project.
 
-To add more types before the type editor arrives (M3), run **Import entity types…** and paste a type pack. The dialog can load the Basic CRM example.
+To add types, use the **Entity types** view (below), or run **Import entity types…** and paste a type pack. The import dialog can load the Basic CRM example.
+
+## Entity types view
+
+Opened from:
+- the **shapes** ribbon icon
+- **Configure entity types** (opens the open note's type)
+- the settings tab
+- the file menu: **Configure the Person type**
+
+**Sidebar:** types are listed under their groups.
+- **Click a group heading** to edit the group. Drag headings to reorder groups.
+- **+ New** offers a type, a duplicate of the current one, a group, **Import pack…**, or **Copy all types as a pack**.
+
+**Type editor tabs:**
+- **General:** name, plural, key (fixed once saved), icon, colour, group, statuses (the group's or custom), folder (the entity folder pattern or the type's own exception), folder rule (in the folder / own folder each / inside its parent, with a path preview), template, search shortcuts. Also Duplicate, Copy as JSON, Reset to starter, and Delete type.
+- **Fields:** a field list (drag to reorder) and a details panel with label, key, kind, description, choices, default, create-dialog / required / show-on-card toggles, and relation options.
+  - Kinds: text, long text, number, date, choice, multiple choice, list, checkbox, link (URL), relation.
+- **Relationships:** a diagram, links from and to this type (click to jump to the field), and a guided **Add relationship** dialog with a plain-English summary.
+- **Display:** parent fields (for the hierarchy), subtitle fields, and card settings (on/off, all filled fields or only chosen ones in order, incoming links, empty fields, links per row).
+
+**Preview:** Create dialog, Picker row and Info card. It uses the existing note with the most values, or made-up values.
+
+**Saving:**
+- Edits are drafts until you press **Save**. Drafts survive switching types.
+- Problems are shown next to the control, and the tab with a problem gets a red dot.
+- Renaming a field key offers to **update existing notes** (on by default). Deleting a field offers to **remove its values** (off by default).
+- Subtitle, card and parent references follow a key rename automatically.
+
+**Groups:**
+- You can edit the name, icon and statuses. Statuses can be reordered by dragging, and the first is the starting status.
+- Renaming a status offers to update the notes that use it.
+- A group can only be deleted once it has no types.
+
+**Deleting a type** leaves its notes untouched (they keep `entity: <key>`). Deleted starter types don't come back on update.
 
 ## Commands
 
@@ -72,6 +106,7 @@ To add more types before the type editor arrives (M3), run **Import entity types
 | Create *type* | One command per type |
 | Find entity | Entity-only switcher. `person: ada`, `people:` or a shortcut like `p ada` filters by type |
 | Open connections panel | Right sidebar panel for the open note (also a ribbon icon and a button on the card) |
+| Configure entity types | The Entity types view, opened on the open note's type (also a ribbon icon, settings button and file menu) |
 | Convert current note to entity | Adds the type's fields to an existing note (existing values win). Also in the file menu |
 | Import entity types… | Paste a type pack, single type or list of types (JSON) |
 | Generate template files | Writes editable templates for types without one |
@@ -141,6 +176,7 @@ src/
     dates.ts                 DateAdapter + ISO adapter
     search.ts                switcher type prefixes
     packs.ts                 starter + CRM packs, parsePack, installPack
+    typeEditing.ts           type/group drafts, field + status renames, migrations, import/export, previews
     settings.ts              defaults and merging
   services/
     entityIndex.ts           entities from the metadata cache
@@ -151,7 +187,8 @@ src/
   ui/modals/                 create, switcher, import types, add link
   ui/header/cardManager.tsx  injects the info card into Live Preview and Reading view
   ui/react/                  EntityCard, ConnectionsPanel, EntityChip, EntityBits (status, card body, groups)
-  ui/views/                  ConnectionsView (right sidebar)
-tests/                       model.test.ts, relations.test.ts
+  ui/react/types/            Entity types view: TypeManager (sidebar, group editor, save), General/Fields/Relationships/Display tabs, Preview, controls
+  ui/views/                  ConnectionsView (right sidebar), TypesView (main area)
+tests/                       model.test.ts, relations.test.ts, typeEditing.test.ts
 styles.css                   all classes prefixed `oe-`
 ```
