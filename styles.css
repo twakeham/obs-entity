@@ -108,9 +108,75 @@
 	overflow-wrap: anywhere;
 }
 
-.oe-relation-setting .setting-item-control,
-.oe-multiselect-setting .setting-item-control {
-	flex: 0 0 62%;
+/* Create dialog: every row has the same control column, and every control fills it at the same height. */
+.oe-create-modal .setting-item {
+	align-items: flex-start;
+}
+
+.oe-create-modal .setting-item-info {
+	flex: 1 1 0;
+	min-width: 0;
+}
+
+/* Labels line up with the first line of their control. */
+.oe-create-modal .setting-item-name {
+	line-height: var(--input-height);
+}
+
+.oe-create-modal .setting-item-control {
+	flex: 0 0 60%;
+	min-width: 0;
+	justify-content: flex-start;
+}
+
+.oe-create-modal .setting-item-control > input[type="text"],
+.oe-create-modal .setting-item-control > input[type="number"],
+.oe-create-modal .setting-item-control > select,
+.oe-create-modal .setting-item-control > textarea,
+.oe-create-modal .oe-relation-search {
+	width: 100%;
+	max-width: none;
+	box-sizing: border-box;
+}
+
+.oe-create-modal .setting-item-control > input[type="text"],
+.oe-create-modal .setting-item-control > input[type="number"],
+.oe-create-modal .setting-item-control > select,
+.oe-create-modal .oe-relation-search {
+	height: var(--input-height);
+}
+
+.oe-create-modal .setting-item-control > textarea {
+	min-height: calc(var(--input-height) * 2);
+	resize: vertical;
+}
+
+/* Dropdowns look like the text boxes (same field background and border), keeping the theme's arrow. */
+.oe-create-modal .setting-item-control > select.dropdown {
+	background-color: var(--background-modifier-form-field);
+	border: var(--input-border-width, 1px) solid var(--background-modifier-border);
+	box-shadow: none;
+	font-weight: normal;
+}
+
+.oe-create-modal .setting-item-control > select.dropdown:hover {
+	border-color: var(--background-modifier-border-hover);
+}
+
+.oe-create-modal .oe-date-control > input[type="text"] {
+	flex: 1;
+	width: auto;
+	min-width: 0;
+}
+
+.oe-create-modal .oe-multiselect {
+	justify-content: flex-start;
+}
+
+/* The buttons row isn't a field: keep its buttons on the right. */
+.oe-create-modal .oe-create-buttons .setting-item-control {
+	flex: 1 1 auto;
+	justify-content: flex-end;
 }
 
 .oe-relation-input {
@@ -1918,14 +1984,16 @@ button.oe-tm-typegroup-title,
 	flex-shrink: 0;
 }
 
-/* The native input only anchors the picker under the button. */
-.oe-datepick-native {
+/* The native input only anchors the picker under the button; it takes no space. */
+.oe-datepick input.oe-datepick-native {
 	position: absolute;
 	left: 0;
 	bottom: 0;
-	width: 100%;
-	height: 0;
+	width: 1px;
+	min-width: 0;
+	height: 1px;
 	padding: 0;
+	margin: 0;
 	border: 0;
 	opacity: 0;
 	pointer-events: none;

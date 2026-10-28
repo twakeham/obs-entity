@@ -120,6 +120,7 @@ export class CreateEntityModal extends Modal {
 		this.updateFolder = updateFolder;
 
 		new Setting(contentEl)
+			.setClass("oe-create-buttons")
 			.addButton((b) => b.setButtonText("Cancel").onClick(() => this.close()))
 			.addButton((b) =>
 				b
