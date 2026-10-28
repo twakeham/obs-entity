@@ -526,7 +526,6 @@ A main-area tab, opened from:
 Opened by clicking a group heading, or with the pencil next to a type's Group.
 - **Name**, **key** (follows the name for a new group; fixed once saved) and **icon**.
 - **Statuses:** one row per status, reorderable by drag, with the first marked "starting". Rename a status by editing its name; the row shows "was X". Add a status, or remove one (at least one must remain).
-- **Types** in the group, as chips that open the type, plus **New type here**.
 - **Save / Discard bar.** When statuses were renamed, it offers `☑ Also update N notes: archived → retired`. This covers notes of the group's types that don't have their own statuses.
 - **Delete group:** only enabled when the group has no types. It asks first, then removes `@group` targets from relation fields.
 - **Validation:** name required, key valid and unique, at least one status, no blank or duplicate statuses.

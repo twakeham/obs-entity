@@ -513,8 +513,6 @@ export function TypeManager({ state, setState }: { state: TypesState; setState: 
 						if (!groupDraft.original) select(settings.types[0]?.key ?? "");
 					}}
 					onDeleted={() => select(settings.types[0]?.key ?? "")}
-					openType={(key) => select(key)}
-					newType={(group) => addDraft(blankType(group))}
 				/>
 			) : api && draft ? (
 				<EditorContext.Provider value={api}>
@@ -659,8 +657,6 @@ function GroupEditor({
 	onSaved,
 	onDiscarded,
 	onDeleted,
-	openType,
-	newType,
 }: {
 	id: string;
 	draft: GroupDraft;
@@ -670,8 +666,6 @@ function GroupEditor({
 	onSaved: (key: string) => void;
 	onDiscarded: () => void;
 	onDeleted: () => void;
-	openType: (key: string) => void;
-	newType: (group: string) => void;
 }) {
 	const plugin = usePlugin();
 	const settings = plugin.settings;
@@ -844,29 +838,6 @@ function GroupEditor({
 							<Icon name="alert-circle" /> {i.message}
 						</div>
 					))}
-				</Section>
-				<Section
-					title="Types"
-					actions={
-						!isNew && (
-							<button onClick={() => newType(g.key)}>
-								<Icon name="plus" /> New type here
-							</button>
-						)
-					}
-				>
-					{members.length ? (
-						<div className="oe-tm-chips">
-							{members.map((t) => (
-								<button key={t.key} className="oe-tm-chip is-type" style={{ "--oe-type-color": t.color } as CSSProperties} onClick={() => openType(t.key)}>
-									<Icon name={t.icon} className="oe-chip-icon" />
-									{t.name}
-								</button>
-							))}
-						</div>
-					) : (
-						<div className="oe-tm-empty">No types in this group yet.</div>
-					)}
 				</Section>
 				{!isNew && (
 					<Section title="More">
