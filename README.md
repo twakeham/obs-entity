@@ -11,7 +11,7 @@ Derived from the Story Forge worldbuilding plugin, made domain-neutral. The full
 | M1 Foundation | Settings with groups and types, starter pack, create dialog, convert, find entity, per-type commands, import types | ✅ Done |
 | M2 Relationships | Inverse links, info card, Connections panel, add/remove links with Undo | ✅ Done |
 | M3 Entity Types view | Visual editor for types and groups: fields, relationships, display, drafts, note migrations, previews, import/export | ✅ Done |
-| M4 Browser | Grouped, hierarchical entity browser with filters | Planned |
+| M4 Browser | Grouped, hierarchical entity browser with filters | ✅ Done |
 | M5 Packs & polish | Pack picker on first run, accessibility, docs | Planned |
 
 ## How notes are stored
@@ -104,6 +104,36 @@ Opened from:
 
 **Deleting a type** leaves its notes untouched (they keep `entity: <key>`). Deleted starter types don't come back on update.
 
+## Entity browser
+
+A left sidebar tree of all entities. Open it with the **library** ribbon icon or **Open entity browser**.
+
+**Layout:**
+- One section per group, with a heading per type.
+- Entities nest under their parent, using the type's parent fields, e.g. Lander and Design review under Apollo Moonshot.
+- The **View** menu (sliders button) changes this:
+  - **Sections:** groups, or none (one tree).
+  - **Type headings:** on or off.
+  - **Children in other groups:** stay in their own group, or nest under their parent.
+  - **Show empty types.**
+
+**Rows:**
+- Each row shows the type icon, the name, a child count and a status dot. The subtitle shows as a tooltip.
+- **Click:** opens the note. Ctrl/Cmd-click or middle-click opens it in a new tab, and Ctrl + hover shows a preview.
+- **Right-click:** Open in new tab / to the right, **New *child type* here** (prefills the parent link and the folder), Show connections, then the usual file menu.
+
+**Headings:**
+- **+** on a type heading creates that type. On a group heading it offers the group's types.
+- **Right-click** a type heading for "Configure the *type* type", or a group heading for "Configure group".
+
+**Toolbar and filters:**
+- **Toolbar:** search, View, Collapse all, Expand all and New entity.
+- **Filters:** Type, Status and Tag dropdowns.
+- **While filtering**, matches stay inside their hierarchy: parents that don't match are dimmed. A bar shows the match count and **Clear**.
+- **Collapsing while filtering** is temporary, so clearing the filter brings back your normal layout.
+
+**Following the open note:** the browser expands to the open note once, without undoing anything you collapse afterwards. Options, filters and expanded rows are remembered.
+
 ## Commands
 
 | Command | Action |
@@ -111,6 +141,7 @@ Opened from:
 | Create entity | Pick a type, then the create dialog |
 | Create *type* | One command per type |
 | Find entity | Entity-only switcher. `person: ada`, `people:` or a shortcut like `p ada` filters by type |
+| Open entity browser | Left sidebar tree of entities (also a ribbon icon) |
 | Open connections panel | Right sidebar panel for the open note (also a ribbon icon and a button on the card) |
 | Configure entity types | The Entity types view, opened on the open note's type (also a ribbon icon, settings button and file menu) |
 | Convert current note to entity | Adds the type's fields to an existing note (existing values win). Also in the file menu |
@@ -185,6 +216,7 @@ src/
     packs.ts                 starter + CRM packs, parsePack, installPack
     typeEditing.ts           type/group drafts, field + status renames, migrations, import/export, previews
     settings.ts              defaults and merging
+    tree.ts                  browser forest: parent links, sections/type blocks, filtering with context, reveal paths
   services/
     entityIndex.ts           entities from the metadata cache
     relationIndex.ts         forward + inverse edges, groupsFor, mentions
@@ -193,9 +225,9 @@ src/
   ui/components/             entity picker, relation input, date picker button
   ui/modals/                 create, switcher, import types, add link
   ui/header/cardManager.tsx  injects the info card into Live Preview and Reading view
-  ui/react/                  EntityCard, ConnectionsPanel, EntityChip, EntityBits (status, card body, groups)
+  ui/react/                  EntityCard, ConnectionsPanel, EntityChip, EntityBits (status, card body, groups), EntityBrowser
   ui/react/types/            Entity types view: TypeManager (sidebar, group editor, save), General/Fields/Relationships/Display tabs, Preview, controls
-  ui/views/                  ConnectionsView (right sidebar), TypesView (main area)
-tests/                       model.test.ts, relations.test.ts, typeEditing.test.ts
+  ui/views/                  BrowserView (left sidebar), ConnectionsView (right sidebar), TypesView (main area)
+tests/                       model.test.ts, relations.test.ts, typeEditing.test.ts, tree.test.ts
 styles.css                   all classes prefixed `oe-`
 ```

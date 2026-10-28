@@ -3,7 +3,7 @@ import { isoDateAdapter, type DateAdapter } from "./model/dates";
 import type { EntityFormValues, FieldValue } from "./model/frontmatter";
 import { mergeSettings, type EntitiesSettings } from "./model/settings";
 import { propertyTypes } from "./model/propertyTypes";
-import { typeExplicitlyTargeted, type EntityTypeDef, type RelationTarget } from "./model/types";
+import { isListValued, typeExplicitlyTargeted, type EntityTypeDef, type RelationTarget } from "./model/types";
 import { EntityFactory } from "./services/entityFactory";
 import { EntityIndex } from "./services/entityIndex";
 import { RelationIndex } from "./services/relationIndex";
@@ -15,6 +15,8 @@ import { EntitySwitcherModal } from "./ui/modals/entitySwitcherModal";
 import { ImportPackModal } from "./ui/modals/importPackModal";
 import { HOVER_SOURCE } from "./ui/react/EntityChip";
 import { CONNECTIONS_VIEW, ConnectionsView } from "./ui/views/ConnectionsView";
+import { BROWSER_VIEW, BrowserView } from "./ui/views/BrowserView";
+import type { EntityRecord } from "./services/entityIndex";
 import { TYPES_VIEW, TypesView } from "./ui/views/TypesView";
 import type { GroupDraft, TypeDraft } from "./model/typeEditing";
 
@@ -50,10 +52,12 @@ export default class EntitiesPlugin extends Plugin {
 
 		this.registerView(CONNECTIONS_VIEW, (leaf) => new ConnectionsView(leaf, this));
 		this.registerView(TYPES_VIEW, (leaf) => new TypesView(leaf, this));
+		this.registerView(BROWSER_VIEW, (leaf) => new BrowserView(leaf, this));
 		this.registerHoverLinkSource(HOVER_SOURCE, { display: "Obsidian Entities", defaultMod: true });
 
 		this.addSettingTab(new EntitiesSettingTab(this.app, this));
 		this.addRibbonIcon("book-plus", "Entities: create entity", () => this.openCreateModal(null));
+		this.addRibbonIcon("library", "Entities: entity browser", () => void this.activateBrowser());
 		this.addRibbonIcon("waypoints", "Entities: connections", () => void this.activateConnectionsView());
 		this.addRibbonIcon("shapes", "Entities: entity types", () => void this.activateTypes());
 
@@ -71,6 +75,11 @@ export default class EntitiesPlugin extends Plugin {
 			id: "open-connections",
 			name: "Open connections panel",
 			callback: () => void this.activateConnectionsView(),
+		});
+		this.addCommand({
+			id: "open-browser",
+			name: "Open entity browser",
+			callback: () => void this.activateBrowser(),
 		});
 		this.addCommand({
 			id: "configure-entity-types",
@@ -181,6 +190,28 @@ export default class EntitiesPlugin extends Plugin {
 		}
 		await loadIfDeferred(leaf);
 		await workspace.revealLeaf(leaf);
+	}
+
+	/** Show the entity browser in the left sidebar (reusing an existing one). */
+	async activateBrowser(): Promise<void> {
+		const { workspace } = this.app;
+		let leaf = workspace.getLeavesOfType(BROWSER_VIEW)[0];
+		if (!leaf) {
+			const left = workspace.getLeftLeaf(false);
+			if (!left) return;
+			await left.setViewState({ type: BROWSER_VIEW, active: true });
+			leaf = left;
+		}
+		await loadIfDeferred(leaf);
+		await workspace.revealLeaf(leaf);
+	}
+
+	/** "New <type> here": create a note whose parent field links to `parent` (and so is filed by its folder rule). */
+	createChild(parent: EntityRecord, type: EntityTypeDef, fieldKey: string): void {
+		const field = type.fields.find((f) => f.key === fieldKey);
+		const lt = this.app.metadataCache.fileToLinktext(parent.file, "", true);
+		const value: FieldValue = field?.labelled ? [{ target: lt, label: "" }] : field && isListValued(field) ? [lt] : lt;
+		this.openCreateModal(type, { fields: { [fieldKey]: value } });
 	}
 
 	/** Open the Entity Types view in the main area (reusing an existing tab), optionally on one type. */

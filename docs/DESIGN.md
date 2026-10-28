@@ -722,29 +722,36 @@ A left-sidebar view (ribbon `library`, command **Open entity browser**).
 
 #### Grouping
 
-- **One section per group,** in group order.
-- **Inside a section:**
-  - **Hierarchical types** (with `parentFields`): a **forest**. Each entity's parent is the first parent field (in priority order) whose target is in the same section. Siblings sort by type order, then `order`, then name (numeric-aware: "Chapter 2" before "Chapter 10").
-  - **Flat types:** one collapsible sub-group per type.
+- **Sections:** one section per group, in group order (default). Alternatively, **Sections: none** shows one tree.
+- **Type headings** (on by default): inside a section, each type gets a collapsible heading with a count. Entities are listed under the heading of their root's type. With headings off, roots are listed directly.
+- **Hierarchy:** a **forest** built from each type's `parentFields`. An entity's parent is the first parent field (in priority order) whose target exists. Siblings sort by type order, then `order`, then name (numeric-aware: "Chapter 2" before "Chapter 10").
+- **Children whose parent is in another group** have two options:
+  - **stay in their own group** (default): they become roots in their own section;
+  - **nest under the parent:** they appear in the parent's section.
 - **Cycles** are broken: nodes reachable only through a cycle become roots.
-- **"Show empty types"** toggles listing types with no notes.
+- **"Show empty types"** lists types (and groups) with no notes, with a "No … yet" placeholder.
+- These four options live in a **View** menu (sliders button) and are saved with the view state.
 
 #### Rows
 
 - Each row shows: a chevron if it has children, the type icon in the type colour, the name, a child count, and a status dot (coloured per status position: first = grey/draft, last = green/done).
-- **Clicking:** click opens the note; Ctrl/Cmd-click opens it in a new tab.
+- The subtitle (§4.5) is shown as a tooltip.
+- **Clicking:** click opens the note; Ctrl/Cmd-click or middle-click opens it in a new tab.
 - **Hover preview:** register a hover link source, so Ctrl + hover shows a page preview.
-- **Context menu:**
+- **Row context menu:**
   - Open in new tab / Open to the right
   - **New <child type> here**, for each type that has a parent field targeting this row's type. It prefills the parent link and inherits container folders (`folderMode: parent`).
   - Show connections
-  - Configure the <type> type
   - plus the standard file menu (`workspace.trigger("file-menu", …)`)
+- **Type heading:** a + button on hover creates that type. Right-click offers "New <type>" and "Configure the <type> type".
+- **Group heading:** + opens a picker of the group's types. Right-click offers "New <type>" for each type and **Configure group** (opens the group editor).
 
 #### Toolbar and filters
 
-- **Toolbar:** search, Type, Status and Tag dropdowns, **Clear**, **Collapse all**, **New entity**.
-- **Filtering** keeps matching nodes **and their ancestors**, so the hierarchy stays visible, and expands everything that matches.
+- **Toolbar row:** search, **View**, **Collapse all**, **Expand all**, **New entity**.
+- **Filter row:** Type, Status and Tag dropdowns.
+- **While filtering**, a bar shows the match count and a **Clear** link.
+- **Filtering** keeps matching nodes **and their ancestors**, so the hierarchy stays visible. Ancestors that don't match themselves are dimmed. Everything that matches is expanded.
 - **Collapse state during filtering** is kept separately from the persisted state and resets when the filter changes. Story Forge had a bug here: "Collapse all" appeared to do nothing while filtering.
 
 #### Reveal active note
@@ -753,13 +760,13 @@ When the active note changes, expand its section and ancestors **once per note**
 
 #### State
 
-The search, filters, expanded node paths and collapsed sections are saved in the view state. `applyFilter(partial)` lets other features open the browser pre-filtered, e.g. a dashboard tile.
+The View options, search, filters, expanded node paths and collapsed sections/headings are saved in the view state. Expanded paths follow renames. `applyFilter(partial)` lets other features open the browser pre-filtered, e.g. a dashboard tile.
 
 **AC:**
-- [ ] A type with `parentFields: ["part_of"]` nests correctly, including mixed types (Region ⊃ Region ⊃ Location).
-- [ ] "Collapse all" collapses everything both with and without a filter.
-- [ ] "New Location here" on a Region creates a Location with `part_of: [[Region]]`.
-- [ ] Revealing the active note works for deeply nested notes and doesn't fight manual collapsing.
+- [x] A type with `parentFields: ["part_of"]` nests correctly, including mixed types (Project ⊃ Project, Project ⊃ Note).
+- [x] "Collapse all" collapses everything both with and without a filter.
+- [x] "New note here" on a project prefills `project: [[Project]]` and the folder `<project folder>/Notes/`.
+- [x] Revealing the active note works for deeply nested notes and doesn't fight manual collapsing.
 
 ### 8.4 Info card
 
@@ -1030,7 +1037,7 @@ Drive a real Obsidian instance via the Chrome DevTools Protocol (Obsidian starte
 | M1 ✅ | **Foundation** | Scaffold (TS, esbuild, React 19, vitest, deploy-to-test-vault script); settings with groups and types; starter pack; model modules (links, frontmatter, paths, templates, validation, card subtitle, ISO date adapter, packs); EntityIndex; EntityFactory; Create dialog with relation picker; Convert; Find entity; per-type commands; **Import entity types…** (paste a pack; brought forward from M3/M5 so types can be added before the editor exists) | Can define types (via an imported pack), create typed notes with links, find them |
 | M2 ✅ | **Relationships** | RelationIndex with inverses; `groupRelations`; `cardSections` (per-type card content); info card (both modes); Connections panel (list, filter, + Link, Mentioned in, Convert); Add/Remove link with Undo | Inverses visible on target notes; links editable without touching YAML |
 | M3 ✅ | **Entity Types view** | Full editor (§8.1): sidebar with groups, group editor (statuses with rename migration, reorder, delete when empty), General/Fields/Relationships/Display tabs, guided relationship dialog, drafts, validation, save bar with migrations, preview (dialog / picker / card), pack import/export, duplicate, reset to starter, delete; settings button, ribbon, command, file menu | Non-technical user can build a domain model end-to-end without editing JSON |
-| M4 | **Browser** | Groups, hierarchies from parent fields, filters, reveal active, collapse semantics, context menu with "New child here", state persistence | Large vaults navigable; hierarchy correct for mixed types |
+| M4 ✅ | **Browser** | Groups (or one tree), type headings, hierarchies from parent fields (cross-group option), View menu, filters with dimmed context, reveal active, collapse semantics, row/heading context menus with "New child here", state persistence | Large vaults navigable; hierarchy correct for mixed types |
 | M5 | **Packs & polish** | Type packs (bundled example pack + import/export of groups), template generation, ribbon options, accessibility pass (keyboard navigation in lists, ARIA on toggles), docs | Ready for a public/BRAT release |
 | M6+ | **Modules** | Graph, overview dashboard, bulk edit, Bases generation, domain views | Each behind a module toggle |
 

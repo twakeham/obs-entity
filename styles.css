@@ -1998,3 +1998,237 @@ button.oe-tm-typegroup-title,
 	opacity: 0;
 	pointer-events: none;
 }
+
+/* ---------- Entity browser ---------- */
+.oe-browser-view.view-content {
+	padding: 0;
+}
+
+.oe-browser {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+}
+
+.oe-browser-toolbar,
+.oe-browser-filters {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	padding: var(--size-4-2) var(--size-4-2) 0;
+}
+
+/* Every toolbar control is the same height. */
+.oe-browser-toolbar > *,
+.oe-browser-filters > * {
+	box-sizing: border-box;
+	height: var(--input-height);
+	margin: 0;
+}
+
+.oe-browser-search {
+	flex: 1;
+	min-width: 0;
+}
+
+.oe-tool {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: var(--input-height);
+	flex-shrink: 0;
+	padding: 0;
+}
+
+.oe-browser-filters select {
+	flex: 1 1 0;
+	min-width: 0;
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-browser-filterbar {
+	display: flex;
+	justify-content: space-between;
+	padding: var(--size-4-1) var(--size-4-3) 0;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.oe-browser-list {
+	flex: 1;
+	overflow-y: auto;
+	padding: var(--size-4-2) var(--size-4-1) var(--size-4-4);
+}
+
+.oe-bsection + .oe-bsection {
+	margin-top: var(--size-4-1);
+}
+
+.oe-bheading {
+	--oe-type-color: var(--text-muted);
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	min-height: 26px;
+	padding-right: var(--size-4-1);
+	border-radius: var(--radius-s);
+	cursor: pointer;
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+}
+
+.oe-bheading:hover {
+	background-color: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.oe-bsection-header {
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-semibold);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.oe-bblock-header {
+	font-weight: var(--font-semibold);
+}
+
+.oe-bheading-icon {
+	display: inline-flex;
+	color: var(--oe-type-color);
+}
+
+.oe-bheading-icon svg {
+	width: 14px;
+	height: 14px;
+}
+
+.oe-bheading-title {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.oe-bheading-count {
+	font-weight: normal;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+	letter-spacing: 0;
+}
+
+.oe-bheading-add {
+	padding: 2px;
+	opacity: 0;
+}
+
+.oe-bheading:hover .oe-bheading-add {
+	opacity: 1;
+}
+
+.oe-tree-row {
+	--oe-type-color: var(--text-muted);
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	min-height: 26px;
+	padding-right: var(--size-4-2);
+	border-radius: var(--radius-s);
+	cursor: pointer;
+	font-size: var(--font-ui-small);
+	color: var(--nav-item-color, var(--text-muted));
+}
+
+.oe-tree-row:hover {
+	background-color: var(--nav-item-background-hover, var(--background-modifier-hover));
+	color: var(--text-normal);
+}
+
+.oe-tree-row.is-active {
+	background-color: var(--nav-item-background-active, var(--background-modifier-active-hover));
+	color: var(--nav-item-color-active, var(--text-normal));
+}
+
+/* Parents shown only because a descendant matches the filter. */
+.oe-tree-row.is-context {
+	opacity: 0.55;
+}
+
+.oe-tree-toggle {
+	display: inline-flex;
+	width: 16px;
+	flex-shrink: 0;
+	justify-content: center;
+	color: var(--text-faint);
+}
+
+.oe-tree-chevron {
+	display: inline-flex;
+	color: var(--text-faint);
+}
+
+.oe-tree-chevron svg {
+	width: 12px;
+	height: 12px;
+}
+
+.oe-tree-icon {
+	display: inline-flex;
+	color: var(--oe-type-color);
+}
+
+.oe-tree-icon svg {
+	width: 14px;
+	height: 14px;
+}
+
+.oe-tree-name {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.oe-tree-count {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+
+.oe-tree-empty {
+	padding: 2px 0 4px;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+
+/* Status dot, coloured by status tone */
+.oe-dot {
+	display: inline-block;
+	flex-shrink: 0;
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background-color: var(--text-faint);
+}
+
+.oe-dot.oe-tone-done {
+	background-color: var(--color-green);
+}
+
+.oe-dot.oe-tone-active {
+	background-color: var(--color-blue);
+}
+
+.oe-dot.oe-tone-hold {
+	background-color: var(--color-orange);
+}
+
+.oe-dot.oe-tone-closed {
+	background-color: var(--background-modifier-border);
+}
+
+.oe-dot.oe-tone-none {
+	background-color: transparent;
+	border: 1px solid var(--text-faint);
+}
