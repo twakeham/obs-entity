@@ -666,11 +666,11 @@ select.oe-status {
 	overflow: hidden;
 }
 
-/* The tab's header bar matches the types sidebar, focused or not, and runs into it without a line. */
+/* The tab's header bar matches the types sidebar, focused or not, with the same single-line divider as the rest of the view. */
 .workspace-leaf-content[data-type="obs-entities-types"] {
 	--file-header-background: var(--background-secondary);
 	--file-header-background-focused: var(--background-secondary);
-	--file-header-border: none;
+	--file-header-border: 1px solid var(--background-modifier-border);
 }
 
 .oe-tm {
