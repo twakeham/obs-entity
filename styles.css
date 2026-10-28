@@ -666,10 +666,11 @@ select.oe-status {
 	overflow: hidden;
 }
 
-/* The tab's header bar matches the types sidebar, focused or not. */
+/* The tab's header bar matches the types sidebar, focused or not, and runs into it without a line. */
 .workspace-leaf-content[data-type="obs-entities-types"] {
 	--file-header-background: var(--background-secondary);
 	--file-header-background-focused: var(--background-secondary);
+	--file-header-border: none;
 }
 
 .oe-tm {
@@ -856,6 +857,8 @@ select.oe-status {
 .oe-tm-header {
 	padding: var(--size-4-4) var(--size-4-6) 0;
 	border-bottom: 1px solid var(--background-modifier-border);
+	/* Same background as the tab header and the sidebar, so the top of the view reads as one band. */
+	background-color: var(--background-secondary);
 }
 
 .oe-tm-title {
