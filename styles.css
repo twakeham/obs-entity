@@ -666,6 +666,12 @@ select.oe-status {
 	overflow: hidden;
 }
 
+/* The tab's header bar matches the types sidebar, focused or not. */
+.workspace-leaf-content[data-type="obs-entities-types"] {
+	--file-header-background: var(--background-secondary);
+	--file-header-background-focused: var(--background-secondary);
+}
+
 .oe-tm {
 	position: relative;
 	display: flex;
