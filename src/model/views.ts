@@ -116,6 +116,8 @@ export interface ViewDef {
 	types: string[];
 	columns: ColumnDef[];
 	widths: Record<string, number>;
+	/** columns that grow to fill spare width (their `widths` entry is the minimum) */
+	fill: string[];
 	/** column id → display format (numbers and dates; see formats.ts) */
 	formats: Record<string, string>;
 	sort: SortLevel[];
@@ -128,7 +130,7 @@ export interface ViewDef {
 export const NAME_COLUMN: ColumnDef = { kind: "builtin", id: "name", key: "name" };
 
 export function emptyView(types: string[] = ["*"]): ViewDef {
-	return { kind: "table", types, columns: [NAME_COLUMN], widths: {}, formats: {}, sort: [], filters: { mode: "all", items: [] }, highlight: [] };
+	return { kind: "table", types, columns: [NAME_COLUMN], widths: {}, fill: [], formats: {}, sort: [], filters: { mode: "all", items: [] }, highlight: [] };
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -253,6 +255,7 @@ export function parseView(raw: unknown): { def: ViewDef | null; errors: string[]
 
 	const widths: Record<string, number> = {};
 	if (isObj(raw.widths)) for (const [k, v] of Object.entries(raw.widths)) if (typeof v === "number" && v > 0) widths[k] = Math.round(v);
+	const fill = [...new Set(asArray(raw.fill).filter((v): v is string => typeof v === "string" && !!v.trim()).map((v) => v.trim()))];
 	const formats: Record<string, string> = {};
 	if (isObj(raw.formats)) for (const [k, v] of Object.entries(raw.formats)) if (typeof v === "string" && v.trim()) formats[k] = v;
 
@@ -268,7 +271,7 @@ export function parseView(raw: unknown): { def: ViewDef | null; errors: string[]
 	const filters = parseFilterItems(raw.filters, errors, 0) ?? { mode: "all", items: [] };
 	const highlight = parseHighlight(raw.highlight, errors);
 	if (errors.length && !VIEW_KINDS.includes(kind)) return { def: null, errors };
-	return { def: { kind, types: types.length ? types : ["*"], columns, widths, formats, sort, ...(group ? { group } : {}), filters, highlight }, errors };
+	return { def: { kind, types: types.length ? types : ["*"], columns, widths, fill, formats, sort, ...(group ? { group } : {}), filters, highlight }, errors };
 }
 
 const isColor = (v: unknown): v is HighlightColor => HIGHLIGHT_COLORS.includes(v as HighlightColor);
@@ -326,6 +329,8 @@ export function serializeView(def: ViewDef): Record<string, unknown> {
 	const out: Record<string, unknown> = { kind: def.kind, types: def.types, columns: def.columns.map(serializeColumn) };
 	const widths = Object.fromEntries(Object.entries(def.widths).filter(([id]) => def.columns.some((c) => c.id === id)));
 	if (Object.keys(widths).length) out.widths = widths;
+	const fill = (def.fill ?? []).filter((id) => def.columns.some((c) => c.id === id));
+	if (fill.length) out.fill = fill.length === 1 ? fill[0] : fill;
 	const formats = Object.fromEntries(Object.entries(def.formats ?? {}).filter(([id]) => def.columns.some((c) => c.id === id)));
 	if (Object.keys(formats).length) out.formats = formats;
 	if (def.sort.length) out.sort = def.sort.map((s) => ({ by: s.by, dir: s.dir }));
@@ -336,6 +341,26 @@ export function serializeView(def: ViewDef): Record<string, unknown> {
 			const style = Object.fromEntries(Object.entries(r.style).filter(([, v]) => v !== undefined && v !== false && v !== ""));
 			return { ...(r.name ? { name: r.name } : {}), target: r.target, when: serializeFilters(r.when), style, ...(r.off ? { off: true } : {}) };
 		});
+	return out;
+}
+
+/**
+ * Column widths with fill columns sharing the spare width (`available` minus the sum of every width, `extra`
+ * included for fixed parts like the selection column), in proportion to their own widths. Rounded to whole
+ * pixels; the last fill column takes the remainder, so the total meets `available` exactly.
+ */
+export function fillWidths(cols: { id: string; w: number }[], fill: string[], available: number, extra = 0): Record<string, number> {
+	const out = Object.fromEntries(cols.map((c) => [c.id, c.w]));
+	const flex = cols.filter((c) => fill.includes(c.id));
+	const spare = Math.floor(available - extra - cols.reduce((n, c) => n + c.w, 0));
+	if (!flex.length || spare <= 0) return out;
+	const total = flex.reduce((n, c) => n + c.w, 0) || 1;
+	let given = 0;
+	flex.forEach((c, i) => {
+		const add = i === flex.length - 1 ? spare - given : Math.floor((spare * c.w) / total);
+		given += add;
+		out[c.id] = c.w + add;
+	});
 	return out;
 }
 

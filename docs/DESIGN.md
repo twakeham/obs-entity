@@ -990,7 +990,8 @@ filters: { all: [{ field: status, op: is-not, value: done }] }
 | `kind` | `table` (later `board`, `gallery`, `calendar`) |
 | `types` | Type keys, `@group`, or `*` (all entities), like relation targets. Default `*`. |
 | `columns` | Ordered columns (below). `name` is always first, and is added if missing. |
-| `widths` | Column id → width in px. |
+| `widths` | Column id → width in px. For fill columns, the minimum width. |
+| `fill` | A column id, or a list of them, that grows to fill spare width (see Table). Optional. |
 | `sort` | Sort levels: `{ by: <column id>, dir: asc \| desc }`. |
 | `group` | `{ by: <column id>, date?: month \| year }`. Optional. |
 | `filters` | `{ all: [...] }` or `{ any: [...] }`. Items are conditions, or one level of nested groups. |
@@ -1105,6 +1106,11 @@ highlight:
 
 - **Toolbar:** quick search · Filters (n) · Sort (n) · Group · Highlight (n) · Columns · ⋯ (Save as…, Rename, Edit definition, Copy block).
 - **Header:** sort arrows. Drag a header to reorder, and drag its right edge to resize.
+- **Fill columns:** right-click a header → **Fill available width** (a checked toggle).
+  - A fill column keeps its width as a minimum and grows to take the row's spare width, following the pane as it's resized. Several fill columns share the spare width in proportion to their widths.
+  - While a column fills, the filler column is 0 wide. When the pane is too narrow, columns keep their minimums and the table scrolls sideways.
+  - Dragging a fill column's edge sets its minimum: the drag shows the minimum, and the column fills again when released. Widening another column takes width from the fill column.
+  - Hiding a column turns its fill off. `fillWidths` (pure, tested) does the sharing; the table measures the scroll area with a ResizeObserver.
 - **Rows:**
   - A selection checkbox.
   - The name: click opens the note; Ctrl/Cmd-click opens it in a new tab; Ctrl + hover previews.
@@ -1276,6 +1282,7 @@ These cover all of `model/`, with no Obsidian dependency:
   - prefill from filters
   - formats: parse/serialize, formatted cells and group labels, sorting on raw values
   - highlight: parse/serialize and errors, first-match precedence for rows and cells, disabled rules, hidden fields in conditions, hidden target columns, unusable conditions, match counts
+  - fill columns: parse/serialize as a name or list, proportional sharing, rounding to the exact width, nothing when there's no spare width
 - **formats:** date presets, custom and relative dates; number presets, currencies, custom patterns and their errors.
 - **viewBlock:** finding blocks, and replacing one by line or content, keeping callout prefixes, CRLF, longer fences, and closing an unclosed block.
 - **validation:** every row of §9, with the right `at`.

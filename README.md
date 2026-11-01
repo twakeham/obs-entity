@@ -198,6 +198,7 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
   - **incoming links**, e.g. "People" on organisations
   - **roll-ups**
   - Drag headers to reorder, and drag their edges to resize.
+  - Right-click a header → **Fill available width** to make that column stretch to use the spare width, e.g. a long Description or Mitigation column. Its width becomes a minimum: in a narrow pane it stays at that width and the table scrolls.
 - **⋯:** Save as…, Rename, Edit definition, Copy block.
 
 **Formats:** right-click a number or date column's header → **Format…**.

@@ -9,6 +9,7 @@ import {
 	columnFromId,
 	cycleSort,
 	dateValue,
+	fillWidths,
 	highlightOf,
 	parseView,
 	prefillFromFilters,
@@ -225,6 +226,29 @@ describe("formats", () => {
 		expect(g).toEqual(["December 2026", "March 2027", ""]);
 		const rel = runView(view({ types: ["project"], columns: ["due"], formats: { due: "relative" }, sort: [{ by: "due", dir: "asc" }] }), ROWS, ctx).rows.map((x) => x.cells.due.text);
 		expect(rel.slice(0, 2)).toEqual(["in 4 weeks", "in 5 months"]);
+	});
+});
+
+describe("fill columns", () => {
+	it("round-trip as a name or a list, dropping removed columns", () => {
+		expect(view({ columns: ["status", "due"], fill: "due" }).fill).toEqual(["due"]);
+		expect(serializeView(view({ columns: ["status", "due"], fill: "due" })).fill).toBe("due");
+		expect(serializeView(view({ columns: ["status", "due"], fill: ["status", "due", "status", "gone", 3] })).fill).toEqual(["status", "due"]);
+		expect(serializeView(view({ columns: ["status"] })).fill).toBeUndefined();
+	});
+
+	it("share spare width in proportion, never below their own width", () => {
+		const cols = [
+			{ id: "name", w: 200 },
+			{ id: "a", w: 100 },
+			{ id: "b", w: 300 },
+		];
+		expect(fillWidths(cols, [], 1000)).toEqual({ name: 200, a: 100, b: 300 });
+		expect(fillWidths(cols, ["b"], 1000, 36)).toEqual({ name: 200, a: 100, b: 664 });
+		const two = fillWidths(cols, ["a", "b"], 1001.6);
+		expect(two).toEqual({ name: 200, a: 200, b: 601 });
+		expect(Object.values(two).reduce((n, w) => n + w, 0)).toBe(1001);
+		expect(fillWidths(cols, ["b"], 500)).toEqual({ name: 200, a: 100, b: 300 });
 	});
 });
 

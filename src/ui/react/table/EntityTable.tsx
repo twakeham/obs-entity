@@ -7,6 +7,7 @@ import {
 	availableColumns,
 	cellOf,
 	cycleSort,
+	fillWidths,
 	formatKind,
 	filterFields,
 	highlightOf,
@@ -78,6 +79,8 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	const [dragCol, setDragCol] = useState<string | null>(null);
 	const [scrollTop, setScrollTop] = useState(session.scrollTop);
 	const [viewport, setViewport] = useState(600);
+	/** the scroll area's inner width, for fill columns */
+	const [areaW, setAreaW] = useState(0);
 	const [showWarnings, setShowWarnings] = useState(false);
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const defRef = useRef(def);
@@ -180,7 +183,10 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	useEffect(() => {
 		const el = scrollRef.current;
 		if (!el) return;
-		const ro = new ResizeObserver(() => setViewport(el.clientHeight || 600));
+		const ro = new ResizeObserver(() => {
+			setViewport(el.clientHeight || 600);
+			setAreaW(el.clientWidth);
+		});
 		ro.observe(el);
 		el.scrollTop = session.scrollTop;
 		return () => ro.disconnect();
@@ -205,7 +211,11 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	const toggleColumn = (c: ColumnDef, on: boolean) => {
 		if (c.id === "name") return;
 		const cur = defRef.current;
-		update({ ...cur, columns: on ? (cur.columns.some((x) => x.id === c.id) ? cur.columns : [...cur.columns, c]) : cur.columns.filter((x) => x.id !== c.id) });
+		update({
+			...cur,
+			columns: on ? (cur.columns.some((x) => x.id === c.id) ? cur.columns : [...cur.columns, c]) : cur.columns.filter((x) => x.id !== c.id),
+			fill: on ? cur.fill : (cur.fill ?? []).filter((id) => id !== c.id),
+		});
 	};
 	const rollupDialog = (existing: Extract<ColumnDef, { kind: "rollup" }> | null) =>
 		new RollupModal(plugin, defRef.current, existing, (col) => {
@@ -272,6 +282,21 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					}),
 			);
 		const fk = formatKind(c);
+		{
+			const on = (def.fill ?? []).includes(c.id);
+			m.addItem((i) =>
+				i
+					.setSection("width")
+					.setTitle("Fill available width")
+					.setIcon("move-horizontal")
+					.setChecked(on)
+					.onClick(() => {
+						const cur = defRef.current;
+						const fill = cur.fill ?? [];
+						update({ ...cur, fill: on ? fill.filter((id) => id !== c.id) : [...fill, c.id] });
+					}),
+			);
+		}
 		if (fk) {
 			const th = e.currentTarget as HTMLElement;
 			m.addItem((i) =>
@@ -495,7 +520,14 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	// ---- render
 	const typeLabel = def.types.includes("*") ? "All entities" : def.types.map((k) => (k.startsWith("@") ? (lookup.groups.find((g) => `@${g.key}` === k)?.name ?? k) : (lookup.types.find((t) => t.key === k)?.plural ?? k))).join(", ");
 	const conditions = filterFields(def.filters).length;
-	const tableWidth = SELECT_W + columns.reduce((n, c) => n + widthOf(c), 0);
+	// Fill columns share the spare width; one being resized shows the minimum being set until it's released.
+	const shownW = fillWidths(
+		columns.map((c) => ({ id: c.id, w: widthOf(c) })),
+		(def.fill ?? []).filter((id) => liveWidth?.id !== id),
+		areaW,
+		SELECT_W,
+	);
+	const tableWidth = SELECT_W + columns.reduce((n, c) => n + shownW[c.id], 0);
 	const editRow = editing ? plugin.index.get(editing.path) : undefined;
 	const formatCol = pop?.name === "format" ? columns.find((c) => c.id === pop.col) : undefined;
 	/** a real value from the column for format examples (today / 1234.5 when the column is empty) */
@@ -545,7 +577,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					<colgroup>
 						<col style={{ width: SELECT_W }} />
 						{columns.map((c) => (
-							<col key={c.id} style={{ width: widthOf(c) }} />
+							<col key={c.id} style={{ width: shownW[c.id] }} />
 						))}
 						<col />
 					</colgroup>
