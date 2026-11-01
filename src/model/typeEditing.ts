@@ -50,7 +50,7 @@ export function finaliseType(t: EntityTypeDef): EntityTypeDef {
 }
 
 /**
- * Keep references to a field (subtitle, card fields, parent fields) in step when its key changes.
+ * Keep references to a field (subtitle, parent fields) in step when its key changes.
  * `to` null means the field was deleted.
  */
 export function renameFieldRefs(t: EntityTypeDef, from: string, to: string | null): void {
@@ -61,10 +61,7 @@ export function renameFieldRefs(t: EntityTypeDef, from: string, to: string | nul
 		return out.filter((k, i) => out.indexOf(k) === i);
 	};
 	t.parentFields = swap(t.parentFields);
-	if (t.card) {
-		t.card.subtitle = swap(t.card.subtitle);
-		t.card.fields = swap(t.card.fields);
-	}
+	if (t.card) t.card.subtitle = swap(t.card.subtitle);
 }
 
 export interface FieldChanges {

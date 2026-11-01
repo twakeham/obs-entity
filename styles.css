@@ -439,42 +439,55 @@ select.oe-status {
 	color: var(--text-faint);
 }
 
-/* ---------- Info card ---------- */
-.oe-card-host {
+/* ---------- Entity properties form ---------- */
+/* On entity notes the form replaces Obsidian's Properties block (Source mode keeps the raw YAML). */
+.oe-has-form {
+	--metadata-display-editing: none;
+	--metadata-display-reading: none;
+}
+
+.oe-has-form .markdown-source-view.is-live-preview.show-properties .metadata-container:not(.mod-error),
+.oe-has-form .markdown-reading-view .metadata-container:not(.mod-error) {
+	display: none;
+}
+
+.oe-form-host {
 	/* keep inside the readable line width like the rest of the note */
 	max-width: var(--file-line-width);
 	margin-left: auto;
 	margin-right: auto;
 }
 
-.markdown-source-view:not(.is-live-preview) .oe-card-host {
+.markdown-source-view:not(.is-live-preview) .oe-form-host {
 	display: none;
 }
 
-.markdown-source-view.mod-cm6 .cm-sizer > .oe-card-host {
+.markdown-source-view.mod-cm6 .cm-sizer > .oe-form-host {
 	width: 100%;
 }
 
-.oe-card {
+.oe-form {
 	--oe-type-color: var(--text-muted);
+	--oe-row-height: 28px;
 	margin: var(--size-4-2) 0 var(--size-4-4);
-	padding: var(--size-4-2) var(--size-4-3);
-	border: 1px solid var(--background-modifier-border);
-	border-left: 3px solid var(--oe-type-color);
-	border-radius: var(--radius-m);
-	background-color: var(--background-secondary);
-	font-size: var(--font-ui-small);
+	padding-bottom: var(--size-4-2);
+	border-bottom: 1px solid var(--background-modifier-border);
 	font-family: var(--font-interface);
+	font-size: var(--font-ui-small);
 }
 
-.oe-card-top {
+.oe-form.is-collapsed {
+	padding-bottom: var(--size-4-1);
+}
+
+.oe-form-top {
 	display: flex;
 	align-items: center;
 	gap: var(--size-4-2);
-	min-height: 26px;
+	min-height: var(--oe-row-height);
 }
 
-.oe-card-type {
+.oe-form-type {
 	display: inline-flex;
 	align-items: center;
 	gap: var(--size-4-1);
@@ -483,7 +496,7 @@ select.oe-status {
 	color: var(--oe-type-color);
 }
 
-.oe-card-subtitle {
+.oe-form-subtitle {
 	flex: 1;
 	min-width: 0;
 	color: var(--text-muted);
@@ -492,70 +505,408 @@ select.oe-status {
 	white-space: nowrap;
 }
 
-.oe-card-spacer {
-	flex: 1;
-}
-
-.oe-card-actions {
+.oe-form-actions {
 	display: inline-flex;
 	flex-shrink: 0;
 	gap: 2px;
 }
 
-.oe-card-body {
+.oe-form-actions .clickable-icon.is-active {
+	color: var(--interactive-accent);
+}
+
+.oe-form button.oe-form-problems {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	flex-shrink: 0;
+	height: auto;
+	padding: 1px 8px;
+	border-radius: 999px;
+	box-shadow: none;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-error);
+	background-color: color-mix(in srgb, var(--color-red) 12%, transparent);
+}
+
+.oe-status-pill {
+	display: inline-block;
+	padding: 0 8px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 999px;
+	font-size: var(--font-ui-smaller);
+	line-height: 1.6;
+}
+
+.oe-status.is-invalid,
+.oe-status-pill.is-invalid {
+	box-shadow: 0 0 0 1px var(--text-error);
+}
+
+.oe-form-body {
+	margin-top: var(--size-4-1);
+}
+
+.oe-form-rows {
 	display: flex;
 	flex-direction: column;
+	gap: 1px;
+}
+
+/* One property per row: label | value | menu, like Obsidian's Properties block. */
+.oe-prop {
+	display: grid;
+	grid-template-columns: minmax(8em, 30%) minmax(0, 1fr) auto;
+	align-items: start;
 	gap: var(--size-4-2);
-	margin-top: var(--size-4-2);
-	padding-top: var(--size-4-2);
-	border-top: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
 }
 
-.oe-card-fields {
+.oe-prop-label {
 	display: flex;
-	flex-wrap: wrap;
-	gap: var(--size-4-1) var(--size-4-4);
-}
-
-.oe-card-field-label {
+	align-items: center;
+	gap: var(--size-4-1);
+	min-width: 0;
+	min-height: var(--oe-row-height);
+	padding-left: 2px;
 	color: var(--text-muted);
-	margin-right: var(--size-4-1);
 }
 
-.oe-card-field-label::after {
-	content: ":";
-}
-
-.oe-card-field.is-empty .oe-card-field-value,
-.oe-row-none {
-	color: var(--text-faint);
-}
-
-.oe-row {
-	display: flex;
-	align-items: baseline;
-	gap: var(--size-4-2);
-}
-
-.oe-row-title {
-	flex: 0 0 8.5em;
-	color: var(--text-muted);
+.oe-prop-name {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
-.oe-row-items {
+.oe-prop-icon {
+	display: inline-flex;
+	flex-shrink: 0;
+	color: var(--text-faint);
+}
+
+.oe-prop-icon svg {
+	width: 14px;
+	height: 14px;
+}
+
+.oe-prop-required {
+	color: var(--text-error);
+}
+
+.oe-prop-value {
 	display: flex;
+	align-items: center;
 	flex-wrap: wrap;
-	gap: var(--size-4-1);
+	gap: var(--size-4-1) var(--size-4-2);
+	min-width: 0;
+	min-height: var(--oe-row-height);
+	padding: 0 2px;
+	border-radius: var(--radius-s);
+}
+
+.oe-prop-empty {
+	padding: 0 6px;
+	color: var(--text-faint);
+}
+
+.oe-prop-text {
+	padding: 4px 6px;
+	overflow-wrap: anywhere;
+}
+
+.oe-prop-text.is-multiline {
+	white-space: pre-wrap;
+}
+
+.oe-prop-code {
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
+}
+
+/* Values look like text until hovered or focused, as in Obsidian's Properties block. */
+.oe-form input.oe-prop-input,
+.oe-form textarea.oe-prop-input,
+.oe-form input.oe-prop-add {
+	flex: 1 1 6em;
+	min-width: 6em;
+	width: 100%;
+	height: var(--oe-row-height);
+	padding: 2px 6px;
+	border: 1px solid transparent;
+	border-radius: var(--radius-s);
+	background-color: transparent;
+	box-shadow: none;
+	font-size: var(--font-ui-small);
+}
+
+.oe-form textarea.oe-prop-input {
+	height: auto;
+	min-height: var(--oe-row-height);
+	padding: 4px 6px;
+	resize: vertical;
+	font-family: inherit;
+	line-height: var(--line-height-tight);
+}
+
+.oe-form .oe-prop-input:hover,
+.oe-form .oe-prop-add:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.oe-form .oe-prop-input:focus,
+.oe-form .oe-prop-add:focus {
+	border-color: var(--background-modifier-border-focus);
+	background-color: var(--background-primary);
+	box-shadow: none;
+}
+
+.oe-form .oe-prop-input::placeholder,
+.oe-form .oe-prop-add::placeholder {
+	color: var(--text-faint);
+}
+
+.oe-prop-inline {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	flex: 1;
 	min-width: 0;
 }
 
-.oe-row-more {
+/* Dates and URLs: the button sits right after the value rather than at the far edge. */
+.oe-form .oe-prop-inline input.oe-prop-input {
+	flex: 0 1 16em;
+}
+
+.oe-form select.oe-prop-select {
+	max-width: 100%;
+	height: var(--oe-row-height);
+	font-size: var(--font-ui-small);
+}
+
+.oe-form input.oe-prop-check {
+	margin: 6px;
+}
+
+.oe-prop-chips,
+.oe-prop-pills,
+.oe-prop-options {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--size-4-1);
+	flex: 1;
+	min-width: 0;
+	padding: 3px 0;
+}
+
+.oe-prop-chips input.oe-prop-add {
+	height: 24px;
+}
+
+.oe-prop-chip {
+	display: inline-flex;
+	align-items: center;
+	max-width: 100%;
+	border-radius: var(--radius-m);
+}
+
+/* The × sits inside the chip, after the name. */
+.oe-chip-link .oe-chip-remove {
+	margin-left: 2px;
+	margin-right: -2px;
+}
+
+.oe-pill-x svg {
+	width: 12px;
+	height: 12px;
+}
+
+/* Links set on the other note (fields that read both ways). */
+.oe-prop-chip.is-incoming .oe-chip {
+	border-style: dotted;
+}
+
+.oe-prop-chip.has-problem.is-error .oe-chip {
+	border-color: var(--text-error);
+}
+
+.oe-prop-chip.has-problem.is-warning .oe-chip {
+	border-color: var(--color-orange);
+}
+
+.oe-pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	padding: 1px 8px;
+	border-radius: 999px;
+	background-color: var(--background-modifier-hover);
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-pill.is-tag {
+	color: var(--tag-color);
+	background-color: var(--tag-background);
+}
+
+.oe-pill.is-removable {
+	padding-right: 4px;
+}
+
+.oe-pill:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px var(--background-modifier-border-focus);
+}
+
+.oe-pill-x {
+	display: inline-flex;
+	cursor: pointer;
+	color: var(--text-faint);
+}
+
+.oe-pill-x:hover {
+	color: var(--text-error);
+}
+
+.oe-form .oe-option {
+	height: auto;
+	padding: 1px 10px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 999px;
+	box-shadow: none;
+	background-color: var(--background-primary);
 	font-size: var(--font-ui-smaller);
 	color: var(--text-muted);
-	align-self: center;
+}
+
+.oe-form .oe-option.is-active {
+	border-color: var(--interactive-accent);
+	background-color: color-mix(in srgb, var(--interactive-accent) 15%, var(--background-primary));
+	color: var(--text-normal);
+}
+
+.oe-form .oe-option.is-invalid {
+	border-color: var(--text-error);
+	background-color: color-mix(in srgb, var(--color-red) 10%, var(--background-primary));
+}
+
+/* Problems: an outline round the value, an icon whose tooltip explains, and a Fix button when there is one. */
+.oe-prop.has-problem.is-error > .oe-prop-value {
+	box-shadow: inset 0 0 0 1px var(--text-error);
+}
+
+.oe-prop.has-problem.is-warning > .oe-prop-value {
+	box-shadow: inset 0 0 0 1px var(--color-orange);
+}
+
+.oe-prop-problem {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	padding-right: 4px;
+}
+
+.oe-prop-problem-icon {
+	display: inline-flex;
+	color: var(--text-error);
+	cursor: help;
+}
+
+.oe-prop.is-warning .oe-prop-problem-icon {
+	color: var(--color-orange);
+}
+
+.oe-form button.oe-prop-fix {
+	height: auto;
+	padding: 1px 8px;
+	box-shadow: none;
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-form .oe-prop-menu {
+	height: auto;
+	margin-top: 4px;
+	padding: 2px;
+	visibility: hidden;
+}
+
+.oe-prop:hover .oe-prop-menu,
+.oe-form .oe-prop-menu:focus-visible {
+	visibility: visible;
+}
+
+.oe-form button.oe-form-more,
+.oe-form button.oe-form-other-toggle,
+.oe-form button.oe-form-addprop {
+	display: inline-flex;
+	align-items: center;
+	align-self: flex-start;
+	gap: 4px;
+	height: auto;
+	padding: 2px 4px;
+	border: none;
+	box-shadow: none;
+	background: none;
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+	cursor: pointer;
+}
+
+.oe-form button.oe-form-more:hover,
+.oe-form button.oe-form-other-toggle:hover,
+.oe-form button.oe-form-addprop:hover {
+	color: var(--text-normal);
+}
+
+.oe-form-other {
+	margin-top: var(--size-4-1);
+}
+
+.oe-form-count {
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-form input.oe-form-addprop-input {
+	max-width: 16em;
+}
+
+/* Phones: label above value. */
+.is-phone .oe-prop {
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 0 var(--size-4-2);
+}
+
+.is-phone .oe-prop-label {
+	grid-column: 1 / -1;
+	min-height: auto;
+	padding-top: var(--size-4-1);
+}
+
+/* Type editor preview */
+.oe-tm-formpreview {
+	max-width: 760px;
+}
+
+.oe-tm-formpreview .oe-form {
+	margin: 0;
+}
+
+/* Check entities */
+.oe-check-item {
+	align-items: flex-start;
+}
+
+.oe-check-problems {
+	margin: 2px 0 0;
+	padding-left: 1.2em;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.oe-check-problems li.is-error {
+	color: var(--text-error);
 }
 
 /* ---------- Connections panel ---------- */
@@ -1692,11 +2043,6 @@ select.oe-status {
 	max-height: 300px;
 	overflow-y: auto;
 	padding: var(--size-4-2) var(--size-4-6) var(--size-4-4);
-}
-
-.oe-tm-card {
-	max-width: 760px;
-	margin: 0;
 }
 
 .oe-tm-card-note {

@@ -35,7 +35,7 @@ const ship: EntityTypeDef = {
 	template: "Ship.md",
 	builtIn: false,
 	parentFields: ["fleet"],
-	card: { subtitle: ["guns"], fields: ["captain", "guns"] },
+	card: { subtitle: ["guns", "launched"] },
 	fields: [
 		{ key: "captain", label: "Captain", kind: "relation", targets: ["person"], inverse: "Captain of" },
 		{ key: "launched", label: "Launched", kind: "date" },
@@ -81,16 +81,16 @@ describe("type drafts", () => {
 		expect(t).not.toHaveProperty("parentFields");
 	});
 
-	it("keeps subtitle, card fields and parent fields in step with key changes", () => {
+	it("keeps subtitle and parent fields in step with key changes", () => {
 		const t = cloneType(ship);
 		renameFieldRefs(t, "guns", "cannons");
 		renameFieldRefs(t, "fleet", "squadron");
-		expect(t.card).toEqual({ subtitle: ["cannons"], fields: ["captain", "cannons"] });
+		expect(t.card).toEqual({ subtitle: ["cannons", "launched"] });
 		expect(t.parentFields).toEqual(["squadron"]);
 		renameFieldRefs(t, "cannons", null);
-		expect(t.card).toEqual({ subtitle: [], fields: ["captain"] });
-		renameFieldRefs(t, "captain", "squadron");
-		expect(t.card?.fields).toEqual(["squadron"]);
+		expect(t.card).toEqual({ subtitle: ["launched"] });
+		renameFieldRefs(t, "launched", "squadron");
+		expect(t.card?.subtitle).toEqual(["squadron"]);
 	});
 });
 

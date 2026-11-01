@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cardSections, urlHref } from "../src/model/card";
-import { isoDateAdapter } from "../src/model/dates";
+import { urlHref } from "../src/model/card";
 import { CRM_PACK, STARTER_PACK } from "../src/model/packs";
 import { addLink, extractEdges, groupRelations, removeLink, type Edge } from "../src/model/relations";
 import type { EntityTypeDef } from "../src/model/types";
@@ -108,57 +107,6 @@ describe("groupRelations", () => {
 		const incoming = edgesOf(files.Apollo, "project", { owner: "[[Ada]]" });
 		const titles = groupRelations(files.Ada, adaEdges, incoming, { fieldOrder: order("person"), typeName }).map((g) => g.title);
 		expect(titles).toEqual(["Works for", "Based in", "Friend", "Knows", "Mentor", "Owns projects", "Related"]);
-	});
-});
-
-describe("cardSections", () => {
-	const adaFm = { role: "CTO", email: "ada@example.com", phone: null, birthday: "1815-12-10", works_for: "[[Acme]]" };
-	const incoming = edgesOf(files.Apollo, "project", { owner: "[[Ada]]" });
-	const groups = groupRelations(files.Ada, adaEdges, incoming, { fieldOrder: order("person"), typeName });
-	const describe_ = (s: ReturnType<typeof cardSections>) =>
-		s.map((x) => (x.kind === "field" ? `${x.label}: ${x.value}` : x.kind === "relation" ? `[${x.group.title}]` : `[${x.label}: —]`));
-
-	it("defaults to filled fields (minus subtitle fields) then every relation group", () => {
-		const sections = cardSections(T("person"), adaFm, groups, isoDateAdapter);
-		expect(sections[0]).toMatchObject({ key: "email", href: "mailto:ada@example.com" });
-		expect(describe_(sections)).toEqual([
-			"Email: ada@example.com",
-			"Birthday: 10 December 1815",
-			"[Works for]",
-			"[Based in]",
-			"[Friend]",
-			"[Knows]",
-			"[Mentor]",
-			"[Owns projects]",
-			"[Related]",
-		]);
-	});
-
-	it("hides incoming-only groups when incoming is off", () => {
-		const t = { ...T("person"), card: { subtitle: ["role"], incoming: false } };
-		expect(describe_(cardSections(t, adaFm, groups, isoDateAdapter))).not.toContain("[Owns projects]");
-		expect(describe_(cardSections(t, adaFm, groups, isoDateAdapter))).toContain("[Related]");
-	});
-
-	it("follows card.fields order, placing relation groups in position, then incoming groups", () => {
-		const t = { ...T("person"), card: { subtitle: ["role"], fields: ["knows", "role", "phone", "works_for"] } };
-		expect(describe_(cardSections(t, adaFm, groups, isoDateAdapter))).toEqual([
-			"[Friend]",
-			"[Knows]",
-			"[Mentor]",
-			"Role: CTO",
-			"[Works for]",
-			"[Owns projects]",
-		]);
-	});
-
-	it("shows empty listed fields when showEmpty is on, and Related when listed", () => {
-		const t = { ...T("person"), card: { fields: ["phone", "based_in", "related"], showEmpty: true, incoming: false } };
-		const sections = cardSections(t, adaFm, [], isoDateAdapter);
-		expect(describe_(sections)).toEqual(["Phone: —", "[Based in: —]", "[Related: —]"]);
-		expect(sections[0]).toMatchObject({ empty: true });
-		const withRelated = cardSections({ ...t, card: { fields: ["related"] } }, adaFm, groups, isoDateAdapter);
-		expect(describe_(withRelated)).toEqual(["[Related]", "[Owns projects]"]);
 	});
 });
 

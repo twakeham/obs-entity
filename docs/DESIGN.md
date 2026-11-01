@@ -1,6 +1,6 @@
 # Obsidian Entities — Design
 
-A design for a **generic, domain-agnostic entity plugin for Obsidian**: user-defined entity types, a visual type editor, a create dialog, a hierarchical entity browser, typed relationships with computed inverses, an info card on each note, and a Connections panel.
+A design for a **generic, domain-agnostic entity plugin for Obsidian**: user-defined entity types, a visual type editor, a create dialog, a hierarchical entity browser, typed relationships with computed inverses, a properties form on each note that replaces Obsidian's Properties block, and a Connections panel.
 
 It is distilled from **Story Forge**, a worldbuilding / tabletop campaign plugin that has these pieces running in production. The domain-specific parts of Story Forge are left out: its fantasy calendar, timeline, storyline board, family trees, faction grid and D&D vocabulary. Everything here works for any domain:
 - a research knowledge base (Paper, Author, Concept, Dataset)
@@ -9,7 +9,7 @@ It is distilled from **Story Forge**, a worldbuilding / tabletop campaign plugin
 - a software architecture catalogue (Service, Team, API)
 - a worldbuilding vault
 
-> **Name:** *Obsidian Entities*. Plugin id `obs-entities`, CSS prefix `oe-`, project folder `obs-entity`. **Decided:** the frontmatter type key is `entity`, and there is no common `summary` property; each type configures its card (§4.5).
+> **Name:** *Obsidian Entities*. Plugin id `obs-entities`, CSS prefix `oe-`, project folder `obs-entity`. **Decided:** the frontmatter type key is `entity`, and there is no common `summary` property; each type picks its subtitle fields (§4.5).
 
 ---
 
@@ -26,7 +26,7 @@ It is distilled from **Story Forge**, a worldbuilding / tabletop campaign plugin
    1. [Entity Types view (the type editor)](#81-entity-types-view-the-type-editor)
    2. [Create Entity dialog](#82-create-entity-dialog)
    3. [Entity Browser](#83-entity-browser)
-   4. [Info card](#84-info-card)
+   4. [Entity properties form](#84-entity-properties-form)
    5. [Connections panel](#85-connections-panel)
    6. [Find entity (switcher)](#86-find-entity-switcher)
    7. [Convert, commands, menus, ribbon](#87-convert-commands-menus-ribbon)
@@ -54,7 +54,7 @@ It is distilled from **Story Forge**, a worldbuilding / tabletop campaign plugin
 - **Typed, bidirectional relationships.** Only the forward link is written. The inverse ("Members" for "Member of") is computed and shown on the other note.
 - **Fast creation.** A create dialog with type-aware fields, fuzzy relation pickers and inline "create the linked note too".
 - **Browsing.** A sidebar browser grouped by type, with configurable hierarchies (parent fields), filters and "new child here".
-- **Context on every note.** An info card at the top of entity notes, plus a Connections panel in the sidebar.
+- **Context on every note.** A properties form at the top of entity notes that only accepts values the type allows, plus a Connections panel in the sidebar.
 - **Domain neutrality.** No built-in vocabulary. The plugin ships with an empty type list or an optional example pack. Domains are added as importable **type packs** (JSON).
 
 ### Non-goals (v1)
@@ -98,7 +98,7 @@ It is distilled from **Story Forge**, a worldbuilding / tabletop campaign plugin
 ### 3.1 Notes
 
 - One entity is one Markdown file. The file name is the entity name (sanitised; §7.3).
-- Frontmatter holds every field of the type. Empty fields are written as empty values (`null`, `[]`, `false`), so they show up in Obsidian's Properties panel ready to fill in.
+- Frontmatter holds every field of the type. Empty fields are written as empty values (`null`, `[]`, `false`), so they show up in the properties form (or Obsidian's Properties block) ready to fill in.
 - The body comes from the type's template (§7.4).
 
 ### 3.2 Common keys
@@ -116,7 +116,7 @@ These property names are **fixed** (not configurable) and defined once in `COMMO
 
 Common keys are **reserved**: a type's field may not use them (§9).
 
-There is deliberately **no common `summary` / description property**. Each type decides what describes it. For example, a Person might be described by its `role` field, and a Deal by its `description` field. Each type also decides what its card shows; see §4.5.
+There is deliberately **no common `summary` / description property**. Each type decides what describes it. For example, a Person might be described by its `role` field, and a Deal by its `description` field. See §4.5.
 
 ### 3.3 Link encoding
 
@@ -180,7 +180,7 @@ Appendix A has the full interfaces; this section explains them.
 | `key` | `^[a-z][a-z0-9_]*$`. Written into notes as `entity: <key>`, so it's **immutable once saved**. |
 | `name`, `plural` | Display names. `plural` defaults to `name + "s"`. |
 | `icon` | A Lucide icon id (Obsidian's `getIconIds()` without the `lucide-` prefix). |
-| `color` | `#rrggbb`. It tints chips, cards, browser icons and graph nodes. |
+| `color` | `#rrggbb`. It tints chips, the properties form, browser icons and graph nodes. |
 | `group` | A group key (§4.3). |
 | `folderPattern`, `folderMode` | See §3.4. `folderPattern` is an optional exception to the global folder pattern; `folderMode` is the own/parent folder rule. |
 | `template` | A file name in the templates folder. Defaults to `<name>.md`. A built-in template is used until the file exists. |
@@ -188,7 +188,8 @@ Appendix A has the full interfaces; this section explains them.
 | `shortcuts` | Switcher prefixes, e.g. `["npc"]`, so `npc ada` filters to people. |
 | `statuses` | Optional override of the group's status list. |
 | `parentFields` | Relation field keys that point at this entity's **parent**, in priority order. The browser builds trees from them (§8.3). |
-| `card` | What the info card and other compact displays show for this type (§4.5). |
+| `card` | The subtitle fields: the one-line description in compact displays (§4.5). |
+| `form` | Properties form options for this type, e.g. `hideEmpty` (§4.5, §8.4). |
 | `fields` | Ordered field definitions (§4.2). |
 | `builtIn`, `pack` | Where the type came from: a pack id, if installed from a pack, so "Reset to pack default" works. |
 
@@ -214,10 +215,8 @@ Options common to all kinds:
 | `key`, `label` | `key` follows `^[a-z][a-z0-9_]*$` and isn't reserved. While a field is new, its key follows its label automatically. |
 | `description` | Help text shown under the control. |
 | `inModal` | Show in the create dialog; otherwise the field sits under "Show N more fields". |
-| `required` | Must be filled in when creating; missing values also count as a "needs attention" issue. |
+| `required` | Must be filled in when creating. When it's empty on a note, the properties form shows a warning (this never blocks saving). |
 | `default` | Prefilled value in the create dialog. |
-
-Whether a field shows on the card isn't a field option; it's set on the type (`card.fields`, §4.5), so the card's field order is kept in one place.
 
 Relation options:
 
@@ -263,7 +262,7 @@ The default adapter is ISO dates (pure code, no `moment`). Its picker hooks pass
 
 ### 4.4.1 Obsidian property types
 
-Obsidian's Properties panel picks an editor per property name from `.obsidian/types.json`. On load and after every settings save, the plugin sets these through `app.metadataTypeManager.setType` (only where `getAssignedWidget` differs, so the file isn't rewritten needlessly):
+Obsidian's Properties block picks an editor per property name (it's used when the properties form is off, in hover previews and in the File properties sidebar) from `.obsidian/types.json`. On load and after every settings save, the plugin sets these through `app.metadataTypeManager.setType` (only where `getAssignedWidget` differs, so the file isn't rewritten needlessly):
 
 | Field kind | Obsidian type |
 |---|---|
@@ -275,39 +274,27 @@ Obsidian's Properties panel picks an editor per property name from `.obsidian/ty
 
 Property types are vault-wide by name, so a key that different types use for different kinds is skipped (`propertyTypes()` reports it as a conflict).
 
-### 4.5 Card display (per type)
+### 4.5 Subtitle and form display (per type)
 
-Each type decides what its compact displays show. These are the info card (optional, off by default), plus the one-line description in pickers, the switcher and browser tooltips. There is no shared `summary` property; the type's own fields take its place.
+There is no shared `summary` property. Each type picks the fields that describe it in one line, plus options for its properties form (§8.4).
 
 ```ts
 interface CardConfig {
-  show?: boolean;          // inject the info card on notes of this type (default true)
   subtitle?: string[];     // field keys whose values form the one-line description, joined with " · "
-  fields?: string[];       // field keys shown in the card body, in this order (any kind, relations included)
-  incoming?: boolean;      // also show incoming / inverse and "Related" groups (default true)
-  showEmpty?: boolean;     // show listed fields even when empty, as "—" (default false)
-  maxChips?: number;       // chips per relation row before "+N more" (default 6)
+}
+interface FormConfig {
+  hideEmpty?: boolean;     // properties form: list only filled fields, with "Show N empty fields" (default false)
 }
 ```
 
-| Setting | Default when unset | Used by |
-|---|---|---|
-| `subtitle` | none, so no one-liner is shown | the card's top row, the create-dialog and link pickers, the Find entity switcher, chip tooltips, browser tooltips, and the optional dashboard |
-| `fields` | every filled field, in field order | the card body |
-| `incoming` | `true` | the card body |
+**Subtitle** (`card.subtitle`, edited on the Display tab):
+- **Shown in:** the properties form's top row, link pickers, the Find entity switcher, chip and browser tooltips, and the optional dashboard. Unset means no one-liner.
+- **Fields:** each one should be a text, textarea, select, multiselect, list, number, date or url field. Relation fields aren't allowed; they're shown as chips instead.
+- **Textareas** contribute only their first line, ellipsised.
+- **Several fields** can be combined, e.g. Person → `role`, `email` gives "CTO · ada@example.com". Empty values are skipped.
+- **Renames:** the type editor keeps `subtitle` and `parentFields` in step when a field key is renamed or deleted in a draft.
 
-**Rules:**
-- **Subtitle fields:**
-  - Each one should be a text, textarea, select, multiselect, list, number, date or url field. Relation fields aren't allowed; they're shown as chips instead.
-  - A textarea value contributes only its first line, ellipsised.
-  - Several fields can be combined, e.g. Person → `role`, `email` gives "CTO · ada@example.com". Empty values are skipped.
-- **Card fields:**
-  - Non-relation fields render as `Label: value` lines.
-  - Relation fields render as chip rows **in the position listed**, not grouped at the end.
-  - When `fields` is set, only the listed fields show.
-- **Fields shown elsewhere:** a field used in the subtitle isn't repeated in the body unless it's also listed in `fields`.
-- **Incoming groups:** with `incoming` on, inverse groups, symmetric links from other notes, `related` and "Mentioned in" (Connections panel only) follow the listed fields, ordered as in §5.2.
-- **Renames:** the type editor keeps `subtitle`, `fields` and `parentFields` in step when a field key is renamed or deleted in a draft.
+**History:** before the properties form, `card` also configured an optional info card (`show`, `fields`, `incoming`, `showEmpty`, `maxChips`). Those keys are dropped when settings or packs are loaded; only `subtitle` remains.
 
 ---
 
@@ -338,7 +325,7 @@ Self-links are ignored. The index keeps `outgoing: Map<sourcePath, Edge[]>` and 
 
 ### 5.2 Grouping relationships for display
 
-Given a note's outgoing and incoming edges, produce **groups** (used by the info card, the Connections panel and the browser tooltip):
+Given a note's outgoing and incoming edges, produce **groups** (used by the Connections panel and the browser tooltip):
 
 | Case | Group key | Title | Direction |
 |---|---|---|---|
@@ -374,7 +361,7 @@ Notes that link to this note in their body (from `metadataCache.resolvedLinks`) 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │ UI (React 19 inside Obsidian ItemViews / Modals / injected elements) │
-│  EntityTypesView · CreateEntityModal · BrowserView · InfoCard ·      │
+│  EntityTypesView · CreateEntityModal · BrowserView · EntityForm ·      │
 │  ConnectionsView · SwitcherModal · SettingTab                        │
 ├──────────────────────────────────────────────────────────────────────┤
 │ Services (talk to Obsidian)                                          │
@@ -523,7 +510,7 @@ A main-area tab, opened from:
 │              │ ──────────────────────────────────────────────────── │
 │              │ ● Unsaved changes   [x] Also update 12 notes …       │
 │              │                                  [Discard] [Save]    │
-│              │ ▾ Preview  [Info card][Create dialog]  Using "Ada"   │
+│              │ ▾ Preview  [Dialog][Picker][Form]  Using "Ada"   │
 │              │   …preview…                                          │
 └──────────────┴──────────────────────────────────────────────────────┘
 ```
@@ -589,7 +576,7 @@ Big icon, name, a "group · N notes · starter/custom · `key`" line, and the ta
     - reads both ways (symmetric)
     - each link labelled
   - **Date:** none in the core (the adapter decides).
-  - **Common:** show in create dialog, required, and **show on card** (a shortcut that adds the field to or removes it from `card.fields`; the first use turns the default "all filled fields" into an explicit list). Plus move up/down and delete. Deleting is just a draft change, so there's no confirmation.
+  - **Common:** show in create dialog and required. Plus move up/down and delete. Deleting is just a draft change, so there's no confirmation.
 - **+ Add field** opens a menu of kinds (with a one-line description of each), plus **Relationship…**, which opens the guided dialog below. The new field is selected and its label input focused.
 
 #### Relationships tab
@@ -612,12 +599,8 @@ Big icon, name, a "group · N notes · starter/custom · `key`" line, and the ta
 
 New in Obsidian Entities.
 - **Hierarchy:** the parent fields, in priority order, chosen from this type's relation fields. A preview line reads "In the browser, people nest under their Team (via Member of)".
-- **Card** (§4.5), with the Preview panel below updating live:
-  - **Show info card on <plural>:** a toggle.
-  - **Subtitle:** an ordered chip list of eligible fields, with "+ Add field". It has a hint: "Shown under the name on the card, in pickers, in search and in the browser". When it's empty, it reads "No subtitle".
-  - **Card fields:** a choice between "All filled fields (in field order)" and "Only these fields". With "Only these fields", there's a checklist of every field, which can be reordered by drag. Relation fields show a chip icon, since they render as chip rows.
-  - **Also show incoming links** (default on) and **Show empty fields** (default off).
-  - **Chips per row** before "+N more" (default 6).
+- **Subtitle** (§4.5): an ordered chip list of eligible fields, with "+ Add field". When it's empty, it reads "No subtitle".
+- **Properties form** (§8.4): **Hide empty fields** (default off).
 - **Default sort among siblings:** `order`, then name.
 
 #### Saving
@@ -651,7 +634,7 @@ New in Obsidian Entities.
 A collapsible panel at the bottom, with its state saved in the view. Modes, in order:
 - **Create dialog:** which fields show (create-dialog, required and subtitle fields), and how many are under "Show more fields". Required fields get an asterisk.
 - **Picker row:** how a note of this type looks in link pickers and the switcher (icon, name, subtitle and type).
-- **Info card:** the card as it will look, built with the real `cardSections` and real chips. For an existing sample note, its actual incoming links are included. If the card is off in settings, the preview says so.
+- **Properties form:** the form as it shows on a note of this type (read-only), with the sample's values and real chips.
 
 **Sample values:**
 - They come from the type's **existing note with the most filled-in fields**, read through each field's *original* key so renames preview correctly.
@@ -768,48 +751,133 @@ The View options, search, filters, expanded node paths and collapsed sections/he
 - [x] "New note here" on a project prefills `project: [[Project]]` and the folder `<project folder>/Notes/`.
 - [x] Revealing the active note works for deeply nested notes and doesn't fight manual collapsing.
 
-### 8.4 Info card
+### 8.4 Entity properties form
 
-A compact card injected at the top of entity notes, in **Live Preview and Reading view**. **Off by default** (`showCard: false`): the Connections panel (§8.5) is the main place to see a note's links, and fields are already in Obsidian's Properties. Turn it on in settings; each type can still opt out with `card.show: false`. Settings saved before version 2 have it switched off once by a migration.
+On entity notes, a form built from the note's type **replaces Obsidian's Properties block**. Values are entered through controls that suit each field, and links are limited to the allowed types. One setting, **Use the entity properties form** (on by default), switches back to Obsidian's Properties block. Non-entity notes are untouched.
 
-**Top row:**
-- the type chip (icon and name)
-- an **editable status pill** (a select that writes `status`), coloured by status word: done/complete/won are green, active/open are blue, on-hold/lead/prospect are orange, archived/abandoned/lost are faint, and anything else (draft, idea…) is neutral
-- the subtitle (§4.5), ellipsised
-- action buttons: Connections panel, collapse/expand (remembered globally)
-- extension buttons from modules (e.g. graph)
+#### Placement
 
-**Body**, as configured by the type's `card` settings (§4.5):
-- The card fields, in order:
-  - Non-relation fields render as `Label: value`. Dates use the adapter's long form, booleans show "Yes" when true, and url fields are links (bare emails become `mailto:`, bare domains `https://`).
-  - Relation fields render as chip rows in their listed position.
-- Then, if `incoming` is on, the remaining relation groups (§5.2): inverse, symmetric and Related.
-- Each relation row shows the title, then up to `maxChips` chips, with "+N more" for the rest.
-- Chips:
-  - click opens the note; Ctrl/Cmd-click opens it in a new tab
-  - Ctrl + hover shows a preview
-  - a labelled link shows its label after the name ("Grace Hopper · mentor"), except in groups that are already named after the label ("Mentor", "Mentor of")
-  - right-click menu: Open in new tab, Open to the right, then **Remove link** (marked as a warning, and saying "(edits <source>)" when the link is written on the other note), then the standard file menu. Removing shows a notice with **Undo**, which restores the field's previous value.
-  - unresolved chips are dashed; clicking one creates the note
+- **Live Preview:** inside `.cm-sizer`, just before the editor content. Themes set the readable width in different ways, so the form is aligned by measuring a line of the note, and re-measured when the editor resizes.
+- **Reading view:** after the header section. **Read-only** until the pencil button is clicked.
+- **Source mode:** the raw YAML, no form.
+- **Hiding Obsidian's Properties:** the view gets `oe-has-form`. This sets Obsidian's `--metadata-display-editing` / `--metadata-display-reading` to `none`, and also hides `.metadata-container` directly for themes that ignore those variables.
+- **Unchanged places:**
+  - Hover previews and embeds keep Obsidian's Properties, because they aren't Markdown leaves.
+  - The File properties sidebar is left alone. Edits made there are checked like any outside change.
+- **Re-rendering:** the form is re-inserted if a re-render drops it.
 
-**Injection**, from Story Forge's HeaderManager:
-- **Live Preview:** insert a host element into `.markdown-source-view .cm-sizer` just before `.cm-contentContainer`.
-- **Reading view:** insert it into `.markdown-reading-view .markdown-preview-sizer` after `.mod-header` (or prepend it).
-- Refresh on `layout-change`, `active-leaf-change`, `file-open`, and from a post-processor hook.
-- **Reading view re-renders sometimes drop the injected element.** Watch the sizer with a `MutationObserver` and re-insert the card when it's been removed.
-- Keep one React root per view and slot; re-render only when the path changes; clean up for views that no longer exist.
-- Respect the global setting and the type's `card.show`.
+#### Layout
+
+- **Top row:**
+  - type icon and name
+  - a **status** dropdown (the group's statuses)
+  - the subtitle
+  - a **problems** count, which jumps to the first problem
+  - buttons for the Connections panel, a **⋯ menu** (Change type…, Configure the type) and **collapse**. Collapse applies to all notes and is remembered.
+- **Field rows:** one per field, in field order, like Obsidian's Properties.
+  - The label is on the left, with the kind's icon, `*` when required, and the description as a tooltip.
+  - The control is on the right. Empty values show a faint "Empty".
+- **`order`:** a number row when the type has parent fields. Otherwise it's hidden, or listed under Other properties if it has a value.
+- **Common rows** at the bottom: Related (links to any entity), Tags and Aliases. `entity` can't be edited here; use Change type.
+- **Other properties:** a collapsed section for keys the type doesn't define. Whether it's open is shared by all notes for the session.
+- **Hide empty fields** (`form.hideEmpty`, on the Display tab, off by default) lists only filled fields, plus a "Show N empty fields" link. Fields with a problem are always shown.
+- **Phones:** the label sits above the value.
+
+#### Controls
+
+| Kind | Control | Saved |
+|---|---|---|
+| text, url | text box (url adds an open-link button) | on blur or Enter; Esc cancels |
+| textarea | auto-height text area | on blur or Ctrl/Cmd+Enter |
+| number | text box that only accepts numbers | on blur or Enter |
+| date | text box + calendar button (§4.4); only valid dates are accepted | on blur, Enter or picking |
+| boolean | checkbox | immediately |
+| select | dropdown of the options (plus "—") | immediately |
+| multiselect | option pills | immediately |
+| list, tags, aliases | chips + an add box (Enter or comma adds; `#` is stripped from tags) | immediately |
+| relation, related | chips (click opens, Ctrl+hover previews, right-click menu) + a picker limited to the allowed types, with "Create X" | immediately |
+
+- **Relations:**
+  - Each linked entity is a coloured chip with its **×** inside it (while editing).
+  - A single-link field shows "Change…", and **picking replaces** the link.
+  - A labelled field asks for an optional label after picking.
+  - Fields that read both ways (symmetric fields, and Related) also show links set on the other note, with a dotted border. Removing one edits that note.
+- **Rejected input:** typed text that isn't valid (in a number field, or a bad date) isn't saved. A notice says why, and the box goes back to the saved value.
+- **Saving** uses `processFrontMatter` for that one key, so the rest of the YAML is untouched. The form shows the new value straight away, key by key, until the saved copy has it (or another change to that key wins). Problems and their fixes are checked against what's on screen, so quick successive fixes build on each other.
+- **Field settings:** the link picker always uses the field's current settings, even if the type was edited (or the note changed type) while it was open.
+- **Text boxes follow outside changes** (sync, undo), unless they hold typing of their own.
+
+#### Undo
+
+- **Ctrl/Cmd+Z** with focus in the form undoes the last form edit on that note, up to 20 steps per note (`EditHistory`). A text box with unsaved typing gets the browser's own undo instead.
+- **Removing** a link or an extra property also shows a notice with **Undo**.
+- **History** follows renames and is cleared when the note is deleted.
+
+#### Validation
+
+Values set anywhere else (Source mode, sync, other plugins, the File properties sidebar) are never silently changed. `entityProblems(type, frontmatter, ctx)` checks them:
+
+| Problem | Severity | Fix |
+|---|---|---|
+| Status not in the type's statuses | error | pick one (the dropdown marks it "not a status here") |
+| Number written as text / not a number | error | "Make it a number" / none |
+| Yes/no written as text | error | "Make it yes/no" |
+| Invalid date | error | none |
+| Choice not among the options; a list where one value is expected | error | "Use a single value" |
+| Multiple choice with unknown values | error | "Remove" them |
+| Single value where a list is expected (list, multiselect, list relations, tags, aliases, related) | error | "Make it a list" |
+| Several links in a single-link field | error | "Use a single link" / "Keep the first" |
+| Link to an entity of a type the field doesn't allow | error | "Remove the link" |
+| Link to a note that isn't an entity (restricted fields only) | warning | "Remove the link" |
+| A link written as a bare name (not tracked by Obsidian) | warning | "Make it a link" |
+| Required field empty | warning | none; never blocks saving |
+| `order` not a number (types with parent fields) | error | "Make it a number" |
+
+- **Display:**
+  - The row's value gets a red (error) or orange (warning) outline, and an icon whose tooltip explains the problem.
+  - Fix buttons appear while editing.
+  - A problem about one link also outlines that link's chip.
+- **Links to notes that don't exist** aren't a problem. They show as dashed chips; click one to create the note.
+- **Check entities** (a command) lists every entity with problems in a filterable modal. Choosing one opens it.
+
+#### Other properties
+
+- **Editors:** each extra key gets an editor from its **Obsidian property type** (`metadataTypeManager.getAssignedWidget`): text, number, checkbox, date or list. Without one, the editor is chosen from the value. Objects show as read-only JSON.
+- **+ Add property** adds a key with an empty value.
+- The row's **⋯ menu**:
+  - **Add to the <type> type** opens the Entity Types view on the Fields tab, with a draft field for the key. The kind is guessed from the value (wikilinks become a relation to any entity).
+  - **Remove** deletes the key (with Undo).
+
+#### Change type
+
+**Change type…** in the ⋯ menu picks another type and calls `retype()`. It's also in the file menu as "Change entity type…". `retype()`:
+- writes `entity` and adds the new type's missing fields with their defaults;
+- keeps every existing value; fields the new type doesn't use become other properties;
+- resets the status to the first one when it isn't valid for the new type, and says so.
+
+It doesn't move the file. If the folder pattern puts the new type somewhere else, the notice offers **Move to <folder>/**.
+
+#### Keyboard and accessibility
+
+- **Text boxes:** Tab and Shift+Tab move between controls. Enter confirms a text box, and Esc cancels it.
+- **Chip rows:**
+  - ← and → move between chips and the add box.
+  - Backspace or Delete removes the focused chip.
+  - Backspace in an empty add box removes the last chip.
+- **ARIA:** every control has an ARIA label. The collapse button has `aria-expanded`, and multiple-choice pills have `aria-pressed`.
 
 **AC:**
-- [ ] The card shows in both modes, survives switching modes and scrolling in Reading view, and updates live when frontmatter changes.
-- [ ] Changing a type's card settings in the Entity Types view and saving updates open cards without reopening the notes.
-- [ ] With "Only these fields", unlisted fields are hidden. Relation fields appear in their listed position.
+- [x] Obsidian's Properties block is hidden on entity notes in Live Preview and Reading view, and comes back when the setting is off.
+- [x] Typing an invalid date or number isn't saved; picking a link only offers allowed types.
+- [x] A wrong-type link set elsewhere is outlined, explained, counted in the top row and fixable in one click.
+- [x] Ctrl/Cmd+Z undoes form edits (including chip removals) without touching the note body.
+- [x] Change type keeps values, moves unused fields to Other properties and offers to move the file.
 
 ### 8.5 Connections panel
 
 A right-sidebar view (ribbon `waypoints`) that **follows the active note**: on `file-open`, ignoring non-Markdown files, and handling renames and deletes.
 
-- **Header:** type icon, name (click to open) and type name only. The panel shows **connections only**: no status, subtitle or field values (those are in Properties, and on the optional card).
+- **Header:** type icon, name (click to open) and type name only. The panel shows **connections only**: no status, subtitle or field values (those are in the properties form).
 - **Filter box:** "Filter N connections…" (matches names and group titles), and **+ Link**, which opens the Add Link dialog:
   1. Choose a field, among this type's relation fields plus `related`.
   2. Fuzzy-pick the target among the types that field allows, or create it.
@@ -838,6 +906,7 @@ The command **Find entity** opens a `SuggestModal` over entities only.
 | Find entity | Switcher |
 | Open entity browser | Left sidebar |
 | Open connections panel | Right sidebar |
+| Check entities | Lists entities whose values don't fit their type (§8.4) |
 | Configure entity types | Types view (active note's type) |
 | Convert current note to entity | Type picker → convert (only for Markdown notes) |
 | Import entity types… | Paste a type pack, single type or list of types (JSON); can load the Basic CRM example |
@@ -859,8 +928,7 @@ The command **Find entity** opens a `SuggestModal` over entities only.
 - **Behaviour:**
   - open new entities in a new tab
   - prefill relations from the active note
-  - show the info card (global, **off by default**; each type can also turn it off)
-  - info card collapsed by default
+  - **use the entity properties form** (on by default; turning it off brings back Obsidian's Properties block)
 - **Entity types:** a description ("N types (M custom)") and an **Open entity types** button. The button closes the settings modal first (`app.setting.close()`), then opens the view.
 
 Common property names are fixed (§3.2), so there's no setting for them.
@@ -906,7 +974,6 @@ These are proven in Story Forge and worth adding behind module toggles once the 
 | `field:i:default` | the default is valid for the kind (e.g. one of the options) | Default "z" isn't one of the options. |
 | `parentFields` | each is a relation field of this type | Parent field "x" isn't a relation field. |
 | `card:subtitle` | each is an existing non-relation field of this type | Subtitle field "x" doesn't exist. / Relation fields can't be used in the subtitle. |
-| `card:fields` | each is an existing field of this type, listed once | Card field "x" doesn't exist. |
 
 Deleting a type also strips its key from every other type's `targets`.
 
@@ -921,8 +988,8 @@ interface Settings {
   templatesFolder: string;
   openInNewTab: boolean;
   prefillFromActive: boolean;
-  showCard: boolean;              // default false (v2 migration turns it off once)
-  cardCollapsed: boolean;
+  useForm: boolean;               // default true: the properties form replaces Obsidian's Properties block
+  formCollapsed: boolean;         // the form's collapse state, shared by all notes
   groups: GroupDef[];
   types: EntityTypeDef[];
   modules: { graph: boolean; dashboard: boolean; /* … */ };
@@ -934,6 +1001,9 @@ interface Settings {
 - Keep the user's types. Append **pack** types that a newer pack version added, unless the user deleted them; track deletions in `deletedPackTypes`.
 - **Versioned migrations run once each** (`if ((saved.settingsVersion ?? 1) < N) { … }`), then set `settingsVersion` to the current version. Gating them on the version is what lets a user delete a field the migration added without it coming back. Story Forge does this when adding family fields.
 - Normalise lists: drop unknown values and add missing defaults in their natural position.
+- **Versions so far:**
+  - **v2** turned the info card off once.
+  - **v3** replaced it with the properties form: `showCard` / `cardCollapsed` are dropped, `useForm` defaults to true, and `cloneType` strips the old card-body keys from every type.
 
 ---
 
@@ -987,7 +1057,12 @@ These cover all of `model/`, with no Obsidian dependency:
 - **paths:** sanitising, unique paths, every folder mode.
 - **tree:** forests with mixed types and priority parent fields, cycles, filtering that keeps ancestors, `ancestorsOf`, `childOptions`.
 - **validation:** every row of §9, with the right `at`.
-- **card:** subtitle composition (several fields, empty values skipped, first line of a textarea); card field order including relation rows; the defaults when `card` is unset; renaming or deleting a field updates `card.subtitle`, `card.fields` and `parentFields` in the draft.
+- **card:** subtitle composition (several fields, empty values skipped, first line of a textarea); renaming or deleting a field updates `card.subtitle` and `parentFields` in the draft.
+- **form:**
+  - `checkField` / `entityProblems` for every row of the §8.4 table, with fixes
+  - `otherKeys`, `otherKind` / `fieldKindFor`, `parseInput`
+  - `retype`: fields added, values kept, status reset
+  - `EditHistory`: cap, order, renames
 - **typeEditing:**
   - drafts and dirtiness
   - `fieldChanges`: renames, deletes, a deleted key reused by a new field
@@ -1010,7 +1085,13 @@ Drive a real Obsidian instance via the Chrome DevTools Protocol (Obsidian starte
   - creating notes of that type, with an inline-created linked note
   - renaming a key with migration, and deleting with removal
   - browser nesting, filtering, collapse-all and "new child here"
-  - info card in both modes
+  - the properties form in both modes:
+    - editing and rejected input
+    - wrong-type links and Fix
+    - Ctrl/Cmd+Z
+    - pickers and chip keyboard
+    - other properties and change type
+    - Check entities, and the setting toggle
   - Connections panel add/remove link
   - switcher type prefixes
   - import/export
@@ -1035,9 +1116,10 @@ Drive a real Obsidian instance via the Chrome DevTools Protocol (Obsidian starte
 | # | Milestone | Scope | Exit criteria |
 |---|---|---|---|
 | M1 ✅ | **Foundation** | Scaffold (TS, esbuild, React 19, vitest, deploy-to-test-vault script); settings with groups and types; starter pack; model modules (links, frontmatter, paths, templates, validation, card subtitle, ISO date adapter, packs); EntityIndex; EntityFactory; Create dialog with relation picker; Convert; Find entity; per-type commands; **Import entity types…** (paste a pack; brought forward from M3/M5 so types can be added before the editor exists) | Can define types (via an imported pack), create typed notes with links, find them |
-| M2 ✅ | **Relationships** | RelationIndex with inverses; `groupRelations`; `cardSections` (per-type card content); info card (both modes); Connections panel (list, filter, + Link, Mentioned in, Convert); Add/Remove link with Undo | Inverses visible on target notes; links editable without touching YAML |
-| M3 ✅ | **Entity Types view** | Full editor (§8.1): sidebar with groups, group editor (statuses with rename migration, reorder, delete when empty), General/Fields/Relationships/Display tabs, guided relationship dialog, drafts, validation, save bar with migrations, preview (dialog / picker / card), pack import/export, duplicate, reset to starter, delete; settings button, ribbon, command, file menu | Non-technical user can build a domain model end-to-end without editing JSON |
+| M2 ✅ | **Relationships** | RelationIndex with inverses; `groupRelations`; `cardSections` (per-type card content); info card (both modes, later replaced by the properties form); Connections panel (list, filter, + Link, Mentioned in, Convert); Add/Remove link with Undo | Inverses visible on target notes; links editable without touching YAML |
+| M3 ✅ | **Entity Types view** | Full editor (§8.1): sidebar with groups, group editor (statuses with rename migration, reorder, delete when empty), General/Fields/Relationships/Display tabs, guided relationship dialog, drafts, validation, save bar with migrations, preview (dialog / picker / card, now the properties form), pack import/export, duplicate, reset to starter, delete; settings button, ribbon, command, file menu | Non-technical user can build a domain model end-to-end without editing JSON |
 | M4 ✅ | **Browser** | Groups (or one tree), type headings, hierarchies from parent fields (cross-group option), View menu, filters with dimmed context, reveal active, collapse semantics, row/heading context menus with "New child here", state persistence | Large vaults navigable; hierarchy correct for mixed types |
+| M4.5 ✅ | **Entity properties form** | Form replacing Obsidian's Properties block on entity notes (§8.4): typed controls, link pickers limited to allowed types, rejected invalid input, problems with fixes, Ctrl/Cmd+Z history, Other properties with "Add to type", Change type with move offer, Check entities command; info card removed (settings v3) | Values can only be entered in a form the type allows; problems from elsewhere are visible and fixable |
 | M5 | **Packs & polish** | Type packs (bundled example pack + import/export of groups), template generation, ribbon options, accessibility pass (keyboard navigation in lists, ARIA on toggles), docs | Ready for a public/BRAT release |
 | M6+ | **Modules** | Graph, overview dashboard, bulk edit, Bases generation, domain views | Each behind a module toggle |
 
@@ -1102,12 +1184,12 @@ export const COMMON_KEYS = {
 
 /** What compact displays show for a type (§4.5). */
 export interface CardConfig {
-  show?: boolean;                 // default true
   subtitle?: string[];            // non-relation field keys, joined with " · "
-  fields?: string[];              // card body, in order; undefined = all filled fields
-  incoming?: boolean;             // show inverse / symmetric / Related groups (default true)
-  showEmpty?: boolean;            // show listed empty fields as "—" (default false)
-  maxChips?: number;              // default 6
+}
+
+/** Properties form options for a type (§8.4). */
+export interface FormConfig {
+  hideEmpty?: boolean;            // list only filled fields (default false)
 }
 
 export interface EntityTypeDef {
@@ -1125,6 +1207,7 @@ export interface EntityTypeDef {
   statuses?: string[];            // override group statuses
   parentFields?: string[];        // hierarchy, priority order
   card?: CardConfig;
+  form?: FormConfig;
   fields: FieldDef[];
   pack?: string;                  // pack id if installed from a pack
   builtIn: boolean;
@@ -1220,7 +1303,7 @@ export interface TypePack {
     {
       "key": "person", "name": "Person", "plural": "People", "icon": "user", "color": "#2196f3",
       "group": "people", "template": "Person.md", "shortcuts": ["p"],
-      "card": { "subtitle": ["role", "email"], "fields": ["works_at", "knows"] },
+      "card": { "subtitle": ["role", "email"] },
       "fields": [
         { "key": "role", "label": "Role", "kind": "text", "inModal": true },
         { "key": "email", "label": "Email", "kind": "url", "inModal": true },
@@ -1231,7 +1314,7 @@ export interface TypePack {
     {
       "key": "company", "name": "Company", "plural": "Companies", "icon": "building-2", "color": "#3f51b5",
       "group": "orgs", "template": "Company.md", "parentFields": ["subsidiary_of"],
-      "card": { "subtitle": ["industry"], "fields": ["website", "subsidiary_of"] },
+      "card": { "subtitle": ["industry"] },
       "fields": [
         { "key": "industry", "label": "Industry", "kind": "select", "options": ["Software", "Finance", "Retail", "Other"], "inModal": true },
         { "key": "website", "label": "Website", "kind": "url" },
@@ -1241,7 +1324,7 @@ export interface TypePack {
     {
       "key": "deal", "name": "Deal", "plural": "Deals", "icon": "handshake", "color": "#4caf50",
       "group": "sales", "folderMode": "parent", "template": "Deal.md", "parentFields": ["company"],
-      "card": { "subtitle": ["description"], "fields": ["company", "value", "close_date", "contacts"], "incoming": false },
+      "card": { "subtitle": ["description"] },
       "fields": [
         { "key": "description", "label": "Description", "kind": "textarea", "inModal": true },
         { "key": "company", "label": "Company", "kind": "relation", "targets": ["company"], "inverse": "Deals", "required": true, "inModal": true },
@@ -1281,19 +1364,24 @@ tags: [renewal]
 ## Notes
 ```
 
-On **Acme Ltd**, the info card shows "Deals: Acme renewal 2027". On **Ada Lovelace** it shows "Economic buyer of: Acme renewal 2027" (a labelled inverse).
+In the Connections panel, **Acme Ltd** shows "Deals: Acme renewal 2027", and **Ada Lovelace** shows "Economic buyer of: Acme renewal 2027" (a labelled inverse).
 
-The deal's own card, from its `card` settings:
+The deal's properties form (Live Preview):
 
 ```
-[Deal] [open ▾]  Three-year renewal with an upsell to the enterprise tier.
-Company     [Acme Ltd]
-Value       120000
-Close date  31 March 2027
-Contacts    [Ada Lovelace · economic buyer] [Grace Hopper · technical lead]
+[Deal] [open ▾]  Three-year renewal with an upsell to the enterprise tier.      ⇄ ⋯ ˄
+Description   Three-year renewal with an upsell to the enterprise tier.
+Company *     [Acme Ltd]  Change…
+Value         120000
+Close date    2027-03-31  📅
+Contacts      [Ada Lovelace · economic buyer] [Grace Hopper · technical lead]  Add…
+Related       Empty
+Tags          #renewal  Add…
+Aliases       Empty
+› Other properties 0
 ```
 
-There are no incoming rows, because the type sets `incoming: false`. In link pickers and the switcher, the deal shows as **Acme renewal 2027**, with its description underneath as the subtitle.
+In link pickers and the switcher, the deal shows as **Acme renewal 2027**, with its description underneath as the subtitle.
 
 ## Appendix D — Mapping from Story Forge
 
@@ -1302,7 +1390,7 @@ There are no incoming rows, because the type sets `incoming: false`. In link pic
 | `category: "world" \| "story"` | `group` (user-defined `GroupDef`) | Generalised |
 | `entity_type` property | `entity` property | Renamed. Story Forge notes need `entity_type` → `entity` before the new plugin recognises them. |
 | `summary` common property | Per-type `card.subtitle` fields (§4.5) | Removed; each type chooses its own description fields |
-| Info card shows all filled fields | Per-type `card` settings, edited in the Display tab | Configurable |
+| Info card shows all filled fields | Properties form replacing Obsidian's Properties block (§8.4) | Replaced |
 | World / story statuses (hard-coded) | `GroupDef.statuses`, `EntityTypeDef.statuses` | Configurable |
 | `worldRoot` / `storyRoot` / campaign folder rule | One folder pattern (`{group}`, `{entity}`) + `folderMode` (`type` / `parent` / `own`) | Generalised |
 | `TREE_GROUPS` (hard-coded Places / Storylines hierarchies) | `parentFields` per type, edited in the Display tab | Data-driven |
@@ -1311,7 +1399,7 @@ There are no incoming rows, because the type sets `incoming: false`. In link pic
 | Timeline, Storyline board, Family tree, Faction grid, Dashboard | Optional modules (§8.9) | Out of core |
 | Entity types view (§6.10 of Story Forge DESIGN.md) | §8.1, plus a Display tab and groups | Kept, extended |
 | World Browser | Entity Browser (§8.3) | Kept, generalised |
-| Info card, Connections panel, switcher, create dialog | §8.2–§8.6 | Kept |
+| Connections panel, switcher, create dialog | §8.2, §8.5, §8.6 | Kept |
 | Labelled relations as `[[Target\|label]]` | Same | Kept |
 | `typeIssues`, drafts, `migrateFrontmatter`, import/export | Same, with a pack format | Kept |
 

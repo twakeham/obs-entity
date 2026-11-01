@@ -167,12 +167,15 @@ export class EntitiesSettingTab extends PluginSettingTab {
 				}),
 			);
 		new Setting(containerEl)
-			.setName("Show entity info card")
-			.setDesc("Off by default: the Connections panel shows a note's links. When on, a compact card with type, status, key fields and links appears at the top of entity notes. Each type chooses what its card shows.")
+			.setName("Use the entity properties form")
+			.setDesc(
+				"On entity notes, replace Obsidian's Properties block with a form built from the note's type: only valid values can be entered, links are limited to the allowed types, and problems are flagged. Turn off to use Obsidian's Properties block. Source mode always shows the raw YAML.",
+			)
 			.addToggle((t) =>
-				t.setValue(s.showCard).onChange(async (v) => {
-					s.showCard = v;
+				t.setValue(s.useForm).onChange(async (v) => {
+					s.useForm = v;
 					await this.plugin.saveSettings();
+					this.plugin.refreshForms();
 				}),
 			);
 

@@ -9,9 +9,10 @@ Derived from the Story Forge worldbuilding plugin, made domain-neutral. The full
 | Milestone | Scope | Status |
 |---|---|---|
 | M1 Foundation | Settings with groups and types, starter pack, create dialog, convert, find entity, per-type commands, import types | ✅ Done |
-| M2 Relationships | Inverse links, info card, Connections panel, add/remove links with Undo | ✅ Done |
+| M2 Relationships | Inverse links, info card (since replaced by the properties form), Connections panel, add/remove links with Undo | ✅ Done |
 | M3 Entity Types view | Visual editor for types and groups: fields, relationships, display, drafts, note migrations, previews, import/export | ✅ Done |
 | M4 Browser | Grouped, hierarchical entity browser with filters | ✅ Done |
+| M4.5 Properties form | A form that replaces Obsidian's Properties on entity notes, so only values the type allows go in, and problems are flagged | ✅ Done |
 | M5 Packs & polish | Pack picker on first run, accessibility, docs | Planned |
 
 ## How notes are stored
@@ -35,13 +36,41 @@ tags: []
 - **Fixed properties:** `entity`, `status`, `tags`, `aliases`, `related`, `order`. Everything else comes from the type's fields.
 - **Relations** are wikilinks, so backlinks, the graph and renames keep working. Labelled relations put the label in the alias: `"[[Grace Hopper|mentor]]"`.
 - **Dates** are ISO (`YYYY-MM-DD`). In the create dialog and the type editor, date fields have a **calendar button** that opens a date picker. You can still type a date.
-- **Property types:** the plugin tells Obsidian which editor to use in the Properties panel:
+- **Property types:** the plugin tells Obsidian which editor to use in its Properties block (used when the properties form is off, and in hover previews and the File properties sidebar):
   - date fields get Obsidian's date picker
   - number fields get a number editor, and checkboxes a checkbox
   - list, multiple-choice and multi-link fields (plus `related`) get a list editor
   
   This is stored in the vault's `.obsidian/types.json`. Obsidian's property types are vault-wide by name, so a key that two types use for different kinds is left alone.
-- There is no shared summary property. Each type picks **subtitle fields** (`card.subtitle`), whose values are shown under the name in pickers and search, e.g. a person's role.
+- There is no shared summary property. Each type picks **subtitle fields** (`card.subtitle`), whose values are shown under the name in pickers, search and the properties form, e.g. a person's role.
+
+## Properties form
+
+On entity notes, a form built from the note's type replaces Obsidian's Properties block. It appears in Live Preview, and in Reading view, where it's read-only until you click the pencil. Source mode still shows the raw YAML. Turn **Use the entity properties form** off in settings to get Obsidian's Properties back.
+
+**Layout:**
+- **Top row:** type, a **status** dropdown (only the group's statuses), the subtitle, a problem count, and buttons for the Connections panel, a **⋯** menu (Change type…, Configure the type) and collapse.
+- **One row per field,** in the type's order, then Related, Tags and Aliases. Required fields have a `*`. Empty fields show a faint "Empty", or are hidden behind "Show N empty fields" if the type's **Hide empty fields** option is on (Display tab).
+- **Other properties:** a collapsed section for keys the type doesn't define, each edited by its Obsidian property type.
+  - **+ Add property** adds a key.
+  - A key's **⋯** menu offers **Add to the *type* type**, which opens the type editor with a draft field, or **Remove**.
+
+**Entering values:**
+- **Only valid values go in.** Text, numbers and dates save when you leave the box or press Enter, and Esc cancels. A number that isn't a number, or a date that doesn't exist, isn't saved; a notice says why.
+- **Other fields save immediately:** checkboxes, dropdowns, multiple-choice pills, chip lists, and links.
+- **Link fields** show each entity as a coloured chip with a **×** inside to remove it. They only offer entities of the allowed types, with **Create "X"**.
+  - In a single-link field, picking replaces the link.
+  - Labelled fields ask for the label.
+  - Fields that read both ways also show links set on the other note (dotted border).
+- **Undo:** **Ctrl/Cmd+Z** in the form undoes the last form edit on that note, up to 20 steps. Removing a link or property also shows a notice with **Undo**.
+- **Keyboard:** in chip rows, ←/→ move between chips, and Backspace or Delete removes one.
+
+**Problems:**
+- Values set elsewhere (Source mode, sync, other plugins) are never changed silently. Instead they're checked: a wrong kind of value, a choice or status that isn't allowed, a single value where a list is expected, a link to the wrong type of entity, a link written as plain text, or an empty required field.
+- A problem outlines its row in red (or orange for warnings), with a tooltip and a one-click **Fix** where there is one (e.g. "Make it a number", "Remove the link").
+- **Check entities** lists every note with problems.
+
+**Change type…** keeps all values. Fields the new type doesn't use move to Other properties, and the status is reset if the new group doesn't have it. If the new type's folder is elsewhere, the notice offers to move the note.
 
 ## Starter pack
 
@@ -84,18 +113,18 @@ Opened from:
 
 **Type editor tabs:**
 - **General:** name, plural, key (fixed once saved), icon, colour, group, statuses (the group's or custom), folder (the entity folder pattern or the type's own exception), folder rule (in the folder / own folder each / inside its parent, with a path preview), template, search shortcuts. Also Duplicate, Copy as JSON, Reset to starter, and Delete type.
-- **Fields:** a field list (drag to reorder) and a details panel with label, key, kind, description, choices, default, create-dialog / required / show-on-card toggles, and relation options.
+- **Fields:** a field list (drag to reorder) and a details panel with label, key, kind, description, choices, default, create-dialog / required toggles, and relation options.
   - Kinds: text, long text, number, date, choice, multiple choice, list, checkbox, link (URL), relation.
 - **Relationships:** a diagram, links from and to this type (click to jump to the field), and a guided **Add relationship** dialog with a plain-English summary.
-- **Display:** parent fields (for the hierarchy), subtitle fields, and card settings (on/off, all filled fields or only chosen ones in order, incoming links, empty fields, links per row).
+- **Display:** parent fields (for the hierarchy), subtitle fields, and the properties form's **Hide empty fields** option.
 
-**Preview:** Create dialog, Picker row and Info card. It uses the existing note with the most values, or made-up values.
+**Preview:** Create dialog, Picker row and Properties form. It uses the existing note with the most values, or made-up values.
 
 **Saving:**
 - Edits are drafts until you press **Save**. Drafts survive switching types.
 - Problems are shown next to the control, and the tab with a problem gets a red dot.
 - Renaming a field key offers to **update existing notes** (on by default). Deleting a field offers to **remove its values** (off by default).
-- Subtitle, card and parent references follow a key rename automatically.
+- Subtitle and parent references follow a key rename automatically.
 
 **Groups:**
 - You can edit the name, icon and statuses. Statuses can be reordered by dragging, and the first is the starting status.
@@ -142,9 +171,10 @@ A left sidebar tree of all entities. Open it with the **library** ribbon icon or
 | Create *type* | One command per type |
 | Find entity | Entity-only switcher. `person: ada`, `people:` or a shortcut like `p ada` filters by type |
 | Open entity browser | Left sidebar tree of entities (also a ribbon icon) |
-| Open connections panel | Right sidebar panel for the open note (also a ribbon icon and a button on the card) |
+| Open connections panel | Right sidebar panel for the open note (also a ribbon icon and a button on the properties form) |
 | Configure entity types | The Entity types view, opened on the open note's type (also a ribbon icon, settings button and file menu) |
-| Convert current note to entity | Adds the type's fields to an existing note (existing values win). Also in the file menu |
+| Convert current note to entity | Adds the type's fields to an existing note (existing values win). Also in the file menu, and as "Change type…" on entities |
+| Check entities | Lists every entity whose values don't fit its type, with the problems; choose one to open it |
 | Import entity types… | Paste a type pack, single type or list of types (JSON) |
 | Generate template files | Writes editable templates for types without one |
 | Rebuild entity index | Re-reads every note |
@@ -165,7 +195,7 @@ Only the forward link is stored, e.g. Ada's `works_for: "[[Acme Ltd]]"`. The oth
 ### Connections panel
 
 The right sidebar is the main place to see a note's links. It follows the open note:
-- **Header:** the type icon, the note's name and its type. No field values; those are in Properties.
+- **Header:** the type icon, the note's name and its type. No field values; those are in the properties form.
 - **Filter box**, plus **+ Link**: pick a field, then the target (or create it), then a label if the field has labels.
 - **Groups:** collapsible, with counts and a direction arrow (→ set here, ← set on the other note, ⇄ both ways).
 - **Mentioned in:** starts collapsed.
@@ -177,13 +207,6 @@ The right sidebar is the main place to see a note's links. It follows the open n
 - **Right-click:** Open in new tab, Open to the right, **Remove link**, then the usual file menu.
   - Removing a reverse link edits the other note, and the menu says so, e.g. "Remove link (edits Ada Lovelace)".
   - Every removal shows a notice with **Undo**.
-
-### Info card (optional)
-
-**Off by default.** Turn on **Show entity info card** in settings to get a compact card at the top of entity notes, in both Live Preview and Reading view:
-- **Top row:** type, an editable status pill (coloured by status), the subtitle, and buttons for the Connections panel and collapse. Collapse applies to all notes and is remembered.
-- **Body:** by default, filled fields (minus subtitle fields), then links: outgoing in field order, then incoming, then Related, with up to 6 chips per row and "+N more".
-- **Per type:** the `card` settings choose the subtitle, which fields to show and in what order (link fields appear in place), whether incoming links show, empty fields, and chips per row. A type can also opt out with `card.show: false`.
 
 ## Development
 
@@ -202,14 +225,15 @@ npm run dev       # watch mode
 src/
   main.ts                    plugin entry: commands, ribbon, file menu, prefill, views
   model/                     pure, unit-tested
-    types.ts                 EntityTypeDef, FieldDef, GroupDef, CardConfig, COMMON_KEYS
+    types.ts                 EntityTypeDef, FieldDef, GroupDef, CardConfig (subtitle), FormConfig, COMMON_KEYS
     validation.ts            typeIssues(): located problems
     links.ts                 wikilink parsing/formatting, labelled links
     relations.ts             edges, groupRelations (inverses), addLink/removeLink
     frontmatter.ts           build/merge frontmatter, value conversion
     paths.ts                 folder pattern, exceptions, folder modes, sanitising
     templates.ts             {{placeholders}}, default templates from type sections
-    card.ts                  subtitle, value display, cardSections (what the card shows)
+    card.ts                  subtitle, value display, url links
+    form.ts                  properties form: value checks + fixes, other properties, typed input, retype, undo history
     dates.ts                 DateAdapter + ISO adapter (with date-picker hooks)
     propertyTypes.ts         Obsidian property types for fields (date, number, checkbox, list)
     search.ts                switcher type prefixes
@@ -220,14 +244,14 @@ src/
   services/
     entityIndex.ts           entities from the metadata cache
     relationIndex.ts         forward + inverse edges, groupsFor, mentions
-    entityFactory.ts         create/convert notes, add/remove links (with Undo), folders
+    entityFactory.ts         create/convert/retype notes, add/remove links (with Undo), folders, move
   settings/settingTab.ts
   ui/components/             entity picker, relation input, date picker button
-  ui/modals/                 create, switcher, import types, add link
-  ui/header/cardManager.tsx  injects the info card into Live Preview and Reading view
-  ui/react/                  EntityCard, ConnectionsPanel, EntityChip, EntityBits (status, card body, groups), EntityBrowser
+  ui/modals/                 create, switcher, import types, add link, check entities
+  ui/header/formManager.tsx  puts the properties form into Live Preview and Reading view, hiding Obsidian's Properties
+  ui/react/                  EntityForm, ConnectionsPanel, EntityChip, EntityBits (status tones, relation groups), EntityBrowser
   ui/react/types/            Entity types view: TypeManager (sidebar, group editor, save), General/Fields/Relationships/Display tabs, Preview, controls
   ui/views/                  BrowserView (left sidebar), ConnectionsView (right sidebar), TypesView (main area)
-tests/                       model.test.ts, relations.test.ts, typeEditing.test.ts, tree.test.ts
+tests/                       model.test.ts, relations.test.ts, typeEditing.test.ts, tree.test.ts, form.test.ts
 styles.css                   all classes prefixed `oe-`
 ```

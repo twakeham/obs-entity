@@ -1,8 +1,9 @@
 import { ItemView, type ViewStateResult, type WorkspaceLeaf } from "obsidian";
 import { createRoot, type Root } from "react-dom/client";
 import type EntitiesPlugin from "../../main";
+import type { FieldDef } from "../../model/types";
 import { PluginContext } from "../react/context";
-import { DEFAULT_TYPES_STATE, TypeManager, type TypesState } from "../react/types/TypeManager";
+import { DEFAULT_TYPES_STATE, TypeManager, type PendingField, type TypesState } from "../react/types/TypeManager";
 
 export const TYPES_VIEW = "obs-entities-types";
 
@@ -50,6 +51,8 @@ export class TypesView extends ItemView {
 	async setState(state: unknown, result: ViewStateResult): Promise<void> {
 		if (state && typeof state === "object") {
 			this.state = { ...DEFAULT_TYPES_STATE, ...this.state, ...(state as Partial<TypesState>) };
+			// The info card preview became the properties form preview.
+			if ((this.state.previewMode as string) === "card") this.state.previewMode = "form";
 			this.render();
 		}
 		await super.setState(state, result);
@@ -61,10 +64,18 @@ export class TypesView extends ItemView {
 		this.app.workspace.requestSaveLayout();
 	};
 
+	private pending: PendingField | null = null;
+
+	/** Open a type on its Fields tab with `field` added to its draft (or selected, if the type has it). */
+	addField(typeKey: string, field: FieldDef): void {
+		this.pending = { typeKey, field };
+		this.render();
+	}
+
 	private render(): void {
 		this.root?.render(
 			<PluginContext.Provider value={this.plugin}>
-				<TypeManager state={this.state} setState={this.update} />
+				<TypeManager state={this.state} setState={this.update} pendingField={this.pending} onPendingDone={() => (this.pending = null)} />
 			</PluginContext.Provider>,
 		);
 	}

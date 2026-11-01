@@ -2,15 +2,17 @@ import { MarkdownView, debounce } from "obsidian";
 import { createRoot, type Root } from "react-dom/client";
 import type EntitiesPlugin from "../../main";
 import { PluginContext } from "../react/context";
-import { EntityCard } from "../react/EntityCard";
+import { EntityForm } from "../react/EntityForm";
 
 interface Slot {
 	el: HTMLElement;
 	root: Root;
 	path: string | null;
-	/** reading view: watches the preview sizer so the card is re-inserted if a re-render drops it */
+	/** reading view: watches the preview sizer so the form is re-inserted if a re-render drops it */
 	observer?: MutationObserver;
 	observed?: HTMLElement;
+	/** Live Preview: keeps the form lined up with the note's text when the editor resizes */
+	resize?: ResizeObserver;
 }
 
 interface ViewSlots {
@@ -19,12 +21,29 @@ interface ViewSlots {
 }
 
 /**
- * Injects the entity info card into Markdown views:
- *  - Live Preview: inside .cm-sizer, after the properties, before the editor content
- *  - Reading view: inside .markdown-preview-sizer, after the header section
- * Source mode hides the card via CSS. Re-inserts the card if a re-render detaches it.
+ * In Live Preview, give the form the same left edge and width as the note's text. Themes set the readable
+ * line width in different ways, so measure a line of the note rather than guessing from CSS variables.
  */
-export class CardManager {
+function alignToText(el: HTMLElement, sizer: HTMLElement): void {
+	const ref = sizer.querySelector<HTMLElement>(".cm-content > .cm-line") ?? sizer.querySelector<HTMLElement>(":scope > .inline-title");
+	if (!ref || !el.isConnected) return;
+	const s = sizer.getBoundingClientRect();
+	const r = ref.getBoundingClientRect();
+	if (r.width === 0) return;
+	el.style.maxWidth = "none";
+	el.style.marginLeft = `${Math.round(r.left - s.left - parseFloat(getComputedStyle(sizer).paddingLeft || "0"))}px`;
+	el.style.marginRight = "0";
+	el.style.width = `${Math.round(r.width)}px`;
+}
+
+/**
+ * Puts the entity properties form into Markdown views of entity notes, in place of Obsidian's Properties block
+ * (hidden via the `oe-has-form` class on the view):
+ *  - Live Preview: inside .cm-sizer, after the (hidden) properties, before the editor content
+ *  - Reading view: inside .markdown-preview-sizer, after the header section; read-only until the pencil is clicked
+ * Source mode keeps the raw YAML and hides the form via CSS. Re-inserts the form if a re-render detaches it.
+ */
+export class FormManager {
 	private slots = new WeakMap<MarkdownView, ViewSlots>();
 	private views = new Set<MarkdownView>();
 	readonly refresh = debounce(() => this.refreshAll(), 50, true);
@@ -53,9 +72,7 @@ export class CardManager {
 	}
 
 	private enabledFor(path: string | null): boolean {
-		if (!path || !this.plugin.settings.showCard) return false;
-		const entity = this.plugin.index.get(path);
-		return !!entity && entity.type.card?.show !== false;
+		return !!path && this.plugin.settings.useForm && !!this.plugin.index.get(path);
 	}
 
 	refreshAll(): void {
@@ -76,12 +93,22 @@ export class CardManager {
 			this.clear(view);
 			return;
 		}
+		view.containerEl.addClass("oe-has-form");
 		const slots = this.slots.get(view) ?? {};
 		this.slots.set(view, slots);
 
 		const sizer = view.contentEl.querySelector<HTMLElement>(".markdown-source-view .cm-sizer");
 		const content = sizer?.querySelector<HTMLElement>(":scope > .cm-contentContainer");
-		if (sizer && content) slots.live = this.place(slots.live, path!, (el) => sizer.insertBefore(el, content), (el) => el.nextElementSibling === content);
+		if (sizer && content) {
+			const slot = (slots.live = this.place(slots.live, path!, "live", (el) => sizer.insertBefore(el, content), (el) => el.nextElementSibling === content));
+			if (slot.observed !== sizer) {
+				slot.resize?.disconnect();
+				slot.resize = new ResizeObserver(() => alignToText(slot.el, sizer));
+				slot.resize.observe(sizer);
+				slot.observed = sizer;
+			}
+			alignToText(slot.el, sizer);
+		}
 
 		const preview = view.contentEl.querySelector<HTMLElement>(".markdown-reading-view .markdown-preview-sizer");
 		if (preview) {
@@ -89,6 +116,7 @@ export class CardManager {
 			slots.reading = this.place(
 				slots.reading,
 				path!,
+				"reading",
 				(el) => {
 					const header = anchor();
 					if (header) header.after(el);
@@ -108,10 +136,10 @@ export class CardManager {
 		}
 	}
 
-	private place(slot: Slot | undefined, path: string, insert: (el: HTMLElement) => void, inPlace: (el: HTMLElement) => boolean): Slot {
+	private place(slot: Slot | undefined, path: string, mode: "live" | "reading", insert: (el: HTMLElement) => void, inPlace: (el: HTMLElement) => boolean): Slot {
 		if (!slot) {
 			const el = document.createElement("div");
-			el.className = "oe-card-host";
+			el.className = "oe-form-host";
 			slot = { el, root: createRoot(el), path: null };
 		}
 		if (!slot.el.isConnected || !inPlace(slot.el)) insert(slot.el);
@@ -119,7 +147,7 @@ export class CardManager {
 			slot.path = path;
 			slot.root.render(
 				<PluginContext.Provider value={this.plugin}>
-					<EntityCard key={path} path={path} />
+					<EntityForm key={path} path={path} mode={mode} />
 				</PluginContext.Provider>,
 			);
 		}
@@ -127,11 +155,13 @@ export class CardManager {
 	}
 
 	private clear(view: MarkdownView): void {
+		view.containerEl.removeClass("oe-has-form");
 		const slots = this.slots.get(view);
 		if (!slots) return;
 		for (const slot of [slots.live, slots.reading]) {
 			if (!slot) continue;
 			slot.observer?.disconnect();
+			slot.resize?.disconnect();
 			slot.root.unmount();
 			slot.el.remove();
 		}

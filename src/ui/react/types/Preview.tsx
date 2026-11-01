@@ -1,14 +1,13 @@
-import { useMemo, type CSSProperties, type ReactNode } from "react";
-import { cardSections, DEFAULT_MAX_CHIPS, subtitleOf } from "../../../model/card";
-import { extractEdges, groupRelations } from "../../../model/relations";
+import { type CSSProperties, type ReactNode } from "react";
+import { subtitleOf } from "../../../model/card";
 import { statusesFor, type FieldDef } from "../../../model/types";
 import { usePlugin } from "../context";
-import { CardSectionsView, statusTone } from "../EntityBits";
+import { FormPreview } from "../EntityForm";
 import { Icon } from "../Icon";
 import { Segmented } from "./controls";
 import { useEditor } from "./editor";
 
-export type PreviewMode = "dialog" | "picker" | "card";
+export type PreviewMode = "dialog" | "picker" | "form";
 
 export function PreviewPanel({ open, setOpen, mode, setMode }: { open: boolean; setOpen: (v: boolean) => void; mode: PreviewMode; setMode: (m: PreviewMode) => void }) {
 	const { sample } = useEditor();
@@ -28,7 +27,7 @@ export function PreviewPanel({ open, setOpen, mode, setMode }: { open: boolean; 
 							options={[
 								{ value: "dialog", label: "Create dialog", icon: "square-pen" },
 								{ value: "picker", label: "Picker row", icon: "search" },
-								{ value: "card", label: "Info card", icon: "panel-top" },
+								{ value: "form", label: "Properties form", icon: "panel-top" },
 							]}
 						/>
 						<span className="oe-tm-muted oe-tm-preview-source">{sample.fromNote ? <>Using “{sample.name}”</> : "Using made-up values"}</span>
@@ -39,7 +38,7 @@ export function PreviewPanel({ open, setOpen, mode, setMode }: { open: boolean; 
 				<div className="oe-tm-preview-body">
 					{mode === "dialog" && <DialogPreview />}
 					{mode === "picker" && <PickerPreview />}
-					{mode === "card" && <CardPreview />}
+					{mode === "form" && <FormPreviewPane />}
 				</div>
 			)}
 		</div>
@@ -75,38 +74,12 @@ function PickerPreview() {
 	);
 }
 
-function CardPreview() {
-	const plugin = usePlugin();
+/** The properties form as it shows on a note of this type (read-only, with sample values). */
+function FormPreviewPane() {
 	const { draft, sample } = useEditor();
-	const t = draft.type;
-	const subtitle = useSubtitle();
-	const path = sample.path ?? `__sample__/${sample.name}.md`;
-	const sections = useMemo(() => {
-		const resolve = (link: string) => plugin.app.metadataCache.getFirstLinkpathDest(link, path)?.path ?? null;
-		const outgoing = extractEdges(path, t, sample.frontmatter, resolve);
-		const incoming = sample.path ? plugin.relations.incomingOf(sample.path) : [];
-		const groups = groupRelations(path, outgoing, incoming, { fieldOrder: t.fields.map((f) => f.key), typeName: (k) => plugin.getType(k)?.name ?? k });
-		return cardSections(t, sample.frontmatter, groups, plugin.dates);
-	}, [plugin, t, sample, path]);
-	if (t.card?.show === false) return <div className="oe-tm-empty">The card is turned off for this type (Display → Show the card on these notes).</div>;
 	return (
-		<div className="oe-card oe-tm-card" style={{ "--oe-type-color": t.color } as CSSProperties}>
-			<div className="oe-card-top">
-				<span className="oe-card-type">
-					<Icon name={t.icon} className="oe-chip-icon" />
-					{t.name || "Type"}
-				</span>
-				<span className={`oe-status oe-tm-status oe-tone-${statusTone(sample.status)}`}>{sample.status}</span>
-				{subtitle ? <span className="oe-card-subtitle">{subtitle}</span> : <span className="oe-card-spacer" />}
-			</div>
-			{sections.length > 0 ? (
-				<div className="oe-card-body">
-					<CardSectionsView sections={sections} sourcePath={path} max={t.card?.maxChips ?? DEFAULT_MAX_CHIPS} />
-				</div>
-			) : (
-				<div className="oe-tm-muted oe-tm-card-note">Nothing to show below the top row.</div>
-			)}
-			{!plugin.settings.showCard && <div className="oe-tm-muted oe-tm-card-note">The card is turned off in settings, so notes don't show it.</div>}
+		<div className="oe-tm-formpreview">
+			<FormPreview type={draft.type} fm={{ ...sample.frontmatter, status: sample.status }} path={sample.path ?? `__sample__/${sample.name}.md`} />
 		</div>
 	);
 }

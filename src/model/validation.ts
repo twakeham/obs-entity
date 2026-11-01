@@ -1,5 +1,5 @@
 import { unknownPlaceholders } from "./paths";
-import { COMMON_KEYS, RESERVED_KEYS, isValidKey, type EntityTypeDef } from "./types";
+import { RESERVED_KEYS, isValidKey, type EntityTypeDef } from "./types";
 
 /** A problem with a type definition, tied to the control it belongs to. */
 export interface TypeIssue {
@@ -70,12 +70,6 @@ export function typeIssues(t: EntityTypeDef, ctx: ValidationContext): TypeIssue[
 		const f = byKey.get(key);
 		if (!f) add("card:subtitle", `Subtitle field "${key}" doesn't exist.`);
 		else if (f.kind === "relation") add("card:subtitle", `Relation fields can't be used in the subtitle ("${key}").`);
-	}
-	const cardSeen = new Set<string>();
-	for (const key of t.card?.fields ?? []) {
-		if (!byKey.has(key) && key !== COMMON_KEYS.related) add("card:fields", `Card field "${key}" doesn't exist.`);
-		if (cardSeen.has(key)) add("card:fields", `Card field "${key}" is listed twice.`);
-		cardSeen.add(key);
 	}
 	return problems;
 }

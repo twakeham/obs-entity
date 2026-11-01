@@ -146,7 +146,7 @@ export const CRM_PACK: TypePack = {
 			group: "people",
 			template: "Contact.md",
 			shortcuts: ["c"],
-			card: { subtitle: ["role", "email"], fields: ["works_at", "knows"] },
+			card: { subtitle: ["role", "email"] },
 			fields: [
 				{ key: "role", label: "Role", kind: "text", inModal: true },
 				{ key: "email", label: "Email", kind: "url", inModal: true },
@@ -164,7 +164,7 @@ export const CRM_PACK: TypePack = {
 			group: "orgs",
 			template: "Company.md",
 			parentFields: ["subsidiary_of"],
-			card: { subtitle: ["industry"], fields: ["website", "subsidiary_of"] },
+			card: { subtitle: ["industry"] },
 			fields: [
 				{ key: "industry", label: "Industry", kind: "select", options: ["Software", "Finance", "Retail", "Other"], inModal: true },
 				{ key: "website", label: "Website", kind: "url" },
@@ -180,7 +180,7 @@ export const CRM_PACK: TypePack = {
 			color: "#8bc34a",
 			group: "sales",
 			template: "Deal.md",
-			card: { subtitle: ["description"], fields: ["company", "value", "close_date", "contacts"], incoming: false },
+			card: { subtitle: ["description"] },
 			fields: [
 				{ key: "description", label: "Description", kind: "textarea", inModal: true },
 				{ key: "company", label: "Company", kind: "relation", targets: ["company"], inverse: "Deals", required: true, inModal: true },

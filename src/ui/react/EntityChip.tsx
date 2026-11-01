@@ -6,8 +6,8 @@ import { Icon } from "./Icon";
 
 export const HOVER_SOURCE = "obs-entities";
 
-/** Clickable chip for the other end of a relationship. Labelled links show their label after the name, unless the group already is the label. */
-export function EntityChip({ item, sourcePath, hideLabel = false }: { item: RelationItem; sourcePath: string; hideLabel?: boolean }) {
+/** Clickable chip for the other end of a relationship. Labelled links show their label after the name, unless the group already is the label. `onRemove` adds a × inside the chip. */
+export function EntityChip({ item, sourcePath, hideLabel = false, onRemove, removeLabel }: { item: RelationItem; sourcePath: string; hideLabel?: boolean; onRemove?: () => void; removeLabel?: string }) {
 	const plugin = usePlugin();
 	const { app } = plugin;
 	const entity = item.path ? plugin.index.get(item.path) : undefined;
@@ -74,6 +74,20 @@ export function EntityChip({ item, sourcePath, hideLabel = false }: { item: Rela
 			{entity ? <Icon name={entity.type.icon} className="oe-chip-icon" /> : <Icon name={unresolved ? "file-question" : "file-text"} className="oe-chip-icon" />}
 			<span className="oe-chip-text">{name}</span>
 			{label && <span className="oe-chip-note">· {label}</span>}
+			{onRemove && (
+				<span
+					className="oe-chip-remove"
+					role="button"
+					aria-label={removeLabel ?? `Remove ${name}`}
+					onClick={(e) => {
+						e.preventDefault();
+						e.stopPropagation();
+						onRemove();
+					}}
+				>
+					<Icon name="x" />
+				</span>
+			)}
 		</a>
 	);
 }

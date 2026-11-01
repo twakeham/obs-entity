@@ -3,6 +3,7 @@ import { buildFrontmatter, defaultFieldValue, fieldDisplay, mergeFrontmatter, ty
 import { parseLink } from "../model/links";
 import { effectiveFolderPattern, expandFolderPattern, joinPath, resolveEntityFolder, sanitizeFileName, uniquePath } from "../model/paths";
 import { defaultTemplate, renderTemplate } from "../model/templates";
+import { retype } from "../model/form";
 import { addLink, removeLink, type Edge } from "../model/relations";
 import { COMMON_KEYS, groupOf, isListValued, statusesFor, type EntityTypeDef, type GroupDef } from "../model/types";
 import type EntitiesPlugin from "../main";
@@ -172,25 +173,26 @@ export class EntityFactory {
 
 	/**
 	 * Remove the frontmatter link that produced `edge` (written on edge.source, which may be another note).
-	 * Shows a notice with Undo, which restores the field's previous value.
+	 * Shows a notice with Undo, which restores the field's previous value. Returns the change made, if any.
 	 */
-	async removeRelation(edge: Edge): Promise<void> {
+	async removeRelation(edge: Edge): Promise<{ path: string; key: string; before: unknown; after: unknown } | null> {
 		const source = this.app.vault.getAbstractFileByPath(edge.source);
-		if (!(source instanceof TFile) || !edge.fieldKey) return;
+		if (!(source instanceof TFile) || !edge.fieldKey) return null;
 		const matches = (linkpath: string) => {
 			const resolved = this.app.metadataCache.getFirstLinkpathDest(linkpath, source.path)?.path ?? null;
 			return edge.target ? resolved === edge.target : !resolved && linkpath.toLowerCase() === edge.linktext.toLowerCase();
 		};
 		let previous: unknown;
+		let next: unknown;
 		let changed = false;
 		await this.app.fileManager.processFrontMatter(source, (fm: Record<string, unknown>) => {
 			if (fm[edge.fieldKey] === undefined) return;
 			previous = JSON.parse(JSON.stringify(fm[edge.fieldKey]));
-			const next = removeLink(fm[edge.fieldKey], matches);
+			next = removeLink(fm[edge.fieldKey], matches);
 			changed = JSON.stringify(next) !== JSON.stringify(previous);
 			fm[edge.fieldKey] = next;
 		});
-		if (!changed) return;
+		if (!changed) return null;
 		const targetName = edge.target ? (this.app.vault.getAbstractFileByPath(edge.target)?.name.replace(/\.md$/, "") ?? edge.linktext) : edge.linktext;
 		const frag = document.createDocumentFragment();
 		frag.append(`Removed ${source.basename} → ${targetName} (${edge.label ?? edge.fieldLabel}). `);
@@ -205,19 +207,62 @@ export class EntityFactory {
 				fm[edge.fieldKey] = previous;
 			});
 		});
+		return { path: source.path, key: edge.fieldKey, before: previous, after: next };
 	}
 
-	/** Turn an existing note into an entity of the given type, adding any missing fields. Existing values win. */
+	/**
+	 * Make a note an entity of `type`, or change an entity's type: adds the type's missing fields, keeps every
+	 * existing value, and resets a status that isn't valid for the type. Tells the user what changed.
+	 */
 	async convertToEntity(file: TFile, type: EntityTypeDef): Promise<void> {
-		const values = emptyFormValues(type, this.plugin.settings.groups, file.basename);
-		const generated = buildFrontmatter(type, values);
+		let previousType: unknown;
+		let statusReset = false;
 		await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
-			const previousType = fm[COMMON_KEYS.type];
-			mergeFrontmatter(fm, generated, true);
-			fm[COMMON_KEYS.type] = type.key;
-			if (previousType && previousType !== type.key) {
-				new Notice(`Changed entity type from "${String(previousType)}" to "${type.key}".`);
-			}
+			previousType = fm[COMMON_KEYS.type];
+			statusReset = retype(fm, type, this.plugin.settings.groups).statusReset;
 		});
+		const was = typeof previousType === "string" ? this.plugin.getType(previousType) : undefined;
+		const an = (n: string) => `${/^[aeiou]/i.test(n) ? "an" : "a"} ${n}`;
+		const message = was && was.key !== type.key ? `"${file.basename}" is now ${an(type.name.toLowerCase())} (was ${an(was.name.toLowerCase())}).` : `"${file.basename}" is now ${an(type.name.toLowerCase())}.`;
+		const reset = statusReset ? ` Its status was reset to “${statusesFor(type, this.plugin.settings.groups)[0]}”.` : "";
+		this.offerMove(file, type, message + reset);
+	}
+
+	/** Where a note of `type` would be filed now, given its frontmatter (for "Move to …" after changing type). */
+	folderForExisting(file: TFile, type: EntityTypeDef): string {
+		const fm = this.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
+		const values: EntityFormValues = { name: file.basename, status: "", tags: [], fields: fm as Record<string, FieldValue> };
+		return this.folderFor(type, values);
+	}
+
+	/** Show `message`, adding "Move to <folder>" when the note isn't where the folder pattern puts its type. */
+	private offerMove(file: TFile, type: EntityTypeDef, message: string): void {
+		// The metadata cache may not have the new frontmatter yet; parent links are unchanged by a type change anyway.
+		const target = this.folderForExisting(file, type);
+		const current = file.parent?.path === "/" ? "" : (file.parent?.path ?? "");
+		if (target.toLowerCase() === current.toLowerCase()) {
+			new Notice(message);
+			return;
+		}
+		const frag = document.createDocumentFragment();
+		frag.append(`${message} `);
+		const move = frag.appendChild(document.createElement("a"));
+		move.href = "#";
+		move.textContent = `Move to ${target || "the vault root"}/`;
+		const notice = new Notice(frag, 10000);
+		move.addEventListener("click", (e) => {
+			e.preventDefault();
+			notice.hide();
+			void this.moveTo(file, target);
+		});
+	}
+
+	/** Move a note into `folder` (created if needed), keeping its name unless taken. */
+	async moveTo(file: TFile, folder: string): Promise<void> {
+		const dest = await this.ensureFolder(folder);
+		const folderObj = dest ? this.app.vault.getAbstractFileByPath(dest) : this.app.vault.getRoot();
+		const taken = new Set(folderObj instanceof TFolder ? folderObj.children.map((c) => c.path.toLowerCase()) : []);
+		const path = normalizePath(uniquePath(dest, file.basename, (p) => taken.has(p.toLowerCase())));
+		await this.app.fileManager.renameFile(file, path);
 	}
 }

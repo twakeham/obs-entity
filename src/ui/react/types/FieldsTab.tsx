@@ -144,7 +144,6 @@ function FieldBadges({ field: f }: { field: FieldDef }) {
 	if (f.required) badges.push({ text: "required", cls: "is-required" });
 	if (f.inModal) badges.push({ text: "in create dialog", icon: "square-pen" });
 	if (card?.subtitle?.includes(f.key)) badges.push({ text: "subtitle", icon: "text" });
-	else if (!card?.fields || card.fields.includes(f.key)) badges.push({ text: "on card", icon: "panel-top" });
 	return (
 		<span className="oe-tm-badges">
 			{badges.map((b, i) => (
@@ -161,9 +160,8 @@ function FieldDetails({ index }: { index: number }) {
 	const { draft, update, issuesAt, allTypes, groups, setFieldUid } = useEditor();
 	const f = draft.type.fields[index];
 	const meta = draft.meta[index];
-	const card = draft.type.card;
 	const set = (fn: (f: FieldDef) => void) => update((t) => fn(t.fields[index]));
-	/** Change the key, keeping subtitle / card / parent references pointing at this field. */
+	/** Change the key, keeping subtitle / parent references pointing at this field. */
 	const setKey = (t: EntityTypeDef, key: string) => {
 		const old = t.fields[index].key;
 		t.fields[index].key = key;
@@ -171,8 +169,6 @@ function FieldDetails({ index }: { index: number }) {
 	};
 	const autoKey = !f.key || f.key === toKey(f.label);
 	const info = KIND_INFO[f.kind];
-	const onCard = !card?.fields || card.fields.includes(f.key);
-	const inSubtitle = !!card?.subtitle?.includes(f.key);
 
 	return (
 		<div className="oe-tm-fielddetails" data-field-index={index}>
@@ -226,7 +222,7 @@ function FieldDetails({ index }: { index: number }) {
 				</button>
 			</div>
 
-			<Row label="Label" desc="Shown in the create dialog and on cards.">
+			<Row label="Label" desc="Shown in the create dialog and the properties form.">
 				<TextInput
 					label="Field label"
 					value={f.label}
@@ -332,22 +328,8 @@ function FieldDetails({ index }: { index: number }) {
 			<Row label="Show in the create dialog" desc="Otherwise it's under “Show more fields”.">
 				<Toggle label="Show in the create dialog" value={!!f.inModal} onChange={(v) => set((x) => (x.inModal = v))} />
 			</Row>
-			<Row label="Required" desc="Must be filled in when creating a note.">
+			<Row label="Required" desc="Must be filled in when creating a note. Notes where it's empty show a warning.">
 				<Toggle label="Required" value={!!f.required} onChange={(v) => set((x) => (x.required = v || undefined))} />
-			</Row>
-			<Row label="Show on card" desc={inSubtitle && !card?.fields ? "Part of the subtitle, so not repeated on the card. Card fields are on the Display tab." : "On the info card (if it's turned on). Order and more options are on the Display tab."}>
-				<Toggle
-					label="Show on card"
-					value={onCard && !(inSubtitle && !card?.fields)}
-					onChange={(v) =>
-						update((t) => {
-							const c = (t.card ??= {});
-							// The first change turns "all filled fields" into an explicit list.
-							const list = c.fields ?? t.fields.filter((x) => x.kind === "relation" || !c.subtitle?.includes(x.key)).map((x) => x.key);
-							c.fields = v ? (list.includes(f.key) ? list : [...list, f.key]) : list.filter((k) => k !== f.key);
-						})
-					}
-				/>
 			</Row>
 			{issuesAt(`field:${index}:other`).length > 0 && <Issues issues={issuesAt(`field:${index}:other`)} />}
 		</div>

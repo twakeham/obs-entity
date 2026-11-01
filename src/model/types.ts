@@ -42,20 +42,16 @@ export interface FieldDef {
 
 export type FolderMode = "type" | "parent" | "own";
 
-/** What compact displays (info card, pickers, switcher) show for a type. */
+/** What compact displays (properties form header, pickers, switcher) show for a type. */
 export interface CardConfig {
-	/** inject the info card on notes of this type (default true) */
-	show?: boolean;
 	/** non-relation field keys whose values form the one-line description, joined with " · " */
 	subtitle?: string[];
-	/** field keys shown in the card body, in this order; undefined = all filled fields */
-	fields?: string[];
-	/** also show incoming / inverse and Related groups (default true) */
-	incoming?: boolean;
-	/** show listed fields even when empty (default false) */
-	showEmpty?: boolean;
-	/** chips per relation row before "+N more" (default 6) */
-	maxChips?: number;
+}
+
+/** How the entity properties form shows notes of a type. */
+export interface FormConfig {
+	/** hide fields with no value (default false: every field is listed, empty ones faintly) */
+	hideEmpty?: boolean;
 }
 
 export interface EntityTypeDef {
@@ -84,6 +80,7 @@ export interface EntityTypeDef {
 	/** relation field keys that point at this entity's parent, in priority order */
 	parentFields?: string[];
 	card?: CardConfig;
+	form?: FormConfig;
 	fields: FieldDef[];
 	/** id of the pack this type was installed from */
 	pack?: string;
@@ -162,6 +159,11 @@ export function cloneType(t: EntityTypeDef): EntityTypeDef {
 	const copy = JSON.parse(JSON.stringify(t));
 	// Per-type folders were replaced by the global folder pattern.
 	delete copy.folder;
+	// The info card was replaced by the properties form; only the subtitle remains.
+	if (copy.card) {
+		for (const k of ["show", "fields", "incoming", "showEmpty", "maxChips"]) delete copy.card[k];
+		if (Object.keys(copy.card).length === 0) delete copy.card;
+	}
 	return copy;
 }
 

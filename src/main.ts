@@ -3,13 +3,15 @@ import { isoDateAdapter, type DateAdapter } from "./model/dates";
 import type { EntityFormValues, FieldValue } from "./model/frontmatter";
 import { mergeSettings, type EntitiesSettings } from "./model/settings";
 import { propertyTypes } from "./model/propertyTypes";
-import { isListValued, typeExplicitlyTargeted, type EntityTypeDef, type RelationTarget } from "./model/types";
+import { isListValued, typeExplicitlyTargeted, type EntityTypeDef, type FieldDef, type RelationTarget } from "./model/types";
+import { EditHistory, entityProblems, fieldKindFor, writeKey, type CheckContext, type FieldProblem, type FormEdit } from "./model/form";
 import { EntityFactory } from "./services/entityFactory";
 import { EntityIndex } from "./services/entityIndex";
 import { RelationIndex } from "./services/relationIndex";
 import { EntitiesSettingTab } from "./settings/settingTab";
 import { TypePickerModal, typesForTargets } from "./ui/components/entityPicker";
-import { CardManager } from "./ui/header/cardManager";
+import { FormManager } from "./ui/header/formManager";
+import { CheckEntitiesModal } from "./ui/modals/checkEntitiesModal";
 import { CreateEntityModal } from "./ui/modals/createEntityModal";
 import { EntitySwitcherModal } from "./ui/modals/entitySwitcherModal";
 import { ImportPackModal } from "./ui/modals/importPackModal";
@@ -31,7 +33,9 @@ export default class EntitiesPlugin extends Plugin {
 	index!: EntityIndex;
 	relations!: RelationIndex;
 	factory!: EntityFactory;
-	private card!: CardManager;
+	private form!: FormManager;
+	/** Ctrl/Cmd+Z history for properties-form edits, per note. */
+	formHistory = new EditHistory(20);
 	/** Date handling for date fields (ISO for now; a custom calendar can replace it). */
 	dates: DateAdapter = isoDateAdapter;
 	private typeCommandIds = new Set<string>();
@@ -44,10 +48,12 @@ export default class EntitiesPlugin extends Plugin {
 		this.index = new EntityIndex(this);
 		this.relations = new RelationIndex(this);
 		this.factory = new EntityFactory(this);
-		this.card = new CardManager(this);
+		this.form = new FormManager(this);
 		this.relations.load();
 		this.index.load();
-		this.card.load();
+		this.form.load();
+		this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.formHistory.rename(oldPath, file.path)));
+		this.registerEvent(this.app.vault.on("delete", (file) => this.formHistory.clear(file.path)));
 		this.app.workspace.onLayoutReady(() => this.syncPropertyTypes());
 
 		this.registerView(CONNECTIONS_VIEW, (leaf) => new ConnectionsView(leaf, this));
@@ -113,6 +119,18 @@ export default class EntitiesPlugin extends Plugin {
 			},
 		});
 		this.addCommand({
+			id: "check-entities",
+			name: "Check entities",
+			callback: () => {
+				const items = this.index
+					.all()
+					.map((entity) => ({ entity, problems: this.problemsFor(entity) }))
+					.filter((x) => x.problems.length > 0);
+				if (items.length === 0) new Notice(`No problems found in ${this.index.all().length} entities.`);
+				else new CheckEntitiesModal(this, items).open();
+			},
+		});
+		this.addCommand({
 			id: "rebuild-index",
 			name: "Rebuild entity index",
 			callback: () => {
@@ -162,7 +180,12 @@ export default class EntitiesPlugin extends Plugin {
 	}
 
 	onunload(): void {
-		this.card?.unload();
+		this.form?.unload();
+	}
+
+	/** Re-place or remove the properties form in open notes (after its setting changes). */
+	refreshForms(): void {
+		this.form?.refreshAll();
 	}
 
 	/**
@@ -234,6 +257,63 @@ export default class EntitiesPlugin extends Plugin {
 		void this.app.workspace.openLinkText(path, "", target);
 	}
 
+	/** Write one frontmatter key from the properties form (undefined removes it), recording it for Ctrl/Cmd+Z. */
+	async writeProperty(file: TFile, key: string, value: unknown, record = true): Promise<void> {
+		let before: unknown;
+		await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+			before = fm[key] === undefined ? undefined : JSON.parse(JSON.stringify(fm[key]));
+			writeKey(fm, key, value);
+		});
+		if (record) this.formHistory.push(file.path, { key, before, after: value });
+	}
+
+	/** Undo the last properties-form edit on a note: starts writing the old value and returns the edit (null when there's nothing to undo). */
+	undoProperty(path: string): FormEdit | null {
+		const file = this.app.vault.getAbstractFileByPath(path);
+		if (!(file instanceof TFile)) return null;
+		const edit = this.formHistory.pop(path);
+		if (!edit) return null;
+		this.writeProperty(file, edit.key, edit.before, false).catch((e: Error) => new Notice(`Couldn't undo: ${e.message}`));
+		return edit;
+	}
+
+	/** How links from `sourcePath` resolve, for checking an entity's values. */
+	checkContext(sourcePath: string): CheckContext {
+		return {
+			types: this.settings.types,
+			groups: this.settings.groups,
+			dates: this.dates,
+			resolve: (linkpath) => {
+				const file = this.app.metadataCache.getFirstLinkpathDest(linkpath, sourcePath);
+				return file ? { path: file.path, type: this.index.get(file.path)?.type ?? null } : null;
+			},
+		};
+	}
+
+	problemsFor(entity: EntityRecord): FieldProblem[] {
+		return entityProblems(entity.type, entity.frontmatter, this.checkContext(entity.path));
+	}
+
+	/** Obsidian's assigned property type for a key ("text", "multitext", "date", …), when known. */
+	propertyWidget(key: string): string | null {
+		const mtm = (this.app as unknown as { metadataTypeManager?: { getAssignedWidget?(name: string): string | null | undefined } }).metadataTypeManager;
+		return mtm?.getAssignedWidget?.(key) ?? null;
+	}
+
+	/** "Add to type": open the type editor with a draft field for an extra property of a note. */
+	async addPropertyToType(typeKey: string, key: string, value: unknown): Promise<void> {
+		const kind = fieldKindFor(value, this.propertyWidget(key));
+		const label = key.replace(/[_-]+/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+		const field: FieldDef = { key, label, kind };
+		if (kind === "relation") {
+			field.targets = ["*"];
+			field.multiple = Array.isArray(value);
+		}
+		await this.activateTypes();
+		const leaf = this.app.workspace.getLeavesOfType(TYPES_VIEW)[0];
+		if (leaf?.view instanceof TypesView) leaf.view.addField(typeKey, field);
+	}
+
 	async saveSettings(): Promise<void> {
 		await this.saveData(this.settings);
 		this.registerTypeCommands();
@@ -292,7 +372,6 @@ export default class EntitiesPlugin extends Plugin {
 			this,
 			async (t) => {
 				await this.factory.convertToEntity(file, t);
-				new Notice(`"${file.basename}" is now a ${t.name.toLowerCase()}.`);
 			},
 			current ? this.settings.types.filter((t) => t.key !== current.type.key) : undefined,
 			current ? `Change "${file.basename}" from ${current.type.name.toLowerCase()} to…` : `Make "${file.basename}" a…`,

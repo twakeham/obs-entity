@@ -188,19 +188,17 @@ describe("validation", () => {
 		]);
 	});
 
-	it("checks parent fields and card settings", () => {
+	it("checks parent fields and the subtitle", () => {
 		const t: EntityTypeDef = {
 			...T("place"),
 			parentFields: ["kind", "missing"],
-			card: { subtitle: ["part_of", "nope"], fields: ["address", "address", "ghost", "related"] },
+			card: { subtitle: ["part_of", "nope"] },
 		};
 		expect(at(t)).toEqual([
 			'parentFields: Parent field "kind" isn\'t a relation field.',
 			'parentFields: Parent field "missing" doesn\'t exist.',
 			'card:subtitle: Relation fields can\'t be used in the subtitle ("part_of").',
 			'card:subtitle: Subtitle field "nope" doesn\'t exist.',
-			'card:fields: Card field "address" is listed twice.',
-			'card:fields: Card field "ghost" doesn\'t exist.',
 		]);
 	});
 });
@@ -531,12 +529,21 @@ describe("settings", () => {
 		expect(mergeSettings({ folderPattern: "Notes/{entity}" }).folderPattern).toBe("Notes/{entity}");
 	});
 
-	it("turns the info card off once for settings saved before version 2, then respects the user's choice", () => {
-		expect(mergeSettings(null).showCard).toBe(false);
-		expect(mergeSettings({ showCard: true }).showCard).toBe(false);
-		expect(mergeSettings({ showCard: true, settingsVersion: 1 }).showCard).toBe(false);
-		expect(mergeSettings({ showCard: true, settingsVersion: 2 }).showCard).toBe(true);
-		expect(mergeSettings({ showCard: true, settingsVersion: 1 }).settingsVersion).toBe(2);
+	it("replaces the info card settings with the properties form (version 3)", () => {
+		expect(mergeSettings(null).useForm).toBe(true);
+		const s = mergeSettings({ showCard: true, cardCollapsed: true, settingsVersion: 2 } as never);
+		expect(s.useForm).toBe(true);
+		expect(s).not.toHaveProperty("showCard");
+		expect(s).not.toHaveProperty("cardCollapsed");
+		expect(s.settingsVersion).toBe(3);
+		expect(mergeSettings({ useForm: false, settingsVersion: 3 }).useForm).toBe(false);
+	});
+
+	it("drops info card options from saved types, keeping the subtitle", () => {
+		const s = mergeSettings({ types: [{ ...T("person"), card: { subtitle: ["role"], fields: ["role"], incoming: false, show: false } } as EntityTypeDef] });
+		expect(s.types[0].card).toEqual({ subtitle: ["role"] });
+		const t = mergeSettings({ types: [{ ...T("person"), card: { fields: ["role"] } } as EntityTypeDef] });
+		expect(t.types[0]).not.toHaveProperty("card");
 	});
 
 	it("drops folders saved before the folder pattern existed", () => {

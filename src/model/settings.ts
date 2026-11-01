@@ -12,17 +12,17 @@ export interface EntitiesSettings {
 	openInNewTab: boolean;
 	/** Prefill a matching relation field from the active note when creating an entity. */
 	prefillFromActive: boolean;
-	/** Show the info card at the top of entity notes (off by default: the Connections panel covers it). */
-	showCard: boolean;
-	/** Info card collapsed state (shared by all notes). */
-	cardCollapsed: boolean;
+	/** Replace Obsidian's Properties block on entity notes with the entity properties form. */
+	useForm: boolean;
+	/** Properties form collapsed state (shared by all notes). */
+	formCollapsed: boolean;
 	groups: GroupDef[];
 	types: EntityTypeDef[];
 	/** Starter-pack type keys the user deleted, so newer plugin versions don't add them back. */
 	deletedPackTypes: string[];
 }
 
-export const SETTINGS_VERSION = 2;
+export const SETTINGS_VERSION = 3;
 
 export function defaultSettings(): EntitiesSettings {
 	return {
@@ -31,8 +31,8 @@ export function defaultSettings(): EntitiesSettings {
 		templatesFolder: "_templates/entities",
 		openInNewTab: false,
 		prefillFromActive: true,
-		showCard: false,
-		cardCollapsed: false,
+		useForm: true,
+		formCollapsed: false,
 		groups: (STARTER_PACK.groups ?? []).map(cloneGroup),
 		types: STARTER_PACK.types.map((t) => ({ ...cloneType(t), pack: STARTER_PACK.id })),
 		deletedPackTypes: [],
@@ -57,8 +57,11 @@ export function mergeSettings(saved: Partial<EntitiesSettings> | null | undefine
 	};
 	merged.groups = Array.isArray(saved.groups) ? saved.groups.map(cloneGroup) : base.groups;
 	merged.types = Array.isArray(saved.types) ? saved.types.map(cloneType) : base.types;
-	// Version 2: the Connections panel replaces the in-note card by default; turn the card off once.
-	if ((saved.settingsVersion ?? 1) < 2) merged.showCard = false;
+	// Version 3: the properties form replaced the info card (whose settings are dropped).
+	const legacy = merged as EntitiesSettings & { showCard?: unknown; cardCollapsed?: unknown };
+	delete legacy.showCard;
+	delete legacy.cardCollapsed;
+	if (typeof merged.useForm !== "boolean") merged.useForm = true;
 
 	const have = new Set(merged.types.map((t) => t.key));
 	const deleted = new Set(merged.deletedPackTypes);

@@ -14,6 +14,7 @@ import {
 	makeDraft,
 	makeGroupDraft,
 	migrateFrontmatter,
+	newUid,
 	notesWithValue,
 	sampleValues,
 	statusRenames,
@@ -24,7 +25,7 @@ import {
 	type SampleNote,
 	type TypeDraft,
 } from "../../../model/typeEditing";
-import { cloneGroup, COMMON_KEYS, DEFAULT_STATUSES, statusesFor, toKey, type EntityTypeDef, type GroupDef } from "../../../model/types";
+import { cloneGroup, COMMON_KEYS, DEFAULT_STATUSES, statusesFor, toKey, type EntityTypeDef, type FieldDef, type GroupDef } from "../../../model/types";
 import { typeIssues, type TypeIssue } from "../../../model/validation";
 import type { EntityRecord } from "../../../services/entityIndex";
 import { usePlugin, useRelationsVersion } from "../context";
@@ -46,6 +47,12 @@ export interface TypesState {
 }
 
 export const DEFAULT_TYPES_STATE: TypesState = { selected: null, tab: "general", previewOpen: true, previewMode: "dialog" };
+
+/** A field to add to a type's draft when the view opens it (from "Add to type" on a note's extra property). */
+export interface PendingField {
+	typeKey: string;
+	field: FieldDef;
+}
 
 const TABS: { id: EditorTab; label: string; icon: string }[] = [
 	{ id: "general", label: "General", icon: "settings-2" },
@@ -76,7 +83,7 @@ const tabFor = (at: string): EditorTab => (at.startsWith("field:") ? "fields" : 
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-export function TypeManager({ state, setState }: { state: TypesState; setState: (p: Partial<TypesState>) => void }) {
+export function TypeManager({ state, setState, pendingField: addRequest, onPendingDone }: { state: TypesState; setState: (p: Partial<TypesState>) => void; pendingField?: PendingField | null; onPendingDone?: () => void }) {
 	const plugin = usePlugin();
 	const version = useRelationsVersion();
 	const settings = plugin.settings;
@@ -362,6 +369,26 @@ export function TypeManager({ state, setState }: { state: TypesState; setState: 
 		else pendingField.current = uid;
 		select(key, fieldKey ? "fields" : undefined);
 	};
+
+	// "Add to type" from a note: add the field to the type's draft (unless it has it) and select it.
+	useEffect(() => {
+		if (!addRequest) return;
+		const { typeKey, field } = addRequest;
+		onPendingDone?.();
+		const d = draftFor(typeKey);
+		if (!d) return;
+		if (d.type.fields.some((f) => f.key === field.key)) {
+			openType(typeKey, field.key);
+			return;
+		}
+		const uid = newUid();
+		const next: TypeDraft = { original: d.original, type: { ...JSON.parse(JSON.stringify(d.type)), fields: [...d.type.fields, field] }, meta: [...d.meta.map((x) => ({ ...x })), { uid, origKey: null }] };
+		setDrafts((m) => new Map(m).set(typeKey, next));
+		if (typeKey === selectedId) setFieldUid(uid);
+		else pendingField.current = uid;
+		select(typeKey, "fields");
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [addRequest]);
 
 	/** Drag a group heading onto another to move it there. Saved straight away. */
 	const moveGroup = async (fromKey: string, toKey: string) => {

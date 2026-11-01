@@ -1,21 +1,13 @@
-import { DEFAULT_MAX_CHIPS } from "../../../model/card";
-import { COMMON_KEYS } from "../../../model/types";
-import { usePlugin } from "../context";
 import { KIND_INFO, useEditor } from "./editor";
-import { OrderedPicker, Row, Section, Segmented, TextInput, Toggle } from "./controls";
+import { OrderedPicker, Row, Section, Toggle } from "./controls";
 
-/** Hierarchy (parent fields) and what the card, pickers and search show for this type. */
+/** Hierarchy (parent fields), the subtitle shown in pickers and search, and properties form options. */
 export function DisplayTab() {
-	const plugin = usePlugin();
 	const { draft, update, issuesAt, allTypes } = useEditor();
 	const t = draft.type;
 	const card = t.card ?? {};
 	const relations = t.fields.filter((f) => f.kind === "relation" && f.key);
 	const subtitleOptions = t.fields.filter((f) => f.kind !== "relation" && f.key).map((f) => ({ value: f.key, label: f.label || f.key, icon: KIND_INFO[f.kind].icon }));
-	const cardOptions = [
-		...t.fields.filter((f) => f.key).map((f) => ({ value: f.key, label: f.label || f.key, icon: KIND_INFO[f.kind].icon })),
-		{ value: COMMON_KEYS.related, label: "Related", icon: "link-2" },
-	];
 	const setCard = (fn: (c: NonNullable<typeof t.card>) => void) =>
 		update((x) => {
 			const c = { ...(x.card ?? {}) };
@@ -46,7 +38,7 @@ export function DisplayTab() {
 				</Row>
 			</Section>
 
-			<Section title="Subtitle" desc="A one-line description shown under the name in link pickers, Find entity, chip tooltips and on the card.">
+			<Section title="Subtitle" desc="A one-line description shown under the name in link pickers, Find entity, chip tooltips, the browser and the properties form.">
 				<Row label="Subtitle fields" desc="Values are joined with “ · ”. Empty ones are skipped." issues={issuesAt("card:subtitle")} stacked>
 					<OrderedPicker
 						label="Subtitle fields"
@@ -59,45 +51,9 @@ export function DisplayTab() {
 				</Row>
 			</Section>
 
-			<Section title="Info card" desc={plugin.settings.showCard ? "The card at the top of notes of this type." : "The card is turned off for all notes in settings; these apply if it's turned on."}>
-				<Row label="Show the card on these notes">
-					<Toggle label="Show the card on these notes" value={card.show !== false} onChange={(v) => setCard((c) => (c.show = v ? undefined : false))} />
-				</Row>
-				<Row label="Fields" desc={card.fields ? "Only these, in this order. Relation fields show as rows of links in their place." : "Every filled field in field order (subtitle fields excluded), then all links."} issues={issuesAt("card:fields")} stacked={!!card.fields}>
-					<div className="oe-tm-stack">
-						<Segmented
-							label="Card fields"
-							value={card.fields ? "some" : "all"}
-							options={[
-								{ value: "all", label: "All filled fields" },
-								{ value: "some", label: "Only these" },
-							]}
-							onChange={(v) =>
-								setCard((c) => {
-									c.fields = v === "some" ? t.fields.filter((f) => f.key && (f.kind === "relation" || !c.subtitle?.includes(f.key))).map((f) => f.key) : undefined;
-								})
-							}
-						/>
-						{card.fields && <OrderedPicker label="Card fields" empty="Nothing but the top row." values={card.fields} options={cardOptions} invalid={issuesAt("card:fields").length > 0} onChange={(v) => setCard((c) => (c.fields = v))} />}
-					</div>
-				</Row>
-				<Row label="Also show incoming links" desc="Links set on other notes, like “People” on an organisation.">
-					<Toggle label="Also show incoming links" value={card.incoming !== false} onChange={(v) => setCard((c) => (c.incoming = v ? undefined : false))} />
-				</Row>
-				<Row label="Show empty fields" desc="List chosen fields even when they have no value.">
-					<Toggle label="Show empty fields" value={!!card.showEmpty} onChange={(v) => setCard((c) => (c.showEmpty = v || undefined))} />
-				</Row>
-				<Row label="Links per row" desc="Before “+N more”.">
-					<TextInput
-						label="Links per row"
-						className="oe-tm-narrow"
-						value={card.maxChips === undefined ? "" : String(card.maxChips)}
-						placeholder={String(DEFAULT_MAX_CHIPS)}
-						onChange={(v) => {
-							const n = Math.round(Number(v));
-							setCard((c) => (c.maxChips = v.trim() && Number.isFinite(n) && n > 0 ? n : undefined));
-						}}
-					/>
+			<Section title="Properties form" desc="The form that replaces Obsidian's Properties block on notes of this type.">
+				<Row label="Hide empty fields" desc="List only fields with a value, with a “Show N empty fields” link for the rest. Fields with a problem are always shown.">
+					<Toggle label="Hide empty fields" value={!!t.form?.hideEmpty} onChange={(v) => update((x) => (v ? (x.form = { ...x.form, hideEmpty: true }) : delete x.form))} />
 				</Row>
 			</Section>
 		</div>
