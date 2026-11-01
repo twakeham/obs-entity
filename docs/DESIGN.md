@@ -1098,9 +1098,12 @@ Column ids are the field / built-in key, `in:<type>.<field>`, or the given `id` 
 - [x] 2,000 rows scroll smoothly. Tested with 5,600 in-memory rows: about 0.5 s to render, about 0.4 s to search or sort, with 32 rows in the page.
 
 **Notes:**
-- **Readable line width:** the table stays inside the note's readable width and scrolls sideways. Turn off "Readable line width" for wide views.
+- **Full tab:** a view placed directly in a note spans the whole pane, ignoring the readable line width, in both Live Preview and Reading view. Its scroll area can grow to the pane's height. Embedded views (`![[View]]`), views in callouts and hover previews keep their normal size.
+  - `ViewBlock.fit()` measures the pane (`.cm-scroller` / `.markdown-preview-view`) and sets the host's margin and width, tracking resizes with ResizeObserver. It only styles its own element: changing CodeMirror's `.cm-embed-block` makes the editor redraw the widget.
+  - For that widget, CSS lifts Obsidian's `contain: paint !important` and hides its "Edit this block" button (⋯ → Edit definition does the same).
+  - A filler column takes spare width, so the grid reaches the right edge while column widths stay exact.
 - **Overriding note table styles:** Obsidian's Markdown table styles (`.markdown-rendered thead tr > th:nth-child(2n+2)` and others) apply to the grid. The table's selectors use `table.oe-table > thead > tr > th` to outrank them.
-- **Live Preview:** Obsidian puts an "Edit this block" button in the block's top-right corner, so the toolbar keeps 40 px clear on that side.
+- **Live Preview:** Obsidian puts an "Edit this block" button in the block's top-right corner. For views that aren't full-tab (embeds), the toolbar keeps 40 px clear on that side.
 - **Narrow views:** below 760 px wide (a container query), toolbar buttons show only their icons.
 - **New view notes** open with the cursor after the block, so Live Preview shows the table and not the block's source.
 

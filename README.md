@@ -209,7 +209,7 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
 
 **Saving:** changes to columns, filters, sorting and grouping are saved into the block automatically, held while a panel is open. Large views stay fast: only the visible rows are drawn.
 
-Formula columns are reserved in the format (`formula:`) but not supported yet. The table stays inside the note's readable line width; turn that setting off for wide views.
+Formula columns are reserved in the format (`formula:`) but not supported yet. A view placed directly in a note fills the whole tab, in width and height, whatever the readable line width; embedded views stay inline.
 
 ## Commands
 

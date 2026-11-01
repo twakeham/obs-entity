@@ -39,6 +39,7 @@ export class ViewBlock extends MarkdownRenderChild {
 			return;
 		}
 		this.root = createRoot(el);
+		this.watchFit();
 		this.root.render(
 			<PluginContext.Provider value={this.plugin}>
 				<EntityTable initial={def} warnings={errors} sourcePath={this.ctx.sourcePath} stateKey={this.stateKey()} save={(d) => this.save(d)} editDefinition={() => this.editDefinition()} />
@@ -49,6 +50,64 @@ export class ViewBlock extends MarkdownRenderChild {
 	onunload(): void {
 		this.root?.unmount();
 		this.root = null;
+		this.unfit();
+	}
+
+	// ---- full-tab layout: a view directly in a note spans the pane, not just the readable line width
+
+	private sizeObserver: ResizeObserver | null = null;
+	private paneObserver: ResizeObserver | null = null;
+	private pane: HTMLElement | null = null;
+	private fitted: HTMLElement | null = null;
+
+	/** Start fitting once the block is in the page (post-processors run before it's attached). */
+	private watchFit(): void {
+		this.sizeObserver = new ResizeObserver(() => this.fit());
+		this.sizeObserver.observe(this.containerEl);
+	}
+
+	private fit(): void {
+		const el = this.containerEl;
+		if (!el.isConnected) return;
+		// Embeds, callouts and hover previews keep their normal size.
+		if (el.closest(".internal-embed, .markdown-embed, .callout, .popover, .hover-popover")) return;
+		const pane = el.closest<HTMLElement>(".cm-scroller, .markdown-preview-view");
+		if (!pane) return;
+		if (pane !== this.pane) {
+			this.paneObserver?.disconnect();
+			this.paneObserver = new ResizeObserver(() => this.fit());
+			this.paneObserver.observe(pane);
+			this.pane = pane;
+		}
+		// Only our own element is resized: changing CodeMirror's widget (.cm-embed-block) makes the editor redraw it.
+		const target = el;
+		const parent = target.parentElement;
+		if (!parent) return;
+		this.fitted = target;
+		el.addClass("is-full");
+		const pad = 20;
+		const p = pane.getBoundingClientRect();
+		const left = p.left + pane.clientLeft + pad;
+		const width = Math.max(200, pane.clientWidth - 2 * pad);
+		const pr = parent.getBoundingClientRect();
+		const margin = `${Math.round(left - (pr.left + parent.clientLeft + parseFloat(getComputedStyle(parent).paddingLeft || "0")))}px`;
+		const w = `${Math.round(width)}px`;
+		if (target.style.marginLeft !== margin || target.style.width !== w) {
+			target.style.maxWidth = "none";
+			target.style.marginLeft = margin;
+			target.style.marginRight = "0";
+			target.style.width = w;
+		}
+		// The table's scroll area can grow to the pane's height (minus toolbar and footer).
+		el.style.setProperty("--oe-view-max-height", `${Math.max(240, pane.clientHeight - 110)}px`);
+	}
+
+	private unfit(): void {
+		this.sizeObserver?.disconnect();
+		this.paneObserver?.disconnect();
+		this.sizeObserver = this.paneObserver = null;
+		this.pane = null;
+		this.fitted = null;
 	}
 
 	/** Session state (search, collapsed groups, scroll) survives the re-render after a save. */

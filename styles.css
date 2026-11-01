@@ -2640,6 +2640,22 @@ button.oe-tm-typegroup-title,
 	padding-right: 40px;
 }
 
+/* Full-tab views: the table spills out of the narrow block widget, so don't clip it. The widget's own
+   "Edit this block" button would sit mid-toolbar; ⋯ → Edit definition does the same. */
+.markdown-source-view.is-live-preview .cm-embed-block:has(> .oe-view-host.is-full) {
+	overflow: visible;
+	/* Obsidian sets `contain: paint !important` on editor widgets, which clips the full-width table. */
+	contain: none !important;
+}
+
+.markdown-source-view.is-live-preview .cm-embed-block:has(> .oe-view-host.is-full) > .embed-actions {
+	display: none;
+}
+
+.markdown-source-view.is-live-preview .cm-embed-block > .oe-view-host.is-full .oe-view-toolbar {
+	padding-right: var(--size-4-2);
+}
+
 .oe-table-footer {
 	border-top: 1px solid var(--background-modifier-border);
 	color: var(--text-muted);
@@ -2703,7 +2719,7 @@ button.oe-tm-typegroup-title,
 
 .oe-table-scroll {
 	position: relative;
-	max-height: min(70vh, 720px);
+	max-height: var(--oe-view-max-height, min(70vh, 720px));
 	overflow: auto;
 	outline: none;
 }
@@ -2802,6 +2818,14 @@ button.oe-tm-typegroup-title,
 .oe-view table.oe-table > tbody > tr.oe-spacer-row > td {
 	padding: 0;
 	border: none;
+}
+
+/* The filler column takes any spare width, so the grid reaches the view's right edge. */
+.oe-view table.oe-table > thead > tr > th.oe-th-fill,
+.oe-view table.oe-table > tbody > tr > td.oe-td-fill {
+	padding: 0;
+	border-right: none;
+	cursor: default;
 }
 
 .oe-view table.oe-table > tbody > tr.oe-tr:hover > td {

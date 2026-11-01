@@ -499,12 +499,13 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 				</div>
 			)}
 			<div ref={scrollRef} className="oe-table-scroll" tabIndex={0} onKeyDown={onKeyDown} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
-				<table className="oe-table" style={{ width: tableWidth }}>
+				<table className="oe-table" style={{ width: `max(${tableWidth}px, 100%)` }}>
 					<colgroup>
 						<col style={{ width: SELECT_W }} />
 						{columns.map((c) => (
 							<col key={c.id} style={{ width: widthOf(c) }} />
 						))}
+						<col />
 					</colgroup>
 					<thead>
 						<tr>
@@ -548,19 +549,20 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 									</th>
 								);
 							})}
+							<th className="oe-th-fill" aria-hidden="true" />
 						</tr>
 					</thead>
 					<tbody>
 						{first > 0 && (
 							<tr className="oe-spacer-row">
-								<td colSpan={columns.length + 1} style={{ height: first * ROW_H }} />
+								<td colSpan={columns.length + 2} style={{ height: first * ROW_H }} />
 							</tr>
 						)}
 						{visible.map((it) => {
 							if (it.kind === "group") {
 								return (
 									<tr key={`g:${it.key}`} className="oe-group-row" onClick={() => setCollapsed((s) => (s.has(it.key) ? new Set([...s].filter((k) => k !== it.key)) : new Set([...s, it.key])))}>
-										<td colSpan={columns.length + 1}>
+										<td colSpan={columns.length + 2}>
 											<Icon name={it.open ? "chevron-down" : "chevron-right"} />
 											<span className="oe-group-label">{it.label || `No ${(groupCol?.label ?? "value").toLowerCase()}`}</span>
 											<span className="oe-group-count">{it.count}</span>
@@ -613,12 +615,13 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 											</td>
 										);
 									})}
+									<td className="oe-td-fill" />
 								</tr>
 							);
 						})}
 						{last < items.length && (
 							<tr className="oe-spacer-row">
-								<td colSpan={columns.length + 1} style={{ height: (items.length - last) * ROW_H }} />
+								<td colSpan={columns.length + 2} style={{ height: (items.length - last) * ROW_H }} />
 							</tr>
 						)}
 					</tbody>
