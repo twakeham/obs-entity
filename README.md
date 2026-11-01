@@ -190,7 +190,7 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
   - Dates also accept `today`, `-7d`, `+2w` or `1m`.
 - **Sort:** any number of levels, which can be dragged to reorder. Clicking a header sorts by it (ascending, descending, off), and Shift-click adds a level.
   - Statuses sort in their group's order, text sorts naturally ("Chapter 2" before "Chapter 10"), and empty values go last.
-- **Group:** by status, type, a choice, a link, a list, or a date by day / month / year. Each group has a collapsible header and a count.
+- **Group:** by status, type, a choice, a link, a list, or a date by day / month / year. Each group has a collapsible header and a count, plus the group's column summaries (turn off with **Show summaries in group headers**).
 - **Highlight:** conditional formatting rules, see below.
 - **Columns:**
   - the source types' fields
@@ -205,6 +205,15 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
 - **Dates:** presets (2026-12-15, 15 Dec 2026, Tue 15 Dec, 15/12/2026, December 2026…), **Relative** ("in 6 weeks"), or any moment.js pattern such as `D MMM YYYY`.
 - **Numbers:** Number (320,000), Integer, 2 decimals, **Currency** ($320,000.00, using the **Default currency** setting, or e.g. `currency:USD`), Compact (320K), Percent, or a pattern such as `$#,##0.00` or `#,##0 h`.
 - Formats only change what's shown: sorting, filtering and editing use the real value.
+
+**Summaries:** a summary row stays at the bottom of the table. Click a column's summary cell, or right-click its header → **Summarise…**, to choose an aggregation.
+- **Any column:** count, empty, filled (8/12), % filled, unique values.
+- **Numbers:** sum, average, median, min, max, range. These use the column's format, e.g. "Sum $1,240,000.00".
+- **Dates:** earliest, latest, range (e.g. "4 months").
+- **Checkboxes:** checked, unchecked, % checked.
+- **Status and choices:** a count of each value ("3 todo · 2 done") or the % of one value.
+- **Lists and links:** total values.
+- Summaries cover the rows the view shows (after filters and search). When the view is grouped, each group's header shows that group's summaries too.
 
 **Highlight rules** colour the rows or cells that match conditions, e.g. overdue tasks in red, or "Critical" priorities in bold red.
 - **Highlight** in the toolbar lists the rules. **+ Add rule**, or right-click a header → **Highlight cells…** for that column.

@@ -30,6 +30,7 @@ import { usePlugin, useRelationsVersion } from "../context";
 import { HOVER_SOURCE } from "../EntityChip";
 import { Icon } from "../Icon";
 import { CellEditor, CellView, editTarget } from "./cells";
+import { summarize, summaryOptions, type SummaryResult } from "../../../model/summary";
 import { ColumnsPanel, FiltersPanel, FormatPanel, GroupPanel, HighlightPanel, hlClasses, newHighlightRule, Popover, SortPanel, type ColumnChoice } from "./popovers";
 
 /** What survives the re-render after a save, per block, for the session. */
@@ -166,6 +167,22 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	const rowItems = useMemo(() => items.filter((i): i is Extract<Item, { kind: "row" }> => i.kind === "row"), [items]);
 	const groupCol = def.group ? result.known.get(def.group.by) : undefined;
 
+	// ---- summaries: the bottom row (each shown row once) and, when grouping, each group's header
+	const summaryKeys = def.summary ?? {};
+	const sums = useMemo(() => {
+		const of = (rs: ResultRow[]) => {
+			const out: Record<string, SummaryResult | null> = {};
+			for (const c of columns) if (summaryKeys[c.id]) out[c.id] = summarize(rs, c, summaryKeys[c.id], ctx, def.formats[c.id]);
+			return out;
+		};
+		const hasAny = columns.some((c) => summaryKeys[c.id]);
+		const groups = new Map<string, Record<string, SummaryResult | null>>();
+		if (hasAny && result.groups && def.group?.summaries !== false) for (const g of result.groups) groups.set(g.key, of(g.rows));
+		return { total: hasAny ? of(result.rows) : {}, groups };
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [result, def.summary, def.formats, def.group, ctx]);
+	const groupSums = sums.groups.size > 0 && columns.some((c) => c.id !== "name" && summaryKeys[c.id]);
+
 	const problemsOf = useMemo(() => {
 		const cache = new Map<string, FieldProblem[]>();
 		return (path: string) => {
@@ -255,8 +272,26 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		setDragCol(null);
 	};
 
+	/** Pick a column's summary: the aggregations its kind offers, or None. */
+	const summaryMenu = (c: ResolvedColumn, at: { x: number; y: number }) => {
+		const cur = defRef.current.summary?.[c.id];
+		const set = (agg: string | undefined) => {
+			const d = defRef.current;
+			const summary = { ...(d.summary ?? {}) };
+			if (agg) summary[c.id] = agg;
+			else delete summary[c.id];
+			update({ ...d, summary });
+		};
+		const m = new Menu();
+		m.addItem((i) => i.setTitle("None").setChecked(!cur).onClick(() => set(undefined)));
+		const values = c.kind === "choice" ? (c.options?.length ? c.options : valuesOf(c.id)).slice(0, 12) : [];
+		for (const o of summaryOptions(c, values)) m.addItem((i) => i.setSection(o.key.startsWith("percent:") ? "share" : "agg").setTitle(o.label).setChecked(cur === o.key).onClick(() => set(o.key)));
+		m.showAtPosition(at);
+	};
+
 	const headerMenu = (e: MouseEvent, c: ResolvedColumn) => {
 		e.preventDefault();
+		const at = { x: e.clientX, y: e.clientY };
 		const m = new Menu();
 		m.addItem((i) => i.setSection("sort").setTitle("Sort ascending").setIcon("arrow-up").onClick(() => update({ ...def, sort: [{ by: c.id, dir: "asc" }] })));
 		m.addItem((i) => i.setSection("sort").setTitle("Sort descending").setIcon("arrow-down").onClick(() => update({ ...def, sort: [{ by: c.id, dir: "desc" }] })));
@@ -282,6 +317,14 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					}),
 			);
 		const fk = formatKind(c);
+		if (!c.invalid)
+			m.addItem((i) =>
+				i
+					.setSection("edit")
+					.setTitle(def.summary?.[c.id] ? "Summarise… (on)" : "Summarise…")
+					.setIcon("sigma")
+					.onClick(() => window.setTimeout(() => summaryMenu(c, at), 0)),
+			);
 		{
 			const on = (def.fill ?? []).includes(c.id);
 			m.addItem((i) =>
@@ -634,13 +677,32 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 						)}
 						{visible.map((it) => {
 							if (it.kind === "group") {
+								const toggle = () => setCollapsed((s) => (s.has(it.key) ? new Set([...s].filter((k) => k !== it.key)) : new Set([...s, it.key])));
+								const head = (
+									<>
+										<Icon name={it.open ? "chevron-down" : "chevron-right"} />
+										<span className="oe-group-label">{it.label || `No ${(groupCol?.label ?? "value").toLowerCase()}`}</span>
+										<span className="oe-group-count">{it.count}</span>
+									</>
+								);
+								if (!groupSums)
+									return (
+										<tr key={`g:${it.key}`} className="oe-group-row" onClick={toggle}>
+											<td colSpan={columns.length + 2}>{head}</td>
+										</tr>
+									);
+								const gs = sums.groups.get(it.key) ?? {};
 								return (
-									<tr key={`g:${it.key}`} className="oe-group-row" onClick={() => setCollapsed((s) => (s.has(it.key) ? new Set([...s].filter((k) => k !== it.key)) : new Set([...s, it.key])))}>
-										<td colSpan={columns.length + 2}>
-											<Icon name={it.open ? "chevron-down" : "chevron-right"} />
-											<span className="oe-group-label">{it.label || `No ${(groupCol?.label ?? "value").toLowerCase()}`}</span>
-											<span className="oe-group-count">{it.count}</span>
+									<tr key={`g:${it.key}`} className="oe-group-row has-summaries" onClick={toggle}>
+										<td colSpan={2} className="oe-group-head">
+											{head}
 										</td>
+										{columns.slice(1).map((c) => (
+											<td key={c.id} className={`oe-group-sum${c.kind === "number" ? " is-number" : ""}`}>
+												<SummaryText s={gs[c.id]} />
+											</td>
+										))}
+										<td className="oe-td-fill" />
 									</tr>
 								);
 							}
@@ -718,6 +780,25 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 							</tr>
 						)}
 					</tbody>
+					<tfoot>
+						<tr className="oe-summary-row">
+							<td className="oe-td-select" />
+							{columns.map((c) => {
+								const s = sums.total[c.id];
+								return (
+									<td
+										key={c.id}
+										className={`oe-sum-cell${c.kind === "number" ? " is-number" : ""}${def.summary?.[c.id] ? " is-set" : ""}`}
+										data-col={c.id}
+										onClick={(e) => !c.invalid && summaryMenu(c, { x: e.clientX, y: e.clientY })}
+									>
+										{def.summary?.[c.id] ? <SummaryText s={s} /> : !c.invalid && <span className="oe-sum-hint">Summarise</span>}
+									</td>
+								);
+							})}
+							<td className="oe-td-fill" />
+						</tr>
+					</tfoot>
 				</table>
 				{result.rows.length === 0 && (
 					<div className="oe-table-empty">{result.total === 0 ? `No ${sources.length === 1 ? sources[0].plural.toLowerCase() : "entities"} yet.` : "No entities match this view's filters or search."}</div>
@@ -797,6 +878,18 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 				</Popover>
 			)}
 		</div>
+	);
+}
+
+/** A summary's label and value ("Sum $1,240.00"); a dash when the aggregation doesn't fit the column. */
+function SummaryText({ s }: { s: SummaryResult | null | undefined }) {
+	if (s === undefined) return null;
+	if (s === null) return <span className="oe-sum-hint is-invalid">–</span>;
+	return (
+		<span className="oe-sum" aria-label={s.label ? `${s.label} ${s.text}` : s.text}>
+			{s.label && <span className="oe-sum-label">{s.label}</span>}
+			<span className="oe-sum-value">{s.text}</span>
+		</span>
 	);
 }
 

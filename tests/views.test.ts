@@ -4,6 +4,7 @@ import { isoDateAdapter } from "../src/model/dates";
 import type { MomentLike } from "../src/model/formats";
 import { CRM_PACK, STARTER_PACK } from "../src/model/packs";
 import { extractEdges } from "../src/model/relations";
+import { spanText, summarize, summaryOptions } from "../src/model/summary";
 import {
 	availableColumns,
 	columnFromId,
@@ -226,6 +227,61 @@ describe("formats", () => {
 		expect(g).toEqual(["December 2026", "March 2027", ""]);
 		const rel = runView(view({ types: ["project"], columns: ["due"], formats: { due: "relative" }, sort: [{ by: "due", dir: "asc" }] }), ROWS, ctx).rows.map((x) => x.cells.due.text);
 		expect(rel.slice(0, 2)).toEqual(["in 4 weeks", "in 5 months"]);
+	});
+});
+
+describe("summaries", () => {
+	const fctx = { ...ctx, moment: moment as unknown as MomentLike, locale: "en-AU", currency: "AUD" };
+	const sum = (raw: Record<string, unknown>, id: string, agg: string, c = ctx) => {
+		const def = view(raw);
+		const r = runView(def, ROWS, c);
+		const res = summarize(r.rows, r.columns.find((x) => x.id === id)!, agg, c, def.formats[id]);
+		return res ? `${res.label} ${res.text}`.trim() : null;
+	};
+	const P = { types: ["project"], columns: ["status", "due", "team"] };
+
+	it("round-trip, dropping removed columns, and keep the group header toggle", () => {
+		const def = view({ ...P, summary: { due: "latest", gone: "sum", name: "count" }, group: { by: "status", summaries: false } });
+		expect(def.summary).toEqual({ due: "latest", gone: "sum", name: "count" });
+		const out = serializeView(def);
+		expect(out.summary).toEqual({ due: "latest", name: "count" });
+		expect(out.group).toEqual({ by: "status", summaries: false });
+		expect(view({ ...P, group: { by: "status" } }).group).toEqual({ by: "status" });
+		expect(serializeView(view(P)).summary).toBeUndefined();
+	});
+
+	it("count, fill and distinct values for any column", () => {
+		expect(sum(P, "name", "count")).toBe("Count 4");
+		expect(sum(P, "due", "count")).toBe("Count 2");
+		expect(sum(P, "due", "empty")).toBe("Empty 2");
+		expect(sum(P, "due", "filled")).toBe("Filled 2/4");
+		expect(sum(P, "due", "percent-filled")).toBe("Filled 50%");
+		expect(sum(P, "team", "unique")).toBe("Unique 2");
+		expect(sum(P, "team", "links")).toBe("Total 2");
+	});
+
+	it("choices: counts in status order and the share of one value", () => {
+		expect(sum(P, "status", "values")).toBe("1 idea · 1 active · 1 on-hold · 1 done");
+		expect(sum(P, "status", "percent:done")).toBe("done 25%");
+	});
+
+	it("numbers use the column's format; dates give earliest, latest and a span", () => {
+		const D = { types: ["deal"], columns: ["value"] };
+		expect(["sum", "avg", "median", "min", "max", "range"].map((a) => sum(D, "value", a))).toEqual(["Sum 150", "Avg 75", "Median 75", "Min 50", "Max 100", "Range 50"]);
+		expect(sum({ ...D, formats: { value: "currency" } }, "value", "sum", fctx)).toBe("Sum $150.00");
+		expect(sum(P, "due", "earliest")).toBe("Earliest 2026-12-01");
+		expect(sum({ ...P, formats: { due: "D MMM YYYY" } }, "due", "latest", fctx)).toBe("Latest 31 Mar 2027");
+		expect(sum(P, "due", "range")).toBe("Range 4 months");
+		expect(sum(P, "due", "sum")).toBeNull();
+		expect(sum({ types: ["deal"], columns: ["value"], filters: { all: [{ field: "value", op: ">", value: 500 }] } }, "value", "sum")).toBe("Sum –");
+	});
+
+	it("offers options by kind and spells out spans", () => {
+		const cols = runView(view({ ...P, columns: ["status", "due", "team"] }), ROWS, ctx).columns;
+		expect(summaryOptions(cols[0]).map((o) => o.key)).toEqual(["count"]);
+		expect(summaryOptions(cols[1], ["idea", "done"]).map((o) => o.key).slice(0, 3)).toEqual(["values", "percent:idea", "percent:done"]);
+		expect(summaryOptions(cols[2]).map((o) => o.key).slice(0, 3)).toEqual(["earliest", "latest", "range"]);
+		expect([1, 13, 20, 59, 120, 400, 1000].map(spanText)).toEqual(["1 day", "13 days", "3 weeks", "8 weeks", "4 months", "13 months", "2.7 years"]);
 	});
 });
 

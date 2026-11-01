@@ -993,10 +993,11 @@ filters: { all: [{ field: status, op: is-not, value: done }] }
 | `widths` | Column id → width in px. For fill columns, the minimum width. |
 | `fill` | A column id, or a list of them, that grows to fill spare width (see Table). Optional. |
 | `sort` | Sort levels: `{ by: <column id>, dir: asc \| desc }`. |
-| `group` | `{ by: <column id>, date?: month \| year }`. Optional. |
+| `group` | `{ by: <column id>, date?: month \| year, summaries?: false }`. Optional. `summaries: false` hides summaries in group headers. |
 | `filters` | `{ all: [...] }` or `{ any: [...] }`. Items are conditions, or one level of nested groups. |
 | `formats` | Column id → display format, for number and date columns (see Formats). Optional. |
 | `highlight` | Conditional formatting rules, in priority order (see Highlight rules). Optional. |
+| `summary` | Column id → summary aggregation, shown in the summary row and group headers (see Summaries). Optional. |
 
 **Columns.** A plain string is a built-in or a field key. An object is one of:
 - `{ field: key }` / `{ builtin: key }`, with an optional `label`;
@@ -1072,6 +1073,46 @@ Number and date columns (fields, `created` / `modified`, and number or date roll
 - **Currency:** `currency` without a code uses the **Default currency** setting (`defaultCurrency`, default AUD).
 - An invalid pattern shows a message in the panel and isn't applied; a saved bad pattern falls back to the raw value.
 
+#### Summaries
+
+Each column can show a summary of the rows: in a **summary row** pinned to the bottom of the grid, and in **group headers**.
+
+```yaml
+summary:
+  name: count
+  budget: sum
+  due: latest
+  status: values           # "3 todo · 2 done"
+  done: percent-checked
+  stage: "percent:done"    # share of one value
+group: { by: assignee, summaries: false }   # only written when turned off
+```
+
+| Column kind | Aggregations (keys) |
+|---|---|
+| any | `count` (rows with a value), `empty`, `filled` ("8/12"), `percent-filled`, `unique` (distinct values, list items counted separately) |
+| number (fields, number roll-ups) | `sum`, `avg`, `median`, `min`, `max`, `range` |
+| date | `earliest`, `latest`, `range` (a span: "12 days", "3 weeks", "4 months", "2.7 years") |
+| checkbox | `checked`, `unchecked`, `percent-checked` (plus `count`) |
+| choice, status, type | `values` (count of each value, in status / option order), `percent:<value>` |
+| list, links, tags | `links` (total values) |
+| name | `count` only (the row count) |
+
+- **The summary row** is always shown. It's sticky at the bottom of the scroll area, like the sticky header.
+  - Click a cell, which shows a faint "Summarise" on hover, for a menu of the column's aggregations, ticked when chosen, plus **None**.
+  - The header menu's **Summarise…** opens the same menu.
+- **Rows summarised:** the shown rows, after filters and the quick search. Collapsed groups still count. In the bottom row each row counts once, even when a list or links group puts it in several groups.
+- **Group headers:**
+  - When grouping, each header row shows that group's summaries under their columns, in a smaller, muted style. The group name and count span the first two cells.
+  - **Show summaries in group headers** in the Group panel turns this off; it's on by default.
+  - A row in several groups counts in each.
+- **Display:**
+  - Each result has a faint label ("Sum", "Avg", "Latest") before its value. Number and date results use the column's display format (§ Formats), so a currency column sums to "$1,240,000.00". Counts, percentages and spans are plain numbers in the number locale.
+  - % done roll-ups show averages as "63%".
+  - An aggregation that doesn't fit the column (e.g. after its field changed kind) shows "–", as does a number or date aggregation over no values.
+- **Saving:** summaries of removed columns are dropped when the view saves, like formats.
+- **Code:** `model/summary.ts` holds `summaryOptions`, `summaryApplies`, `summarize` and `spanText` (pure, tested). The table computes summaries with `useMemo` from the run result.
+
 #### Highlight rules
 
 Conditional formatting: a rule is **conditions + a style**, applied to the **whole row** or to **one column's cells**.
@@ -1126,7 +1167,7 @@ highlight:
   - Edits go into the form's Ctrl/Cmd+Z history. In the table, Ctrl/Cmd+Z undoes the last cell edit.
 - **Keyboard:** arrow keys move the focused cell, Enter edits, Esc cancels.
 - **+ New** (bottom row): creates an entity of the view's type, prefilled from simple top-level `is` / `any-of` conditions with one value. It asks for the type when the view has several.
-- **Footer:** "12 of 40 · 2 selected".
+- **Footer:** "12 of 40 · 2 selected". Above it, inside the grid, is the sticky summary row (§ Summaries).
 - **Large views:** rows are virtualised (fixed row height) inside a scroll area, so thousands of rows stay smooth.
 
 #### Saving
@@ -1283,6 +1324,7 @@ These cover all of `model/`, with no Obsidian dependency:
   - formats: parse/serialize, formatted cells and group labels, sorting on raw values
   - highlight: parse/serialize and errors, first-match precedence for rows and cells, cell styles layered over row styles (icons replaced), disabled rules, hidden fields in conditions, hidden target columns, unusable conditions, match counts
   - fill columns: parse/serialize as a name or list, proportional sharing, rounding to the exact width, nothing when there's no spare width
+  - summaries: parse/serialize (removed columns dropped, the group header toggle), every aggregation, status-order value counts, formatted sums and dates, empty results, options by column kind, `spanText`
 - **formats:** date presets, custom and relative dates; number presets, currencies, custom patterns and their errors.
 - **viewBlock:** finding blocks, and replacing one by line or content, keeping callout prefixes, CRLF, longer fences, and closing an unclosed block.
 - **validation:** every row of §9, with the right `at`.

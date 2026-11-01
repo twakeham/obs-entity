@@ -84,6 +84,8 @@ export interface SortLevel {
 export interface GroupBy {
 	by: string;
 	date?: "month" | "year";
+	/** show column summaries in group headers (default on) */
+	summaries?: false;
 }
 
 export const HIGHLIGHT_COLORS = ["red", "orange", "yellow", "green", "blue", "purple", "pink", "grey"] as const;
@@ -120,6 +122,8 @@ export interface ViewDef {
 	fill: string[];
 	/** column id → display format (numbers and dates; see formats.ts) */
 	formats: Record<string, string>;
+	/** column id → summary aggregation (see summary.ts) */
+	summary: Record<string, string>;
 	sort: SortLevel[];
 	group?: GroupBy;
 	filters: FilterGroup;
@@ -130,7 +134,7 @@ export interface ViewDef {
 export const NAME_COLUMN: ColumnDef = { kind: "builtin", id: "name", key: "name" };
 
 export function emptyView(types: string[] = ["*"]): ViewDef {
-	return { kind: "table", types, columns: [NAME_COLUMN], widths: {}, fill: [], formats: {}, sort: [], filters: { mode: "all", items: [] }, highlight: [] };
+	return { kind: "table", types, columns: [NAME_COLUMN], widths: {}, fill: [], formats: {}, summary: {}, sort: [], filters: { mode: "all", items: [] }, highlight: [] };
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -258,6 +262,8 @@ export function parseView(raw: unknown): { def: ViewDef | null; errors: string[]
 	const fill = [...new Set(asArray(raw.fill).filter((v): v is string => typeof v === "string" && !!v.trim()).map((v) => v.trim()))];
 	const formats: Record<string, string> = {};
 	if (isObj(raw.formats)) for (const [k, v] of Object.entries(raw.formats)) if (typeof v === "string" && v.trim()) formats[k] = v;
+	const summary: Record<string, string> = {};
+	if (isObj(raw.summary)) for (const [k, v] of Object.entries(raw.summary)) if (typeof v === "string" && v.trim()) summary[k] = v.trim();
 
 	const sort: SortLevel[] = [];
 	for (const s of asArray(raw.sort)) {
@@ -266,12 +272,17 @@ export function parseView(raw: unknown): { def: ViewDef | null; errors: string[]
 	}
 	let group: GroupBy | undefined;
 	if (typeof raw.group === "string" && raw.group.trim()) group = { by: raw.group.trim() };
-	else if (isObj(raw.group) && typeof raw.group.by === "string") group = { by: raw.group.by, ...(raw.group.date === "month" || raw.group.date === "year" ? { date: raw.group.date } : {}) };
+	else if (isObj(raw.group) && typeof raw.group.by === "string")
+		group = {
+			by: raw.group.by,
+			...(raw.group.date === "month" || raw.group.date === "year" ? { date: raw.group.date } : {}),
+			...(raw.group.summaries === false ? { summaries: false as const } : {}),
+		};
 
 	const filters = parseFilterItems(raw.filters, errors, 0) ?? { mode: "all", items: [] };
 	const highlight = parseHighlight(raw.highlight, errors);
 	if (errors.length && !VIEW_KINDS.includes(kind)) return { def: null, errors };
-	return { def: { kind, types: types.length ? types : ["*"], columns, widths, fill, formats, sort, ...(group ? { group } : {}), filters, highlight }, errors };
+	return { def: { kind, types: types.length ? types : ["*"], columns, widths, fill, formats, summary, sort, ...(group ? { group } : {}), filters, highlight }, errors };
 }
 
 const isColor = (v: unknown): v is HighlightColor => HIGHLIGHT_COLORS.includes(v as HighlightColor);
@@ -333,6 +344,8 @@ export function serializeView(def: ViewDef): Record<string, unknown> {
 	if (fill.length) out.fill = fill.length === 1 ? fill[0] : fill;
 	const formats = Object.fromEntries(Object.entries(def.formats ?? {}).filter(([id]) => def.columns.some((c) => c.id === id)));
 	if (Object.keys(formats).length) out.formats = formats;
+	const summary = Object.fromEntries(Object.entries(def.summary ?? {}).filter(([id]) => def.columns.some((c) => c.id === id)));
+	if (Object.keys(summary).length) out.summary = summary;
 	if (def.sort.length) out.sort = def.sort.map((s) => ({ by: s.by, dir: s.dir }));
 	if (def.group) out.group = { ...def.group };
 	if (def.filters.items.length) out.filters = serializeFilters(def.filters);

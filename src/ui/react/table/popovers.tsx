@@ -371,11 +371,12 @@ export function GroupPanel({ def, choices, onChange }: { def: ViewDef; choices: 
 	const g = def.group;
 	const col = g ? choices.find((c) => c.col.id === g.by)?.col : undefined;
 	const usable = choices.filter((c) => c.col.id !== "name" && !c.col.invalid);
+	const keep = g?.summaries === false ? { summaries: false as const } : {};
 	return (
 		<div className="oe-grouppanel">
 			<div className="oe-condition">
 				<span>Group by</span>
-				<select className="dropdown oe-pop-select" value={g?.by ?? ""} aria-label="Group by" onChange={(e) => onChange(e.target.value ? { by: e.target.value } : undefined)}>
+				<select className="dropdown oe-pop-select" value={g?.by ?? ""} aria-label="Group by" onChange={(e) => onChange(e.target.value ? { by: e.target.value, ...keep } : undefined)}>
 					<option value="">None</option>
 					{[...new Set(usable.map((c) => c.group))].map((grp) => (
 						<optgroup key={grp} label={grp}>
@@ -390,7 +391,7 @@ export function GroupPanel({ def, choices, onChange }: { def: ViewDef; choices: 
 					))}
 				</select>
 				{col?.kind === "date" && (
-					<select className="dropdown oe-pop-select is-narrow" value={g?.date ?? ""} aria-label="Date grouping" onChange={(e) => onChange({ by: g!.by, ...(e.target.value ? { date: e.target.value as "month" | "year" } : {}) })}>
+					<select className="dropdown oe-pop-select is-narrow" value={g?.date ?? ""} aria-label="Date grouping" onChange={(e) => onChange({ by: g!.by, ...(e.target.value ? { date: e.target.value as "month" | "year" } : {}), ...keep })}>
 						<option value="">by day</option>
 						<option value="month">by month</option>
 						<option value="year">by year</option>
@@ -398,6 +399,19 @@ export function GroupPanel({ def, choices, onChange }: { def: ViewDef; choices: 
 				)}
 			</div>
 			<div className="oe-pop-hint">Rows with several values (lists, links) appear in each of their groups.</div>
+			{g && (
+				<label className="oe-columns-item">
+					<input
+						type="checkbox"
+						checked={g.summaries !== false}
+						onChange={(e) => {
+							const { summaries: _, ...rest } = g;
+							onChange(e.target.checked ? rest : { ...rest, summaries: false });
+						}}
+					/>
+					<span className="oe-columns-label">Show summaries in group headers</span>
+				</label>
+			)}
 		</div>
 	);
 }

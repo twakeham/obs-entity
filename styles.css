@@ -3488,3 +3488,75 @@ button.oe-tm-typegroup-title,
 	background-color: color-mix(in srgb, var(--interactive-accent) 20%, transparent);
 	color: var(--text-normal);
 }
+/* Column summaries: a row pinned to the bottom of the grid, and the same in group headers */
+.oe-view table.oe-table > tfoot > tr > td {
+	position: sticky;
+	bottom: 0;
+	z-index: 2;
+	height: 30px;
+	padding: 0 8px;
+	border: none;
+	border-top: 1px solid var(--background-modifier-border);
+	border-right: 1px solid color-mix(in srgb, var(--background-modifier-border) 60%, transparent);
+	background-color: var(--background-secondary);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	text-align: left;
+	vertical-align: middle;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.oe-view table.oe-table > tfoot > tr > td.oe-td-fill {
+	border-right: none;
+}
+
+.oe-view table.oe-table > tfoot > tr > td.oe-sum-cell {
+	cursor: pointer;
+}
+
+.oe-view table.oe-table > tfoot > tr > td.oe-sum-cell:hover {
+	background-color: color-mix(in srgb, var(--interactive-accent) 8%, var(--background-secondary));
+}
+
+.oe-view table.oe-table td.is-number {
+	text-align: right;
+}
+
+.oe-sum-hint {
+	color: var(--text-faint);
+	opacity: 0;
+}
+
+.oe-sum-cell:hover .oe-sum-hint,
+.oe-sum-hint.is-invalid {
+	opacity: 1;
+}
+
+.oe-sum-label {
+	margin-right: 4px;
+	color: var(--text-faint);
+}
+
+.oe-sum-value {
+	color: var(--text-normal);
+	font-weight: var(--font-medium);
+	font-variant-numeric: tabular-nums;
+}
+
+.oe-view table.oe-table > tbody > tr.oe-group-row > td.oe-group-head {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.oe-view table.oe-table > tbody > tr.oe-group-row > td.oe-group-sum {
+	font-weight: normal;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.oe-group-sum .oe-sum-value {
+	color: var(--text-muted);
+}
