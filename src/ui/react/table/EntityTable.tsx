@@ -285,7 +285,15 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		const m = new Menu();
 		m.addItem((i) => i.setTitle("None").setChecked(!cur).onClick(() => set(undefined)));
 		const values = c.kind === "choice" ? (c.options?.length ? c.options : valuesOf(c.id)).slice(0, 12) : [];
-		for (const o of summaryOptions(c, values)) m.addItem((i) => i.setSection(o.key.startsWith("percent:") ? "share" : "agg").setTitle(o.label).setChecked(cur === o.key).onClick(() => set(o.key)));
+		for (const o of summaryOptions(c, values))
+			m.addItem((i) =>
+				i
+					.setSection(o.key.startsWith("percent:") ? "share" : "agg")
+					.setTitle(o.label)
+					.setChecked(cur === o.key)
+					// Clicking the ticked aggregation turns the summary off.
+					.onClick(() => set(cur === o.key ? undefined : o.key)),
+			);
 		m.showAtPosition(at);
 	};
 

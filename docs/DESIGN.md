@@ -1099,7 +1099,7 @@ group: { by: assignee, summaries: false }   # only written when turned off
 | name | `count` only (the row count) |
 
 - **The summary row** is always shown. It's sticky at the bottom of the scroll area, like the sticky header.
-  - Click a cell, which shows a faint "Summarise" on hover, for a menu of the column's aggregations, ticked when chosen, plus **None**.
+  - Click a cell, which shows a faint "Summarise" on hover, for a menu of the column's aggregations, ticked when chosen, plus **None**. Clicking the ticked aggregation also turns the summary off.
   - The header menu's **Summarise…** opens the same menu.
 - **Rows summarised:** the shown rows, after filters and the quick search. Collapsed groups still count. In the bottom row each row counts once, even when a list or links group puts it in several groups.
 - **Group headers:**

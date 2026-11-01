@@ -206,7 +206,7 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
 - **Numbers:** Number (320,000), Integer, 2 decimals, **Currency** ($320,000.00, using the **Default currency** setting, or e.g. `currency:USD`), Compact (320K), Percent, or a pattern such as `$#,##0.00` or `#,##0 h`.
 - Formats only change what's shown: sorting, filtering and editing use the real value.
 
-**Summaries:** a summary row stays at the bottom of the table. Click a column's summary cell, or right-click its header → **Summarise…**, to choose an aggregation.
+**Summaries:** a summary row stays at the bottom of the table. Click a column's summary cell, or right-click its header → **Summarise…**, to choose an aggregation. Click the ticked one again, or **None**, to turn it off.
 - **Any column:** count, empty, filled (8/12), % filled, unique values.
 - **Numbers:** sum, average, median, min, max, range. These use the column's format, e.g. "Sum $1,240,000.00".
 - **Dates:** earliest, latest, range (e.g. "4 months").
