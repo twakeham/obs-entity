@@ -3497,7 +3497,9 @@ button.oe-tm-typegroup-title,
 	padding: 0 8px;
 	border: none;
 	border-top: 1px solid var(--background-modifier-border);
-	border-right: 1px solid color-mix(in srgb, var(--background-modifier-border) 60%, transparent);
+	/* The bottom edge is a shadow, not a border: pinned to the bottom it's clipped by the scroll area, so it
+	   doesn't double up with the footer's top border; under a short table it shows as a 1px line. */
+	box-shadow: 0 1px 0 var(--background-modifier-border);
 	background-color: var(--background-secondary);
 	font-size: var(--font-ui-smaller);
 	color: var(--text-muted);
@@ -3508,8 +3510,9 @@ button.oe-tm-typegroup-title,
 	text-overflow: ellipsis;
 }
 
-.oe-view table.oe-table > tfoot > tr > td.oe-td-fill {
-	border-right: none;
+/* The summary row's top border is the grid's last line: don't double it with the last row's own. */
+.oe-view table.oe-table > tbody > tr:last-child > td {
+	border-bottom: none;
 }
 
 .oe-view table.oe-table > tfoot > tr > td.oe-sum-cell {
