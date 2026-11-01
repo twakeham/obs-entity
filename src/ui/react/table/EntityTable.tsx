@@ -7,6 +7,7 @@ import {
 	availableColumns,
 	cellOf,
 	cycleSort,
+	formatKind,
 	filterFields,
 	OPERATORS,
 	prefillFromFilters,
@@ -26,7 +27,7 @@ import { usePlugin, useRelationsVersion } from "../context";
 import { HOVER_SOURCE } from "../EntityChip";
 import { Icon } from "../Icon";
 import { CellEditor, CellView, editTarget } from "./cells";
-import { ColumnsPanel, FiltersPanel, GroupPanel, Popover, SortPanel, type ColumnChoice } from "./popovers";
+import { ColumnsPanel, FiltersPanel, FormatPanel, GroupPanel, Popover, SortPanel, type ColumnChoice } from "./popovers";
 
 /** What survives the re-render after a save, per block, for the session. */
 interface Session {
@@ -43,7 +44,7 @@ const SELECT_W = 36;
 const DEFAULT_W: Record<string, number> = { text: 170, number: 100, date: 120, choice: 120, multi: 170, bool: 80, links: 200, folder: 180 };
 
 type Item = { kind: "group"; key: string; label: string; count: number; open: boolean } | { kind: "row"; r: ResultRow; n: number };
-type PopName = "filters" | "sort" | "group" | "columns";
+type PopName = "filters" | "sort" | "group" | "columns" | "format";
 
 export interface EntityTableProps {
 	initial: ViewDef;
@@ -68,7 +69,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	const [search, setSearch] = useState(session.search);
 	const [collapsed, setCollapsed] = useState(() => new Set(session.collapsed));
 	const [selected, setSelected] = useState(() => new Set(session.selected));
-	const [pop, setPop] = useState<{ name: PopName; anchor: DOMRect } | null>(null);
+	const [pop, setPop] = useState<{ name: PopName; anchor: DOMRect; col?: string } | null>(null);
 	const [editing, setEditing] = useState<{ path: string; col: string; anchor: DOMRect } | null>(null);
 	const [focus, setFocus] = useState<{ r: number; c: number } | null>(null);
 	const [liveWidth, setLiveWidth] = useState<{ id: string; w: number } | null>(null);
@@ -268,6 +269,17 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 						if (btn) setPop({ name: "filters", anchor: btn.getBoundingClientRect() });
 					}),
 			);
+		const fk = formatKind(c);
+		if (fk) {
+			const th = e.currentTarget as HTMLElement;
+			m.addItem((i) =>
+				i
+					.setSection("edit")
+					.setTitle(def.formats[c.id] ? "Format? (custom)" : "Format?")
+					.setIcon(fk === "date" ? "calendar-cog" : "hash")
+					.onClick(() => setPop({ name: "format", anchor: th.getBoundingClientRect(), col: c.id })),
+			);
+		}
 		if (c.def.kind === "rollup") {
 			const rc = c.def;
 			m.addItem((i) => i.setSection("edit").setTitle("Edit roll-up…").setIcon("pencil").onClick(() => rollupDialog(rc)));
@@ -470,6 +482,15 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	const conditions = filterFields(def.filters).length;
 	const tableWidth = SELECT_W + columns.reduce((n, c) => n + widthOf(c), 0);
 	const editRow = editing ? plugin.index.get(editing.path) : undefined;
+	const formatCol = pop?.name === "format" ? columns.find((c) => c.id === pop.col) : undefined;
+	/** a real value from the column for format examples (today / 1234.5 when the column is empty) */
+	const sampleOf = (col: ResolvedColumn) => {
+		for (const r of result.rows) {
+			const v = r.cells[col.id]?.value;
+			if (typeof v === "number") return v;
+		}
+		return col.kind === "date" ? ctx.today : 1234.5;
+	};
 	const editCol = editing ? columns.find((c) => c.id === editing.col) : undefined;
 
 	return (
@@ -651,6 +672,22 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					{pop.name === "filters" && <FiltersPanel filters={def.filters} choices={choices} ctx={ctx} valuesOf={valuesOf} onChange={(filters) => update({ ...defRef.current, filters })} />}
 					{pop.name === "sort" && <SortPanel sort={def.sort} choices={choices} onChange={(sort) => update({ ...defRef.current, sort })} />}
 					{pop.name === "group" && <GroupPanel def={def} choices={choices} onChange={(group) => update({ ...defRef.current, group })} />}
+					{pop.name === "format" && formatCol && formatKind(formatCol) && (
+						<FormatPanel
+							label={formatCol.label}
+							kind={formatKind(formatCol)!}
+							format={def.formats[formatCol.id]}
+							sample={sampleOf(formatCol)}
+							ctx={ctx}
+							onChange={(f) => {
+								const cur = defRef.current;
+								const formats = { ...cur.formats };
+								if (f) formats[formatCol.id] = f;
+								else delete formats[formatCol.id];
+								update({ ...cur, formats });
+							}}
+						/>
+					)}
 					{pop.name === "columns" && (
 						<ColumnsPanel
 							def={def}

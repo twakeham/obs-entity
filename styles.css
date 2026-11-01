@@ -3207,3 +3207,45 @@ button.oe-tm-typegroup-title,
 	margin: var(--size-4-6) auto;
 	max-width: 560px;
 }
+
+/* Column format panel */
+.oe-pop-format {
+	width: 320px;
+}
+
+.oe-format-item {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 2px 0;
+	cursor: pointer;
+}
+
+.oe-format-example {
+	color: var(--text-muted);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.oe-format-sub {
+	margin: 2px 0 6px 22px;
+}
+
+.oe-popover input.oe-pop-input.oe-format-input {
+	width: 100%;
+}
+
+.oe-format-sub .oe-pop-hint {
+	margin-top: 4px;
+}
+
+.oe-format-preview {
+	margin-top: 6px;
+	padding-top: 6px;
+	border-top: 1px solid var(--background-modifier-border);
+	color: var(--text-muted);
+}
+
+.oe-format-preview.is-invalid {
+	color: var(--text-error);
+}

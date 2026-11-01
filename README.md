@@ -199,6 +199,11 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
   - Drag headers to reorder, and drag their edges to resize.
 - **⋯:** Save as…, Rename, Edit definition, Copy block.
 
+**Formats:** right-click a number or date column's header → **Format…**.
+- **Dates:** presets (2026-12-15, 15 Dec 2026, Tue 15 Dec, 15/12/2026, December 2026…), **Relative** ("in 6 weeks"), or any moment.js pattern such as `D MMM YYYY`.
+- **Numbers:** Number (320,000), Integer, 2 decimals, **Currency** ($320,000.00, using the **Default currency** setting, or e.g. `currency:USD`), Compact (320K), Percent, or a pattern such as `$#,##0.00` or `#,##0 h`.
+- Formats only change what's shown: sorting, filtering and editing use the real value.
+
 **Roll-ups** summarise the notes linked to each row, through an outgoing field or an incoming link: count, names, unique values of a field, sum / average / min / max of a number, earliest / latest date, % done, or count by status. E.g. "Notes: count" on projects, or "Deals: sum of value" on companies.
 
 **Editing:**

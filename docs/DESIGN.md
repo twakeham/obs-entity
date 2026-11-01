@@ -929,6 +929,7 @@ The command **Find entity** opens a `SuggestModal` over entities only.
   - A live preview of where each type's notes go (including the parent and own-folder rules), marking types with an exception. Unknown placeholders are flagged.
   - Templates folder, with a **Generate templates** button.
   - Views folder (§8.10), default `Entities/Views`.
+- **Views:** open view notes as entity views (`openViewsAsTabs`); **Default currency** (`defaultCurrency`, a 3-letter code, default AUD) for currency formats.
 - **Behaviour:**
   - open new entities in a new tab
   - prefill relations from the active note
@@ -993,6 +994,7 @@ filters: { all: [{ field: status, op: is-not, value: done }] }
 | `sort` | Sort levels: `{ by: <column id>, dir: asc \| desc }`. |
 | `group` | `{ by: <column id>, date?: month \| year }`. Optional. |
 | `filters` | `{ all: [...] }` or `{ any: [...] }`. Items are conditions, or one level of nested groups. |
+| `formats` | Column id → display format, for number and date columns (see Formats). Optional. |
 
 **Columns.** A plain string is a built-in or a field key. An object is one of:
 - `{ field: key }` / `{ builtin: key }`, with an optional `label`;
@@ -1053,6 +1055,20 @@ Column ids are the field / built-in key, `in:<type>.<field>`, or the given `id` 
   - relations sort by the first linked name.
 - **Empty values are always last.** With no sort set, rows are in name order.
 - **Group by:** one column (status, type, a choice, a relation, a list, or a date by month or year). Groups are collapsible and show a count. List values put a row in each group. Groups are ordered like the sort; empty goes last.
+
+#### Formats
+
+Number and date columns (fields, `created` / `modified`, and number or date roll-ups) can have a display format. Right-click a header → **Format…** opens a panel with presets (each showing an example from the column), a custom pattern box with help, and a live preview or error. Formats are saved in `formats` and dropped when their column is removed.
+
+| Kind | Presets | Custom |
+|---|---|---|
+| date | `YYYY-MM-DD`, `D MMM YYYY`, `ddd D MMM`, `DD/MM/YYYY`, `MM/DD/YYYY`, `MMMM YYYY`, `relative` ("in 3 days", "2 weeks ago") | any moment.js pattern |
+| number | `number` (grouping), `integer`, `decimal:N`, `currency` / `currency:CODE`, `compact` (12K), `percent` (value 0–100) | a spreadsheet-style pattern: optional prefix, `#,##0` with optional `.00`, optional suffix, e.g. `$#,##0.00`, `#,##0 h`, `0.0%` |
+
+- **Display only:** sorting, filtering and editing use the raw value. Group labels use the format.
+- **Locale:** numbers use the OS regional format when it shares a language with Obsidian's (e.g. en-AU under English), otherwise Obsidian's language. Dates use Obsidian's moment locale.
+- **Currency:** `currency` without a code uses the **Default currency** setting (`defaultCurrency`, default AUD).
+- An invalid pattern shows a message in the panel and isn't applied; a saved bad pattern falls back to the raw value.
 
 #### Table
 
@@ -1227,6 +1243,8 @@ These cover all of `model/`, with no Obsidian dependency:
   - header sort cycling
   - grouping by status, month and list values
   - prefill from filters
+  - formats: parse/serialize, formatted cells and group labels, sorting on raw values
+- **formats:** date presets, custom and relative dates; number presets, currencies, custom patterns and their errors.
 - **viewBlock:** finding blocks, and replacing one by line or content, keeping callout prefixes, CRLF, longer fences, and closing an unclosed block.
 - **validation:** every row of §9, with the right `at`.
 - **card:** subtitle composition (several fields, empty values skipped, first line of a textarea); renaming or deleting a field updates `card.subtitle` and `parentFields` in the draft.

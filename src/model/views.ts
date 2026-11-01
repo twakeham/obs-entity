@@ -2,6 +2,7 @@ import type { DateAdapter } from "./dates";
 import type { EntityInfo } from "./entity";
 import { isEmptyValue } from "./frontmatter";
 import { asArray, parseLabelledEntry, parseLink } from "./links";
+import { formatDate, formatNumber, RELATIVE, type MomentLike } from "./formats";
 import { COMMON_KEYS, statusesFor, toKey, typeMatchesTarget, type EntityTypeDef, type FieldDef, type GroupDef } from "./types";
 
 // ---------------------------------------------------------------- definition
@@ -91,6 +92,8 @@ export interface ViewDef {
 	types: string[];
 	columns: ColumnDef[];
 	widths: Record<string, number>;
+	/** column id → display format (numbers and dates; see formats.ts) */
+	formats: Record<string, string>;
 	sort: SortLevel[];
 	group?: GroupBy;
 	filters: FilterGroup;
@@ -99,7 +102,7 @@ export interface ViewDef {
 export const NAME_COLUMN: ColumnDef = { kind: "builtin", id: "name", key: "name" };
 
 export function emptyView(types: string[] = ["*"]): ViewDef {
-	return { kind: "table", types, columns: [NAME_COLUMN], widths: {}, sort: [], filters: { mode: "all", items: [] } };
+	return { kind: "table", types, columns: [NAME_COLUMN], widths: {}, formats: {}, sort: [], filters: { mode: "all", items: [] } };
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -224,6 +227,8 @@ export function parseView(raw: unknown): { def: ViewDef | null; errors: string[]
 
 	const widths: Record<string, number> = {};
 	if (isObj(raw.widths)) for (const [k, v] of Object.entries(raw.widths)) if (typeof v === "number" && v > 0) widths[k] = Math.round(v);
+	const formats: Record<string, string> = {};
+	if (isObj(raw.formats)) for (const [k, v] of Object.entries(raw.formats)) if (typeof v === "string" && v.trim()) formats[k] = v;
 
 	const sort: SortLevel[] = [];
 	for (const s of asArray(raw.sort)) {
@@ -236,7 +241,7 @@ export function parseView(raw: unknown): { def: ViewDef | null; errors: string[]
 
 	const filters = parseFilterItems(raw.filters, errors, 0) ?? { mode: "all", items: [] };
 	if (errors.length && !VIEW_KINDS.includes(kind)) return { def: null, errors };
-	return { def: { kind, types: types.length ? types : ["*"], columns, widths, sort, ...(group ? { group } : {}), filters }, errors };
+	return { def: { kind, types: types.length ? types : ["*"], columns, widths, formats, sort, ...(group ? { group } : {}), filters }, errors };
 }
 
 function serializeColumn(c: ColumnDef): unknown {
@@ -264,6 +269,8 @@ export function serializeView(def: ViewDef): Record<string, unknown> {
 	const out: Record<string, unknown> = { kind: def.kind, types: def.types, columns: def.columns.map(serializeColumn) };
 	const widths = Object.fromEntries(Object.entries(def.widths).filter(([id]) => def.columns.some((c) => c.id === id)));
 	if (Object.keys(widths).length) out.widths = widths;
+	const formats = Object.fromEntries(Object.entries(def.formats ?? {}).filter(([id]) => def.columns.some((c) => c.id === id)));
+	if (Object.keys(formats).length) out.formats = formats;
 	if (def.sort.length) out.sort = def.sort.map((s) => ({ by: s.by, dir: s.dir }));
 	if (def.group) out.group = { ...def.group };
 	if (def.filters.items.length) out.filters = serializeFilters(def.filters);
@@ -295,6 +302,10 @@ export interface ViewContext {
 	resolve(linkpath: string, sourcePath: string): string | null;
 	row(path: string): ViewRow | undefined;
 	incoming(path: string): IncomingLink[];
+	/** for column formats: moment.js (date patterns), the number locale and the default currency */
+	moment?: MomentLike;
+	locale?: string;
+	currency?: string;
 }
 
 /** Types the view's `types` select. */
@@ -1020,6 +1031,18 @@ function searchText(row: ViewRow): string {
 	return [row.name, ...row.aliases, row.subtitle ?? ""].join("\n").toLowerCase();
 }
 
+/** Columns a display format applies to. */
+export const formatKind = (col: ResolvedColumn): "number" | "date" | null => (col.invalid ? null : col.kind === "number" ? "number" : col.kind === "date" ? "date" : null);
+
+/** The cell with its text in the column's display format (values, sorting and filtering are unchanged). */
+export function formatCell(cell: Cell, col: ResolvedColumn, format: string | undefined, ctx: Pick<ViewContext, "moment" | "locale" | "currency" | "today">): Cell {
+	if (!format || typeof cell.value !== "number") return cell;
+	const kind = formatKind(col);
+	if (kind === "number") return { ...cell, text: formatNumber(cell.value, format, ctx.locale ?? "en", ctx.currency) };
+	if (kind === "date" && (ctx.moment || format === RELATIVE)) return { ...cell, text: formatDate(cell.value, format, ctx.moment as MomentLike, ctx.today) };
+	return cell;
+}
+
 /** Filter, sort and group the rows of a view. */
 export function runView(def: ViewDef, all: ViewRow[], ctx: ViewContext, search = ""): ViewResult {
 	const sources = new Set(sourceTypes(def, ctx.types).map((t) => t.key));
@@ -1039,7 +1062,7 @@ export function runView(def: ViewDef, all: ViewRow[], ctx: ViewContext, search =
 	for (const row of rows) {
 		if (q && !searchText(row).includes(q)) continue;
 		const cells: Record<string, Cell> = {};
-		const cell = (id: string) => (cells[id] ??= known.has(id) ? cellOf(row, known.get(id)!, ctx) : EMPTY);
+		const cell = (id: string) => (cells[id] ??= known.has(id) ? formatCell(cellOf(row, known.get(id)!, ctx), known.get(id)!, def.formats?.[id], ctx) : EMPTY);
 		if (!passes(def.filters, cell, known, ctx)) continue;
 		for (const c of columns) cell(c.id);
 		for (const id of extra) cell(id);

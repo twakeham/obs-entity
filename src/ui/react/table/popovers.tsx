@@ -13,6 +13,7 @@ import {
 	type ViewDef,
 } from "../../../model/views";
 import type { EntityRecord } from "../../../services/entityIndex";
+import { DATE_PRESETS, formatDate, formatIssue, formatNumber, NUMBER_PRESETS, type MomentLike } from "../../../model/formats";
 import { EntitySuggest } from "../../components/entityPicker";
 import { usePlugin } from "../context";
 import { Icon } from "../Icon";
@@ -383,6 +384,116 @@ export function GroupPanel({ def, choices, onChange }: { def: ViewDef; choices: 
 				)}
 			</div>
 			<div className="oe-pop-hint">Rows with several values (lists, links) appear in each of their groups.</div>
+		</div>
+	);
+}
+
+// ---------------------------------------------------------------- format
+
+/** Display format for a number or date column: presets with examples, a custom pattern, and a live preview. */
+export function FormatPanel({
+	label,
+	kind,
+	format,
+	sample,
+	ctx,
+	onChange,
+}: {
+	label: string;
+	kind: "number" | "date";
+	format: string | undefined;
+	/** a real value from the column (a number, or a date in days), for the examples */
+	sample: number;
+	ctx: ViewContext;
+	onChange: (format: string | undefined) => void;
+}) {
+	const presets = kind === "date" ? DATE_PRESETS : NUMBER_PRESETS;
+	const currency = (ctx.currency ?? "AUD").toUpperCase();
+	const presetOf = (f: string | undefined) => (!f ? "" : kind === "number" && f.startsWith("currency") ? "currency" : presets.some((p) => p.format === f) ? f : "custom");
+	const [choice, setChoice] = useState(presetOf(format));
+	const [custom, setCustom] = useState(choice === "custom" ? (format ?? "") : kind === "date" ? "D MMMM YYYY" : "#,##0.00");
+	const [code, setCode] = useState(format?.startsWith("currency:") ? format.slice(9) : currency);
+	const show = (f: string) => {
+		try {
+			return kind === "date" ? formatDate(sample, f, ctx.moment as MomentLike, ctx.today) : formatNumber(sample, f, ctx.locale ?? "en", currency);
+		} catch {
+			return "—";
+		}
+	};
+	const apply = (next: string, c = custom, cur = code) => {
+		setChoice(next);
+		if (!next) return onChange(undefined);
+		const f = next === "custom" ? c : next === "currency" ? `currency:${cur.toUpperCase()}` : next;
+		if (!formatIssue(kind, f)) onChange(f);
+	};
+	const current = choice === "custom" ? custom : choice === "currency" ? `currency:${code.toUpperCase()}` : choice;
+	const issue = choice ? formatIssue(kind, current) : null;
+	const raw = kind === "date" ? ctx.dates.format(sample, "short") : String(sample);
+	return (
+		<div className="oe-formatpanel">
+			<div className="oe-pop-heading">Format {label}</div>
+			<label className="oe-format-item">
+				<input type="radio" name="oe-format" checked={!choice} onChange={() => apply("")} />
+				<span className="oe-columns-label">Default</span>
+				<span className="oe-format-example">{raw}</span>
+			</label>
+			{presets.map((p) => (
+				<label key={p.format} className="oe-format-item">
+					<input type="radio" name="oe-format" checked={choice === p.format} onChange={() => apply(p.format)} />
+					<span className="oe-columns-label">{p.label}</span>
+					<span className="oe-format-example">{show(p.format === "currency" ? `currency:${code}` : p.format)}</span>
+				</label>
+			))}
+			{choice === "currency" && (
+				<div className="oe-condition oe-format-sub">
+					<span>Currency code</span>
+					<input
+						type="text"
+						className="oe-pop-input is-number"
+						value={code}
+						maxLength={3}
+						aria-label="Currency code"
+						onChange={(e) => {
+							setCode(e.target.value);
+							apply("currency", custom, e.target.value);
+						}}
+					/>
+				</div>
+			)}
+			<label className="oe-format-item">
+				<input type="radio" name="oe-format" checked={choice === "custom"} onChange={() => apply("custom")} />
+				<span className="oe-columns-label">Custom</span>
+			</label>
+			{choice === "custom" && (
+				<div className="oe-format-sub">
+					<input
+						type="text"
+						className="oe-pop-input oe-format-input"
+						value={custom}
+						aria-label="Custom format"
+						placeholder={kind === "date" ? "D MMMM YYYY" : "$#,##0.00"}
+						onChange={(e) => {
+							setCustom(e.target.value);
+							apply("custom", e.target.value);
+						}}
+					/>
+					<div className="oe-pop-hint">
+						{kind === "date" ? (
+							<>
+								moment.js tokens, e.g. <code>ddd D MMM</code>, <code>[Week] W</code>.{" "}
+								<a href="https://momentjs.com/docs/#/displaying/format/" target="_blank" rel="noopener">
+									Token reference
+								</a>
+							</>
+						) : (
+							<>
+								<code>#</code> and <code>0</code> are digits, <code>,</code> groups thousands, <code>.00</code> sets decimals; other text is kept, e.g. <code>$#,##0</code> or <code>#,##0 h</code>.
+							</>
+						)}
+					</div>
+				</div>
+			)}
+			<div className={`oe-format-preview${issue ? " is-invalid" : ""}`}>{issue ?? (choice ? `Preview: ${show(current)}` : `Preview: ${raw}`)}</div>
 		</div>
 	);
 }

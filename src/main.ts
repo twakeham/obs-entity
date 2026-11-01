@@ -1,4 +1,5 @@
-import { Keymap, MarkdownView, Notice, Plugin, TFile, WorkspaceLeaf, normalizePath, stringifyYaml, type PaneType, type ViewState } from "obsidian";
+import { Keymap, MarkdownView, Notice, Plugin, TFile, WorkspaceLeaf, moment, normalizePath, stringifyYaml, type PaneType, type ViewState } from "obsidian";
+import type { MomentLike } from "./model/formats";
 import { isoDateAdapter, type DateAdapter } from "./model/dates";
 import type { EntityFormValues, FieldValue } from "./model/frontmatter";
 import { mergeSettings, type EntitiesSettings } from "./model/settings";
@@ -26,6 +27,23 @@ import { VIEW_BLOCK, ViewIndex } from "./services/viewIndex";
 import { NewViewModal, OpenViewModal } from "./ui/modals/viewModals";
 import { ViewBlock } from "./ui/views/viewBlock";
 import { ENTITY_VIEW, EntityViewView } from "./ui/views/EntityViewView";
+
+/**
+ * Locale for number formats: Obsidian's language, refined by the system's region when they share a language
+ * (Obsidian's "en" + a system "en-AU" gives "en-AU", so AUD shows as "$" and separators match the region).
+ */
+function numberLocale(): string {
+	const app = moment.locale() || "en";
+	let system = typeof navigator !== "undefined" ? navigator.language : "";
+	try {
+		// Desktop: the OS regional format (navigator.language is Chromium's UI language, often en-US).
+		const req = (window as unknown as { require?: (m: string) => { remote?: { app?: { getSystemLocale?: () => string } } } }).require;
+		system = req?.("electron").remote?.app?.getSystemLocale?.() || system;
+	} catch {
+		// not available (mobile): keep navigator.language
+	}
+	return system && system.toLowerCase().split("-")[0] === app.toLowerCase().split("-")[0] ? system : app;
+}
 
 /** Obsidian 1.7+ lazily loads background tabs; make sure the leaf's real view exists. */
 async function loadIfDeferred(leaf: WorkspaceLeaf): Promise<void> {
@@ -353,6 +371,9 @@ export default class EntitiesPlugin extends Plugin {
 			resolve: (linkpath, sourcePath) => this.app.metadataCache.getFirstLinkpathDest(linkpath, sourcePath)?.path ?? null,
 			row: (path) => byPath.get(path),
 			incoming: (path) => this.relations.incomingOf(path).map((e) => ({ source: e.source, sourceType: e.sourceType, fieldKey: e.fieldKey })),
+			moment: moment as unknown as MomentLike,
+			locale: numberLocale(),
+			currency: this.settings.defaultCurrency,
 		};
 		return { rows, ctx };
 	}

@@ -12,6 +12,8 @@ export interface EntitiesSettings {
 	viewsFolder: string;
 	/** Open view notes as full-tab entity views (rather than as notes with the table inside). */
 	openViewsAsTabs: boolean;
+	/** Currency code the "Currency" column format starts with (ISO 4217, e.g. AUD). */
+	defaultCurrency: string;
 	/** Open newly created notes in a new tab instead of the current one. */
 	openInNewTab: boolean;
 	/** Prefill a matching relation field from the active note when creating an entity. */
@@ -35,6 +37,7 @@ export function defaultSettings(): EntitiesSettings {
 		templatesFolder: "_templates/entities",
 		viewsFolder: "Entities/Views",
 		openViewsAsTabs: true,
+		defaultCurrency: "AUD",
 		openInNewTab: false,
 		prefillFromActive: true,
 		useForm: true,
@@ -86,5 +89,6 @@ export function mergeSettings(saved: Partial<EntitiesSettings> | null | undefine
 	if (typeof merged.folderPattern !== "string") merged.folderPattern = DEFAULT_FOLDER_PATTERN;
 	if (typeof merged.viewsFolder !== "string") merged.viewsFolder = base.viewsFolder;
 	if (typeof merged.openViewsAsTabs !== "boolean") merged.openViewsAsTabs = true;
+	if (typeof merged.defaultCurrency !== "string" || !/^[A-Za-z]{3}$/.test(merged.defaultCurrency)) merged.defaultCurrency = "AUD";
 	return merged;
 }

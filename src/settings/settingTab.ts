@@ -168,6 +168,19 @@ export class EntitiesSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}),
 			);
+		new Setting(containerEl)
+			.setName("Default currency")
+			.setDesc("The currency the “Currency” column format starts with, as a three-letter code (AUD, USD, EUR…). Each column can choose its own.")
+			.addText((t) =>
+				t
+					.setPlaceholder("AUD")
+					.setValue(s.defaultCurrency)
+					.onChange(async (v) => {
+						if (!/^[A-Za-z]{3}$/.test(v.trim())) return;
+						s.defaultCurrency = v.trim().toUpperCase();
+						await this.plugin.saveSettings();
+					}),
+			);
 
 		new Setting(containerEl).setName("Behaviour").setHeading();
 		new Setting(containerEl).setName("Open new entities in a new tab").addToggle((t) =>

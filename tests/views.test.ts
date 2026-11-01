@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import moment from "moment";
 import { isoDateAdapter } from "../src/model/dates";
+import type { MomentLike } from "../src/model/formats";
 import { CRM_PACK, STARTER_PACK } from "../src/model/packs";
 import { extractEdges } from "../src/model/relations";
 import {
@@ -197,6 +199,31 @@ describe("sorting and grouping", () => {
 		expect(g({ types: ["project"], group: { by: "status" } })).toEqual(["idea: Apollo", "active: Project 10", "on-hold: Project 2", "done: Lander"]);
 		expect(g({ types: ["project"], group: { by: "due", date: "month" } })).toEqual(["December 2026: Lander", "March 2027: Apollo", "(none): Project 2,Project 10"]);
 		expect(g({ types: ["project"], group: { by: "team" } })).toEqual(["Ada: Apollo", "Grace: Apollo", "(none): Lander,Project 2,Project 10"]);
+	});
+});
+
+describe("formats", () => {
+	const fctx = { ...ctx, moment: moment as unknown as MomentLike, locale: "en-AU", currency: "AUD" };
+	it("round-trip through the block and drop formats of removed columns", () => {
+		const def = view({ types: ["deal"], columns: ["value", "close_date"], formats: { value: "currency", close_date: "D MMM YYYY", gone: "x", bad: 3 } });
+		expect(def.formats).toEqual({ value: "currency", close_date: "D MMM YYYY", gone: "x" });
+		expect(serializeView(def).formats).toEqual({ value: "currency", close_date: "D MMM YYYY" });
+		expect(serializeView(view({ types: ["deal"] })).formats).toBeUndefined();
+	});
+
+	it("change the text, not the value, sorting or filtering", () => {
+		const raw = { types: ["deal"], columns: ["value", "close_date"], formats: { value: "$#,##0.00", close_date: "ddd D MMM YYYY" }, sort: [{ by: "value", dir: "asc" }], filters: { all: [{ field: "value", op: ">", value: 60 }] } };
+		const r = runView(view(raw), ROWS, fctx);
+		expect(r.rows.map((x) => [x.row.name, x.cells.value.text, x.cells.value.value])).toEqual([["Deal one", "$100.00", 100]]);
+		const all = runView(view({ ...raw, filters: undefined }), ROWS, fctx).rows;
+		expect(all.map((x) => `${x.cells.value.text}|${x.cells.close_date.text}`)).toEqual(["$50.00|Tue 30 Jun 2026", "$100.00|"]);
+	});
+
+	it("label date groups, and work without moment for relative dates", () => {
+		const g = runView(view({ types: ["project"], group: { by: "due" }, formats: { due: "MMMM YYYY" }, columns: ["due"] }), ROWS, fctx).groups!.map((x) => x.label);
+		expect(g).toEqual(["December 2026", "March 2027", ""]);
+		const rel = runView(view({ types: ["project"], columns: ["due"], formats: { due: "relative" }, sort: [{ by: "due", dir: "asc" }] }), ROWS, ctx).rows.map((x) => x.cells.due.text);
+		expect(rel.slice(0, 2)).toEqual(["in 4 weeks", "in 5 months"]);
 	});
 });
 
