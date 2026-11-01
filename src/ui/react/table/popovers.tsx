@@ -10,6 +10,7 @@ import {
 	type ColumnDef,
 	type Condition,
 	type FilterGroup,
+	type GroupBy,
 	type HighlightColor,
 	type HighlightRule,
 	type HighlightStyle,
@@ -367,55 +368,71 @@ export function SortPanel({ sort, choices, onChange }: { sort: SortLevel[]; choi
 
 // ---------------------------------------------------------------- group
 
-export function GroupPanel({ def, choices, onChange }: { def: ViewDef; choices: ColumnChoice[]; onChange: (g: ViewDef["group"]) => void }) {
-	const g = def.group;
-	const col = g ? choices.find((c) => c.col.id === g.by)?.col : undefined;
+export function GroupPanel({ def, choices, onChange }: { def: ViewDef; choices: ColumnChoice[]; onChange: (group: GroupBy[], groupSummaries: false | undefined) => void }) {
+	const levels = def.group;
+	const [drag, setDrag] = useState<number | null>(null);
 	const usable = choices.filter((c) => c.col.id !== "name" && !c.col.invalid);
-	const keep = g?.summaries === false ? { summaries: false as const } : {};
+	const emit = (next: GroupBy[]) => onChange(next, def.groupSummaries);
+	const set = (i: number, g: GroupBy | null) => emit(g ? levels.map((x, j) => (j === i ? g : x)) : levels.filter((_, j) => j !== i));
+	const unused = usable.find((c) => !levels.some((g) => g.by === c.col.id));
 	return (
 		<div className="oe-grouppanel">
-			<div className="oe-condition">
-				<span>Group by</span>
-				<select className="dropdown oe-pop-select" value={g?.by ?? ""} aria-label="Group by" onChange={(e) => onChange(e.target.value ? { by: e.target.value, ...keep } : undefined)}>
-					<option value="">None</option>
-					{[...new Set(usable.map((c) => c.group))].map((grp) => (
-						<optgroup key={grp} label={grp}>
-							{usable
-								.filter((c) => c.group === grp)
-								.map((c) => (
-									<option key={c.col.id} value={c.col.id}>
-										{c.col.label}
-									</option>
-								))}
-						</optgroup>
-					))}
-				</select>
-				{col?.kind === "date" && (
-					<select className="dropdown oe-pop-select is-narrow" value={g?.date ?? ""} aria-label="Date grouping" onChange={(e) => onChange({ by: g!.by, ...(e.target.value ? { date: e.target.value as "month" | "year" } : {}), ...keep })}>
-						<option value="">by day</option>
-						<option value="month">by month</option>
-						<option value="year">by year</option>
-					</select>
-				)}
+			{levels.length === 0 && <div className="oe-pop-empty">Not grouped.</div>}
+			{levels.map((g, i) => {
+				const col = choices.find((c) => c.col.id === g.by)?.col;
+				// A column can only be one level: hide those used by the other levels.
+				const options = choices.filter((c) => c.col.id === g.by || usable.includes(c)).filter((c) => c.col.id === g.by || !levels.some((x) => x.by === c.col.id));
+				return (
+					<div
+						key={`${g.by}:${i}`}
+						className={`oe-sortlevel${drag === i ? " is-dragging" : ""}`}
+						draggable
+						onDragStart={() => setDrag(i)}
+						onDragEnd={() => setDrag(null)}
+						onDragOver={(e) => e.preventDefault()}
+						onDrop={(e) => {
+							e.preventDefault();
+							if (drag === null || drag === i) return;
+							const next = [...levels];
+							const [moved] = next.splice(drag, 1);
+							next.splice(i, 0, moved);
+							emit(next);
+							setDrag(null);
+						}}
+					>
+						<span className="oe-drag" aria-hidden="true">
+							<Icon name="grip-vertical" />
+						</span>
+						<span className="oe-sortlevel-n">{i === 0 ? "Group by" : "then by"}</span>
+						<ColumnSelect label={`Group level ${i + 1}`} value={g.by} choices={options} onChange={(by) => set(i, { by })} />
+						{col?.kind === "date" && (
+							<select className="dropdown oe-pop-select is-narrow" value={g.date ?? ""} aria-label="Date grouping" onChange={(e) => set(i, { by: g.by, ...(e.target.value ? { date: e.target.value as "month" | "year" } : {}) })}>
+								<option value="">by day</option>
+								<option value="month">by month</option>
+								<option value="year">by year</option>
+							</select>
+						)}
+						<button className="clickable-icon" aria-label="Remove group level" onClick={() => set(i, null)}>
+							<Icon name="x" />
+						</button>
+					</div>
+				);
+			})}
+			<div className="oe-pop-actions">
+				<button className="oe-pop-link" disabled={!unused} onClick={() => unused && emit([...levels, { by: unused.col.id }])}>
+					<Icon name="plus" /> Add level
+				</button>
 			</div>
 			<div className="oe-pop-hint">Rows with several values (lists, links) appear in each of their groups.</div>
-			{g && (
+			{levels.length > 0 && (
 				<label className="oe-columns-item">
-					<input
-						type="checkbox"
-						checked={g.summaries !== false}
-						onChange={(e) => {
-							const { summaries: _, ...rest } = g;
-							onChange(e.target.checked ? rest : { ...rest, summaries: false });
-						}}
-					/>
+					<input type="checkbox" checked={def.groupSummaries !== false} onChange={(e) => onChange(levels, e.target.checked ? undefined : false)} />
 					<span className="oe-columns-label">Show summaries in group headers</span>
 				</label>
 			)}
 		</div>
 	);
 }
-
 // ---------------------------------------------------------------- format
 
 /** Display format for a number or date column: presets with examples, a custom pattern, and a live preview. */

@@ -84,8 +84,6 @@ export interface SortLevel {
 export interface GroupBy {
 	by: string;
 	date?: "month" | "year";
-	/** show column summaries in group headers (default on) */
-	summaries?: false;
 }
 
 export const HIGHLIGHT_COLORS = ["red", "orange", "yellow", "green", "blue", "purple", "pink", "grey"] as const;
@@ -125,7 +123,10 @@ export interface ViewDef {
 	/** column id → summary aggregation (see summary.ts) */
 	summary: Record<string, string>;
 	sort: SortLevel[];
-	group?: GroupBy;
+	/** grouping levels, outermost first (empty: not grouped) */
+	group: GroupBy[];
+	/** show column summaries in group headers (default on) */
+	groupSummaries?: false;
 	filters: FilterGroup;
 	/** conditional formatting, in priority order */
 	highlight: HighlightRule[];
@@ -134,7 +135,7 @@ export interface ViewDef {
 export const NAME_COLUMN: ColumnDef = { kind: "builtin", id: "name", key: "name" };
 
 export function emptyView(types: string[] = ["*"]): ViewDef {
-	return { kind: "table", types, columns: [NAME_COLUMN], widths: {}, fill: [], formats: {}, summary: {}, sort: [], filters: { mode: "all", items: [] }, highlight: [] };
+	return { kind: "table", types, columns: [NAME_COLUMN], widths: {}, fill: [], formats: {}, summary: {}, sort: [], group: [], filters: { mode: "all", items: [] }, highlight: [] };
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -270,19 +271,27 @@ export function parseView(raw: unknown): { def: ViewDef | null; errors: string[]
 		if (typeof s === "string" && s.trim()) sort.push({ by: s.trim(), dir: "asc" });
 		else if (isObj(s) && typeof s.by === "string") sort.push({ by: s.by, dir: s.dir === "desc" ? "desc" : "asc" });
 	}
-	let group: GroupBy | undefined;
-	if (typeof raw.group === "string" && raw.group.trim()) group = { by: raw.group.trim() };
-	else if (isObj(raw.group) && typeof raw.group.by === "string")
-		group = {
-			by: raw.group.by,
-			...(raw.group.date === "month" || raw.group.date === "year" ? { date: raw.group.date } : {}),
-			...(raw.group.summaries === false ? { summaries: false as const } : {}),
-		};
+	const group: GroupBy[] = [];
+	if (raw.group !== undefined && raw.group !== null) {
+		if (!Array.isArray(raw.group)) errors.push("group should be a list of levels, e.g. group: [{ by: status }, { by: due, date: month }].");
+		else
+			for (const g of raw.group) {
+				const by = typeof g === "string" ? g.trim() : isObj(g) && typeof g.by === "string" ? g.by.trim() : "";
+				if (!by) {
+					errors.push(`A group level needs "by": ${JSON.stringify(g)}.`);
+					continue;
+				}
+				if (group.some((x) => x.by === by)) continue;
+				const date = isObj(g) && (g.date === "month" || g.date === "year") ? g.date : undefined;
+				group.push({ by, ...(date ? { date } : {}) });
+			}
+	}
+	const groupSummaries = raw.groupSummaries === false ? { groupSummaries: false as const } : {};
 
 	const filters = parseFilterItems(raw.filters, errors, 0) ?? { mode: "all", items: [] };
 	const highlight = parseHighlight(raw.highlight, errors);
 	if (errors.length && !VIEW_KINDS.includes(kind)) return { def: null, errors };
-	return { def: { kind, types: types.length ? types : ["*"], columns, widths, fill, formats, summary, sort, ...(group ? { group } : {}), filters, highlight }, errors };
+	return { def: { kind, types: types.length ? types : ["*"], columns, widths, fill, formats, summary, sort, group, ...groupSummaries, filters, highlight }, errors };
 }
 
 const isColor = (v: unknown): v is HighlightColor => HIGHLIGHT_COLORS.includes(v as HighlightColor);
@@ -347,7 +356,8 @@ export function serializeView(def: ViewDef): Record<string, unknown> {
 	const summary = Object.fromEntries(Object.entries(def.summary ?? {}).filter(([id]) => def.columns.some((c) => c.id === id)));
 	if (Object.keys(summary).length) out.summary = summary;
 	if (def.sort.length) out.sort = def.sort.map((s) => ({ by: s.by, dir: s.dir }));
-	if (def.group) out.group = { ...def.group };
+	if (def.group.length) out.group = def.group.map((g) => ({ by: g.by, ...(g.date ? { date: g.date } : {}) }));
+	if (def.groupSummaries === false) out.groupSummaries = false;
 	if (def.filters.items.length) out.filters = serializeFilters(def.filters);
 	if (def.highlight?.length)
 		out.highlight = def.highlight.map((r) => {
@@ -1110,10 +1120,21 @@ export interface ResultRow {
 	hl?: Record<string, number>;
 }
 
+/** Separates the keys in a nested group's path ("active␟Ada"). */
+export const GROUP_PATH_SEP = "\u241F";
+
 export interface ResultGroup {
+	/** the group's path: its key and its parents' keys, joined with GROUP_PATH_SEP */
 	key: string;
 	label: string;
+	/** 0 for the outermost level */
+	level: number;
+	/** the column this level groups by */
+	by: string;
+	/** every row in the group, its sub-groups included */
 	rows: ResultRow[];
+	/** sub-groups (null at the innermost level) */
+	children: ResultGroup[] | null;
 }
 
 export interface ViewResult {
@@ -1122,7 +1143,7 @@ export interface ViewResult {
 	/** every column the view refers to (shown, filtered, sorted, grouped), by id */
 	known: Map<string, ResolvedColumn>;
 	rows: ResultRow[];
-	/** set when grouping */
+	/** set when grouping: the outermost groups, each with its sub-groups */
 	groups: ResultGroup[] | null;
 	/** rows of the source types before filtering */
 	total: number;
@@ -1176,7 +1197,7 @@ export function runView(def: ViewDef, all: ViewRow[], ctx: ViewContext, search =
 	const columns = def.columns.map((c) => resolveColumn(c, def, ctx));
 	const known = new Map(columns.map((c) => [c.id, c]));
 	const rules = def.highlight ?? [];
-	const extra = [...filterFields(def.filters), ...def.sort.map((s) => s.by), ...(def.group ? [def.group.by] : []), ...rules.flatMap((r) => filterFields(r.when))];
+	const extra = [...filterFields(def.filters), ...def.sort.map((s) => s.by), ...def.group.map((g) => g.by), ...rules.flatMap((r) => filterFields(r.when))];
 	for (const id of extra) if (!known.has(id)) {
 		const fromId = columnFromId(id);
 		// Roll-up / formula ids only exist as columns; field-looking ids that aren't fields stay unknown.
@@ -1221,23 +1242,38 @@ export function runView(def: ViewDef, all: ViewRow[], ctx: ViewContext, search =
 	});
 
 	let groups: ResultGroup[] | null = null;
-	const gcol = def.group ? known.get(def.group.by) : undefined;
-	if (def.group && gcol) {
-		const map = new Map<string, ResultGroup & { sort: Cell }>();
-		for (const r of out) {
-			for (const g of groupKeys(r.cells[gcol.id] ?? EMPTY, gcol.kind, def.group, ctx)) {
-				let entry = map.get(g.key);
-				if (!entry) {
-					entry = { key: g.key, label: g.label, rows: [], sort: g.sort };
-					map.set(g.key, entry);
+	const levelsUsed = def.group.filter((g) => known.has(g.by));
+	if (levelsUsed.length) {
+		const build = (rs: ResultRow[], depth: number, parent: string): ResultGroup[] => {
+			const g = levelsUsed[depth];
+			const gcol = known.get(g.by)!;
+			const map = new Map<string, ResultGroup & { sort: Cell }>();
+			for (const r of rs) {
+				for (const k of groupKeys(r.cells[gcol.id] ?? EMPTY, gcol.kind, g, ctx)) {
+					let entry = map.get(k.key);
+					if (!entry) {
+						entry = { key: parent ? `${parent}${GROUP_PATH_SEP}${k.key}` : k.key, label: k.label, level: depth, by: gcol.id, rows: [], children: null, sort: k.sort };
+						map.set(k.key, entry);
+					}
+					entry.rows.push(r);
 				}
-				entry.rows.push(r);
 			}
-		}
-		const dir = def.sort.find((s) => s.by === gcol.id)?.dir ?? "asc";
-		groups = [...map.values()].sort((a, b) => compareCells(a.sort, b.sort, dir) || natural(a.label, b.label)).map(({ key, label, rows: rs }) => ({ key, label, rows: rs }));
+			const dir = def.sort.find((s) => s.by === gcol.id)?.dir ?? "asc";
+			return [...map.values()]
+				.sort((a, b) => compareCells(a.sort, b.sort, dir) || natural(a.label, b.label))
+				.map(({ sort: _s, ...grp }) => ({ ...grp, children: depth + 1 < levelsUsed.length ? build(grp.rows, depth + 1, grp.key) : null }));
+		};
+		groups = build(out, 0, "");
 	}
 	return { columns, known, rows: out, groups, total: rows.length, highlightCounts };
+}
+
+/** Every group in a tree, depth first (parents before their children). */
+export function flattenGroups(groups: ResultGroup[] | null): ResultGroup[] {
+	const out: ResultGroup[] = [];
+	const walk = (gs: ResultGroup[]) => gs.forEach((g) => (out.push(g), g.children && walk(g.children)));
+	if (groups) walk(groups);
+	return out;
 }
 
 /**

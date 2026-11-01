@@ -973,7 +973,7 @@ types: [project]
 columns: [name, status, owner, due, { rollup: { via: "in:note.project", agg: count }, label: Notes, id: notes }]
 widths: { owner: 160 }
 sort: [{ by: due, dir: asc }]
-group: { by: status }
+group: [{ by: status }]
 filters: { all: [{ field: status, op: is-not, value: done }] }
 ```
 ````
@@ -993,7 +993,8 @@ filters: { all: [{ field: status, op: is-not, value: done }] }
 | `widths` | Column id → width in px. For fill columns, the minimum width. |
 | `fill` | A column id, or a list of them, that grows to fill spare width (see Table). Optional. |
 | `sort` | Sort levels: `{ by: <column id>, dir: asc \| desc }`. |
-| `group` | `{ by: <column id>, date?: month \| year, summaries?: false }`. Optional. `summaries: false` hides summaries in group headers. |
+| `group` | Grouping levels, outermost first: a list of `{ by: <column id>, date?: month \| year }` (or just the column id). Always a list, even for one level; any number of levels. Optional. |
+| `groupSummaries` | `false` hides column summaries in group headers. Only written when off. |
 | `filters` | `{ all: [...] }` or `{ any: [...] }`. Items are conditions, or one level of nested groups. |
 | `formats` | Column id → display format, for number and date columns (see Formats). Optional. |
 | `highlight` | Conditional formatting rules, in priority order (see Highlight rules). Optional. |
@@ -1057,7 +1058,16 @@ Column ids are the field / built-in key, `in:<type>.<field>`, or the given `id` 
   - statuses follow the group's order;
   - relations sort by the first linked name.
 - **Empty values are always last.** With no sort set, rows are in name order.
-- **Group by:** one column (status, type, a choice, a relation, a list, or a date by month or year). Groups are collapsible and show a count. List values put a row in each group. Groups are ordered like the sort; empty goes last.
+- **Group by:** any number of levels, outermost first, e.g. status → assignee → due by month. Each level is one column: status, type, a choice, a relation, a list, or a date by day, month or year. A column can only be one level.
+  - **Tree:** `runView` returns a tree of `ResultGroup`s: `key` (the path of keys joined with `GROUP_PATH_SEP`), `label`, `level`, `by`, `rows` (every row inside, sub-groups included) and `children`. `flattenGroups` lists them depth first.
+  - **Order:** each level is ordered by its own column, following that column's sort direction if it's sorted, otherwise ascending. Empty goes last.
+  - **Rows in several groups:** list and link values put a row in each matching group, at every level.
+  - **Group headers:** each is indented 16px per level and gets a lighter background the deeper it is. It shows a chevron, the value ("No <column>" when empty), the row count and the group's summaries.
+  - **Collapsing:** clicking a header collapses everything inside it. Collapsed paths are kept for the session. Right-clicking a header offers **Collapse all at this level**, **Expand all at this level** and **Expand all**.
+  - **Selection:** each header has a checkbox in the select column. It selects or clears every row in the group, sub-groups and collapsed groups included, and is indeterminate when some are selected. The column header's select-all works the same way over every row in the view.
+  - **Editing:**
+    - **Group panel:** levels like the Sort panel ("Group by", "then by"), each with a column picker (columns used by other levels are left out) and by day / month / year for dates. Levels can be dragged to reorder, removed, or added with **+ Add level**. **Show summaries in group headers** sits below.
+    - **Header menu:** **Group by X** adds X as the innermost level. **Stop grouping by X** appears instead when X is already a level, and removes it.
 
 #### Formats
 
@@ -1085,7 +1095,8 @@ summary:
   status: values           # "3 todo · 2 done"
   done: percent-checked
   stage: "percent:done"    # share of one value
-group: { by: assignee, summaries: false }   # only written when turned off
+group: [{ by: assignee }]
+groupSummaries: false      # only written when turned off
 ```
 
 | Column kind | Aggregations (keys) |
@@ -1103,8 +1114,8 @@ group: { by: assignee, summaries: false }   # only written when turned off
   - The header menu's **Summarise…** opens the same menu.
 - **Rows summarised:** the shown rows, after filters and the quick search. Collapsed groups still count. In the bottom row each row counts once, even when a list or links group puts it in several groups.
 - **Group headers:**
-  - When grouping, each header row shows that group's summaries under their columns, in a smaller, muted style. The group name and count span the first two cells.
-  - **Show summaries in group headers** in the Group panel turns this off; it's on by default.
+  - When grouping, each header row at every level shows that group's summaries (over all its rows, sub-groups included) under their columns, in a smaller, muted style. The group's checkbox sits in the select column, and its name and count in the Name column.
+  - **Show summaries in group headers** in the Group panel (`groupSummaries: false`) turns this off for all levels; it's on by default.
   - A row in several groups counts in each.
 - **Display:**
   - Each result has a faint label ("Sum", "Avg", "Latest") before its value. Number and date results use the column's display format (§ Formats), so a currency column sums to "$1,240,000.00". Counts, percentages and spans are plain numbers in the number locale.
@@ -1319,7 +1330,7 @@ These cover all of `model/`, with no Obsidian dependency:
   - every filter kind, nested groups and relative dates
   - natural, status-order and multi-level sorting with empty values last
   - header sort cycling
-  - grouping by status, month and list values
+  - grouping by status, month and list values; nesting any number of levels (paths, levels, per-level order, unknown levels skipped); `group` read only as a list, repeats skipped, bad levels reported
   - prefill from filters
   - formats: parse/serialize, formatted cells and group labels, sorting on raw values
   - highlight: parse/serialize and errors, first-match precedence for rows and cells, cell styles layered over row styles (icons replaced), disabled rules, hidden fields in conditions, hidden target columns, unusable conditions, match counts

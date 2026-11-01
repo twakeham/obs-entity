@@ -11,6 +11,8 @@ import {
 	cycleSort,
 	dateValue,
 	fillWidths,
+	flattenGroups,
+	GROUP_PATH_SEP,
 	highlightOf,
 	parseView,
 	prefillFromFilters,
@@ -20,6 +22,7 @@ import {
 	serializeView,
 	unknownSources,
 	type ViewContext,
+	type ResultGroup,
 	type ViewDef,
 	type ViewRow,
 } from "../src/model/views";
@@ -86,7 +89,7 @@ describe("parse and serialize", () => {
 			columns: ["status", "name", "owner", { field: "due", label: "Deadline" }, "in:note.project", { rollup: { via: "in:note.project", agg: "count" }, label: "Notes", id: "notes" }, { formula: "1+1", label: "Two" }],
 			widths: { owner: 160, gone: 50 },
 			sort: [{ by: "due", dir: "desc" }, "name"],
-			group: { by: "due", date: "month" },
+			group: [{ by: "due", date: "month" }, "owner"],
 			filters: { all: [{ field: "status", op: "none-of", value: ["done"] }, { any: [{ field: "owner", op: "empty" }, { field: "team", op: "count>", value: 1 }] }] },
 		};
 		const def = view(raw);
@@ -95,6 +98,7 @@ describe("parse and serialize", () => {
 		expect(out.columns).toEqual(["name", "status", "owner", { field: "due", label: "Deadline" }, "in:note.project", { rollup: { via: "in:note.project", agg: "count" }, label: "Notes", id: "notes" }, { formula: "1+1", label: "Two", id: "two" }]);
 		expect(out.widths).toEqual({ owner: 160 });
 		expect(out.sort).toEqual([{ by: "due", dir: "desc" }, { by: "name", dir: "asc" }]);
+		expect(out.group).toEqual([{ by: "due", date: "month" }, { by: "owner" }]);
 		expect(view(out)).toEqual({ ...def, widths: { owner: 160 } });
 	});
 
@@ -199,9 +203,50 @@ describe("sorting and grouping", () => {
 
 	it("groups by status in status order, by month, and by list values", () => {
 		const g = (raw: Record<string, unknown>) => runView(view(raw), ROWS, ctx).groups!.map((x) => `${x.label || "(none)"}: ${x.rows.map((r) => r.row.name).join(",")}`);
-		expect(g({ types: ["project"], group: { by: "status" } })).toEqual(["idea: Apollo", "active: Project 10", "on-hold: Project 2", "done: Lander"]);
-		expect(g({ types: ["project"], group: { by: "due", date: "month" } })).toEqual(["December 2026: Lander", "March 2027: Apollo", "(none): Project 2,Project 10"]);
-		expect(g({ types: ["project"], group: { by: "team" } })).toEqual(["Ada: Apollo", "Grace: Apollo", "(none): Lander,Project 2,Project 10"]);
+		expect(g({ types: ["project"], group: [{ by: "status" }] })).toEqual(["idea: Apollo", "active: Project 10", "on-hold: Project 2", "done: Lander"]);
+		expect(g({ types: ["project"], group: [{ by: "due", date: "month" }] })).toEqual(["December 2026: Lander", "March 2027: Apollo", "(none): Project 2,Project 10"]);
+		expect(g({ types: ["project"], group: ["team"] })).toEqual(["Ada: Apollo", "Grace: Apollo", "(none): Lander,Project 2,Project 10"]);
+	});
+
+	it("nests any number of levels, with paths, levels and per-level order", () => {
+		const r = runView(view({ types: ["person", "organisation", "project"], group: ["type", "status", { by: "team" }], sort: [{ by: "status", dir: "desc" }] }), ROWS, ctx);
+		const tree = (gs: ResultGroup[] | null, pad = ""): string[] =>
+			(gs ?? []).flatMap((g) => [`${pad}${g.label || "(none)"} [${g.level}:${g.by}] ${g.rows.length}`, ...tree(g.children, pad + "  ")]);
+		expect(tree(r.groups)).toEqual([
+			"Organisation [0:type] 2",
+			"  active [1:status] 1",
+			"    (none) [2:team] 1",
+			"  draft [1:status] 1",
+			"    (none) [2:team] 1",
+			"Person [0:type] 2",
+			"  active [1:status] 1",
+			"    (none) [2:team] 1",
+			"  draft [1:status] 1",
+			"    (none) [2:team] 1",
+			"Project [0:type] 4",
+			"  done [1:status] 1",
+			"    (none) [2:team] 1",
+			"  on-hold [1:status] 1",
+			"    (none) [2:team] 1",
+			"  active [1:status] 1",
+			"    (none) [2:team] 1",
+			"  idea [1:status] 1",
+			"    Ada [2:team] 1",
+			"    Grace [2:team] 1",
+		]);
+		const flat = flattenGroups(r.groups);
+		expect(flat.length).toBe(20);
+		expect(flat.find((g) => g.label === "Grace")!.key).toBe(["project", "idea", "Grace.md"].join(GROUP_PATH_SEP));
+		expect(runView(view({ types: ["project"] }), ROWS, ctx).groups).toBeNull();
+		// unknown levels are skipped
+		expect(runView(view({ types: ["project"], group: ["ghost", "status"] }), ROWS, ctx).groups!.map((g) => g.by)).toEqual(["status", "status", "status", "status"]);
+	});
+
+	it("reads group as a list only, skipping repeats and reporting bad levels", () => {
+		expect(parseView({ group: { by: "status" } }).errors).toEqual(["group should be a list of levels, e.g. group: [{ by: status }, { by: due, date: month }]."]);
+		const { def, errors } = parseView({ group: ["status", { by: "status" }, { date: "month" }, { by: "due", date: "week" }] });
+		expect(def!.group).toEqual([{ by: "status" }, { by: "due" }]);
+		expect(errors).toEqual(['A group level needs "by": {"date":"month"}.']);
 	});
 });
 
@@ -223,7 +268,7 @@ describe("formats", () => {
 	});
 
 	it("label date groups, and work without moment for relative dates", () => {
-		const g = runView(view({ types: ["project"], group: { by: "due" }, formats: { due: "MMMM YYYY" }, columns: ["due"] }), ROWS, fctx).groups!.map((x) => x.label);
+		const g = runView(view({ types: ["project"], group: ["due"], formats: { due: "MMMM YYYY" }, columns: ["due"] }), ROWS, fctx).groups!.map((x) => x.label);
 		expect(g).toEqual(["December 2026", "March 2027", ""]);
 		const rel = runView(view({ types: ["project"], columns: ["due"], formats: { due: "relative" }, sort: [{ by: "due", dir: "asc" }] }), ROWS, ctx).rows.map((x) => x.cells.due.text);
 		expect(rel.slice(0, 2)).toEqual(["in 4 weeks", "in 5 months"]);
@@ -241,12 +286,13 @@ describe("summaries", () => {
 	const P = { types: ["project"], columns: ["status", "due", "team"] };
 
 	it("round-trip, dropping removed columns, and keep the group header toggle", () => {
-		const def = view({ ...P, summary: { due: "latest", gone: "sum", name: "count" }, group: { by: "status", summaries: false } });
+		const def = view({ ...P, summary: { due: "latest", gone: "sum", name: "count" }, group: ["status"], groupSummaries: false });
 		expect(def.summary).toEqual({ due: "latest", gone: "sum", name: "count" });
 		const out = serializeView(def);
 		expect(out.summary).toEqual({ due: "latest", name: "count" });
-		expect(out.group).toEqual({ by: "status", summaries: false });
-		expect(view({ ...P, group: { by: "status" } }).group).toEqual({ by: "status" });
+		expect(out.group).toEqual([{ by: "status" }]);
+		expect(out.groupSummaries).toBe(false);
+		expect(serializeView(view({ ...P, group: ["status"] })).groupSummaries).toBeUndefined();
 		expect(serializeView(view(P)).summary).toBeUndefined();
 	});
 

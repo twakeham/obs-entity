@@ -10,6 +10,7 @@ import {
 	fillWidths,
 	formatKind,
 	filterFields,
+	flattenGroups,
 	highlightOf,
 	OPERATORS,
 	prefillFromFilters,
@@ -20,6 +21,7 @@ import {
 	sourceTypes,
 	type ColumnDef,
 	type ResolvedColumn,
+	type ResultGroup,
 	type ResultRow,
 	type ViewDef,
 } from "../../../model/views";
@@ -47,7 +49,7 @@ const HEAD_H = 34;
 const SELECT_W = 36;
 const DEFAULT_W: Record<string, number> = { text: 170, number: 100, date: 120, choice: 120, multi: 170, bool: 80, links: 200, folder: 180 };
 
-type Item = { kind: "group"; key: string; label: string; count: number; open: boolean } | { kind: "row"; r: ResultRow; n: number };
+type Item = { kind: "group"; key: string; label: string; count: number; open: boolean; level: number; by: string; rows: ResultRow[] } | { kind: "row"; r: ResultRow; n: number };
 type PopName = "filters" | "sort" | "group" | "highlight" | "columns" | "format";
 
 export interface EntityTableProps {
@@ -155,17 +157,21 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	const items: Item[] = useMemo(() => {
 		const out: Item[] = [];
 		let n = 0;
-		if (result.groups) {
-			for (const g of result.groups) {
+		const walk = (gs: ResultGroup[]) => {
+			for (const g of gs) {
 				const open = !collapsed.has(g.key);
-				out.push({ kind: "group", key: g.key, label: g.label, count: g.rows.length, open });
-				if (open) for (const r of g.rows) out.push({ kind: "row", r, n: n++ });
+				out.push({ kind: "group", key: g.key, label: g.label, count: g.rows.length, open, level: g.level, by: g.by, rows: g.rows });
+				if (!open) continue;
+				if (g.children) walk(g.children);
+				else for (const r of g.rows) out.push({ kind: "row", r, n: n++ });
 			}
-		} else for (const r of result.rows) out.push({ kind: "row", r, n: n++ });
+		};
+		if (result.groups) walk(result.groups);
+		else for (const r of result.rows) out.push({ kind: "row", r, n: n++ });
 		return out;
 	}, [result, collapsed]);
 	const rowItems = useMemo(() => items.filter((i): i is Extract<Item, { kind: "row" }> => i.kind === "row"), [items]);
-	const groupCol = def.group ? result.known.get(def.group.by) : undefined;
+	const allGroups = useMemo(() => flattenGroups(result.groups), [result]);
 
 	// ---- summaries: the bottom row (each shown row once) and, when grouping, each group's header
 	const summaryKeys = def.summary ?? {};
@@ -177,10 +183,10 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		};
 		const hasAny = columns.some((c) => summaryKeys[c.id]);
 		const groups = new Map<string, Record<string, SummaryResult | null>>();
-		if (hasAny && result.groups && def.group?.summaries !== false) for (const g of result.groups) groups.set(g.key, of(g.rows));
+		if (hasAny && def.groupSummaries !== false) for (const g of allGroups) groups.set(g.key, of(g.rows));
 		return { total: hasAny ? of(result.rows) : {}, groups };
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [result, def.summary, def.formats, def.group, ctx]);
+	}, [result, allGroups, def.summary, def.formats, def.groupSummaries, ctx]);
 	const groupSums = sums.groups.size > 0 && columns.some((c) => c.id !== "name" && summaryKeys[c.id]);
 
 	const problemsOf = useMemo(() => {
@@ -304,14 +310,16 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		m.addItem((i) => i.setSection("sort").setTitle("Sort ascending").setIcon("arrow-up").onClick(() => update({ ...def, sort: [{ by: c.id, dir: "asc" }] })));
 		m.addItem((i) => i.setSection("sort").setTitle("Sort descending").setIcon("arrow-down").onClick(() => update({ ...def, sort: [{ by: c.id, dir: "desc" }] })));
 		if (def.sort.length) m.addItem((i) => i.setSection("sort").setTitle("Clear sorting").setIcon("x").onClick(() => update({ ...def, sort: [] })));
-		if (c.id !== "name" && !c.invalid)
+		if (c.id !== "name" && !c.invalid) {
+			const at = def.group.findIndex((g) => g.by === c.id);
 			m.addItem((i) =>
 				i
 					.setSection("view")
-					.setTitle(def.group?.by === c.id ? "Stop grouping" : `Group by ${c.label}`)
+					.setTitle(at >= 0 ? `Stop grouping by ${c.label}` : `Group by ${c.label}`)
 					.setIcon("rows-3")
-					.onClick(() => update({ ...def, group: def.group?.by === c.id ? undefined : { by: c.id } })),
+					.onClick(() => update({ ...defRef.current, group: at >= 0 ? defRef.current.group.filter((g) => g.by !== c.id) : [...defRef.current.group, { by: c.id }] })),
 			);
+		}
 		if (!c.invalid)
 			m.addItem((i) =>
 				i
@@ -488,11 +496,38 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		lastClicked.current = n;
 		setSelected(next);
 	};
-	const allSelected = rowItems.length > 0 && rowItems.every((it) => selected.has(it.r.row.path));
+	const allSelected = result.rows.length > 0 && result.rows.every((r) => selected.has(r.row.path));
 	const toggleAll = () => {
 		const next = new Set(selected);
-		for (const it of rowItems) allSelected ? next.delete(it.r.row.path) : next.add(it.r.row.path);
+		for (const r of result.rows) allSelected ? next.delete(r.row.path) : next.add(r.row.path);
 		setSelected(next);
+	};
+	/** A group's checkbox: every row in it (sub-groups and collapsed ones included) is selected, or some are. */
+	const groupState = (rows: ResultRow[]) => {
+		let n = 0;
+		for (const r of rows) if (selected.has(r.row.path)) n++;
+		return n === 0 ? "none" : n === rows.length ? "all" : "some";
+	};
+	const toggleGroup = (rows: ResultRow[]) => {
+		const next = new Set(selected);
+		const all = groupState(rows) === "all";
+		for (const r of rows) all ? next.delete(r.row.path) : next.add(r.row.path);
+		setSelected(next);
+	};
+	/** Collapse or expand groups: those at one level, or all of them. */
+	const setGroupsOpen = (open: boolean, level?: number) =>
+		setCollapsed((s) => {
+			const next = new Set(s);
+			for (const g of allGroups) if (level === undefined || g.level === level) open ? next.delete(g.key) : next.add(g.key);
+			return next;
+		});
+	const groupMenu = (e: MouseEvent, level: number) => {
+		e.preventDefault();
+		const m = new Menu();
+		m.addItem((i) => i.setTitle("Collapse all at this level").setIcon("chevrons-down-up").onClick(() => setGroupsOpen(false, level)));
+		m.addItem((i) => i.setTitle("Expand all at this level").setIcon("chevrons-up-down").onClick(() => setGroupsOpen(true, level)));
+		m.addItem((i) => i.setTitle("Expand all").setIcon("unfold-vertical").onClick(() => setGroupsOpen(true)));
+		m.showAtMouseEvent(e.nativeEvent);
 	};
 
 	const reveal = (n: number) => {
@@ -602,7 +637,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 				<span className="oe-spacer" />
 				<ToolButton name="filters" icon="filter" label="Filters" count={conditions} active={pop?.name === "filters"} onClick={openPop} />
 				<ToolButton name="sort" icon="arrow-up-down" label="Sort" count={def.sort.length} active={pop?.name === "sort"} onClick={openPop} />
-				<ToolButton name="group" icon="rows-3" label="Group" count={def.group ? 1 : 0} active={pop?.name === "group"} onClick={openPop} />
+				<ToolButton name="group" icon="rows-3" label="Group" count={def.group.length} active={pop?.name === "group"} onClick={openPop} />
 				<ToolButton name="highlight" icon="highlighter" label="Highlight" count={(def.highlight ?? []).filter((r) => !r.off).length} active={pop?.name === "highlight"} onClick={openPop} />
 				<ToolButton name="columns" icon="columns-3" label="Columns" count={0} active={pop?.name === "columns"} onClick={openPop} />
 				<button className="clickable-icon" aria-label="More options" onClick={moreMenu}>
@@ -635,7 +670,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					<thead>
 						<tr>
 							<th className="oe-th-select">
-								<input type="checkbox" checked={allSelected} aria-label="Select all rows" onChange={toggleAll} />
+								<Checkbox state={allSelected ? "all" : result.rows.some((r) => selected.has(r.row.path)) ? "some" : "none"} label="Select all rows" onToggle={toggleAll} />
 							</th>
 							{columns.map((c) => {
 								const s = def.sort.findIndex((x) => x.by === c.id);
@@ -686,31 +721,41 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 						{visible.map((it) => {
 							if (it.kind === "group") {
 								const toggle = () => setCollapsed((s) => (s.has(it.key) ? new Set([...s].filter((k) => k !== it.key)) : new Set([...s, it.key])));
+								const col = result.known.get(it.by);
+								const state = groupState(it.rows);
 								const head = (
-									<>
+									<span className="oe-group-head-inner" style={{ paddingLeft: it.level * 16 }}>
 										<Icon name={it.open ? "chevron-down" : "chevron-right"} />
-										<span className="oe-group-label">{it.label || `No ${(groupCol?.label ?? "value").toLowerCase()}`}</span>
+										<span className="oe-group-label">{it.label || `No ${(col?.label ?? "value").toLowerCase()}`}</span>
 										<span className="oe-group-count">{it.count}</span>
-									</>
+									</span>
 								);
-								if (!groupSums)
-									return (
-										<tr key={`g:${it.key}`} className="oe-group-row" onClick={toggle}>
-											<td colSpan={columns.length + 2}>{head}</td>
-										</tr>
-									);
-								const gs = sums.groups.get(it.key) ?? {};
+								const gs = groupSums ? (sums.groups.get(it.key) ?? {}) : null;
 								return (
-									<tr key={`g:${it.key}`} className="oe-group-row has-summaries" onClick={toggle}>
-										<td colSpan={2} className="oe-group-head">
-											{head}
+									<tr
+										key={`g:${it.key}`}
+										className={`oe-group-row is-level-${Math.min(it.level, 3)}${gs ? " has-summaries" : ""}`}
+										onClick={toggle}
+										onContextMenu={(e) => groupMenu(e, it.level)}
+									>
+										<td className="oe-td-select" onClick={(e) => e.stopPropagation()}>
+											<Checkbox state={state} label={`Select all in ${it.label || "this group"}`} onToggle={() => toggleGroup(it.rows)} />
 										</td>
-										{columns.slice(1).map((c) => (
-											<td key={c.id} className={`oe-group-sum${c.kind === "number" ? " is-number" : ""}`}>
-												<SummaryText s={gs[c.id]} />
+										{gs ? (
+											<>
+												<td className="oe-group-head">{head}</td>
+												{columns.slice(1).map((c) => (
+													<td key={c.id} className={`oe-group-sum${c.kind === "number" ? " is-number" : ""}`}>
+														<SummaryText s={gs[c.id]} />
+													</td>
+												))}
+												<td className="oe-td-fill" />
+											</>
+										) : (
+											<td colSpan={columns.length + 1} className="oe-group-head">
+												{head}
 											</td>
-										))}
-										<td className="oe-td-fill" />
+										)}
 									</tr>
 								);
 							}
@@ -827,7 +872,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 				<Popover anchor={pop.anchor} onClose={() => setPop(null)} className={`oe-pop-${pop.name}`} label={pop.name}>
 					{pop.name === "filters" && <FiltersPanel filters={def.filters} choices={choices} ctx={ctx} valuesOf={valuesOf} onChange={(filters) => update({ ...defRef.current, filters })} />}
 					{pop.name === "sort" && <SortPanel sort={def.sort} choices={choices} onChange={(sort) => update({ ...defRef.current, sort })} />}
-					{pop.name === "group" && <GroupPanel def={def} choices={choices} onChange={(group) => update({ ...defRef.current, group })} />}
+					{pop.name === "group" && <GroupPanel def={def} choices={choices} onChange={(group, groupSummaries) => update({ ...defRef.current, group, groupSummaries })} />}
 					{pop.name === "highlight" && (
 						<HighlightPanel
 							rules={def.highlight ?? []}
@@ -887,6 +932,15 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 			)}
 		</div>
 	);
+}
+
+/** A checkbox that can show "some selected" (indeterminate). */
+function Checkbox({ state, label, onToggle }: { state: "all" | "some" | "none"; label: string; onToggle: () => void }) {
+	const ref = useRef<HTMLInputElement>(null);
+	useEffect(() => {
+		if (ref.current) ref.current.indeterminate = state === "some";
+	}, [state]);
+	return <input ref={ref} type="checkbox" checked={state === "all"} aria-label={label} onChange={onToggle} />;
 }
 
 /** A summary's label and value ("Sum $1,240.00"); a dash when the aggregation doesn't fit the column. */

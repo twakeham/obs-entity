@@ -3563,3 +3563,35 @@ button.oe-tm-typegroup-title,
 .oe-group-sum .oe-sum-value {
 	color: var(--text-muted);
 }
+/* Nested groups: indented headers, lighter as they go deeper */
+.oe-group-head-inner {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	max-width: 100%;
+	box-sizing: border-box;
+	vertical-align: middle;
+}
+
+.oe-group-head-inner .oe-group-label {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.oe-group-head-inner .oe-group-count {
+	margin-left: 2px;
+}
+
+.oe-view table.oe-table > tbody > tr.oe-group-row.is-level-1 > td {
+	background-color: color-mix(in srgb, var(--background-secondary) 60%, var(--background-primary));
+}
+
+.oe-view table.oe-table > tbody > tr.oe-group-row.is-level-2 > td,
+.oe-view table.oe-table > tbody > tr.oe-group-row.is-level-3 > td {
+	background-color: color-mix(in srgb, var(--background-secondary) 30%, var(--background-primary));
+	font-weight: var(--font-medium);
+}
+
+.oe-view table.oe-table > tbody > tr.oe-group-row > td.oe-td-select {
+	cursor: default;
+}
