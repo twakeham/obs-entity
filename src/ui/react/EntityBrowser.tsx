@@ -47,6 +47,12 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 	const listRef = useRef<HTMLDivElement>(null);
 	const { types, groups } = plugin.settings;
 	const opts: BrowserOptions = { sections: state.sections, typeHeadings: state.typeHeadings, crossGroup: state.crossGroup, showEmpty: state.showEmpty };
+	const [views, setViews] = useState(() => plugin.views.all());
+	useEffect(() => {
+		const ref = plugin.views.on("updated", () => setViews(plugin.views.all()));
+		setViews(plugin.views.all());
+		return () => plugin.views.offref(ref);
+	}, [plugin]);
 
 	const { sections, tags } = useMemo(() => {
 		const entities = plugin.index.all();
@@ -212,6 +218,42 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 			)}
 
 			<div className="oe-browser-list" ref={listRef}>
+				{!filtering && views.length > 0 && (
+					<section className={`oe-bsection oe-bviews${isCollapsed("v:views") ? " is-collapsed" : ""}`} data-section="views">
+						<Heading
+							depth={0}
+							open={!isCollapsed("v:views")}
+							icon="table"
+							title="Views"
+							count={views.length}
+							className="oe-bsection-header"
+							onToggle={() => toggleHeading("v:views")}
+							onAdd={() => plugin.newTableView()}
+							addLabel="New table view"
+						/>
+						{!isCollapsed("v:views") &&
+							views.map((f) => (
+								<div
+									key={f.path}
+									className={`oe-tree-row oe-view-row${activePath === f.path ? " is-active" : ""}`}
+									style={{ paddingLeft: `${INDENT + 4}px` }}
+									data-path={f.path}
+									onClick={(evt) => plugin.openPath(f.path, evt.nativeEvent)}
+									onAuxClick={(evt) => evt.button === 1 && plugin.openPath(f.path, "tab")}
+									onContextMenu={(evt) => {
+										evt.preventDefault();
+										const m = new Menu();
+										plugin.app.workspace.trigger("file-menu", m, f, "obs-entities-browser");
+										m.showAtMouseEvent(evt.nativeEvent);
+									}}
+								>
+									<span className="oe-tree-toggle is-leaf" />
+									<Icon name="table" className="oe-tree-icon" />
+									<span className="oe-tree-name">{f.basename}</span>
+								</div>
+							))}
+					</section>
+				)}
 				{shown.length === 0 && <div className="oe-panel-empty">{filtering ? "No matching entities." : "No entities yet. Use + to create one."}</div>}
 				{shown.map((s) => {
 					const sid = sKey(s);
@@ -235,6 +277,7 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 											? (evt) => {
 													const m = new Menu();
 													for (const t of sectionTypes) m.addItem((i) => i.setSection("new").setTitle(`New ${t.name.toLowerCase()}`).setIcon(t.icon).onClick(() => plugin.openCreateModal(t)));
+													m.addItem((i) => i.setSection("view").setTitle(`New table view of ${s.group!.name}`).setIcon("table").onClick(() => plugin.newTableView(`@${s.group!.key}`)));
 													m.addItem((i) => i.setSection("config").setTitle("Configure group").setIcon("settings-2").onClick(() => void plugin.activateTypes(`group:${s.group!.key}`)));
 													m.showAtMouseEvent(evt.nativeEvent);
 												}
@@ -264,6 +307,7 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 													onMenu={(evt) => {
 														const m = new Menu();
 														m.addItem((i) => i.setSection("new").setTitle(`New ${t.name.toLowerCase()}`).setIcon(t.icon).onClick(() => plugin.openCreateModal(t)));
+														m.addItem((i) => i.setSection("view").setTitle(`New table view of ${(t.plural || t.name).toLowerCase()}`).setIcon("table").onClick(() => plugin.newTableView(t.key)));
 														m.addItem((i) => i.setSection("config").setTitle(`Configure the ${t.name} type`).setIcon("shapes").onClick(() => void plugin.activateTypes(t.key)));
 														m.showAtMouseEvent(evt.nativeEvent);
 													}}

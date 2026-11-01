@@ -391,7 +391,7 @@ function PropRow({
 	);
 }
 
-function StatusControl({ type, value, editable, problem, onCommit }: { type: EntityTypeDef; value: unknown; editable: boolean; problem?: FieldProblem; onCommit: (v: unknown) => void }) {
+export function StatusControl({ type, value, editable, problem, onCommit }: { type: EntityTypeDef; value: unknown; editable: boolean; problem?: FieldProblem; onCommit: (v: unknown) => void }) {
 	const plugin = usePlugin();
 	const options = statusesFor(type, plugin.settings.groups);
 	const current = typeof value === "string" ? value : isEmptyValue(value) ? "" : String(value);
@@ -417,7 +417,7 @@ function StatusControl({ type, value, editable, problem, onCommit }: { type: Ent
 }
 
 /** Single-value text-like fields: saved on blur or Enter, Esc cancels. Invalid input isn't saved. */
-function TextControl({ kind, value, editable, label, onCommit }: { kind: "text" | "textarea" | "url" | "number" | "date"; value: unknown; editable: boolean; label: string; onCommit: (v: unknown) => void }) {
+export function TextControl({ kind, value, editable, label, onCommit }: { kind: "text" | "textarea" | "url" | "number" | "date"; value: unknown; editable: boolean; label: string; onCommit: (v: unknown) => void }) {
 	const plugin = usePlugin();
 	const dates = plugin.dates;
 	const display = isEmptyValue(value) ? "" : Array.isArray(value) ? value.map(String).join(", ") : typeof value === "object" ? JSON.stringify(value) : String(value);
@@ -537,12 +537,12 @@ function TextControl({ kind, value, editable, label, onCommit }: { kind: "text" 
 	return input;
 }
 
-function CheckControl({ value, editable, label, onCommit }: { value: unknown; editable: boolean; label: string; onCommit: (v: unknown) => void }) {
+export function CheckControl({ value, editable, label, onCommit }: { value: unknown; editable: boolean; label: string; onCommit: (v: unknown) => void }) {
 	if (!editable) return value === true ? <span className="oe-prop-text">Yes</span> : value === false ? <span className="oe-prop-text">No</span> : <Empty />;
 	return <input type="checkbox" className="oe-prop-check" aria-label={label} checked={value === true} onChange={(e) => onCommit(e.target.checked)} />;
 }
 
-function SelectControl({ options, value, editable, label, onCommit }: { options: string[]; value: unknown; editable: boolean; label: string; onCommit: (v: unknown) => void }) {
+export function SelectControl({ options, value, editable, label, onCommit }: { options: string[]; value: unknown; editable: boolean; label: string; onCommit: (v: unknown) => void }) {
 	const current = isEmptyValue(value) ? "" : Array.isArray(value) ? String(value[0] ?? "") : String(value);
 	if (!editable) return current ? <span className="oe-prop-text">{current}</span> : <Empty />;
 	const all = current && !options.includes(current) ? [current, ...options] : options;
@@ -558,7 +558,7 @@ function SelectControl({ options, value, editable, label, onCommit }: { options:
 	);
 }
 
-function MultiControl({ options, value, editable, label, onCommit }: { options: string[]; value: unknown; editable: boolean; label: string; onCommit: (v: unknown) => void }) {
+export function MultiControl({ options, value, editable, label, onCommit }: { options: string[]; value: unknown; editable: boolean; label: string; onCommit: (v: unknown) => void }) {
 	const chosen = asArray(value).map(String);
 	const extra = chosen.filter((c) => !options.includes(c));
 	if (!editable) {
@@ -632,7 +632,7 @@ function chipKeys(remove: (chip: HTMLElement) => void) {
 }
 
 /** Free lists (list fields, tags, aliases): chips plus an add box (Enter or comma adds). */
-function ListControl({ value, editable, label, tag, onCommit }: { value: unknown; editable: boolean; label: string; tag?: boolean; onCommit: (v: unknown) => void }) {
+export function ListControl({ value, editable, label, tag, onCommit }: { value: unknown; editable: boolean; label: string; tag?: boolean; onCommit: (v: unknown) => void }) {
 	const items = asArray(value).map(String);
 	const [text, setText] = useState("");
 	const show = (t: string) => (tag ? `#${t.replace(/^#/, "")}` : t);
@@ -754,7 +754,7 @@ function undoNotice(message: string, undo: () => void): void {
  * Relation fields (and Related): chips for this note's links, chips for links set on other notes when the field
  * reads both ways, and a picker limited to the allowed types. Picking in a single-link field replaces the link.
  */
-function RelationControl({
+export function RelationControl({
 	fieldKey,
 	label,
 	targets,

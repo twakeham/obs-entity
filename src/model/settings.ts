@@ -8,6 +8,8 @@ export interface EntitiesSettings {
 	folderPattern: string;
 	/** Folder of editable Markdown templates, one per type. */
 	templatesFolder: string;
+	/** Folder of entity view notes (notes holding an `entity-view` block). */
+	viewsFolder: string;
 	/** Open newly created notes in a new tab instead of the current one. */
 	openInNewTab: boolean;
 	/** Prefill a matching relation field from the active note when creating an entity. */
@@ -29,6 +31,7 @@ export function defaultSettings(): EntitiesSettings {
 		settingsVersion: SETTINGS_VERSION,
 		folderPattern: DEFAULT_FOLDER_PATTERN,
 		templatesFolder: "_templates/entities",
+		viewsFolder: "Entities/Views",
 		openInNewTab: false,
 		prefillFromActive: true,
 		useForm: true,
@@ -78,5 +81,6 @@ export function mergeSettings(saved: Partial<EntitiesSettings> | null | undefine
 	}
 	for (const g of merged.groups) if (!Array.isArray(g.statuses) || g.statuses.length === 0) g.statuses = [...DEFAULT_STATUSES];
 	if (typeof merged.folderPattern !== "string") merged.folderPattern = DEFAULT_FOLDER_PATTERN;
+	if (typeof merged.viewsFolder !== "string") merged.viewsFolder = base.viewsFolder;
 	return merged;
 }

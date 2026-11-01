@@ -13,6 +13,7 @@ Derived from the Story Forge worldbuilding plugin, made domain-neutral. The full
 | M3 Entity Types view | Visual editor for types and groups: fields, relationships, display, drafts, note migrations, previews, import/export | ✅ Done |
 | M4 Browser | Grouped, hierarchical entity browser with filters | ✅ Done |
 | M4.5 Properties form | A form that replaces Obsidian's Properties on entity notes, so only values the type allows go in, and problems are flagged | ✅ Done |
+| M4.6 Entity views | Saved, named table views over entities, stored as notes: columns, roll-ups, filters, sorting, grouping, editing in place | ✅ Done |
 | M5 Packs & polish | Pack picker on first run, accessibility, docs | Planned |
 
 ## How notes are stored
@@ -163,6 +164,53 @@ A left sidebar tree of all entities. Open it with the **library** ribbon icon or
 
 **Following the open note:** the browser expands to the open note once, without undoing anything you collapse afterwards. Options, filters and expanded rows are remembered.
 
+## Entity views
+
+A view is a saved, named table of entities. It's an ordinary note in the **views folder** (default `Entities/Views`, set in settings). The definition lives in an `entity-view` code block, so the view syncs and opens anywhere; without the plugin you see the readable definition:
+
+````markdown
+```entity-view
+kind: table
+types: [project]
+columns: [name, status, owner, due, { rollup: { via: "in:note.project", agg: count }, label: Notes, id: notes }]
+sort: [{ by: due, dir: asc }]
+filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
+```
+````
+
+**Creating and opening views:**
+- **New table view** (command, the + on the browser's **Views** section, or "New table view of …" on a type or group heading): pick what it shows, name it, and the note is created.
+- **Open entity view…** lists the view notes. The browser shows them at the top.
+- **Embed** a view in any note with `![[Active projects]]`, or paste the block anywhere.
+
+**Toolbar:**
+- **Search:** a quick filter on name, aliases and subtitle. It isn't saved.
+- **Filters:** conditions combined with **all** or **any**, plus a nested group, e.g. "status is active AND (owner is Ada OR team has Ada)".
+  - The operators suit each column: contains / is, < >, before / after / between, is any of, has any / all / none of, links to, link count…
+  - Dates also accept `today`, `-7d`, `+2w` or `1m`.
+- **Sort:** any number of levels, which can be dragged to reorder. Clicking a header sorts by it (ascending, descending, off), and Shift-click adds a level.
+  - Statuses sort in their group's order, text sorts naturally ("Chapter 2" before "Chapter 10"), and empty values go last.
+- **Group:** by status, type, a choice, a link, a list, or a date by day / month / year. Each group has a collapsible header and a count.
+- **Columns:**
+  - the source types' fields
+  - built-ins: type, status, tags, aliases, related, folder, created, modified
+  - **incoming links**, e.g. "People" on organisations
+  - **roll-ups**
+  - Drag headers to reorder, and drag their edges to resize.
+- **⋯:** Save as…, Rename, Edit definition, Copy block.
+
+**Roll-ups** summarise the notes linked to each row, through an outgoing field or an incoming link: count, names, unique values of a field, sum / average / min / max of a number, earliest / latest date, % done, or count by status. E.g. "Notes: count" on projects, or "Deals: sum of value" on companies.
+
+**Editing:**
+- Double-click a cell, or press Enter on it, to edit it with the same control and rules as the properties form. Checkboxes toggle with one click.
+- **Ctrl/Cmd+Z** undoes the last cell edit.
+- Arrow keys move between cells.
+- **+ New** creates an entity of the view's type, prefilled from simple filters (e.g. status = active).
+
+**Saving:** changes to columns, filters, sorting and grouping are saved into the block automatically, held while a panel is open. Large views stay fast: only the visible rows are drawn.
+
+Formula columns are reserved in the format (`formula:`) but not supported yet. The table stays inside the note's readable line width; turn that setting off for wide views.
+
 ## Commands
 
 | Command | Action |
@@ -175,6 +223,8 @@ A left sidebar tree of all entities. Open it with the **library** ribbon icon or
 | Configure entity types | The Entity types view, opened on the open note's type (also a ribbon icon, settings button and file menu) |
 | Convert current note to entity | Adds the type's fields to an existing note (existing values win). Also in the file menu, and as "Change type…" on entities |
 | Check entities | Lists every entity whose values don't fit its type, with the problems; choose one to open it |
+| New table view | Name a new view and pick what it shows; creates the view note |
+| Open entity view… | Picker of view notes |
 | Import entity types… | Paste a type pack, single type or list of types (JSON) |
 | Generate template files | Writes editable templates for types without one |
 | Rebuild entity index | Re-reads every note |
@@ -241,17 +291,20 @@ src/
     typeEditing.ts           type/group drafts, field + status renames, migrations, import/export, previews
     settings.ts              defaults and merging
     tree.ts                  browser forest: parent links, sections/type blocks, filtering with context, reveal paths
+    views.ts                 entity views: definition parse/serialize, columns, cells, roll-ups, filters, sort, group, runView
+    viewBlock.ts             find / rewrite an entity-view block inside a note
   services/
     entityIndex.ts           entities from the metadata cache
     relationIndex.ts         forward + inverse edges, groupsFor, mentions
     entityFactory.ts         create/convert/retype notes, add/remove links (with Undo), folders, move
   settings/settingTab.ts
   ui/components/             entity picker, relation input, date picker button
-  ui/modals/                 create, switcher, import types, add link, check entities
+  ui/modals/                 create, switcher, import types, add link, check entities, views (new / open / name / roll-up)
   ui/header/formManager.tsx  puts the properties form into Live Preview and Reading view, hiding Obsidian's Properties
   ui/react/                  EntityForm, ConnectionsPanel, EntityChip, EntityBits (status tones, relation groups), EntityBrowser
+  ui/react/table/            EntityTable (toolbar, virtual rows, editing), cells, popovers (filters, sort, group, columns)
   ui/react/types/            Entity types view: TypeManager (sidebar, group editor, save), General/Fields/Relationships/Display tabs, Preview, controls
-  ui/views/                  BrowserView (left sidebar), ConnectionsView (right sidebar), TypesView (main area)
-tests/                       model.test.ts, relations.test.ts, typeEditing.test.ts, tree.test.ts, form.test.ts
+  ui/views/                  BrowserView (left sidebar), ConnectionsView (right sidebar), TypesView (main area), viewBlock (renders entity-view blocks)
+tests/                       model.test.ts, relations.test.ts, typeEditing.test.ts, tree.test.ts, form.test.ts, views.test.ts, viewBlock.test.ts
 styles.css                   all classes prefixed `oe-`
 ```

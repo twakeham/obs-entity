@@ -149,6 +149,16 @@ export class EntitiesSettingTab extends PluginSettingTab {
 					new Notice(n ? `Created ${n} template file${n === 1 ? "" : "s"}.` : "All template files already exist.");
 				}),
 			);
+		new Setting(containerEl)
+			.setName("Views folder")
+			.setDesc("Where entity views (notes with an entity-view block) are saved. Open entity view… lists the views in this folder.")
+			.addText((t) =>
+				t.setValue(s.viewsFolder).onChange(async (v) => {
+					s.viewsFolder = v.trim();
+					await this.plugin.saveSettings();
+					void this.plugin.views.rebuild();
+				}),
+			);
 
 		new Setting(containerEl).setName("Behaviour").setHeading();
 		new Setting(containerEl).setName("Open new entities in a new tab").addToggle((t) =>

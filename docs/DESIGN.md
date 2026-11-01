@@ -32,6 +32,7 @@ It is distilled from **Story Forge**, a worldbuilding / tabletop campaign plugin
    7. [Convert, commands, menus, ribbon](#87-convert-commands-menus-ribbon)
    8. [Settings tab](#88-settings-tab)
    9. [Optional modules](#89-optional-modules)
+   10. [Entity views](#810-entity-views)
 9. [Validation rules](#9-validation-rules)
 10. [Settings schema and migrations](#10-settings-schema-and-migrations)
 11. [Implementation notes and lessons learned](#11-implementation-notes-and-lessons-learned)
@@ -907,6 +908,8 @@ The command **Find entity** opens a `SuggestModal` over entities only.
 | Open entity browser | Left sidebar |
 | Open connections panel | Right sidebar |
 | Check entities | Lists entities whose values don't fit their type (§8.4) |
+| New table view | Name + source → a view note in the views folder (§8.10) |
+| Open entity view… | Picker of view notes |
 | Configure entity types | Types view (active note's type) |
 | Convert current note to entity | Type picker → convert (only for Markdown notes) |
 | Import entity types… | Paste a type pack, single type or list of types (JSON); can load the Basic CRM example |
@@ -925,6 +928,7 @@ The command **Find entity** opens a `SuggestModal` over entities only.
   - **Folder exceptions**: per-type patterns that replace the global one. Each row has a type dropdown, a pattern box and a remove button, plus **Add exception**.
   - A live preview of where each type's notes go (including the parent and own-folder rules), marking types with an exception. Unknown placeholders are flagged.
   - Templates folder, with a **Generate templates** button.
+  - Views folder (§8.10), default `Entities/Views`.
 - **Behaviour:**
   - open new entities in a new tab
   - prefill relations from the active note
@@ -950,8 +954,155 @@ These are proven in Story Forge and worth adding behind module toggles once the 
   - hubs and loners
   - customisable sections, plus an embeddable code block
 - **Bulk edit in the browser:** multi-select, then set status, add a relation, or move.
-- **Table view per type**, or generating Obsidian **Bases** files per type.
-- **Domain views**, as separate modules: timeline (with a date adapter), kanban by status, family tree, relationship grid.
+- **More entity view kinds** (§8.10): board (kanban by status), gallery, calendar. Also formula columns.
+- **Domain views**, as separate modules: timeline (with a date adapter), family tree, relationship grid.
+
+### 8.10 Entity views
+
+Saved, named views over entities. The first kind is a **table**. Every view kind shares the same source, columns, filters, sorting and grouping.
+
+#### Storage: a Markdown note
+
+A view is an ordinary note. Its file name is the view's name, e.g. `Entities/Views/Active projects.md`, in the **views folder** (a setting, default `Entities/Views`). The definition is a fenced `entity-view` code block in YAML:
+
+````markdown
+```entity-view
+kind: table
+types: [project]
+columns: [name, status, owner, due, { rollup: { via: "in:note.project", agg: count }, label: Notes, id: notes }]
+widths: { owner: 160 }
+sort: [{ by: due, dir: asc }]
+group: { by: status }
+filters: { all: [{ field: status, op: is-not, value: done }] }
+```
+````
+
+- **Rendering:** the plugin renders the block (via `registerMarkdownCodeBlockProcessor`) as the live view in Reading view and Live Preview. The rest of the note is free for your own text.
+- **Without the plugin**, the note opens with a readable definition, so a vault synced elsewhere loses nothing.
+- **Anywhere:** the block works in any note, and `![[Active projects]]` embeds a view. Embedded views are fully interactive; changes write to whichever note holds the block.
+- **Invalid blocks** (bad YAML, unknown types) show an error in place of the table. The text is left untouched.
+
+#### Definition
+
+| Key | Meaning |
+|---|---|
+| `kind` | `table` (later `board`, `gallery`, `calendar`) |
+| `types` | Type keys, `@group`, or `*` (all entities), like relation targets. Default `*`. |
+| `columns` | Ordered columns (below). `name` is always first, and is added if missing. |
+| `widths` | Column id → width in px. |
+| `sort` | Sort levels: `{ by: <column id>, dir: asc \| desc }`. |
+| `group` | `{ by: <column id>, date?: month \| year }`. Optional. |
+| `filters` | `{ all: [...] }` or `{ any: [...] }`. Items are conditions, or one level of nested groups. |
+
+**Columns.** A plain string is a built-in or a field key. An object is one of:
+- `{ field: key }` / `{ builtin: key }`, with an optional `label`;
+- `{ incoming: "<type>.<field>" }`: the reverse of a relation field (e.g. `person.works_for` on organisations). The label defaults to the field's inverse;
+- `{ rollup: { via, agg, field? }, label, id }`: summarises linked notes, see below;
+- `{ formula: "…", label, id }`: reserved, shown as "not supported yet".
+
+Column ids are the field / built-in key, `in:<type>.<field>`, or the given `id` (for roll-ups and formulas). A field whose key is also a built-in name (e.g. a `type` field) is written `{ field: type }` and has the id `f:type`.
+
+**Built-ins:** `name` (always first, can't be hidden), `type`, `status`, `tags`, `aliases`, `related`, `folder`, `created`, `modified`.
+
+**Fields:** the union of the source types' fields. A key that several types share appears once; types that don't have it show blank.
+
+**Incoming:** offered for every relation field, of any type, whose targets match a source type.
+
+#### Roll-ups
+
+`via` is `field:<key>` (an outgoing relation field) or `in:<type>.<field>` (an incoming one).
+
+| `agg` | Needs `field` | Result |
+|---|---|---|
+| `count` | | number of linked notes |
+| `list` | | their names (sorted) |
+| `unique` | any field | the distinct values of that field |
+| `sum`, `avg`, `min`, `max` | number | number |
+| `earliest`, `latest` | date | date |
+| `percent-done` | | % of linked entities in their last status |
+| `count-by-status` | | e.g. "2 active · 1 done" (sorted as text) |
+
+- **Read-only**, but sortable and filterable as numbers, dates or text, depending on `agg`.
+- **Editing** happens in a small dialog: relationship → aggregation → field (if needed) → label.
+
+#### Filters
+
+- **Quick search** matches the name, aliases and subtitle. It isn't saved.
+- **Saved filters:** a list of conditions combined with **All** or **Any**, plus one level of nested groups, edited in a popover. Conditions on a column that no longer exists are kept but shown as invalid, and are ignored.
+
+| Column kind | Operators |
+|---|---|
+| text, textarea, url, folder… | `contains`, `not-contains`, `is`, `is-not`, `starts-with`, `empty`, `not-empty` |
+| number (incl. roll-ups) | `=`, `!=`, `<`, `<=`, `>`, `>=`, `empty`, `not-empty` |
+| date | `is`, `before`, `after`, `on-or-before`, `on-or-after`, `between`, `empty`, `not-empty`. Values may be relative: `today`, `-7d`, `+2w`, `1m`, `-1y` |
+| select, status, type | `any-of`, `none-of`, `empty`, `not-empty` |
+| multiselect, list, tags, aliases | `has-any`, `has-all`, `has-none`, `empty`, `not-empty` |
+| checkbox | `checked`, `unchecked` |
+| relation, incoming, related | `links-any`, `links-none` (note paths, chosen with the entity picker), `empty`, `not-empty`, `count=`, `count!=`, `count<`, `count>` |
+| folder | `in-folder` (subfolders included) plus the text operators |
+
+#### Sorting and grouping
+
+- **Header clicks:** clicking a header cycles ascending → descending → off. Shift-click adds a secondary level.
+- **Sort popover:** any number of levels, reordered by dragging.
+- **Comparison:**
+  - dates use the adapter's value;
+  - numbers sort numerically;
+  - text sorts naturally ("Chapter 2" before "Chapter 10");
+  - statuses follow the group's order;
+  - relations sort by the first linked name.
+- **Empty values are always last.** With no sort set, rows are in name order.
+- **Group by:** one column (status, type, a choice, a relation, a list, or a date by month or year). Groups are collapsible and show a count. List values put a row in each group. Groups are ordered like the sort; empty goes last.
+
+#### Table
+
+- **Toolbar:** quick search · Filters (n) · Sort (n) · Group · Columns · ⋯ (Save as…, Rename, Edit definition, Copy block).
+- **Header:** sort arrows. Drag a header to reorder, and drag its right edge to resize.
+- **Rows:**
+  - A selection checkbox.
+  - The name: click opens the note; Ctrl/Cmd-click opens it in a new tab; Ctrl + hover previews.
+  - Right-click: the entity menu (open to the right, show connections, change type…, file menu).
+- **Cells:**
+  - Fields render as in the properties form's read-only mode.
+  - Relations and incoming links render as chips.
+  - Cells with a problem (§8.4) are outlined, with a tooltip.
+- **Editing:**
+  - Double-click a cell, or press Enter, to open its editor: a popover with the same control and rules as the properties form.
+  - Checkboxes toggle with one click.
+  - Read-only: name, built-ins other than status and tags, incoming links, roll-ups and formulas.
+  - Edits go into the form's Ctrl/Cmd+Z history. In the table, Ctrl/Cmd+Z undoes the last cell edit.
+- **Keyboard:** arrow keys move the focused cell, Enter edits, Esc cancels.
+- **+ New** (bottom row): creates an entity of the view's type, prefilled from simple top-level `is` / `any-of` conditions with one value. It asks for the type when the view has several.
+- **Footer:** "12 of 40 · 2 selected".
+- **Large views:** rows are virtualised (fixed row height) inside a scroll area, so thousands of rows stay smooth.
+
+#### Saving
+
+- **Autosave:** changes to columns, widths, sorting, grouping and filters are written back to the block (via `getSectionInfo`), debounced about 500 ms. Writes are held while a popover is open.
+- **Not saved:** quick search, collapsed groups, selection and scroll position. These are kept for the session per block, so they survive the re-render after a write.
+- **Undo:** Ctrl/Cmd+Z in the editor undoes a view change, because it's a note edit.
+- **Save as…** asks for a name and creates a copy in the views folder.
+- **Rename** renames the note. **Edit definition** switches to Source mode. **Copy block** copies the block's text.
+
+#### Opening
+
+- **New table view** (command, and the browser's Views section +): pick a type (or all entities), name the view, and the note is created and opened.
+- **Open entity view…**: a picker of view notes, i.e. notes in the views folder that contain an `entity-view` block.
+- **Browser:** a **Views** section at the top lists view notes. Type headings get "New table view of <plural>".
+
+**AC:**
+- [x] A view note renders an interactive table in both modes and survives sync without the plugin.
+- [x] Columns, filters (including nested groups and relative dates), sorting and grouping all round-trip through the block.
+- [x] Roll-ups count, sum and list across incoming relationships.
+- [x] Editing a cell follows the properties form's rules, and Ctrl/Cmd+Z undoes it.
+- [x] 2,000 rows scroll smoothly. Tested with 5,600 in-memory rows: about 0.5 s to render, about 0.4 s to search or sort, with 32 rows in the page.
+
+**Notes:**
+- **Readable line width:** the table stays inside the note's readable width and scrolls sideways. Turn off "Readable line width" for wide views.
+- **Overriding note table styles:** Obsidian's Markdown table styles (`.markdown-rendered thead tr > th:nth-child(2n+2)` and others) apply to the grid. The table's selectors use `table.oe-table > thead > tr > th` to outrank them.
+- **Live Preview:** Obsidian puts an "Edit this block" button in the block's top-right corner, so the toolbar keeps 40 px clear on that side.
+- **Narrow views:** below 760 px wide (a container query), toolbar buttons show only their icons.
+- **New view notes** open with the cursor after the block, so Live Preview shows the table and not the block's source.
 
 ---
 
@@ -1056,6 +1207,17 @@ These cover all of `model/`, with no Obsidian dependency:
 - **templates:** placeholders, unknown placeholders left alone, date formats.
 - **paths:** sanitising, unique paths, every folder mode.
 - **tree:** forests with mixed types and priority parent fields, cycles, filtering that keeps ancestors, `ancestorsOf`, `childOptions`.
+- **views:**
+  - parse/serialize round trip for every column form, including `f:` ids for clashing keys
+  - errors for bad pieces
+  - available columns and roll-up sources
+  - cell values: fields, built-ins, incoming, every roll-up aggregation
+  - every filter kind, nested groups and relative dates
+  - natural, status-order and multi-level sorting with empty values last
+  - header sort cycling
+  - grouping by status, month and list values
+  - prefill from filters
+- **viewBlock:** finding blocks, and replacing one by line or content, keeping callout prefixes, CRLF, longer fences, and closing an unclosed block.
 - **validation:** every row of §9, with the right `at`.
 - **card:** subtitle composition (several fields, empty values skipped, first line of a textarea); renaming or deleting a field updates `card.subtitle` and `parentFields` in the draft.
 - **form:**
@@ -1120,6 +1282,7 @@ Drive a real Obsidian instance via the Chrome DevTools Protocol (Obsidian starte
 | M3 ✅ | **Entity Types view** | Full editor (§8.1): sidebar with groups, group editor (statuses with rename migration, reorder, delete when empty), General/Fields/Relationships/Display tabs, guided relationship dialog, drafts, validation, save bar with migrations, preview (dialog / picker / card, now the properties form), pack import/export, duplicate, reset to starter, delete; settings button, ribbon, command, file menu | Non-technical user can build a domain model end-to-end without editing JSON |
 | M4 ✅ | **Browser** | Groups (or one tree), type headings, hierarchies from parent fields (cross-group option), View menu, filters with dimmed context, reveal active, collapse semantics, row/heading context menus with "New child here", state persistence | Large vaults navigable; hierarchy correct for mixed types |
 | M4.5 ✅ | **Entity properties form** | Form replacing Obsidian's Properties block on entity notes (§8.4): typed controls, link pickers limited to allowed types, rejected invalid input, problems with fixes, Ctrl/Cmd+Z history, Other properties with "Add to type", Change type with move offer, Check entities command; info card removed (settings v3) | Values can only be entered in a form the type allows; problems from elsewhere are visible and fixable |
+| M4.6 ✅ | **Entity views: table** | View notes with an `entity-view` block (§8.10): source types, columns (fields, built-ins, incoming, roll-ups; formulas reserved), filters with groups and relative dates, multi-level sort, group by, inline editing with the form's rules, virtualised rows, autosave, Save as…, New / Open view commands, browser Views section | Named views can be saved, reopened elsewhere, and used to edit entities |
 | M5 | **Packs & polish** | Type packs (bundled example pack + import/export of groups), template generation, ribbon options, accessibility pass (keyboard navigation in lists, ARIA on toggles), docs | Ready for a public/BRAT release |
 | M6+ | **Modules** | Graph, overview dashboard, bulk edit, Bases generation, domain views | Each behind a module toggle |
 

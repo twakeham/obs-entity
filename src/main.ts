@@ -1,4 +1,4 @@
-import { Keymap, Notice, Plugin, TFile, type PaneType, type WorkspaceLeaf } from "obsidian";
+import { Keymap, MarkdownView, Notice, Plugin, TFile, normalizePath, stringifyYaml, type PaneType, type WorkspaceLeaf } from "obsidian";
 import { isoDateAdapter, type DateAdapter } from "./model/dates";
 import type { EntityFormValues, FieldValue } from "./model/frontmatter";
 import { mergeSettings, type EntitiesSettings } from "./model/settings";
@@ -21,6 +21,10 @@ import { BROWSER_VIEW, BrowserView } from "./ui/views/BrowserView";
 import type { EntityRecord } from "./services/entityIndex";
 import { TYPES_VIEW, TypesView } from "./ui/views/TypesView";
 import type { GroupDraft, TypeDraft } from "./model/typeEditing";
+import { emptyView, fieldColumn, serializeView, sourceTypes, type ViewContext, type ViewDef, type ViewRow, columnFromId } from "./model/views";
+import { VIEW_BLOCK, ViewIndex } from "./services/viewIndex";
+import { NewViewModal, OpenViewModal } from "./ui/modals/viewModals";
+import { ViewBlock } from "./ui/views/viewBlock";
 
 /** Obsidian 1.7+ lazily loads background tabs; make sure the leaf's real view exists. */
 async function loadIfDeferred(leaf: WorkspaceLeaf): Promise<void> {
@@ -34,6 +38,8 @@ export default class EntitiesPlugin extends Plugin {
 	relations!: RelationIndex;
 	factory!: EntityFactory;
 	private form!: FormManager;
+	/** View notes (notes with an `entity-view` block in the views folder). */
+	views!: ViewIndex;
 	/** Ctrl/Cmd+Z history for properties-form edits, per note. */
 	formHistory = new EditHistory(20);
 	/** Date handling for date fields (ISO for now; a custom calendar can replace it). */
@@ -49,9 +55,12 @@ export default class EntitiesPlugin extends Plugin {
 		this.relations = new RelationIndex(this);
 		this.factory = new EntityFactory(this);
 		this.form = new FormManager(this);
+		this.views = new ViewIndex(this);
 		this.relations.load();
 		this.index.load();
 		this.form.load();
+		this.views.load();
+		this.registerMarkdownCodeBlockProcessor(VIEW_BLOCK, (source, el, ctx) => ctx.addChild(new ViewBlock(this, source, el, ctx)));
 		this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.formHistory.rename(oldPath, file.path)));
 		this.registerEvent(this.app.vault.on("delete", (file) => this.formHistory.clear(file.path)));
 		this.app.workspace.onLayoutReady(() => this.syncPropertyTypes());
@@ -129,6 +138,16 @@ export default class EntitiesPlugin extends Plugin {
 				if (items.length === 0) new Notice(`No problems found in ${this.index.all().length} entities.`);
 				else new CheckEntitiesModal(this, items).open();
 			},
+		});
+		this.addCommand({
+			id: "new-table-view",
+			name: "New table view",
+			callback: () => this.newTableView(this.index.getByFile(this.app.workspace.getActiveFile())?.type.key ?? ""),
+		});
+		this.addCommand({
+			id: "open-entity-view",
+			name: "Open entity view…",
+			callback: () => new OpenViewModal(this).open(),
 		});
 		this.addCommand({
 			id: "rebuild-index",
@@ -312,6 +331,57 @@ export default class EntitiesPlugin extends Plugin {
 		await this.activateTypes();
 		const leaf = this.app.workspace.getLeavesOfType(TYPES_VIEW)[0];
 		if (leaf?.view instanceof TypesView) leaf.view.addField(typeKey, field);
+	}
+
+	/** Rows and context for entity views, built from the current index. */
+	viewData(): { rows: ViewRow[]; ctx: ViewContext } {
+		const rows: ViewRow[] = this.index.all().map((e) => ({ ...e, folder: e.file.parent && e.file.parent.path !== "/" ? e.file.parent.path : "" }));
+		const byPath = new Map(rows.map((r) => [r.path, r]));
+		const now = new Date();
+		const ctx: ViewContext = {
+			types: this.settings.types,
+			groups: this.settings.groups,
+			dates: this.dates,
+			today: Math.floor(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / 86_400_000),
+			resolve: (linkpath, sourcePath) => this.app.metadataCache.getFirstLinkpathDest(linkpath, sourcePath)?.path ?? null,
+			row: (path) => byPath.get(path),
+			incoming: (path) => this.relations.incomingOf(path).map((e) => ({ source: e.source, sourceType: e.sourceType, fieldKey: e.fieldKey })),
+		};
+		return { rows, ctx };
+	}
+
+	/** Starting columns for a new view: name, type (when several), status, then up to four fields. */
+	defaultView(source: string): ViewDef {
+		const def = emptyView([source || "*"]);
+		const types = sourceTypes(def, this.settings.types);
+		const ids = ["name", ...(types.length > 1 ? ["type"] : []), "status"];
+		const fields = types.length === 1 ? [...types[0].fields.filter((f) => f.inModal), ...types[0].fields.filter((f) => !f.inModal)] : [];
+		def.columns = ids.map(columnFromId);
+		for (const f of fields.slice(0, 4)) def.columns.push(fieldColumn(f.key));
+		if (types.length > 1) def.columns.push(columnFromId("modified"));
+		return def;
+	}
+
+	/** Create a view note in the views folder and open it. */
+	async createViewNote(name: string, def: ViewDef): Promise<TFile> {
+		const folder = await this.factory.ensureFolder(normalizePath(this.settings.viewsFolder.trim() || "/").replace(/^\/$/, ""));
+		const base = name.replace(/[\\/:*?"<>|#^[\]]/g, " ").trim() || "View";
+		let path = normalizePath(`${folder ? `${folder}/` : ""}${base}.md`);
+		for (let n = 2; this.app.vault.getAbstractFileByPath(path); n++) path = normalizePath(`${folder ? `${folder}/` : ""}${base} ${n}.md`);
+		const file = await this.app.vault.create(path, `\`\`\`${VIEW_BLOCK}\n${stringifyYaml(serializeView(def))}\`\`\`\n`);
+		const leaf = this.app.workspace.getLeaf(this.settings.openInNewTab);
+		await leaf.openFile(file);
+		// Put the cursor after the block, so Live Preview shows the table rather than its source.
+		const view = leaf.view;
+		if (view instanceof MarkdownView) view.editor.setCursor(view.editor.lastLine(), 0);
+		return file;
+	}
+
+	/** "New table view": ask for a name and source, then create the note. */
+	newTableView(preset = ""): void {
+		new NewViewModal(this, preset, async (name, source) => {
+			await this.createViewNote(name, this.defaultView(source));
+		}).open();
 	}
 
 	async saveSettings(): Promise<void> {
