@@ -1139,12 +1139,21 @@ function conditionsOf(g: FilterGroup): Condition[] {
 	return g.items.flatMap((i) => (isGroup(i) ? conditionsOf(i) : [i]));
 }
 
-/** The rule styling a cell: its column's cell rule, else the row rule. */
-export function highlightOf(def: ViewDef, r: ResultRow, colId: string): { rule: HighlightRule; row: boolean } | null {
-	const cell = r.hl?.[colId];
-	if (cell !== undefined && def.highlight[cell]) return { rule: def.highlight[cell], row: false };
-	const row = r.hl?.[ROW_TARGET];
-	return row !== undefined && def.highlight[row] ? { rule: def.highlight[row], row: true } : null;
+/**
+ * A cell's style: the row rule's style with its column's cell rule on top (what the cell rule leaves unset comes
+ * from the row rule). Row icons only show in the name column; a cell rule's icon replaces it there.
+ */
+export function highlightOf(def: ViewDef, r: ResultRow, colId: string): { style: HighlightStyle; iconRule?: HighlightRule } | null {
+	const at = (i: number | undefined) => (i === undefined ? undefined : def.highlight[i]);
+	const cell = at(r.hl?.[colId]);
+	const row = at(r.hl?.[ROW_TARGET]);
+	if (!cell && !row) return null;
+	const style: HighlightStyle = { ...row?.style };
+	delete style.icon;
+	for (const [k, v] of Object.entries(cell?.style ?? {}) as [keyof HighlightStyle, HighlightStyle[keyof HighlightStyle]][]) if (v !== undefined && v !== false && k !== "icon") (style as Record<string, unknown>)[k] = v;
+	const iconRule = cell?.style.icon ? cell : colId === "name" && row?.style.icon ? row : undefined;
+	if (iconRule) style.icon = iconRule.style.icon;
+	return { style, ...(iconRule ? { iconRule } : {}) };
 }
 
 /** Filter, sort and group the rows of a view. */

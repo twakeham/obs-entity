@@ -1090,10 +1090,10 @@ highlight:
   - `fill` and `text` take a palette colour: `red`, `orange`, `yellow`, `green`, `blue`, `purple`, `pink`, `grey`. They map to Obsidian's `--color-*` variables (grey to `--text-muted`), so they suit light and dark themes. The fill is a 16% tint.
   - `bold`, `italic`, `strike`.
   - `icon` is one of a short Lucide list: alert-triangle, alert-circle, check-circle, clock, flag, star, flame, circle-dot, x-circle, lock. Row icons show before the name; cell icons show before the value.
-- **Precedence: first match only.**
+- **Precedence: first match per target, cell over row.**
   - For the row, the first matching enabled row rule applies.
-  - For each cell, the first matching enabled rule targeting that column applies, and it replaces the row style in that cell.
-  - Styles never combine.
+  - For each cell, the first matching enabled rule targeting that column is layered over the row rule. What it sets wins, and what it leaves unset (fill, text colour, bold…) comes from the row rule. So a cell rule can't clear the row's fill.
+  - A cell rule's icon replaces the row icon in its column.
 - Rules targeting a column that isn't shown have no effect; they're kept, and the panel says so.
 - **Hover and selection** still show: they're mixed over the fill. A row fill also covers the checkbox and filler cells.
 - **Editing:**
@@ -1281,7 +1281,7 @@ These cover all of `model/`, with no Obsidian dependency:
   - grouping by status, month and list values
   - prefill from filters
   - formats: parse/serialize, formatted cells and group labels, sorting on raw values
-  - highlight: parse/serialize and errors, first-match precedence for rows and cells, disabled rules, hidden fields in conditions, hidden target columns, unusable conditions, match counts
+  - highlight: parse/serialize and errors, first-match precedence for rows and cells, cell styles layered over row styles (icons replaced), disabled rules, hidden fields in conditions, hidden target columns, unusable conditions, match counts
   - fill columns: parse/serialize as a name or list, proportional sharing, rounding to the exact width, nothing when there's no spare width
 - **formats:** date presets, custom and relative dates; number presets, currencies, custom patterns and their errors.
 - **viewBlock:** finding blocks, and replacing one by line or content, keeping callout prefixes, CRLF, longer fences, and closing an unclosed block.

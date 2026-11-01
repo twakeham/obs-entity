@@ -696,7 +696,7 @@ export function HighlightPanel({
 										))}
 									</span>
 								</div>
-								<div className="oe-pop-hint">{r.target === ROW_TARGET ? "Row icons show before the name." : "Cell rules take the place of row rules in their column."}</div>
+								<div className="oe-pop-hint">{r.target === ROW_TARGET ? "Row icons show before the name." : "Anything this rule leaves unset (e.g. no fill) comes from the row's rule."}</div>
 							</div>
 						)}
 					</div>

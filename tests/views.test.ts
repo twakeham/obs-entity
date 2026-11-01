@@ -278,7 +278,7 @@ describe("highlight", () => {
 		expect(parseView({ highlight: { target: "row" } }).errors).toEqual(["highlight should be a list of rules."]);
 	});
 
-	it("styles rows and cells with the first matching rule, cell rules over row rules", () => {
+	it("styles rows and cells with the first matching rule, cell rules layered over row rules", () => {
 		const r = run();
 		const def = view({ types: ["project"], columns: ["status", "due"], highlight: rules });
 		const by = new Map(r.rows.map((x) => [x.row.name, x]));
@@ -292,8 +292,13 @@ describe("highlight", () => {
 		const lander = late.rows.find((x) => x.row.name === "Lander")!;
 		expect(lander.hl).toEqual({ row: 0, status: 1 });
 		const d2 = view({ types: ["project"], columns: ["status", "due"], highlight: [{ ...rules[0], when: { all: [{ field: "due", op: "before", value: "+1y" }] } }, rules[1]] });
-		expect(highlightOf(d2, lander, "status")).toEqual({ rule: d2.highlight[1], row: false });
-		expect(highlightOf(d2, lander, "due")).toEqual({ rule: d2.highlight[0], row: true });
+		expect(highlightOf(d2, lander, "status")).toEqual({ style: { fill: "red", bold: true, text: "green", strike: true } });
+		expect(highlightOf(d2, lander, "due")).toEqual({ style: { fill: "red", bold: true } });
+		expect(highlightOf(d2, lander, "name")).toEqual({ style: { fill: "red", bold: true, icon: "alert-triangle" }, iconRule: d2.highlight[0] });
+		// a cell rule's own settings win; its icon replaces the row's in its column
+		const d3 = view({ types: ["project"], columns: ["status"], highlight: [{ ...rules[0], when: { all: [] } }, { target: "name", when: { all: [] }, style: { fill: "blue", icon: "star" } }] });
+		const r3 = runView(d3, ROWS, ctx).rows[0];
+		expect(highlightOf(d3, r3, "name")).toEqual({ style: { fill: "blue", bold: true, icon: "star" }, iconRule: d3.highlight[1] });
 		expect(highlightOf(def, by.get("Project 10")!, "due")).toBeNull();
 	});
 

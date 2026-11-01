@@ -214,7 +214,7 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
   - conditions, built like filters, which can use fields that aren't shown
   - a style: fill colour, text colour, bold / italic / strikethrough, and an optional icon
 - The colours come from the theme, so they work in light and dark mode.
-- **The first matching rule wins:** drag rules to reorder them. A cell rule replaces the row's style in its column.
+- **The first matching rule wins:** drag rules to reorder them. A cell rule sits on top of the row's rule. What it leaves unset (e.g. no fill) comes from the row's rule.
 - Rules can be switched off without deleting them. Each rule shows how many rows it matches.
 
 **Roll-ups** summarise the notes linked to each row, through an outgoing field or an incoming link: count, names, unique values of a field, sum / average / min / max of a number, earliest / latest date, % done, or count by status. E.g. "Notes: count" on projects, or "Deals: sum of value" on companies.

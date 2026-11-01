@@ -659,9 +659,9 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 										const problem = target ? problems.find((p) => p.key === target.key) : undefined;
 										const focused = focus?.r === it.n && focus.c === ci;
 										const hl = r.hl ? highlightOf(def, r, c.id) : null;
-										const hlIcon = hl?.rule.style.icon && (!hl.row || c.id === "name") ? (
-											<span className="oe-hl-icon" aria-label={hl.rule.name}>
-												<Icon name={hl.rule.style.icon} />
+										const hlIcon = hl?.style.icon ? (
+											<span className="oe-hl-icon" aria-label={hl.iconRule?.name}>
+												<Icon name={hl.style.icon} />
 											</span>
 										) : null;
 										return (
@@ -669,7 +669,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 												key={c.id}
 												data-r={it.n}
 												data-c={ci}
-												className={`oe-td${focused ? " is-focused" : ""}${target ? " is-editable" : ""}${problem ? ` has-problem is-${problem.severity}` : ""}${hl ? ` ${hlClasses(hl.rule.style)}` : ""}`}
+												className={`oe-td${focused ? " is-focused" : ""}${target ? " is-editable" : ""}${problem ? ` has-problem is-${problem.severity}` : ""}${hl ? ` ${hlClasses(hl.style)}` : ""}`}
 												aria-label={problem?.message}
 												onClick={() => {
 													setFocus({ r: it.n, c: ci });
