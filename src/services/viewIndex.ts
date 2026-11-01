@@ -66,6 +66,17 @@ export class ViewIndex extends Events {
 		if (is !== was || changed) this.notify();
 	}
 
+	has(path: string): boolean {
+		return this.paths.has(path);
+	}
+
+	/** Record a view note created just now (before the async check has read it). */
+	add(path: string): void {
+		if (this.paths.has(path)) return;
+		this.paths.add(path);
+		this.notify();
+	}
+
 	/** View notes, sorted by name. */
 	all(): TFile[] {
 		return [...this.paths]

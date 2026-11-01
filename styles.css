@@ -3173,3 +3173,37 @@ button.oe-tm-typegroup-title,
 .oe-cell-editor-issue.is-warning {
 	color: var(--color-orange);
 }
+
+/* Entity view tab: a view note shown edge to edge, like the Entity types editor. */
+.workspace-leaf-content[data-type="obs-entities-view"] > .view-content {
+	padding: 0;
+	overflow: hidden;
+}
+
+.oe-entity-view-tab {
+	height: 100%;
+}
+
+.oe-view.is-fill {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	border: none;
+	border-radius: 0;
+}
+
+.oe-view.is-fill .oe-table-scroll {
+	flex: 1;
+	max-height: none;
+}
+
+.oe-view.is-fill .oe-view-toolbar,
+.oe-view.is-fill .oe-table-footer {
+	padding-left: var(--size-4-3);
+	padding-right: var(--size-4-3);
+}
+
+.oe-entity-view-message {
+	margin: var(--size-4-6) auto;
+	max-width: 560px;
+}

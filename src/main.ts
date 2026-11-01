@@ -1,4 +1,4 @@
-import { Keymap, MarkdownView, Notice, Plugin, TFile, normalizePath, stringifyYaml, type PaneType, type WorkspaceLeaf } from "obsidian";
+import { Keymap, MarkdownView, Notice, Plugin, TFile, WorkspaceLeaf, normalizePath, stringifyYaml, type PaneType, type ViewState } from "obsidian";
 import { isoDateAdapter, type DateAdapter } from "./model/dates";
 import type { EntityFormValues, FieldValue } from "./model/frontmatter";
 import { mergeSettings, type EntitiesSettings } from "./model/settings";
@@ -25,6 +25,7 @@ import { emptyView, fieldColumn, serializeView, sourceTypes, type ViewContext, t
 import { VIEW_BLOCK, ViewIndex } from "./services/viewIndex";
 import { NewViewModal, OpenViewModal } from "./ui/modals/viewModals";
 import { ViewBlock } from "./ui/views/viewBlock";
+import { ENTITY_VIEW, EntityViewView } from "./ui/views/EntityViewView";
 
 /** Obsidian 1.7+ lazily loads background tabs; make sure the leaf's real view exists. */
 async function loadIfDeferred(leaf: WorkspaceLeaf): Promise<void> {
@@ -68,6 +69,12 @@ export default class EntitiesPlugin extends Plugin {
 		this.registerView(CONNECTIONS_VIEW, (leaf) => new ConnectionsView(leaf, this));
 		this.registerView(TYPES_VIEW, (leaf) => new TypesView(leaf, this));
 		this.registerView(BROWSER_VIEW, (leaf) => new BrowserView(leaf, this));
+		this.registerView(ENTITY_VIEW, (leaf) => new EntityViewView(leaf, this));
+		this.patchViewNotes();
+		const refresh = () => this.refreshViewActions();
+		this.registerEvent(this.app.workspace.on("file-open", refresh));
+		this.registerEvent(this.app.workspace.on("layout-change", refresh));
+		this.registerEvent(this.views.on("updated", refresh));
 		this.registerHoverLinkSource(HOVER_SOURCE, { display: "Obsidian Entities", defaultMod: true });
 
 		this.addSettingTab(new EntitiesSettingTab(this.app, this));
@@ -369,6 +376,7 @@ export default class EntitiesPlugin extends Plugin {
 		let path = normalizePath(`${folder ? `${folder}/` : ""}${base}.md`);
 		for (let n = 2; this.app.vault.getAbstractFileByPath(path); n++) path = normalizePath(`${folder ? `${folder}/` : ""}${base} ${n}.md`);
 		const file = await this.app.vault.create(path, `\`\`\`${VIEW_BLOCK}\n${stringifyYaml(serializeView(def))}\`\`\`\n`);
+		this.views.add(file.path);
 		const leaf = this.app.workspace.getLeaf(this.settings.openInNewTab);
 		await leaf.openFile(file);
 		// Put the cursor after the block, so Live Preview shows the table rather than its source.
@@ -382,6 +390,54 @@ export default class EntitiesPlugin extends Plugin {
 		new NewViewModal(this, preset, async (name, source) => {
 			await this.createViewNote(name, this.defaultView(source));
 		}).open();
+	}
+
+	/** Tabs showing a view note as Markdown on purpose ("Open as Markdown"): leaf → that note's path. */
+	viewAsMarkdown = new WeakMap<WorkspaceLeaf, string>();
+	private viewActions = new WeakMap<MarkdownView, HTMLElement>();
+
+	/**
+	 * Open view notes as entity view tabs: a Markdown open of a view note becomes an entity view, unless the tab
+	 * asked for Markdown for that note. (The approach Kanban uses for its board notes.)
+	 */
+	private patchViewNotes(): void {
+		const plugin = this;
+		const proto = WorkspaceLeaf.prototype as WorkspaceLeaf & { setViewState(state: ViewState, eState?: unknown): Promise<void> };
+		const original = proto.setViewState;
+		proto.setViewState = function (this: WorkspaceLeaf, state: ViewState, eState?: unknown) {
+			const path = (state?.state as { file?: unknown } | undefined)?.file;
+			if (state?.type === "markdown" && typeof path === "string") {
+				const forced = plugin.viewAsMarkdown.get(this);
+				if (forced && forced !== path) plugin.viewAsMarkdown.delete(this);
+				if (plugin.settings.openViewsAsTabs && forced !== path && plugin.views?.has(path)) state = { ...state, type: ENTITY_VIEW, state: { file: path } };
+			}
+			return original.call(this, state, eState);
+		};
+		this.register(() => {
+			proto.setViewState = original;
+		});
+	}
+
+	/** Show a view note as an entity view tab. */
+	async openAsEntityView(leaf: WorkspaceLeaf, path: string): Promise<void> {
+		this.viewAsMarkdown.delete(leaf);
+		await leaf.setViewState({ type: ENTITY_VIEW, state: { file: path } });
+	}
+
+	/** View notes shown as Markdown get an "Open as entity view" button in their header. */
+	private refreshViewActions(): void {
+		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+			const view = leaf.view;
+			if (!(view instanceof MarkdownView)) continue;
+			const path = view.file?.path;
+			const isView = !!path && this.views.has(path);
+			const el = this.viewActions.get(view);
+			if (isView && !el) this.viewActions.set(view, view.addAction("table", "Open as entity view", () => view.file && void this.openAsEntityView(leaf, view.file.path)));
+			else if (!isView && el) {
+				el.remove();
+				this.viewActions.delete(view);
+			}
+		}
 	}
 
 	async saveSettings(): Promise<void> {

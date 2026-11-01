@@ -53,9 +53,13 @@ export interface EntityTableProps {
 	stateKey: string;
 	save: (def: ViewDef) => Promise<void>;
 	editDefinition: () => void;
+	/** receives the table's "save pending changes now" function (for hosts that close before unmounting) */
+	onFlushReady?: (flush: () => void) => void;
+	/** fills its container (the entity view tab) instead of sitting in a note */
+	fill?: boolean;
 }
 
-export function EntityTable({ initial, warnings, sourcePath, stateKey, save, editDefinition }: EntityTableProps) {
+export function EntityTable({ initial, warnings, sourcePath, stateKey, save, editDefinition, onFlushReady, fill }: EntityTableProps) {
 	const plugin = usePlugin();
 	const { app } = plugin;
 	const version = useRelationsVersion();
@@ -109,6 +113,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	}, [pop, editing]);
 	// eslint-disable-next-line react-hooks/exhaustive-deps
 	useEffect(() => () => flush(), []);
+	onFlushReady?.(flush);
 
 	// ---- data
 	const lookup = useMemo(() => ({ types: plugin.settings.types, groups: plugin.settings.groups }), [plugin, version]);
@@ -330,8 +335,8 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 			);
 		m.addItem((i) =>
 			i
-				.setTitle("Edit definition")
-				.setIcon("code")
+				.setTitle(fill ? "Open as Markdown" : "Edit definition")
+				.setIcon(fill ? "file-text" : "code")
 				.onClick(() => {
 					flush();
 					editDefinition();
@@ -468,7 +473,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	const editCol = editing ? columns.find((c) => c.id === editing.col) : undefined;
 
 	return (
-		<div className="oe-view" data-view-kind={def.kind}>
+		<div className={`oe-view${fill ? " is-fill" : ""}`} data-view-kind={def.kind}>
 			<div className="oe-view-toolbar">
 				<span className="oe-view-source">
 					<Icon name={sources.length === 1 ? sources[0].icon : "table"} />

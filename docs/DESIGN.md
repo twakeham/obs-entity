@@ -1086,6 +1086,13 @@ Column ids are the field / built-in key, `in:<type>.<field>`, or the given `id` 
 
 #### Opening
 
+- **Entity view tabs:** a view note opens as a dedicated **entity view** tab (`EntityViewView`, a `TextFileView`). The table fills the tab edge to edge, like the Entity Types editor: toolbar on top, the grid filling the rest, footer at the bottom, no page margins.
+  - **How:** `WorkspaceLeaf.prototype.setViewState` is wrapped, the approach the Kanban plugin uses for its board notes. A Markdown open of a view note (any way of opening it: browser, picker, links, file explorer) becomes an entity view.
+  - **Tab:** the note's name, with a table icon.
+  - **Open as Markdown** (a header button, the pane menu, and ⋯) shows the note itself in that tab, to edit the definition or text below the block, until another file opens there. A Markdown tab showing a view note has an **Open as entity view** header button.
+  - **Saving:** edits go into the note's first `entity-view` block through the view's own data (`requestSave`). Pending changes are flushed before the file unloads.
+  - **Setting:** "Open view notes as entity views" (on by default).
+- **Elsewhere:** embeds (`![[View]]`) and blocks in other notes render inline as before.
 - **New table view** (command, and the browser's Views section +): pick a type (or all entities), name the view, and the note is created and opened.
 - **Open entity view…**: a picker of view notes, i.e. notes in the views folder that contain an `entity-view` block.
 - **Browser:** a **Views** section at the top lists view notes. Type headings get "New table view of <plural>".

@@ -209,7 +209,12 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
 
 **Saving:** changes to columns, filters, sorting and grouping are saved into the block automatically, held while a panel is open. Large views stay fast: only the visible rows are drawn.
 
-Formula columns are reserved in the format (`formula:`) but not supported yet. A view placed directly in a note fills the whole tab, in width and height, whatever the readable line width; embedded views stay inline.
+Formula columns are reserved in the format (`formula:`) but not supported yet.
+
+**Full-tab views:** opening a view note shows it as an **entity view** tab: the table fills the whole tab, edge to edge, like the Entity types editor.
+- **Open as Markdown** (header button or ⋯) shows the note itself, e.g. to edit the definition or write notes below the block. **Open as entity view** switches back.
+- The setting **Open view notes as entity views** turns this off.
+- A view embedded in another note (`![[View]]`) stays inline.
 
 ## Commands
 
@@ -304,7 +309,7 @@ src/
   ui/react/                  EntityForm, ConnectionsPanel, EntityChip, EntityBits (status tones, relation groups), EntityBrowser
   ui/react/table/            EntityTable (toolbar, virtual rows, editing), cells, popovers (filters, sort, group, columns)
   ui/react/types/            Entity types view: TypeManager (sidebar, group editor, save), General/Fields/Relationships/Display tabs, Preview, controls
-  ui/views/                  BrowserView (left sidebar), ConnectionsView (right sidebar), TypesView (main area), viewBlock (renders entity-view blocks)
+  ui/views/                  BrowserView (left sidebar), ConnectionsView (right sidebar), TypesView (main area), EntityViewView (view notes as full tabs), viewBlock (renders entity-view blocks in notes)
 tests/                       model.test.ts, relations.test.ts, typeEditing.test.ts, tree.test.ts, form.test.ts, views.test.ts, viewBlock.test.ts
 styles.css                   all classes prefixed `oe-`
 ```

@@ -10,6 +10,8 @@ export interface EntitiesSettings {
 	templatesFolder: string;
 	/** Folder of entity view notes (notes holding an `entity-view` block). */
 	viewsFolder: string;
+	/** Open view notes as full-tab entity views (rather than as notes with the table inside). */
+	openViewsAsTabs: boolean;
 	/** Open newly created notes in a new tab instead of the current one. */
 	openInNewTab: boolean;
 	/** Prefill a matching relation field from the active note when creating an entity. */
@@ -32,6 +34,7 @@ export function defaultSettings(): EntitiesSettings {
 		folderPattern: DEFAULT_FOLDER_PATTERN,
 		templatesFolder: "_templates/entities",
 		viewsFolder: "Entities/Views",
+		openViewsAsTabs: true,
 		openInNewTab: false,
 		prefillFromActive: true,
 		useForm: true,
@@ -82,5 +85,6 @@ export function mergeSettings(saved: Partial<EntitiesSettings> | null | undefine
 	for (const g of merged.groups) if (!Array.isArray(g.statuses) || g.statuses.length === 0) g.statuses = [...DEFAULT_STATUSES];
 	if (typeof merged.folderPattern !== "string") merged.folderPattern = DEFAULT_FOLDER_PATTERN;
 	if (typeof merged.viewsFolder !== "string") merged.viewsFolder = base.viewsFolder;
+	if (typeof merged.openViewsAsTabs !== "boolean") merged.openViewsAsTabs = true;
 	return merged;
 }

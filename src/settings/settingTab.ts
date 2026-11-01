@@ -159,6 +159,15 @@ export class EntitiesSettingTab extends PluginSettingTab {
 					void this.plugin.views.rebuild();
 				}),
 			);
+		new Setting(containerEl)
+			.setName("Open view notes as entity views")
+			.setDesc("Show a view note as a full-tab table, like the Entity types editor. Off: view notes open as normal notes with the table inside. Either way, “Open as Markdown” / “Open as entity view” switch a tab.")
+			.addToggle((t) =>
+				t.setValue(s.openViewsAsTabs).onChange(async (v) => {
+					s.openViewsAsTabs = v;
+					await this.plugin.saveSettings();
+				}),
+			);
 
 		new Setting(containerEl).setName("Behaviour").setHeading();
 		new Setting(containerEl).setName("Open new entities in a new tab").addToggle((t) =>
