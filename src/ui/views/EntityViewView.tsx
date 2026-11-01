@@ -152,7 +152,11 @@ export class EntityViewView extends TextFileView {
 		box.createEl("button", { text: "Open as Markdown" }).addEventListener("click", () => this.openAsMarkdown());
 	}
 
-	/** Write a definition into the note's block; Obsidian saves the file shortly after. */
+	/**
+	 * Write a definition into the note's block and save it now. The table already debounces; leaving it to
+	 * `requestSave` (≈2 s) lets an outside change to the note arrive first, and Obsidian's merge of the two
+	 * can duplicate lines and break the YAML.
+	 */
 	private async saveDef(def: ViewDef): Promise<void> {
 		if (!this.block) return;
 		const yaml = stringifyYaml(serializeView(def));
@@ -163,6 +167,6 @@ export class EntityViewView extends TextFileView {
 		}
 		this.data = next;
 		this.block = { start: this.block.start, inner: yaml.replace(/\n+$/, "") };
-		this.requestSave();
+		await this.save();
 	}
 }
