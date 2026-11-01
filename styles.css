@@ -3203,6 +3203,11 @@ button.oe-tm-typegroup-title,
 	padding-right: var(--size-4-3);
 }
 
+/* Full-tab views have no outer border: give the toolbar its own top edge, like the bottom one. */
+.oe-view.is-fill .oe-view-toolbar {
+	border-top: 1px solid var(--background-modifier-border);
+}
+
 .oe-entity-view-message {
 	margin: var(--size-4-6) auto;
 	max-width: 560px;
