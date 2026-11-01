@@ -191,6 +191,7 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
 - **Sort:** any number of levels, which can be dragged to reorder. Clicking a header sorts by it (ascending, descending, off), and Shift-click adds a level.
   - Statuses sort in their group's order, text sorts naturally ("Chapter 2" before "Chapter 10"), and empty values go last.
 - **Group:** by status, type, a choice, a link, a list, or a date by day / month / year. Each group has a collapsible header and a count.
+- **Highlight:** conditional formatting rules, see below.
 - **Columns:**
   - the source types' fields
   - built-ins: type, status, tags, aliases, related, folder, created, modified
@@ -203,6 +204,17 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
 - **Dates:** presets (2026-12-15, 15 Dec 2026, Tue 15 Dec, 15/12/2026, December 2026…), **Relative** ("in 6 weeks"), or any moment.js pattern such as `D MMM YYYY`.
 - **Numbers:** Number (320,000), Integer, 2 decimals, **Currency** ($320,000.00, using the **Default currency** setting, or e.g. `currency:USD`), Compact (320K), Percent, or a pattern such as `$#,##0.00` or `#,##0 h`.
 - Formats only change what's shown: sorting, filtering and editing use the real value.
+
+**Highlight rules** colour the rows or cells that match conditions, e.g. overdue tasks in red, or "Critical" priorities in bold red.
+- **Highlight** in the toolbar lists the rules. **+ Add rule**, or right-click a header → **Highlight cells…** for that column.
+- Each rule has:
+  - an optional name
+  - what it applies to: the whole row, or one column's cells
+  - conditions, built like filters, which can use fields that aren't shown
+  - a style: fill colour, text colour, bold / italic / strikethrough, and an optional icon
+- The colours come from the theme, so they work in light and dark mode.
+- **The first matching rule wins:** drag rules to reorder them. A cell rule replaces the row's style in its column.
+- Rules can be switched off without deleting them. Each rule shows how many rows it matches.
 
 **Roll-ups** summarise the notes linked to each row, through an outgoing field or an incoming link: count, names, unique values of a field, sum / average / min / max of a number, earliest / latest date, % done, or count by status. E.g. "Notes: count" on projects, or "Deals: sum of value" on companies.
 

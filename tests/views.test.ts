@@ -9,6 +9,7 @@ import {
 	columnFromId,
 	cycleSort,
 	dateValue,
+	highlightOf,
 	parseView,
 	prefillFromFilters,
 	resolveColumn,
@@ -224,6 +225,58 @@ describe("formats", () => {
 		expect(g).toEqual(["December 2026", "March 2027", ""]);
 		const rel = runView(view({ types: ["project"], columns: ["due"], formats: { due: "relative" }, sort: [{ by: "due", dir: "asc" }] }), ROWS, ctx).rows.map((x) => x.cells.due.text);
 		expect(rel.slice(0, 2)).toEqual(["in 4 weeks", "in 5 months"]);
+	});
+});
+
+describe("highlight", () => {
+	const rules = [
+		{ name: "Late", target: "row", when: { all: [{ field: "due", op: "before", value: "+2m" }, { field: "status", op: "none-of", value: ["done"] }] }, style: { fill: "red", bold: true, icon: "alert-triangle" } },
+		{ target: "status", when: { all: [{ field: "status", op: "any-of", value: ["done", "idea"] }] }, style: { text: "green", strike: true } },
+		{ target: "status", when: { all: [{ field: "status", op: "any-of", value: ["idea"] }] }, style: { fill: "orange" } },
+		{ target: "row", when: { all: [{ field: "status", op: "any-of", value: ["on-hold"] }] }, style: { fill: "grey" }, off: true },
+	];
+	const run = (extra: Record<string, unknown> = {}) => runView(view({ types: ["project"], columns: ["status", "due"], highlight: rules, ...extra }), ROWS, ctx);
+
+	it("round-trips rules, leaving out empty style parts", () => {
+		const def = view({ types: ["project"], highlight: rules });
+		expect(def.highlight[0]).toEqual({ name: "Late", target: "row", when: { mode: "all", items: rules[0].when.all }, style: { fill: "red", bold: true, icon: "alert-triangle" } });
+		expect(def.highlight[3].off).toBe(true);
+		expect(serializeView(def).highlight).toEqual(rules);
+		expect(view(serializeView(def))).toEqual(def);
+		expect(serializeView(view({ types: ["project"] })).highlight).toBeUndefined();
+		expect(view({ highlight: [{ style: { bold: false } }] }).highlight).toEqual([{ target: "row", when: { mode: "all", items: [] }, style: {} }]);
+	});
+
+	it("reports bad rules", () => {
+		const { def, errors } = parseView({ highlight: [3, { style: { fill: "teal" } }, { when: { all: [{ op: "x" }] } }] });
+		expect(def!.highlight).toHaveLength(2);
+		expect(errors).toEqual(['A highlight rule should have target, when and style: 3.', 'Unknown highlight colour "teal". Use red, orange, yellow, green, blue, purple, pink, grey.', 'A filter condition needs "field" and "op": {"op":"x"}.']);
+		expect(parseView({ highlight: { target: "row" } }).errors).toEqual(["highlight should be a list of rules."]);
+	});
+
+	it("styles rows and cells with the first matching rule, cell rules over row rules", () => {
+		const r = run();
+		const def = view({ types: ["project"], columns: ["status", "due"], highlight: rules });
+		const by = new Map(r.rows.map((x) => [x.row.name, x]));
+		// Lander (done, due Dec 2026): not late; status cell green. Apollo (idea, due 2027-03-31) isn't within 2 months.
+		expect(by.get("Lander")!.hl).toEqual({ status: 1 });
+		// idea matches rule 1 first, so rule 2 (orange) never applies.
+		expect(by.get("Apollo")!.hl).toEqual({ status: 1 });
+		expect(by.get("Project 2")!.hl).toBeUndefined(); // the matching rule is off
+		expect(r.highlightCounts).toEqual([0, 2, 1, 1]);
+		const late = run({ highlight: [{ ...rules[0], when: { all: [{ field: "due", op: "before", value: "+1y" }] } }, rules[1]] });
+		const lander = late.rows.find((x) => x.row.name === "Lander")!;
+		expect(lander.hl).toEqual({ row: 0, status: 1 });
+		const d2 = view({ types: ["project"], columns: ["status", "due"], highlight: [{ ...rules[0], when: { all: [{ field: "due", op: "before", value: "+1y" }] } }, rules[1]] });
+		expect(highlightOf(d2, lander, "status")).toEqual({ rule: d2.highlight[1], row: false });
+		expect(highlightOf(d2, lander, "due")).toEqual({ rule: d2.highlight[0], row: true });
+		expect(highlightOf(def, by.get("Project 10")!, "due")).toBeNull();
+	});
+
+	it("uses hidden fields in conditions, skips hidden target columns, and never matches with only unusable conditions", () => {
+		const r = run({ columns: ["due"], highlight: [{ target: "row", when: { all: [{ field: "owner", op: "not-empty" }] }, style: { fill: "blue" } }, { target: "status", when: { all: [] }, style: { fill: "red" } }, { target: "row", when: { all: [{ field: "ghost", op: "is", value: "x" }] }, style: { fill: "pink" } }] });
+		expect(r.rows.filter((x) => x.hl).map((x) => `${x.row.name}:${JSON.stringify(x.hl)}`)).toEqual(['Apollo:{"row":0}', 'Lander:{"row":0}']);
+		expect(r.highlightCounts).toEqual([2, 4, 0]);
 	});
 });
 

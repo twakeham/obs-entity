@@ -9,9 +9,11 @@ import {
 	cycleSort,
 	formatKind,
 	filterFields,
+	highlightOf,
 	OPERATORS,
 	prefillFromFilters,
 	resolveColumn,
+	ROW_TARGET,
 	runView,
 	serializeView,
 	sourceTypes,
@@ -27,7 +29,7 @@ import { usePlugin, useRelationsVersion } from "../context";
 import { HOVER_SOURCE } from "../EntityChip";
 import { Icon } from "../Icon";
 import { CellEditor, CellView, editTarget } from "./cells";
-import { ColumnsPanel, FiltersPanel, FormatPanel, GroupPanel, Popover, SortPanel, type ColumnChoice } from "./popovers";
+import { ColumnsPanel, FiltersPanel, FormatPanel, GroupPanel, HighlightPanel, hlClasses, newHighlightRule, Popover, SortPanel, type ColumnChoice } from "./popovers";
 
 /** What survives the re-render after a save, per block, for the session. */
 interface Session {
@@ -44,7 +46,7 @@ const SELECT_W = 36;
 const DEFAULT_W: Record<string, number> = { text: 170, number: 100, date: 120, choice: 120, multi: 170, bool: 80, links: 200, folder: 180 };
 
 type Item = { kind: "group"; key: string; label: string; count: number; open: boolean } | { kind: "row"; r: ResultRow; n: number };
-type PopName = "filters" | "sort" | "group" | "columns" | "format";
+type PopName = "filters" | "sort" | "group" | "highlight" | "columns" | "format";
 
 export interface EntityTableProps {
 	initial: ViewDef;
@@ -69,7 +71,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	const [search, setSearch] = useState(session.search);
 	const [collapsed, setCollapsed] = useState(() => new Set(session.collapsed));
 	const [selected, setSelected] = useState(() => new Set(session.selected));
-	const [pop, setPop] = useState<{ name: PopName; anchor: DOMRect; col?: string } | null>(null);
+	const [pop, setPop] = useState<{ name: PopName; anchor: DOMRect; col?: string; open?: number } | null>(null);
 	const [editing, setEditing] = useState<{ path: string; col: string; anchor: DOMRect } | null>(null);
 	const [focus, setFocus] = useState<{ r: number; c: number } | null>(null);
 	const [liveWidth, setLiveWidth] = useState<{ id: string; w: number } | null>(null);
@@ -275,11 +277,24 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 			m.addItem((i) =>
 				i
 					.setSection("edit")
-					.setTitle(def.formats[c.id] ? "Format? (custom)" : "Format?")
+					.setTitle(def.formats[c.id] ? "Format… (custom)" : "Format…")
 					.setIcon(fk === "date" ? "calendar-cog" : "hash")
 					.onClick(() => setPop({ name: "format", anchor: th.getBoundingClientRect(), col: c.id })),
 			);
 		}
+		if (!c.invalid)
+			m.addItem((i) =>
+				i
+					.setSection("edit")
+					.setTitle("Highlight cells…")
+					.setIcon("highlighter")
+					.onClick(() => {
+						const rules = defRef.current.highlight ?? [];
+						update({ ...defRef.current, highlight: [...rules, newHighlightRule(c.id, choices)] });
+						const btn = scrollRef.current?.parentElement?.querySelector<HTMLElement>("[data-pop=highlight]");
+						if (btn) setPop({ name: "highlight", anchor: btn.getBoundingClientRect(), open: rules.length });
+					}),
+			);
 		if (c.def.kind === "rollup") {
 			const rc = c.def;
 			m.addItem((i) => i.setSection("edit").setTitle("Edit roll-up…").setIcon("pencil").onClick(() => rollupDialog(rc)));
@@ -505,6 +520,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 				<ToolButton name="filters" icon="filter" label="Filters" count={conditions} active={pop?.name === "filters"} onClick={openPop} />
 				<ToolButton name="sort" icon="arrow-up-down" label="Sort" count={def.sort.length} active={pop?.name === "sort"} onClick={openPop} />
 				<ToolButton name="group" icon="rows-3" label="Group" count={def.group ? 1 : 0} active={pop?.name === "group"} onClick={openPop} />
+				<ToolButton name="highlight" icon="highlighter" label="Highlight" count={(def.highlight ?? []).filter((r) => !r.off).length} active={pop?.name === "highlight"} onClick={openPop} />
 				<ToolButton name="columns" icon="columns-3" label="Columns" count={0} active={pop?.name === "columns"} onClick={openPop} />
 				<button className="clickable-icon" aria-label="More options" onClick={moreMenu}>
 					<Icon name="more-horizontal" />
@@ -599,21 +615,29 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 							const r = it.r;
 							const path = r.row.path;
 							const problems = problemsOf(path);
+							const rowRule = r.hl?.[ROW_TARGET] !== undefined ? def.highlight[r.hl[ROW_TARGET]] : undefined;
+							const rowFill = rowRule?.style.fill ? ` oe-hl-fill oe-hl-fill-${rowRule.style.fill}` : "";
 							return (
 								<tr key={`r:${it.n}:${path}`} className={`oe-tr${selected.has(path) ? " is-selected" : ""}`} style={{ "--oe-type-color": r.row.type.color } as CSSProperties} onContextMenu={(e) => rowMenu(e, r)}>
-									<td className="oe-td-select">
+									<td className={`oe-td-select${rowFill}`}>
 										<input type="checkbox" checked={selected.has(path)} aria-label={`Select ${r.row.name}`} onChange={() => {}} onClick={(e) => selectRow(it.n, path, e.shiftKey)} />
 									</td>
 									{columns.map((c, ci) => {
 										const target = editTarget(c, r.row);
 										const problem = target ? problems.find((p) => p.key === target.key) : undefined;
 										const focused = focus?.r === it.n && focus.c === ci;
+										const hl = r.hl ? highlightOf(def, r, c.id) : null;
+										const hlIcon = hl?.rule.style.icon && (!hl.row || c.id === "name") ? (
+											<span className="oe-hl-icon" aria-label={hl.rule.name}>
+												<Icon name={hl.rule.style.icon} />
+											</span>
+										) : null;
 										return (
 											<td
 												key={c.id}
 												data-r={it.n}
 												data-c={ci}
-												className={`oe-td${focused ? " is-focused" : ""}${target ? " is-editable" : ""}${problem ? ` has-problem is-${problem.severity}` : ""}`}
+												className={`oe-td${focused ? " is-focused" : ""}${target ? " is-editable" : ""}${problem ? ` has-problem is-${problem.severity}` : ""}${hl ? ` ${hlClasses(hl.rule.style)}` : ""}`}
 												aria-label={problem?.message}
 												onClick={() => {
 													setFocus({ r: it.n, c: ci });
@@ -621,27 +645,38 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 												}}
 												onDoubleClick={(e) => target && c.kind !== "bool" && openEditor(path, c.id, e.currentTarget)}
 											>
-												{c.id === "name" ? (
-													<a
-														className="oe-table-name"
-														href="#"
-														onClick={(e) => {
-															e.preventDefault();
-															plugin.openPath(path, e.nativeEvent);
-														}}
-														onAuxClick={(e) => e.button === 1 && plugin.openPath(path, "tab")}
-														onMouseOver={(e) => hover(e, path)}
-													>
-														<Icon name={r.row.type.icon} className="oe-chip-icon" />
-														<span>{r.row.name}</span>
-													</a>
-												) : (
-													<CellView col={c} cell={r.cells[c.id]} row={r.row} onToggle={target && c.kind === "bool" ? (v) => write(path, target.key, v) : undefined} />
-												)}
+												{(() => {
+													const content =
+														c.id === "name" ? (
+															<a
+																className="oe-table-name"
+																href="#"
+																onClick={(e) => {
+																	e.preventDefault();
+																	plugin.openPath(path, e.nativeEvent);
+																}}
+																onAuxClick={(e) => e.button === 1 && plugin.openPath(path, "tab")}
+																onMouseOver={(e) => hover(e, path)}
+															>
+																<Icon name={r.row.type.icon} className="oe-chip-icon" />
+																<span>{r.row.name}</span>
+															</a>
+														) : (
+															<CellView col={c} cell={r.cells[c.id]} row={r.row} onToggle={target && c.kind === "bool" ? (v) => write(path, target.key, v) : undefined} />
+														);
+													return hlIcon ? (
+														<span className="oe-hl-cell">
+															{hlIcon}
+															{content}
+														</span>
+													) : (
+														content
+													);
+												})()}
 											</td>
 										);
 									})}
-									<td className="oe-td-fill" />
+									<td className={`oe-td-fill${rowFill}`} />
 								</tr>
 							);
 						})}
@@ -672,6 +707,18 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					{pop.name === "filters" && <FiltersPanel filters={def.filters} choices={choices} ctx={ctx} valuesOf={valuesOf} onChange={(filters) => update({ ...defRef.current, filters })} />}
 					{pop.name === "sort" && <SortPanel sort={def.sort} choices={choices} onChange={(sort) => update({ ...defRef.current, sort })} />}
 					{pop.name === "group" && <GroupPanel def={def} choices={choices} onChange={(group) => update({ ...defRef.current, group })} />}
+					{pop.name === "highlight" && (
+						<HighlightPanel
+							rules={def.highlight ?? []}
+							counts={result.highlightCounts}
+							columns={columns}
+							initialOpen={pop.open}
+							choices={choices}
+							ctx={ctx}
+							valuesOf={valuesOf}
+							onChange={(highlight) => update({ ...defRef.current, highlight })}
+						/>
+					)}
 					{pop.name === "format" && formatCol && formatKind(formatCol) && (
 						<FormatPanel
 							label={formatCol.label}

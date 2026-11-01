@@ -995,6 +995,7 @@ filters: { all: [{ field: status, op: is-not, value: done }] }
 | `group` | `{ by: <column id>, date?: month \| year }`. Optional. |
 | `filters` | `{ all: [...] }` or `{ any: [...] }`. Items are conditions, or one level of nested groups. |
 | `formats` | Column id → display format, for number and date columns (see Formats). Optional. |
+| `highlight` | Conditional formatting rules, in priority order (see Highlight rules). Optional. |
 
 **Columns.** A plain string is a built-in or a field key. An object is one of:
 - `{ field: key }` / `{ builtin: key }`, with an optional `label`;
@@ -1070,9 +1071,39 @@ Number and date columns (fields, `created` / `modified`, and number or date roll
 - **Currency:** `currency` without a code uses the **Default currency** setting (`defaultCurrency`, default AUD).
 - An invalid pattern shows a message in the panel and isn't applied; a saved bad pattern falls back to the raw value.
 
+#### Highlight rules
+
+Conditional formatting: a rule is **conditions + a style**, applied to the **whole row** or to **one column's cells**.
+
+```yaml
+highlight:
+  - name: Overdue          # optional
+    target: row            # or a column id, e.g. priority
+    when: { all: [ { field: due, op: before, value: today }, { field: status, op: none-of, value: [done] } ] }
+    style: { fill: red, text: red, bold: true, italic: true, strike: true, icon: alert-triangle }
+    off: true              # disabled, kept
+```
+
+- **Conditions** use the filter format and editor (§ Filters): every operator, relative dates, all/any with one nested group. They may use any column the source types offer, shown or not. A rule with no conditions matches every row. A rule whose conditions are all unusable (unknown column, wrong operator) matches nothing.
+- **Style:**
+  - `fill` and `text` take a palette colour: `red`, `orange`, `yellow`, `green`, `blue`, `purple`, `pink`, `grey`. They map to Obsidian's `--color-*` variables (grey to `--text-muted`), so they suit light and dark themes. The fill is a 16% tint.
+  - `bold`, `italic`, `strike`.
+  - `icon` is one of a short Lucide list: alert-triangle, alert-circle, check-circle, clock, flag, star, flame, circle-dot, x-circle, lock. Row icons show before the name; cell icons show before the value.
+- **Precedence: first match only.**
+  - For the row, the first matching enabled row rule applies.
+  - For each cell, the first matching enabled rule targeting that column applies, and it replaces the row style in that cell.
+  - Styles never combine.
+- Rules targeting a column that isn't shown have no effect; they're kept, and the panel says so.
+- **Hover and selection** still show: they're mixed over the fill. A row fill also covers the checkbox and filler cells.
+- **Editing:**
+  - The toolbar's **Highlight (n)** button (n counts enabled rules) opens the rule list. Each rule shows a sample, its name (or a summary of its first condition), its target and how many shown rows match.
+  - Rules can be turned on and off, reordered by dragging, removed, and expanded to edit: name, apply to (whole row or a column), conditions, fill and text swatches, B / I / S toggles and icon.
+  - Right-clicking a header gives **Highlight cells…**, which adds a cell rule for that column, with a condition on it and a yellow fill, and opens it.
+- `runView` returns each row's matching rule per target (`hl`) and a match count per rule. Future board, gallery and calendar views will use row rules to colour cards.
+
 #### Table
 
-- **Toolbar:** quick search · Filters (n) · Sort (n) · Group · Columns · ⋯ (Save as…, Rename, Edit definition, Copy block).
+- **Toolbar:** quick search · Filters (n) · Sort (n) · Group · Highlight (n) · Columns · ⋯ (Save as…, Rename, Edit definition, Copy block).
 - **Header:** sort arrows. Drag a header to reorder, and drag its right edge to resize.
 - **Rows:**
   - A selection checkbox.
@@ -1244,6 +1275,7 @@ These cover all of `model/`, with no Obsidian dependency:
   - grouping by status, month and list values
   - prefill from filters
   - formats: parse/serialize, formatted cells and group labels, sorting on raw values
+  - highlight: parse/serialize and errors, first-match precedence for rows and cells, disabled rules, hidden fields in conditions, hidden target columns, unusable conditions, match counts
 - **formats:** date presets, custom and relative dates; number presets, currencies, custom patterns and their errors.
 - **viewBlock:** finding blocks, and replacing one by line or content, keeping callout prefixes, CRLF, longer fences, and closing an unclosed block.
 - **validation:** every row of §9, with the right `at`.

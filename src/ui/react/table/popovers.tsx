@@ -1,12 +1,18 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
+	HIGHLIGHT_COLORS,
+	HIGHLIGHT_ICONS,
 	OPERATORS,
+	ROW_TARGET,
 	dateValue,
 	isGroup,
 	type ColumnDef,
 	type Condition,
 	type FilterGroup,
+	type HighlightColor,
+	type HighlightRule,
+	type HighlightStyle,
 	type ResolvedColumn,
 	type SortLevel,
 	type ViewContext,
@@ -100,6 +106,9 @@ interface FilterProps {
 	choices: ColumnChoice[];
 	ctx: ViewContext;
 	valuesOf: (id: string) => string[];
+	/** top-level heading and empty text (filters by default) */
+	heading?: string;
+	emptyText?: string;
 }
 
 export function FiltersPanel({ filters, onChange, ...rest }: FilterProps & { filters: FilterGroup; onChange: (g: FilterGroup) => void }) {
@@ -110,15 +119,20 @@ export function FiltersPanel({ filters, onChange, ...rest }: FilterProps & { fil
 	);
 }
 
+/** A first condition for a new filter or rule: on `field` if given, else the first usable column. */
+function firstCondition(choices: ColumnChoice[], field?: string): Condition {
+	const col = (field ? choices.find((c) => c.col.id === field)?.col : undefined) ?? choices.find((c) => c.col.id !== "name" && !c.col.invalid)?.col ?? choices[0]?.col;
+	return { field: col?.id ?? "name", op: OPERATORS[col?.kind ?? "text"][0].op };
+}
+
 function GroupEditor({ group, depth, onChange, onRemove, ...rest }: FilterProps & { group: FilterGroup; depth: number; onChange: (g: FilterGroup) => void; onRemove?: () => void }) {
-	const { choices } = rest;
+	const { choices, heading, emptyText } = rest;
 	const set = (i: number, item: Condition | FilterGroup | null) => onChange({ ...group, items: item ? group.items.map((x, j) => (j === i ? item : x)) : group.items.filter((_, j) => j !== i) });
-	const firstCol = choices.find((c) => c.col.id !== "name" && !c.col.invalid)?.col ?? choices[0]?.col;
-	const newCondition = (): Condition => ({ field: firstCol?.id ?? "name", op: OPERATORS[firstCol?.kind ?? "text"][0].op });
+	const newCondition = (): Condition => firstCondition(choices);
 	return (
 		<div className={`oe-filter-group${depth ? " is-nested" : ""}`}>
 			<div className="oe-filter-group-head">
-				<span>{depth ? "Where" : "Show entities that match"}</span>
+				<span>{depth ? "Where" : (heading ?? "Show entities that match")}</span>
 				<select className="dropdown oe-pop-select is-narrow" value={group.mode} aria-label="Match all or any" onChange={(e) => onChange({ ...group, mode: e.target.value as "all" | "any" })}>
 					<option value="all">all</option>
 					<option value="any">any</option>
@@ -131,7 +145,7 @@ function GroupEditor({ group, depth, onChange, onRemove, ...rest }: FilterProps 
 					</button>
 				)}
 			</div>
-			{group.items.length === 0 && <div className="oe-pop-empty">No conditions: every entity is shown.</div>}
+			{group.items.length === 0 && <div className="oe-pop-empty">{emptyText ?? "No conditions: every entity is shown."}</div>}
 			{group.items.map((item, i) =>
 				isGroup(item) ? (
 					<GroupEditor key={i} group={item} depth={depth + 1} onChange={(g) => set(i, g)} onRemove={() => set(i, null)} {...rest} />
@@ -494,6 +508,211 @@ export function FormatPanel({
 				</div>
 			)}
 			<div className={`oe-format-preview${issue ? " is-invalid" : ""}`}>{issue ?? (choice ? `Preview: ${show(current)}` : `Preview: ${raw}`)}</div>
+		</div>
+	);
+}
+
+// ---------------------------------------------------------------- highlight
+
+const COLOR_LABEL: Record<HighlightColor, string> = { red: "Red", orange: "Orange", yellow: "Yellow", green: "Green", blue: "Blue", purple: "Purple", pink: "Pink", grey: "Grey" };
+const ICON_LABEL: Record<string, string> = {
+	"alert-triangle": "Warning",
+	"alert-circle": "Alert",
+	"check-circle": "Done",
+	clock: "Clock",
+	flag: "Flag",
+	star: "Star",
+	flame: "Flame",
+	"circle-dot": "Dot",
+	"x-circle": "Cross",
+	lock: "Lock",
+};
+
+/** CSS classes for a highlight style (on a table cell, a sample, later a card). */
+export function hlClasses(style: HighlightStyle | undefined): string {
+	if (!style) return "";
+	const c: string[] = [];
+	if (style.fill) c.push("oe-hl-fill", `oe-hl-fill-${style.fill}`);
+	if (style.text) c.push("oe-hl-text", `oe-hl-text-${style.text}`);
+	if (style.bold) c.push("oe-hl-bold");
+	if (style.italic) c.push("oe-hl-italic");
+	if (style.strike) c.push("oe-hl-strike");
+	return c.join(" ");
+}
+
+/** A new rule for a target: one condition on that column (or the first usable one), highlighted yellow. */
+export function newHighlightRule(target: string, choices: ColumnChoice[]): HighlightRule {
+	return { target, when: { mode: "all", items: [firstCondition(choices, target === ROW_TARGET ? undefined : target)] }, style: { fill: "yellow" } };
+}
+
+/** "Status is any of done, review" (+ how many more conditions) for a rule without a name. */
+function ruleSummary(r: HighlightRule, choices: ColumnChoice[]): string {
+	const all: Condition[] = [];
+	const walk = (g: FilterGroup) => g.items.forEach((i) => (isGroup(i) ? walk(i) : all.push(i)));
+	walk(r.when);
+	if (!all.length) return "Every row";
+	const c = all[0];
+	const col = choices.find((x) => x.col.id === c.field)?.col;
+	const op = col ? OPERATORS[col.kind].find((o) => o.op === c.op) : undefined;
+	const value = Array.isArray(c.value) ? c.value.map((v) => String(v).replace(/^.*\//, "").replace(/\.md$/, "")).join(", ") : c.value === undefined ? "" : String(c.value);
+	const first = [col?.label ?? c.field, op?.label ?? c.op, value].filter(Boolean).join(" ");
+	return all.length > 1 ? `${first} +${all.length - 1}` : first;
+}
+
+function Swatches({ value, kind, onChange }: { value: HighlightColor | undefined; kind: "fill" | "text"; onChange: (c: HighlightColor | undefined) => void }) {
+	return (
+		<span className="oe-hl-swatches" role="radiogroup" aria-label={kind === "fill" ? "Fill colour" : "Text colour"}>
+			<button className={`oe-hl-swatch is-none${!value ? " is-active" : ""}`} role="radio" aria-checked={!value} aria-label="None" onClick={() => onChange(undefined)}>
+				<Icon name="ban" />
+			</button>
+			{HIGHLIGHT_COLORS.map((c) => (
+				<button
+					key={c}
+					className={`oe-hl-swatch is-${kind} oe-hl-${kind}-${c}${value === c ? " is-active" : ""}`}
+					role="radio"
+					aria-checked={value === c}
+					aria-label={`${COLOR_LABEL[c]} ${kind === "fill" ? "fill" : "text"}`}
+					onClick={() => onChange(c)}
+				>
+					{kind === "text" ? "A" : ""}
+				</button>
+			))}
+		</span>
+	);
+}
+
+/** Conditional formatting rules: an ordered list, first match wins; each rule expands to its editor. */
+export function HighlightPanel({
+	rules,
+	counts,
+	columns,
+	initialOpen,
+	onChange,
+	...rest
+}: FilterProps & { rules: HighlightRule[]; counts: number[]; columns: ResolvedColumn[]; initialOpen?: number; onChange: (rules: HighlightRule[]) => void }) {
+	const { choices } = rest;
+	const [open, setOpen] = useState<number | null>(initialOpen ?? (rules.length === 1 ? 0 : null));
+	const [drag, setDrag] = useState<number | null>(null);
+	const set = (i: number, r: HighlightRule | null) => onChange(r ? rules.map((x, j) => (j === i ? r : x)) : rules.filter((_, j) => j !== i));
+	const setStyle = (i: number, patch: Partial<HighlightStyle>) => {
+		const style = { ...rules[i].style, ...patch };
+		for (const k of Object.keys(style) as (keyof HighlightStyle)[]) if (style[k] === undefined || style[k] === false) delete style[k];
+		set(i, { ...rules[i], style });
+	};
+	const targetLabel = (t: string) => (t === ROW_TARGET ? "Row" : (columns.find((c) => c.id === t)?.label ?? t));
+	return (
+		<div className="oe-hlpanel">
+			{rules.length === 0 && <div className="oe-pop-empty">No rules yet. Colour the rows or cells that match conditions, e.g. overdue tasks in red.</div>}
+			{rules.length > 1 && <div className="oe-pop-hint">The first matching rule wins. Drag to reorder.</div>}
+			{rules.map((r, i) => {
+				const isOpen = open === i;
+				const hidden = r.target !== ROW_TARGET && !columns.some((c) => c.id === r.target);
+				const n = counts[i] ?? 0;
+				return (
+					<div
+						key={i}
+						className={`oe-hl-rule${isOpen ? " is-open" : ""}${r.off ? " is-off" : ""}${drag === i ? " is-dragging" : ""}`}
+						onDragOver={(e) => drag !== null && e.preventDefault()}
+						onDrop={(e) => {
+							e.preventDefault();
+							if (drag === null || drag === i) return;
+							const next = [...rules];
+							const [moved] = next.splice(drag, 1);
+							next.splice(i, 0, moved);
+							onChange(next);
+							if (open === drag) setOpen(i);
+							setDrag(null);
+						}}
+					>
+						<div className="oe-hl-head" draggable onDragStart={() => setDrag(i)} onDragEnd={() => setDrag(null)}>
+							<span className="oe-drag" aria-hidden="true">
+								<Icon name="grip-vertical" />
+							</span>
+							<input type="checkbox" checked={!r.off} aria-label="Rule on" onChange={(e) => set(i, { ...r, off: e.target.checked ? undefined : true })} />
+							<span className={`oe-hl-sample ${hlClasses(r.style)}`} aria-hidden="true">
+								{r.style.icon && <Icon name={r.style.icon} className="oe-hl-icon" />}
+								<span>Aa</span>
+							</span>
+							<button className="oe-hl-title" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : i)}>
+								<span className="oe-hl-name">{r.name || ruleSummary(r, choices)}</span>
+								<span className="oe-hl-meta">
+									{targetLabel(r.target)} · {n === 1 ? "1 row" : `${n} rows`}
+								</span>
+							</button>
+							<button className="clickable-icon" aria-label="Remove rule" onClick={() => (set(i, null), setOpen(null))}>
+								<Icon name="x" />
+							</button>
+						</div>
+						{isOpen && (
+							<div className="oe-hl-body">
+								<div className="oe-hl-grid">
+									<span className="oe-hl-label">Name</span>
+									<input type="text" className="oe-pop-input" value={r.name ?? ""} placeholder="Optional, e.g. Overdue" aria-label="Rule name" onChange={(e) => set(i, { ...r, name: e.target.value || undefined })} />
+									<span className="oe-hl-label">Apply to</span>
+									<span className="oe-condition">
+										<select className="dropdown oe-pop-select" value={r.target} aria-label="Apply to" onChange={(e) => set(i, { ...r, target: e.target.value })}>
+											<option value={ROW_TARGET}>Whole row</option>
+											<optgroup label="Cells in column">
+												{columns.map((c) => (
+													<option key={c.id} value={c.id}>
+														{c.label}
+													</option>
+												))}
+												{hidden && <option value={r.target}>{r.target} (not shown)</option>}
+											</optgroup>
+										</select>
+										{hidden && <span className="oe-pop-hint">That column isn't shown, so this rule has no effect.</span>}
+									</span>
+								</div>
+								<GroupEditor group={r.when} depth={0} onChange={(when) => set(i, { ...r, when })} {...rest} heading="Apply when rows match" emptyText="No conditions: every row matches." />
+								<div className="oe-hl-grid">
+									<span className="oe-hl-label">Fill</span>
+									<Swatches kind="fill" value={r.style.fill} onChange={(fill) => setStyle(i, { fill })} />
+									<span className="oe-hl-label">Text</span>
+									<Swatches kind="text" value={r.style.text} onChange={(text) => setStyle(i, { text })} />
+									<span className="oe-hl-label">Style</span>
+									<span className="oe-hl-swatches">
+										{(
+											[
+												["bold", "bold", "Bold"],
+												["italic", "italic", "Italic"],
+												["strike", "strikethrough", "Strikethrough"],
+											] as const
+										).map(([k, icon, label]) => (
+											<button key={k} className={`clickable-icon oe-hl-toggle${r.style[k] ? " is-active" : ""}`} aria-label={label} aria-pressed={!!r.style[k]} onClick={() => setStyle(i, { [k]: !r.style[k] })}>
+												<Icon name={icon} />
+											</button>
+										))}
+									</span>
+									<span className="oe-hl-label">Icon</span>
+									<span className="oe-hl-swatches">
+										<button className={`clickable-icon oe-hl-toggle${!r.style.icon ? " is-active" : ""}`} aria-label="No icon" onClick={() => setStyle(i, { icon: undefined })}>
+											<Icon name="ban" />
+										</button>
+										{HIGHLIGHT_ICONS.map((ic) => (
+											<button key={ic} className={`clickable-icon oe-hl-toggle${r.style.icon === ic ? " is-active" : ""}`} aria-label={ICON_LABEL[ic] ?? ic} onClick={() => setStyle(i, { icon: ic })}>
+												<Icon name={ic} />
+											</button>
+										))}
+									</span>
+								</div>
+								<div className="oe-pop-hint">{r.target === ROW_TARGET ? "Row icons show before the name." : "Cell rules take the place of row rules in their column."}</div>
+							</div>
+						)}
+					</div>
+				);
+			})}
+			<div className="oe-pop-actions">
+				<button
+					className="oe-pop-link"
+					onClick={() => {
+						onChange([...rules, newHighlightRule(ROW_TARGET, choices)]);
+						setOpen(rules.length);
+					}}
+				>
+					<Icon name="plus" /> Add rule
+				</button>
+			</div>
 		</div>
 	);
 }

@@ -3249,3 +3249,237 @@ button.oe-tm-typegroup-title,
 .oe-format-preview.is-invalid {
 	color: var(--text-error);
 }
+
+/* Highlight rules (conditional formatting) */
+.oe-hl-fill-red, .oe-hl-text-red { --oe-hl: var(--color-red); }
+.oe-hl-fill-orange, .oe-hl-text-orange { --oe-hl: var(--color-orange); }
+.oe-hl-fill-yellow, .oe-hl-text-yellow { --oe-hl: var(--color-yellow); }
+.oe-hl-fill-green, .oe-hl-text-green { --oe-hl: var(--color-green); }
+.oe-hl-fill-blue, .oe-hl-text-blue { --oe-hl: var(--color-blue); }
+.oe-hl-fill-purple, .oe-hl-text-purple { --oe-hl: var(--color-purple); }
+.oe-hl-fill-pink, .oe-hl-text-pink { --oe-hl: var(--color-pink); }
+.oe-hl-fill-grey, .oe-hl-text-grey { --oe-hl: var(--text-muted); }
+
+/* Fill and text can use different colours: keep each in its own variable. */
+.oe-hl-fill.oe-hl-fill-red { --oe-hl-fill: var(--color-red); }
+.oe-hl-fill.oe-hl-fill-orange { --oe-hl-fill: var(--color-orange); }
+.oe-hl-fill.oe-hl-fill-yellow { --oe-hl-fill: var(--color-yellow); }
+.oe-hl-fill.oe-hl-fill-green { --oe-hl-fill: var(--color-green); }
+.oe-hl-fill.oe-hl-fill-blue { --oe-hl-fill: var(--color-blue); }
+.oe-hl-fill.oe-hl-fill-purple { --oe-hl-fill: var(--color-purple); }
+.oe-hl-fill.oe-hl-fill-pink { --oe-hl-fill: var(--color-pink); }
+.oe-hl-fill.oe-hl-fill-grey { --oe-hl-fill: var(--text-muted); }
+.oe-hl-text.oe-hl-text-red { --oe-hl-text: var(--color-red); }
+.oe-hl-text.oe-hl-text-orange { --oe-hl-text: var(--color-orange); }
+.oe-hl-text.oe-hl-text-yellow { --oe-hl-text: var(--color-yellow); }
+.oe-hl-text.oe-hl-text-green { --oe-hl-text: var(--color-green); }
+.oe-hl-text.oe-hl-text-blue { --oe-hl-text: var(--color-blue); }
+.oe-hl-text.oe-hl-text-purple { --oe-hl-text: var(--color-purple); }
+.oe-hl-text.oe-hl-text-pink { --oe-hl-text: var(--color-pink); }
+.oe-hl-text.oe-hl-text-grey { --oe-hl-text: var(--text-muted); }
+
+.oe-view table.oe-table > tbody > tr.oe-tr > td.oe-hl-fill {
+	background-color: color-mix(in srgb, var(--oe-hl-fill) 16%, var(--background-primary));
+}
+
+.oe-view table.oe-table > tbody > tr.oe-tr:hover > td.oe-hl-fill {
+	background-color: color-mix(in srgb, var(--oe-hl-fill) 24%, var(--background-primary));
+}
+
+.oe-view table.oe-table > tbody > tr.oe-tr.is-selected > td.oe-hl-fill {
+	background-color: color-mix(in srgb, var(--oe-hl-fill) 16%, color-mix(in srgb, var(--interactive-accent) 16%, var(--background-primary)));
+}
+
+.oe-hl-text,
+.oe-view table.oe-table > tbody > tr > td.oe-hl-text,
+.oe-hl-text .oe-table-name {
+	color: var(--oe-hl-text);
+}
+
+.oe-hl-bold,
+.oe-hl-bold .oe-table-name {
+	font-weight: var(--font-bold);
+}
+
+.oe-hl-italic {
+	font-style: italic;
+}
+
+.oe-hl-strike,
+.oe-hl-strike .oe-table-name span,
+.oe-hl-strike .oe-status-pill,
+.oe-hl-strike .oe-pill {
+	text-decoration: line-through;
+}
+
+.oe-hl-icon {
+	display: inline-flex;
+	margin-right: 4px;
+	color: var(--oe-hl-text, var(--oe-hl-fill, var(--text-muted)));
+}
+
+.oe-hl-cell {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+	overflow: hidden;
+}
+
+.oe-hl-cell > .oe-hl-icon {
+	flex: none;
+	margin-right: 0;
+}
+
+.oe-hl-cell > :last-child {
+	min-width: 0;
+}
+
+.oe-hl-cell > .oe-cell-number {
+	flex: 1;
+}
+
+.oe-hl-icon svg {
+	width: 14px;
+	height: 14px;
+}
+
+/* Highlight panel */
+.oe-pop-highlight {
+	width: 560px;
+}
+
+.oe-hlpanel {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.oe-hl-rule {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+}
+
+.oe-hl-rule.is-dragging {
+	opacity: 0.5;
+}
+
+.oe-hl-rule.is-off .oe-hl-sample,
+.oe-hl-rule.is-off .oe-hl-title {
+	opacity: 0.5;
+}
+
+.oe-hl-head {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 6px;
+}
+
+.oe-hl-sample {
+	display: inline-flex;
+	align-items: center;
+	flex: none;
+	height: 22px;
+	padding: 0 6px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background-color: var(--background-primary);
+}
+
+.oe-hl-sample.oe-hl-fill {
+	background-color: color-mix(in srgb, var(--oe-hl-fill) 16%, var(--background-primary));
+}
+
+.oe-popover button.oe-hl-title {
+	display: flex;
+	flex: 1;
+	align-items: baseline;
+	gap: 8px;
+	min-width: 0;
+	height: auto;
+	padding: 2px 4px;
+	border: none;
+	box-shadow: none;
+	background: none;
+	font-size: var(--font-ui-small);
+	text-align: left;
+	cursor: pointer;
+}
+
+.oe-hl-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--text-normal);
+}
+
+.oe-hl-meta {
+	flex: none;
+	margin-left: auto;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+
+.oe-hl-body {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 6px 8px 8px;
+	border-top: 1px solid var(--background-modifier-border);
+	background-color: var(--background-secondary);
+}
+
+.oe-hl-grid {
+	display: grid;
+	grid-template-columns: 5em 1fr;
+	align-items: center;
+	gap: 6px 8px;
+}
+
+.oe-hl-label {
+	color: var(--text-muted);
+}
+
+.oe-hl-swatches {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px;
+}
+
+.oe-popover button.oe-hl-swatch {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 22px;
+	padding: 0;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 50%;
+	box-shadow: none;
+	background-color: var(--background-primary);
+	font-size: var(--font-ui-small);
+	font-weight: var(--font-bold);
+	color: var(--oe-hl, var(--text-faint));
+	cursor: pointer;
+}
+
+.oe-popover button.oe-hl-swatch.is-fill {
+	background-color: color-mix(in srgb, var(--oe-hl) 35%, var(--background-primary));
+	border-color: color-mix(in srgb, var(--oe-hl) 60%, transparent);
+}
+
+.oe-popover button.oe-hl-swatch.is-active {
+	box-shadow: 0 0 0 2px var(--background-secondary), 0 0 0 4px var(--interactive-accent);
+}
+
+.oe-popover button.oe-hl-swatch svg {
+	width: 12px;
+	height: 12px;
+}
+
+.oe-popover .clickable-icon.oe-hl-toggle.is-active {
+	background-color: color-mix(in srgb, var(--interactive-accent) 20%, transparent);
+	color: var(--text-normal);
+}

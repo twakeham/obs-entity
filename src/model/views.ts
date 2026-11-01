@@ -86,6 +86,30 @@ export interface GroupBy {
 	date?: "month" | "year";
 }
 
+export const HIGHLIGHT_COLORS = ["red", "orange", "yellow", "green", "blue", "purple", "pink", "grey"] as const;
+export type HighlightColor = (typeof HIGHLIGHT_COLORS)[number];
+export const HIGHLIGHT_ICONS = ["alert-triangle", "alert-circle", "check-circle", "clock", "flag", "star", "flame", "circle-dot", "x-circle", "lock"] as const;
+/** A rule's target when it styles the whole row (otherwise the target is a column id). */
+export const ROW_TARGET = "row";
+
+export interface HighlightStyle {
+	fill?: HighlightColor;
+	text?: HighlightColor;
+	bold?: boolean;
+	italic?: boolean;
+	strike?: boolean;
+	icon?: string;
+}
+
+/** Conditional formatting: rows (or one column's cells) matching `when` get `style`. The first matching rule wins. */
+export interface HighlightRule {
+	name?: string;
+	target: string;
+	when: FilterGroup;
+	style: HighlightStyle;
+	off?: boolean;
+}
+
 export interface ViewDef {
 	kind: ViewKind;
 	/** type keys, "@group" or "*" (like relation targets) */
@@ -97,12 +121,14 @@ export interface ViewDef {
 	sort: SortLevel[];
 	group?: GroupBy;
 	filters: FilterGroup;
+	/** conditional formatting, in priority order */
+	highlight: HighlightRule[];
 }
 
 export const NAME_COLUMN: ColumnDef = { kind: "builtin", id: "name", key: "name" };
 
 export function emptyView(types: string[] = ["*"]): ViewDef {
-	return { kind: "table", types, columns: [NAME_COLUMN], widths: {}, formats: {}, sort: [], filters: { mode: "all", items: [] } };
+	return { kind: "table", types, columns: [NAME_COLUMN], widths: {}, formats: {}, sort: [], filters: { mode: "all", items: [] }, highlight: [] };
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -240,8 +266,39 @@ export function parseView(raw: unknown): { def: ViewDef | null; errors: string[]
 	else if (isObj(raw.group) && typeof raw.group.by === "string") group = { by: raw.group.by, ...(raw.group.date === "month" || raw.group.date === "year" ? { date: raw.group.date } : {}) };
 
 	const filters = parseFilterItems(raw.filters, errors, 0) ?? { mode: "all", items: [] };
+	const highlight = parseHighlight(raw.highlight, errors);
 	if (errors.length && !VIEW_KINDS.includes(kind)) return { def: null, errors };
-	return { def: { kind, types: types.length ? types : ["*"], columns, widths, formats, sort, ...(group ? { group } : {}), filters }, errors };
+	return { def: { kind, types: types.length ? types : ["*"], columns, widths, formats, sort, ...(group ? { group } : {}), filters, highlight }, errors };
+}
+
+const isColor = (v: unknown): v is HighlightColor => HIGHLIGHT_COLORS.includes(v as HighlightColor);
+
+function parseHighlight(raw: unknown, errors: string[]): HighlightRule[] {
+	const rules: HighlightRule[] = [];
+	if (raw === undefined || raw === null) return rules;
+	if (!Array.isArray(raw)) {
+		errors.push("highlight should be a list of rules.");
+		return rules;
+	}
+	for (const item of raw) {
+		if (!isObj(item)) {
+			errors.push(`A highlight rule should have target, when and style: ${JSON.stringify(item)}.`);
+			continue;
+		}
+		const when = item.when === undefined ? { mode: "all" as const, items: [] } : parseFilterItems(item.when, errors, 0);
+		if (!when) continue;
+		const s = isObj(item.style) ? item.style : {};
+		const style: HighlightStyle = {};
+		for (const k of ["fill", "text"] as const) {
+			if (isColor(s[k])) style[k] = s[k];
+			else if (s[k] !== undefined) errors.push(`Unknown highlight colour "${String(s[k])}". Use ${HIGHLIGHT_COLORS.join(", ")}.`);
+		}
+		for (const k of ["bold", "italic", "strike"] as const) if (s[k] === true) style[k] = true;
+		if (typeof s.icon === "string" && s.icon.trim()) style.icon = s.icon.trim();
+		const name = str(item.name);
+		rules.push({ ...(name ? { name } : {}), target: str(item.target) || ROW_TARGET, when, style, ...(item.off === true ? { off: true } : {}) });
+	}
+	return rules;
 }
 
 function serializeColumn(c: ColumnDef): unknown {
@@ -274,6 +331,11 @@ export function serializeView(def: ViewDef): Record<string, unknown> {
 	if (def.sort.length) out.sort = def.sort.map((s) => ({ by: s.by, dir: s.dir }));
 	if (def.group) out.group = { ...def.group };
 	if (def.filters.items.length) out.filters = serializeFilters(def.filters);
+	if (def.highlight?.length)
+		out.highlight = def.highlight.map((r) => {
+			const style = Object.fromEntries(Object.entries(r.style).filter(([, v]) => v !== undefined && v !== false && v !== ""));
+			return { ...(r.name ? { name: r.name } : {}), target: r.target, when: serializeFilters(r.when), style, ...(r.off ? { off: true } : {}) };
+		});
 	return out;
 }
 
@@ -1006,6 +1068,8 @@ export function groupKeys(cell: Cell, kind: ValueKind, by: GroupBy, ctx: Pick<Vi
 export interface ResultRow {
 	row: ViewRow;
 	cells: Record<string, Cell>;
+	/** highlight rule index styling the row (ROW_TARGET) and each column that has a matching cell rule */
+	hl?: Record<string, number>;
 }
 
 export interface ResultGroup {
@@ -1024,6 +1088,8 @@ export interface ViewResult {
 	groups: ResultGroup[] | null;
 	/** rows of the source types before filtering */
 	total: number;
+	/** per highlight rule (enabled or not): how many shown rows its conditions match */
+	highlightCounts: number[];
 }
 
 /** Text the quick search matches: name, aliases and subtitle. */
@@ -1043,19 +1109,40 @@ export function formatCell(cell: Cell, col: ResolvedColumn, format: string | und
 	return cell;
 }
 
+/** Every condition in a group, nested ones included. */
+function conditionsOf(g: FilterGroup): Condition[] {
+	return g.items.flatMap((i) => (isGroup(i) ? conditionsOf(i) : [i]));
+}
+
+/** The rule styling a cell: its column's cell rule, else the row rule. */
+export function highlightOf(def: ViewDef, r: ResultRow, colId: string): { rule: HighlightRule; row: boolean } | null {
+	const cell = r.hl?.[colId];
+	if (cell !== undefined && def.highlight[cell]) return { rule: def.highlight[cell], row: false };
+	const row = r.hl?.[ROW_TARGET];
+	return row !== undefined && def.highlight[row] ? { rule: def.highlight[row], row: true } : null;
+}
+
 /** Filter, sort and group the rows of a view. */
 export function runView(def: ViewDef, all: ViewRow[], ctx: ViewContext, search = ""): ViewResult {
 	const sources = new Set(sourceTypes(def, ctx.types).map((t) => t.key));
 	const rows = all.filter((r) => sources.has(r.type.key));
 	const columns = def.columns.map((c) => resolveColumn(c, def, ctx));
 	const known = new Map(columns.map((c) => [c.id, c]));
-	const extra = [...filterFields(def.filters), ...def.sort.map((s) => s.by), ...(def.group ? [def.group.by] : [])];
+	const rules = def.highlight ?? [];
+	const extra = [...filterFields(def.filters), ...def.sort.map((s) => s.by), ...(def.group ? [def.group.by] : []), ...rules.flatMap((r) => filterFields(r.when))];
 	for (const id of extra) if (!known.has(id)) {
 		const fromId = columnFromId(id);
 		// Roll-up / formula ids only exist as columns; field-looking ids that aren't fields stay unknown.
 		const resolved = resolveColumn(fromId, def, ctx);
 		if (!resolved.invalid) known.set(id, resolved);
 	}
+	const shown = new Set(columns.map((c) => c.id));
+	// A rule whose conditions are all unusable matches nothing (unlike filters, where they're just ignored).
+	const usable = rules.map((r) => {
+		const conds = conditionsOf(r.when);
+		return conds.length === 0 || conds.some((c) => !conditionIssue(c, known));
+	});
+	const highlightCounts = rules.map(() => 0);
 
 	const q = search.trim().toLowerCase();
 	const out: ResultRow[] = [];
@@ -1066,7 +1153,15 @@ export function runView(def: ViewDef, all: ViewRow[], ctx: ViewContext, search =
 		if (!passes(def.filters, cell, known, ctx)) continue;
 		for (const c of columns) cell(c.id);
 		for (const id of extra) cell(id);
-		out.push({ row, cells });
+		let hl: Record<string, number> | undefined;
+		rules.forEach((rule, i) => {
+			if (!usable[i] || !passes(rule.when, cell, known, ctx)) return;
+			highlightCounts[i]++;
+			if (rule.off || (rule.target !== ROW_TARGET && !shown.has(rule.target))) return;
+			hl ??= {};
+			hl[rule.target] ??= i;
+		});
+		out.push({ row, cells, ...(hl ? { hl } : {}) });
 	}
 
 	const levels = def.sort.filter((s) => known.has(s.by));
@@ -1095,7 +1190,7 @@ export function runView(def: ViewDef, all: ViewRow[], ctx: ViewContext, search =
 		const dir = def.sort.find((s) => s.by === gcol.id)?.dir ?? "asc";
 		groups = [...map.values()].sort((a, b) => compareCells(a.sort, b.sort, dir) || natural(a.label, b.label)).map(({ key, label, rows: rs }) => ({ key, label, rows: rs }));
 	}
-	return { columns, known, rows: out, groups, total: rows.length };
+	return { columns, known, rows: out, groups, total: rows.length, highlightCounts };
 }
 
 /**
