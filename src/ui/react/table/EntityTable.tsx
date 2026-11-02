@@ -32,6 +32,10 @@ import { VIEW_BLOCK } from "../../../services/viewIndex";
 import { TypePickerModal } from "../../components/entityPicker";
 import { NameModal, RollupModal } from "../../modals/viewModals";
 import { FormulaModal } from "../../modals/formulaModal";
+import { FolderPickerModal, openLinks, openSetField, openTags } from "../../modals/bulkModals";
+import { entitiesText } from "../../../model/bulk";
+import type { BulkUndo } from "../../../services/bulkActions";
+import { ConfirmModal } from "../types/TypeManager";
 import { PluginContext, usePlugin, useRelationsVersion } from "../context";
 import { HOVER_SOURCE } from "../EntityChip";
 import { Icon } from "../Icon";
@@ -95,12 +99,26 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	const defRef = useRef(def);
 	defRef.current = def;
 	/** notes edited from this table, newest last, for Ctrl/Cmd+Z */
-	const edits = useRef<string[]>([]);
+	/** Ctrl/Cmd+Z in the table: cell edits (per note) and bulk actions (one step each), newest last. */
+	const edits = useRef<({ kind: "cell"; path: string } | { kind: "bulk"; undo: BulkUndo })[]>([]);
 	const lastClicked = useRef<number | null>(null);
 
 	useEffect(() => {
 		sessions.set(stateKey, { search, collapsed: [...collapsed], selected: [...selected], scrollTop });
 	});
+	// The selection is by path: follow renames and moves (including a bulk move and its undo).
+	useEffect(() => {
+		const ref = app.vault.on("rename", (file, oldPath) =>
+			setSelected((s) => {
+				if (!s.has(oldPath)) return s;
+				const next = new Set(s);
+				next.delete(oldPath);
+				next.add(file.path);
+				return next;
+			}),
+		);
+		return () => app.vault.offref(ref);
+	}, [app]);
 
 	// ---- saving: debounced, held while a popover or cell editor is open, flushed on unmount
 	const pending = useRef<ViewDef | null>(null);
@@ -230,7 +248,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	const write = (path: string, key: string, value: unknown) => {
 		const file = app.vault.getAbstractFileByPath(path);
 		if (!(file instanceof TFile)) return;
-		edits.current.push(path);
+		edits.current.push({ kind: "cell", path });
 		plugin.writeProperty(file, key, value).catch((e: Error) => new Notice(`Couldn't save ${key}: ${e.message}`));
 	};
 	const openPop = (name: PopName, el: HTMLElement) => setPop(pop?.name === name ? null : { name, anchor: el.getBoundingClientRect() });
@@ -511,6 +529,11 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 
 	const rowMenu = (e: MouseEvent, r: ResultRow) => {
 		e.preventDefault();
+		// Right-clicking one of several selected rows acts on the selection.
+		if (selected.has(r.row.path) && selectedEntities.length > 1) {
+			bulkMenu(new Menu()).showAtMouseEvent(e.nativeEvent);
+			return;
+		}
 		const entity = plugin.index.get(r.row.path);
 		if (!entity) return;
 		const m = new Menu();
@@ -652,6 +675,68 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		m.showAtMouseEvent(e.nativeEvent);
 	};
 
+	// ---- bulk actions on the selection
+	/** Rows that match the view's filters, search aside (so a search doesn't drop selected rows). */
+	const viewRows = useMemo(() => (search.trim() ? runView(def, rows, ctx).rows : result.rows), [search, def, rows, ctx, result]);
+	const selectedEntities = useMemo(
+		() => viewRows.filter((r) => selected.has(r.row.path)).flatMap((r) => plugin.index.get(r.row.path) ?? []),
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+		[viewRows, selected, version],
+	);
+	const pushUndo = (u: BulkUndo | null) => {
+		if (u) edits.current.push({ kind: "bulk", undo: u });
+	};
+	const bulkOpts = () => ({ plugin, entities: selectedEntities, onUndo: pushUndo });
+	const paths = () => selectedEntities.map((e) => e.path);
+	const names = (max = 8) => {
+		const ns = selectedEntities.map((e) => e.name);
+		return ns.length > max ? `${ns.slice(0, max).join(", ")} and ${ns.length - max} more` : ns.join(", ");
+	};
+	const bulkChangeType = () =>
+		new TypePickerModal(plugin, (t) => void plugin.bulk.changeType(paths(), t).then(pushUndo), plugin.settings.types, `Change ${entitiesText(selectedEntities.length)} to…`).open();
+	const bulkMove = () => new FolderPickerModal(plugin, (f) => void plugin.bulk.moveTo(paths(), f.isRoot() ? "" : f.path).then(pushUndo), `Move ${entitiesText(selectedEntities.length)} to…`).open();
+	const bulkDelete = () =>
+		new ConfirmModal(
+			app,
+			`Delete ${entitiesText(selectedEntities.length)}?`,
+			`${names()}. The notes go to the trash (following Obsidian's “Deleted files” setting), so they can be restored from there or with File recovery; this can't be undone from the table.`,
+			"Delete",
+			async () => {
+				await plugin.bulk.delete(paths());
+				setSelected(new Set());
+			},
+		).open();
+	const bulkOpen = () => {
+		const go = () => void plugin.bulk.open(paths());
+		if (selectedEntities.length > 10) new ConfirmModal(app, `Open ${selectedEntities.length} notes?`, "Each opens in a new tab.", "Open", go).open();
+		else go();
+	};
+	const linksMenu = (el: HTMLElement) => {
+		const m = new Menu();
+		m.addItem((i) => i.setTitle("Add link…").setIcon("link").onClick(() => openLinks(bulkOpts(), "add")));
+		m.addItem((i) => i.setTitle("Remove link…").setIcon("unlink").onClick(() => openLinks(bulkOpts(), "remove")));
+		const r = el.getBoundingClientRect();
+		m.showAtPosition({ x: r.left, y: r.bottom + 4 });
+	};
+	/** Every bulk action, for the selection bar's ⋯ and the row menu. */
+	const bulkMenu = (m: Menu, moreOnly = false) => {
+		if (!moreOnly) {
+			m.addItem((i) => i.setSection("bulk").setTitle(`${entitiesText(selectedEntities.length)} selected`).setIcon("check-square").setDisabled(true));
+			m.addItem((i) => i.setSection("bulk").setTitle("Set field…").setIcon("pencil-line").onClick(() => openSetField(bulkOpts())));
+			m.addItem((i) => i.setSection("bulk").setTitle("Add link…").setIcon("link").onClick(() => openLinks(bulkOpts(), "add")));
+			m.addItem((i) => i.setSection("bulk").setTitle("Remove link…").setIcon("unlink").onClick(() => openLinks(bulkOpts(), "remove")));
+			m.addItem((i) => i.setSection("bulk").setTitle("Tags…").setIcon("tags").onClick(() => openTags(bulkOpts())));
+			m.addItem((i) => i.setSection("bulk").setTitle("Change type…").setIcon("repeat").onClick(bulkChangeType));
+		}
+		m.addItem((i) => i.setSection("files").setTitle("Move to folder…").setIcon("folder-input").onClick(bulkMove));
+		m.addItem((i) => i.setSection("files").setTitle("Duplicate").setIcon("copy-plus").onClick(() => void plugin.bulk.duplicate(paths()).then(pushUndo)));
+		m.addItem((i) => i.setSection("files").setTitle(`Open ${selectedEntities.length > 1 ? "in new tabs" : "in a new tab"}`).setIcon("file-plus").onClick(bulkOpen));
+		m.addItem((i) => i.setSection("files").setTitle("Copy as list of links").setIcon("clipboard-copy").onClick(() => void plugin.bulk.copyAsList(paths())));
+		if (!moreOnly) m.addItem((i) => i.setSection("danger").setTitle("Delete…").setIcon("trash-2").setWarning(true).onClick(bulkDelete));
+		m.addItem((i) => i.setSection("danger").setTitle("Clear selection").setIcon("x").onClick(() => setSelected(new Set())));
+		return m;
+	};
+
 	const reveal = (n: number) => {
 		const el = scrollRef.current;
 		const idx = items.findIndex((i) => i.kind === "row" && i.n === n);
@@ -669,9 +754,28 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
 			e.preventDefault();
 			e.stopPropagation();
-			const path = edits.current.pop();
-			const edit = path ? plugin.undoProperty(path) : null;
+			const last = edits.current.pop();
+			if (last?.kind === "bulk") {
+				void last.undo();
+				return;
+			}
+			const edit = last ? plugin.undoProperty(last.path) : null;
 			if (!edit) new Notice("Nothing to undo in this table.");
+			return;
+		}
+		if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "a") {
+			e.preventDefault();
+			setSelected(new Set([...selected, ...result.rows.map((r) => r.row.path)]));
+			return;
+		}
+		if ((e.key === "Delete" || e.key === "Backspace") && selectedEntities.length) {
+			e.preventDefault();
+			bulkDelete();
+			return;
+		}
+		if (e.key === "Escape" && selected.size) {
+			e.preventDefault();
+			setSelected(new Set());
 			return;
 		}
 		const maxR = rowItems.length - 1;
@@ -706,11 +810,16 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 				const col = columns[focus.c];
 				if (!it || !col) return;
 				e.preventDefault();
+				const target = editTarget(col, it.r.row);
+				if (e.key === " " && !(target && col.kind === "bool")) {
+					// Space selects the focused row (or toggles a focused checkbox cell).
+					selectRow(it.n, it.r.row.path, false);
+					return;
+				}
 				if (col.id === "name") {
 					if (e.key === "Enter") plugin.openPath(it.r.row.path, e.nativeEvent);
 					return;
 				}
-				const target = editTarget(col, it.r.row);
 				if (!target) return;
 				if (col.kind === "bool") write(it.r.row.path, target.key, it.r.row.frontmatter[target.key] !== true);
 				else if (e.key === "Enter") {
@@ -768,14 +877,38 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 				</span>
 				<input type="search" className="oe-view-search" placeholder="Search…" value={search} aria-label="Search this view" onChange={(e) => setSearch(e.target.value)} />
 				<span className="oe-spacer" />
-				<ToolButton name="filters" icon="filter" label="Filters" count={conditions} active={pop?.name === "filters"} onClick={openPop} />
-				<ToolButton name="sort" icon="arrow-up-down" label="Sort" count={def.sort.length} active={pop?.name === "sort"} onClick={openPop} />
-				<ToolButton name="group" icon="rows-3" label="Group" count={def.group.length} active={pop?.name === "group"} onClick={openPop} />
-				<ToolButton name="highlight" icon="highlighter" label="Highlight" count={(def.highlight ?? []).filter((r) => !r.off).length} active={pop?.name === "highlight"} onClick={openPop} />
-				<ToolButton name="columns" icon="columns-3" label="Columns" count={0} active={pop?.name === "columns"} onClick={openPop} />
-				<button className="clickable-icon" aria-label="More options" onClick={moreMenu}>
-					<Icon name="more-horizontal" />
-				</button>
+				{selectedEntities.length > 0 ? (
+					<div className="oe-selbar" role="toolbar" aria-label="Selected entities">
+						<span className="oe-selbar-count">{selectedEntities.length} selected</span>
+						{search.trim() && result.rows.every((r) => selected.has(r.row.path)) && viewRows.length > selectedEntities.length && (
+							<button className="oe-pop-link" onClick={() => setSelected(new Set([...selected, ...viewRows.map((r) => r.row.path)]))}>
+								Select all {viewRows.length} in view
+							</button>
+						)}
+						<SelButton icon="pencil-line" label="Set field…" onClick={() => openSetField(bulkOpts())} />
+						<SelButton icon="link" label="Links…" onClick={(el) => linksMenu(el)} />
+						<SelButton icon="tags" label="Tags…" onClick={() => openTags(bulkOpts())} />
+						<SelButton icon="repeat" label="Change type…" onClick={() => bulkChangeType()} />
+						<SelButton icon="trash-2" label="Delete…" onClick={() => bulkDelete()} warning />
+						<button className="clickable-icon" aria-label="More actions" onClick={(e) => bulkMenu(new Menu(), true).showAtMouseEvent(e.nativeEvent)}>
+							<Icon name="more-horizontal" />
+						</button>
+						<button className="clickable-icon" aria-label="Clear selection (Esc)" onClick={() => setSelected(new Set())}>
+							<Icon name="x" />
+						</button>
+					</div>
+				) : (
+					<>
+						<ToolButton name="filters" icon="filter" label="Filters" count={conditions} active={pop?.name === "filters"} onClick={openPop} />
+						<ToolButton name="sort" icon="arrow-up-down" label="Sort" count={def.sort.length} active={pop?.name === "sort"} onClick={openPop} />
+						<ToolButton name="group" icon="rows-3" label="Group" count={def.group.length} active={pop?.name === "group"} onClick={openPop} />
+						<ToolButton name="highlight" icon="highlighter" label="Highlight" count={(def.highlight ?? []).filter((r) => !r.off).length} active={pop?.name === "highlight"} onClick={openPop} />
+						<ToolButton name="columns" icon="columns-3" label="Columns" count={0} active={pop?.name === "columns"} onClick={openPop} />
+						<button className="clickable-icon" aria-label="More options" onClick={moreMenu}>
+							<Icon name="more-horizontal" />
+						</button>
+					</>
+				)}
 			</div>
 			{warnings.length > 0 && (
 				<div className="oe-view-warning">
@@ -1038,7 +1171,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 				<span className="oe-spacer" />
 				<span className="oe-table-count">
 					{result.rows.length} of {result.total}
-					{selected.size > 0 && ` · ${selected.size} selected`}
+					{selectedEntities.length > 0 && ` · ${selectedEntities.length} selected`}
 				</span>
 			</div>
 
@@ -1119,6 +1252,16 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 				</Popover>
 			)}
 		</div>
+	);
+}
+
+/** A labelled button in the selection bar. */
+function SelButton({ icon, label, onClick, warning }: { icon: string; label: string; onClick: (el: HTMLElement) => void; warning?: boolean }) {
+	return (
+		<button className={`oe-view-tool oe-selbar-btn${warning ? " mod-warning" : ""}`} aria-label={label} onClick={(e) => onClick(e.currentTarget)}>
+			<Icon name={icon} />
+			<span className="oe-view-tool-label">{label}</span>
+		</button>
 	);
 }
 

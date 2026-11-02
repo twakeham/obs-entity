@@ -1249,11 +1249,49 @@ highlight:
   - Double-click a cell, or press Enter, to open its editor: a popover with the same control and rules as the properties form.
   - Checkboxes toggle with one click.
   - Read-only: name, built-ins other than status and tags, incoming links, roll-ups and formulas. Double-clicking a formula cell opens the formula editor.
-  - Edits go into the form's Ctrl/Cmd+Z history. In the table, Ctrl/Cmd+Z undoes the last cell edit.
-- **Keyboard:** arrow keys move the focused cell, Enter edits, Esc cancels.
+  - Edits go into the form's Ctrl/Cmd+Z history. In the table, Ctrl/Cmd+Z undoes the last cell edit or bulk action.
+- **Keyboard:** arrow keys move the focused cell, Enter edits, Esc cancels. Space selects the focused row (or toggles a focused checkbox cell); Ctrl/Cmd+A selects every shown row; Esc clears the selection; Delete / Backspace deletes the selection (after confirming).
+- **Bulk actions:** see below.
 - **+ New** (bottom row): creates an entity of the view's type, prefilled from simple top-level `is` / `any-of` conditions with one value. It asks for the type when the view has several.
 - **Footer:** "12 of 40 · 2 selected". Above it, inside the grid, is the sticky summary row (§ Summaries).
 - **Large views:** rows are virtualised (fixed row height) inside a scroll area, so thousands of rows stay smooth.
+
+#### Bulk actions
+
+- **Selecting:**
+  - Row checkboxes select rows; Shift-click selects a range.
+  - Group-header and column-header checkboxes select every row in the group or view, collapsed groups included.
+  - Keyboard: Space, Ctrl/Cmd+A.
+- **What a selection covers:** the selected rows that match the view's filters. A quick search doesn't drop them: with a search active and every shown row selected, **Select all N in view** adds the rows the search hides. Rows that stop matching the filters (e.g. after a bulk change) drop out. The selection lasts for the session, not across reopening.
+- **Selection bar:** while rows are selected, the toolbar's buttons give way to:
+  - "12 selected"
+  - **Set field…**, **Links…** (Add / Remove link), **Tags…**, **Change type…**, **Delete…**
+  - ⋯ (Move to folder…, Duplicate, Open in new tabs, Copy as list of links)
+  - ✕ to clear
+- **Row menu:** right-clicking a selected row, when several are selected, shows the same actions under "12 entities selected".
+- **Actions** (the logic is in `model/bulk.ts`; `services/bulkActions.ts` does the work):
+  - **Set field…:**
+    - Pick status, tags or any field the selected types have (`bulkFields`). A field only some types have shows those types, and the others are skipped (the dialog says how many).
+    - The value uses the properties form's control for the kind. Status offers the union of the types' statuses; entities whose type can't have the chosen status are skipped.
+    - **Clear <field>** empties it on all of them; the key stays, like the form.
+  - **Add link… / Remove link…:**
+    - Pick a relation field. Add: pick one or more entities, and each is added as seen from each note (no duplicates; a single-link field gets replaced).
+    - Remove: tick the notes the selection links to in that field, with how many link to each.
+  - **Tags…:** add tags, and/or remove any of the selection's current tags (shown with counts). Matching ignores case and `#`.
+  - **Change type…:** `retype` on each note, as for one entity: fields added, values kept, status reset when not valid. Notes already of that type are skipped.
+  - **Move to folder…:** pick a folder, into which the notes move. A name that's taken gets a number.
+  - **Duplicate:** "Name (copy)" (then "(copy 2)"…) next to each note, with the same content.
+  - **Open:** each note in a new background tab, after confirming if there are more than 10.
+  - **Copy as list of links:** `[[Note]]` lines.
+  - **Delete…:** confirms with the names, then trashes each note with `fileManager.trashFile` (following Obsidian's "Deleted files" setting). It can't be undone from the table.
+- **Applying:**
+  - Notes are written one by one. More than 20 show a progress notice ("Updating 37 of 120…").
+  - Notes a change wouldn't alter are checked on a copy of their frontmatter first, so they're not rewritten.
+  - Failures are collected and listed in a notice at the end without stopping the rest.
+- **Undo:** each action is one step, on Ctrl/Cmd+Z in the table (`edits` holds cell edits and bulk undos, newest last) or the notice's **Undo** link.
+  - Frontmatter actions restore each changed note's whole frontmatter from a snapshot taken just before writing.
+  - Moves go back to their old paths.
+  - Duplicates are trashed.
 
 #### Saving
 
@@ -1413,6 +1451,7 @@ These cover all of `model/`, with no Obsidian dependency:
   - summaries: parse/serialize (removed columns dropped, the group header toggle), every aggregation, status-order value counts, formatted sums and dates, empty results, options by column kind, `spanText`
 - **formats:** date presets, custom and relative dates; number presets, currencies, custom patterns and their errors.
 - **formula:** tokenizing, precedence, syntax errors with positions; reference resolution by label or id, type inference, unknown columns / names / functions and argument counts; label ↔ id conversion; every function's example compiles; evaluation of arithmetic, dates, comparisons, empty values and runtime errors, and every function category (including lazy logic, `dateAdd` / `dateDiff` month ends, `map` / `filter` / `prop`). In views: per-row values, kinds used for sorting and filtering, formulas using formulas and linked notes' fields, type overrides, invalid columns, loops, per-row errors, round trips.
+- **bulk:** shared fields across types (kinds that differ, status and tags), status unions, set / clear (keys kept, values copied, no-op detection), add / remove links (duplicates, single fields), add / remove tags (case and #), which entities a change applies to, set values by kind, notice text, copy names.
 - **viewBlock:** finding blocks, and replacing one by line or content, keeping callout prefixes, CRLF, longer fences, and closing an unclosed block.
 - **validation:** every row of §9, with the right `at`.
 - **card:** subtitle composition (several fields, empty values skipped, first line of a textarea); renaming or deleting a field updates `card.subtitle` and `parentFields` in the draft.

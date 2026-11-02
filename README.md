@@ -235,9 +235,19 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
 
 **Editing:**
 - Double-click a cell, or press Enter on it, to edit it with the same control and rules as the properties form. Checkboxes toggle with one click.
-- **Ctrl/Cmd+Z** undoes the last cell edit.
+- **Ctrl/Cmd+Z** undoes the last cell edit or bulk action.
 - Arrow keys move between cells.
 - **+ New** creates an entity of the view's type, prefilled from simple filters (e.g. status = active).
+
+**Bulk actions:** tick rows (Shift-click for a range, a group's checkbox for the whole group, Space for the focused row, Ctrl/Cmd+A for all). The toolbar then shows what you can do with them:
+- **Set field…:** one value for status, tags or any field the selected types have, using the form's controls. **Clear** empties it. Entities without the field, or whose type can't have the status, are skipped.
+- **Links…:** add links to one or more entities, or remove links (ticked from those the selection has).
+- **Tags…:** add tags, or remove existing ones.
+- **Change type…**
+- **Delete…:** to the trash, after confirming.
+- **⋯:** Move to folder…, Duplicate ("Name (copy)"), Open in new tabs, Copy as list of `[[links]]`.
+
+Right-click a selected row for the same actions; Esc clears the selection, and Delete deletes it (after confirming). Each action is **one undo step**: Ctrl/Cmd+Z in the table, or **Undo** on the notice. Moves go back and duplicates are removed. Deleted notes can be restored from the trash.
 
 **Saving:** changes to columns, filters, sorting and grouping are saved into the block automatically, held while a panel is open. Large views stay fast: only the visible rows are drawn.
 
@@ -350,19 +360,21 @@ src/
     formula.ts               formula language: lexer, parser, function registry, type inference, evaluator, label/id references
     formats.ts               column display formats (dates, numbers)
     summary.ts               column summaries (count, sum, earliest…)
+    bulk.ts                  bulk actions: shared fields, applying set / link / tag changes, notice text
     viewBlock.ts             find / rewrite an entity-view block inside a note
   services/
     entityIndex.ts           entities from the metadata cache
     relationIndex.ts         forward + inverse edges, groupsFor, mentions
     entityFactory.ts         create/convert/retype notes, add/remove links (with Undo), folders, move
+    bulkActions.ts           apply changes to many notes: progress, failures, one undo step; type, move, duplicate, delete, open, copy
   settings/settingTab.ts
   ui/components/             entity picker, relation input, date picker button
-  ui/modals/                 create, switcher, import types, add link, check entities, views (new / open / name / roll-up), formula editor (CodeMirror)
+  ui/modals/                 create, switcher, import types, add link, check entities, views (new / open / name / roll-up), formula editor (CodeMirror), bulk actions (set field, links, tags, folder picker)
   ui/header/formManager.tsx  puts the properties form into Live Preview and Reading view, hiding Obsidian's Properties
   ui/react/                  EntityForm, ConnectionsPanel, EntityChip, EntityBits (status tones, relation groups), EntityBrowser
   ui/react/table/            EntityTable (toolbar, virtual rows, editing), cells, popovers (filters, sort, group, columns)
   ui/react/types/            Entity types view: TypeManager (sidebar, group editor, save), General/Fields/Relationships/Display tabs, Preview, controls
   ui/views/                  BrowserView (left sidebar), ConnectionsView (right sidebar), TypesView (main area), EntityViewView (view notes as full tabs), viewBlock (renders entity-view blocks in notes)
-tests/                       model, relations, typeEditing, tree, form, views, viewBlock, formats and formula tests
+tests/                       model, relations, typeEditing, tree, form, views, viewBlock, formats, formula and bulk tests
 styles.css                   all classes prefixed `oe-`
 ```

@@ -7,6 +7,7 @@ import { propertyTypes } from "./model/propertyTypes";
 import { isListValued, typeExplicitlyTargeted, type EntityTypeDef, type FieldDef, type RelationTarget } from "./model/types";
 import { EditHistory, entityProblems, fieldKindFor, writeKey, type CheckContext, type FieldProblem, type FormEdit } from "./model/form";
 import { EntityFactory } from "./services/entityFactory";
+import { BulkActions } from "./services/bulkActions";
 import { EntityIndex } from "./services/entityIndex";
 import { RelationIndex } from "./services/relationIndex";
 import { EntitiesSettingTab } from "./settings/settingTab";
@@ -56,6 +57,8 @@ export default class EntitiesPlugin extends Plugin {
 	index!: EntityIndex;
 	relations!: RelationIndex;
 	factory!: EntityFactory;
+	/** Actions on several selected entities (set field, tags, move, delete…). */
+	bulk!: BulkActions;
 	private form!: FormManager;
 	/** View notes (notes with an `entity-view` block in the views folder). */
 	views!: ViewIndex;
@@ -73,6 +76,7 @@ export default class EntitiesPlugin extends Plugin {
 		this.index = new EntityIndex(this);
 		this.relations = new RelationIndex(this);
 		this.factory = new EntityFactory(this);
+		this.bulk = new BulkActions(this);
 		this.form = new FormManager(this);
 		this.views = new ViewIndex(this);
 		this.relations.load();

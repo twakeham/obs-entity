@@ -3919,3 +3919,96 @@ button.oe-fx-ref-item:hover {
 .oe-cell-error {
 	cursor: help;
 }
+/* Selection bar (replaces the toolbar buttons while rows are selected) */
+.oe-selbar {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	min-width: 0;
+	padding: 0 4px;
+	border-radius: var(--radius-s);
+	background-color: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
+}
+
+.oe-selbar-count {
+	margin: 0 6px 0 2px;
+	font-weight: var(--font-semibold);
+	color: var(--text-accent);
+	white-space: nowrap;
+}
+
+.oe-view button.oe-selbar-btn.mod-warning {
+	color: var(--text-error);
+}
+
+.oe-selbar .clickable-icon svg {
+	width: 14px;
+	height: 14px;
+}
+
+/* Bulk action dialogs */
+.modal.oe-bulk-modal {
+	width: min(560px, 94vw);
+}
+
+.oe-bulk {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-3);
+}
+
+.oe-bulk-row {
+	display: grid;
+	grid-template-columns: 6em minmax(0, 1fr);
+	align-items: start;
+	gap: var(--size-4-2);
+}
+
+.oe-bulk-row > span:first-child {
+	padding-top: 6px;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+.oe-bulk-row select.dropdown {
+	width: 100%;
+}
+
+.oe-bulk-control {
+	min-width: 0;
+}
+
+.oe-bulk-control input[type="text"] {
+	width: 100%;
+}
+
+.oe-bulk-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	margin-bottom: 4px;
+}
+
+.oe-bulk-chips .oe-pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+}
+
+.oe-bulk-chips .clickable-icon {
+	padding: 0;
+	width: 16px;
+	height: 16px;
+}
+
+.oe-bulk-checks {
+	max-height: 260px;
+	overflow-y: auto;
+}
+
+.oe-bulk-footer {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	margin-top: var(--size-4-2);
+}
