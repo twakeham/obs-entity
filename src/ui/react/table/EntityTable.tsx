@@ -104,7 +104,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	const lastClicked = useRef<number | null>(null);
 
 	useEffect(() => {
-		sessions.set(stateKey, { search, collapsed: [...collapsed], selected: [...selected], scrollTop });
+		sessions.set(stateKey, { search, collapsed: [...collapsed], selected: [...selected], scrollTop: liveScroll.current.top });
 	});
 	// The selection is by path: follow renames and moves (including a bulk move and its undo).
 	useEffect(() => {
@@ -237,11 +237,32 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		});
 		ro.observe(el);
 		el.scrollTop = session.scrollTop;
-		return () => ro.disconnect();
+		return () => {
+			ro.disconnect();
+			cancelAnimationFrame(scrollFrame.current);
+		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
+	/**
+	 * Scrolling re-renders the grid only when the drawn rows must change: the position is read once per frame
+	 * and rounded down to a block of rows (the 10-row buffer either side covers the rest). Re-rendering on every
+	 * scroll event made the non-frozen columns lag behind the frozen (sticky) ones.
+	 */
+	const SCROLL_BLOCK = ROW_H * 5;
+	const scrollFrame = useRef(0);
+	const liveScroll = useRef({ top: session.scrollTop, left: 0 });
+	const onScroll = (el: HTMLDivElement) => {
+		liveScroll.current = { top: el.scrollTop, left: el.scrollLeft };
+		if (scrollFrame.current) return;
+		scrollFrame.current = requestAnimationFrame(() => {
+			scrollFrame.current = 0;
+			const { top, left } = liveScroll.current;
+			setScrollTop(Math.floor(top / SCROLL_BLOCK) * SCROLL_BLOCK);
+			setScrolledX(left > 0);
+		});
+	};
 	const first = Math.max(0, Math.floor((scrollTop - HEAD_H) / ROW_H) - 10);
-	const last = Math.min(items.length, Math.ceil((scrollTop + viewport) / ROW_H) + 10);
+	const last = Math.min(items.length, Math.ceil((scrollTop + SCROLL_BLOCK + viewport) / ROW_H) + 10);
 	const visible = items.slice(first, last);
 
 	// ---- actions
@@ -944,8 +965,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 				tabIndex={0}
 				onKeyDown={onKeyDown}
 				onScroll={(e) => {
-					setScrollTop(e.currentTarget.scrollTop);
-					setScrolledX(e.currentTarget.scrollLeft > 0);
+					onScroll(e.currentTarget);
 				}}
 			>
 				<table className="oe-table" style={{ width: `max(${tableWidth}px, 100%)` }}>

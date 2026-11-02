@@ -2722,6 +2722,10 @@ button.oe-tm-typegroup-title,
 	max-height: var(--oe-view-max-height, min(70vh, 720px));
 	overflow: auto;
 	outline: none;
+	/* An opaque background and the hint let Chromium scroll this on the GPU instead of repainting it each
+	   frame; otherwise the frozen (sticky) cells, which are GPU layers, move ahead of the other columns. */
+	background-color: var(--background-primary);
+	will-change: scroll-position;
 }
 
 /* Reset the note's own table styles: the view is a data grid, not a Markdown table. */

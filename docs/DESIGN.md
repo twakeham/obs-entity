@@ -1294,6 +1294,8 @@ highlight:
 - **+ New** (bottom row): creates an entity of the view's type, prefilled from simple top-level `is` / `any-of` conditions with one value. It asks for the type when the view has several.
 - **Footer:** "12 of 40 · 2 selected". Above it, inside the grid, is the sticky summary row (§ Summaries).
 - **Large views:** rows are virtualised (fixed row height) inside a scroll area, so thousands of rows stay smooth.
+  - **Scrolling:** the scroll position is read once per frame and rounded down to a 5-row block, so the grid only re-renders when the drawn rows must change. The 10-row buffer either side covers the rest.
+  - **GPU scrolling:** the scroll area has an opaque background and `will-change: scroll-position`, so Chromium scrolls it on the GPU. Without that it repainted on the main thread while the frozen (sticky) cells, which are GPU layers, moved ahead of the other columns.
 
 #### Bulk actions
 
