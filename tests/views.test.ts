@@ -12,6 +12,7 @@ import {
 	dateValue,
 	fillWidths,
 	flattenGroups,
+	frozenCount,
 	GROUP_PATH_SEP,
 	highlightOf,
 	parseView,
@@ -336,6 +337,22 @@ describe("summaries", () => {
 		expect(summaryOptions(cols[1], ["idea", "done"]).map((o) => o.key).slice(0, 3)).toEqual(["values", "percent:idea", "percent:done"]);
 		expect(summaryOptions(cols[2]).map((o) => o.key).slice(0, 3)).toEqual(["earliest", "latest", "range"]);
 		expect([1, 13, 20, 59, 120, 400, 1000].map(spanText)).toEqual(["1 day", "13 days", "3 weeks", "8 weeks", "4 months", "13 months", "2.7 years"]);
+	});
+});
+
+describe("frozen columns", () => {
+	it("round-trip, dropping a removed column, and count the frozen shown columns", () => {
+		const def = view({ columns: ["status", "due", "team"], freeze: "due" });
+		expect(def.freeze).toBe("due");
+		expect(serializeView(def).freeze).toBe("due");
+		expect(serializeView({ ...def, columns: def.columns.filter((c) => c.id !== "due") }).freeze).toBeUndefined();
+		expect(serializeView(view({ columns: ["status"] })).freeze).toBeUndefined();
+		const ids = (...xs: string[]) => xs.map((id) => ({ id }));
+		expect(frozenCount(def, ids("name", "status", "due", "team"))).toBe(3);
+		// the frozen column is grouped (hidden): stop at the last shown column before it
+		expect(frozenCount(def, ids("name", "status", "team"))).toBe(2);
+		expect(frozenCount(view({ columns: ["status"] }), ids("name", "status"))).toBe(0);
+		expect(frozenCount({ ...def, freeze: "gone" }, ids("name", "status"))).toBe(0);
 	});
 });
 

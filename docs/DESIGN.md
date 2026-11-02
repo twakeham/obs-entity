@@ -992,6 +992,7 @@ filters: { all: [{ field: status, op: is-not, value: done }] }
 | `columns` | Ordered columns (below). `name` is always first, and is added if missing. |
 | `widths` | Column id → width in px. For fill columns, the minimum width. |
 | `fill` | A column id, or a list of them, that grows to fill spare width (see Table). Optional. |
+| `freeze` | The last frozen column's id: it and every column to its left stay visible when scrolling sideways (see Table). Optional. |
 | `sort` | Sort levels: `{ by: <column id>, dir: asc \| desc }`. |
 | `group` | Grouping levels, outermost first: a list of `{ by: <column id>, date?: month \| year }` (or just the column id). Always a list, even for one level; any number of levels. Optional. |
 | `groupSummaries` | `false` hides column summaries in group headers. Only written when off. |
@@ -1162,6 +1163,11 @@ highlight:
 
 - **Toolbar:** quick search · Filters (n) · Sort (n) · Group · Highlight (n) · Columns · ⋯ (Save as…, Rename, Edit definition, Copy block).
 - **Header:** sort arrows. Drag a header to reorder, and drag its right edge to resize.
+- **Frozen columns:** right-click a header → **Freeze** (a checked toggle; on another column it moves the freeze there).
+  - That column, every column to its left and the select column stay in place when scrolling sideways, via `position: sticky` with each cell's `left` offset (computed from the shown widths, fill columns included). This applies to the header, rows, group headers and the summary row.
+  - Group headers without summaries span the frozen columns, so their label stays in view.
+  - While scrolled sideways, the last frozen column gets a darker right border and a soft shadow.
+  - If the frozen column is hidden (grouped), the freeze stops at the last shown column before it (`frozenCount`). A removed column's freeze is dropped when the view saves.
 - **Fill columns:** right-click a header → **Fill available width** (a checked toggle).
   - A fill column keeps its width as a minimum and grows to take the row's spare width, following the pane as it's resized. Several fill columns share the spare width in proportion to their widths.
   - While a column fills, the filler column is 0 wide. When the pane is too narrow, columns keep their minimums and the table scrolls sideways.
@@ -1339,6 +1345,7 @@ These cover all of `model/`, with no Obsidian dependency:
   - formats: parse/serialize, formatted cells and group labels, sorting on raw values
   - highlight: parse/serialize and errors, first-match precedence for rows and cells, cell styles layered over row styles (icons replaced), disabled rules, hidden fields in conditions, hidden target columns, unusable conditions, match counts
   - fill columns: parse/serialize as a name or list, proportional sharing, rounding to the exact width, nothing when there's no spare width
+  - frozen columns: parse/serialize (removed column dropped), `frozenCount` including a hidden frozen column
   - summaries: parse/serialize (removed columns dropped, the group header toggle), every aggregation, status-order value counts, formatted sums and dates, empty results, options by column kind, `spanText`
 - **formats:** date presets, custom and relative dates; number presets, currencies, custom patterns and their errors.
 - **viewBlock:** finding blocks, and replacing one by line or content, keeping callout prefixes, CRLF, longer fences, and closing an unclosed block.

@@ -118,6 +118,8 @@ export interface ViewDef {
 	widths: Record<string, number>;
 	/** columns that grow to fill spare width (their `widths` entry is the minimum) */
 	fill: string[];
+	/** the last frozen column: it and every column to its left stay visible when scrolling sideways */
+	freeze?: string;
 	/** column id → display format (numbers and dates; see formats.ts) */
 	formats: Record<string, string>;
 	/** column id → summary aggregation (see summary.ts) */
@@ -263,6 +265,7 @@ export function parseView(raw: unknown): { def: ViewDef | null; errors: string[]
 	const widths: Record<string, number> = {};
 	if (isObj(raw.widths)) for (const [k, v] of Object.entries(raw.widths)) if (typeof v === "number" && v > 0) widths[k] = Math.round(v);
 	const fill = [...new Set(asArray(raw.fill).filter((v): v is string => typeof v === "string" && !!v.trim()).map((v) => v.trim()))];
+	const freeze = typeof raw.freeze === "string" && raw.freeze.trim() ? { freeze: raw.freeze.trim() } : {};
 	const formats: Record<string, string> = {};
 	if (isObj(raw.formats)) for (const [k, v] of Object.entries(raw.formats)) if (typeof v === "string" && v.trim()) formats[k] = v;
 	const summary: Record<string, string> = {};
@@ -294,7 +297,7 @@ export function parseView(raw: unknown): { def: ViewDef | null; errors: string[]
 	const filters = parseFilterItems(raw.filters, errors, 0) ?? { mode: "all", items: [] };
 	const highlight = parseHighlight(raw.highlight, errors);
 	if (errors.length && !VIEW_KINDS.includes(kind)) return { def: null, errors };
-	return { def: { kind, types: types.length ? types : ["*"], columns, widths, fill, formats, summary, sort, group, ...groupSummaries, ...groupFieldNames, filters, highlight }, errors };
+	return { def: { kind, types: types.length ? types : ["*"], columns, widths, fill, ...freeze, formats, summary, sort, group, ...groupSummaries, ...groupFieldNames, filters, highlight }, errors };
 }
 
 const isColor = (v: unknown): v is HighlightColor => HIGHLIGHT_COLORS.includes(v as HighlightColor);
@@ -354,6 +357,7 @@ export function serializeView(def: ViewDef): Record<string, unknown> {
 	if (Object.keys(widths).length) out.widths = widths;
 	const fill = (def.fill ?? []).filter((id) => def.columns.some((c) => c.id === id));
 	if (fill.length) out.fill = fill.length === 1 ? fill[0] : fill;
+	if (def.freeze && def.columns.some((c) => c.id === def.freeze)) out.freeze = def.freeze;
 	const formats = Object.fromEntries(Object.entries(def.formats ?? {}).filter(([id]) => def.columns.some((c) => c.id === id)));
 	if (Object.keys(formats).length) out.formats = formats;
 	const summary = Object.fromEntries(Object.entries(def.summary ?? {}).filter(([id]) => def.columns.some((c) => c.id === id)));
@@ -369,6 +373,20 @@ export function serializeView(def: ViewDef): Record<string, unknown> {
 			return { ...(r.name ? { name: r.name } : {}), target: r.target, when: serializeFilters(r.when), style, ...(r.off ? { off: true } : {}) };
 		});
 	return out;
+}
+
+/**
+ * How many of the shown columns are frozen (0: none). The frozen column may be hidden (grouped): then the
+ * freeze stops at the last shown column before it in the definition.
+ */
+export function frozenCount(def: ViewDef, shown: { id: string }[]): number {
+	if (!def.freeze) return 0;
+	const at = def.columns.findIndex((c) => c.id === def.freeze);
+	if (at < 0) return 0;
+	const upTo = new Set(def.columns.slice(0, at + 1).map((c) => c.id));
+	let n = 0;
+	while (n < shown.length && upTo.has(shown[n].id)) n++;
+	return n;
 }
 
 /**

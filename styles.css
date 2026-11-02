@@ -3605,3 +3605,30 @@ button.oe-tm-typegroup-title,
 	font-style: italic;
 	color: var(--text-faint);
 }
+/* Frozen columns: the select column and the columns up to the frozen one stick to the left edge */
+.oe-view table.oe-table > tbody > tr > td.is-frozen {
+	position: sticky;
+	z-index: 1;
+}
+
+.oe-view table.oe-table > thead > tr > th.is-frozen,
+.oe-view table.oe-table > tfoot > tr > td.is-frozen {
+	z-index: 3;
+}
+
+.oe-view table.oe-table > tbody > tr.oe-group-row > td.oe-group-head.is-frozen {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Scrolled sideways: a line and soft shadow mark where the frozen columns end. */
+.oe-table-scroll.is-scrolled-x .is-frozen-last {
+	border-right-color: var(--background-modifier-border-hover) !important;
+	box-shadow: 4px 0 6px -4px rgba(0, 0, 0, 0.25);
+}
+
+.oe-table-scroll.is-scrolled-x .oe-view table.oe-table > tbody > tr > td.is-frozen-last.is-focused,
+.oe-table-scroll.is-scrolled-x td.is-frozen-last.is-focused {
+	box-shadow: inset 0 0 0 2px var(--interactive-accent), 4px 0 6px -4px rgba(0, 0, 0, 0.25);
+}

@@ -11,6 +11,7 @@ import {
 	formatKind,
 	filterFields,
 	flattenGroups,
+	frozenCount,
 	highlightOf,
 	OPERATORS,
 	prefillFromFilters,
@@ -81,6 +82,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	const [liveWidth, setLiveWidth] = useState<{ id: string; w: number } | null>(null);
 	const [dragCol, setDragCol] = useState<string | null>(null);
 	const [scrollTop, setScrollTop] = useState(session.scrollTop);
+	const [scrolledX, setScrolledX] = useState(false);
 	const [viewport, setViewport] = useState(600);
 	/** the scroll area's inner width, for fill columns */
 	const [areaW, setAreaW] = useState(0);
@@ -341,6 +343,17 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					.setIcon("sigma")
 					.onClick(() => window.setTimeout(() => summaryMenu(c, at), 0)),
 			);
+		{
+			const on = def.freeze === c.id;
+			m.addItem((i) =>
+				i
+					.setSection("width")
+					.setTitle("Freeze")
+					.setIcon("snowflake")
+					.setChecked(on)
+					.onClick(() => update({ ...defRef.current, freeze: on ? undefined : c.id })),
+			);
+		}
 		{
 			const on = (def.fill ?? []).includes(c.id);
 			m.addItem((i) =>
@@ -614,6 +627,17 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		SELECT_W,
 	);
 	const tableWidth = SELECT_W + columns.reduce((n, c) => n + shownW[c.id], 0);
+	// Frozen columns: the select column and columns[0..frozen) stick to the left edge when scrolling sideways.
+	const frozen = frozenCount(def, columns);
+	const frozenLeft: number[] = [];
+	for (let i = 0, x = SELECT_W; i < frozen; i++) {
+		frozenLeft.push(x);
+		x += shownW[columns[i].id];
+	}
+	const frozenW = frozen ? frozenLeft[frozen - 1] + shownW[columns[frozen - 1].id] - SELECT_W : 0;
+	/** class and style for a cell in column `i` (-1: the select column) */
+	const freezeCls = (i: number) => (frozen && i < frozen ? ` is-frozen${i === frozen - 1 ? " is-frozen-last" : ""}` : "");
+	const freezeStyle = (i: number, extra?: CSSProperties): CSSProperties | undefined => (frozen && i < frozen ? { ...extra, left: i < 0 ? 0 : frozenLeft[i] } : extra);
 	const editRow = editing ? plugin.index.get(editing.path) : undefined;
 	const formatCol = pop?.name === "format" ? columns.find((c) => c.id === pop.col) : undefined;
 	/** a real value from the column for format examples (today / 1234.5 when the column is empty) */
@@ -658,7 +682,16 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					)}
 				</div>
 			)}
-			<div ref={scrollRef} className="oe-table-scroll" tabIndex={0} onKeyDown={onKeyDown} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
+			<div
+				ref={scrollRef}
+				className={`oe-table-scroll${frozen && scrolledX ? " is-scrolled-x" : ""}`}
+				tabIndex={0}
+				onKeyDown={onKeyDown}
+				onScroll={(e) => {
+					setScrollTop(e.currentTarget.scrollTop);
+					setScrolledX(e.currentTarget.scrollLeft > 0);
+				}}
+			>
 				<table className="oe-table" style={{ width: `max(${tableWidth}px, 100%)` }}>
 					<colgroup>
 						<col style={{ width: SELECT_W }} />
@@ -669,15 +702,16 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					</colgroup>
 					<thead>
 						<tr>
-							<th className="oe-th-select">
+							<th className={`oe-th-select${freezeCls(-1)}`} style={freezeStyle(-1)}>
 								<Checkbox state={allSelected ? "all" : result.rows.some((r) => selected.has(r.row.path)) ? "some" : "none"} label="Select all rows" onToggle={toggleAll} />
 							</th>
-							{columns.map((c) => {
+							{columns.map((c, ci) => {
 								const s = def.sort.findIndex((x) => x.by === c.id);
 								return (
 									<th
 										key={c.id}
-										className={`oe-th${dragCol === c.id ? " is-dragging" : ""}${c.invalid ? " is-invalid" : ""}`}
+										style={freezeStyle(ci)}
+										className={`oe-th${dragCol === c.id ? " is-dragging" : ""}${c.invalid ? " is-invalid" : ""}${freezeCls(ci)}`}
 										data-col={c.id}
 										draggable={c.id !== "name"}
 										aria-sort={s < 0 ? "none" : def.sort[s].dir === "asc" ? "ascending" : "descending"}
@@ -744,18 +778,28 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 										onClick={toggle}
 										onContextMenu={(e) => groupMenu(e, it.level)}
 									>
-										<td className="oe-td-select" onClick={(e) => e.stopPropagation()}>
+										<td className={`oe-td-select${freezeCls(-1)}`} style={freezeStyle(-1)} onClick={(e) => e.stopPropagation()}>
 											<Checkbox state={state} label={`Select all in ${it.label || "this group"}`} onToggle={() => toggleGroup(it.rows)} />
 										</td>
 										{gs ? (
 											<>
-												<td className="oe-group-head">{head}</td>
-												{columns.slice(1).map((c) => (
-													<td key={c.id} className={`oe-group-sum${c.kind === "number" ? " is-number" : ""}`}>
+												<td className={`oe-group-head${freezeCls(0)}`} style={freezeStyle(0)}>
+													{head}
+												</td>
+												{columns.slice(1).map((c, j) => (
+													<td key={c.id} className={`oe-group-sum${c.kind === "number" ? " is-number" : ""}${freezeCls(j + 1)}`} style={freezeStyle(j + 1)}>
 														<SummaryText s={gs[c.id]} />
 													</td>
 												))}
 												<td className="oe-td-fill" />
+											</>
+										) : frozen ? (
+											// The label spans the frozen columns, so it stays in view when scrolling sideways.
+											<>
+												<td colSpan={frozen} className="oe-group-head is-frozen is-frozen-last" style={{ left: SELECT_W, maxWidth: frozenW }}>
+													{head}
+												</td>
+												<td colSpan={columns.length - frozen + 1} />
 											</>
 										) : (
 											<td colSpan={columns.length + 1} className="oe-group-head">
@@ -772,7 +816,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 							const rowFill = rowRule?.style.fill ? ` oe-hl-fill oe-hl-fill-${rowRule.style.fill}` : "";
 							return (
 								<tr key={`r:${it.n}:${path}`} className={`oe-tr${selected.has(path) ? " is-selected" : ""}`} style={{ "--oe-type-color": r.row.type.color } as CSSProperties} onContextMenu={(e) => rowMenu(e, r)}>
-									<td className={`oe-td-select${rowFill}`}>
+									<td className={`oe-td-select${rowFill}${freezeCls(-1)}`} style={freezeStyle(-1)}>
 										<input type="checkbox" checked={selected.has(path)} aria-label={`Select ${r.row.name}`} onChange={() => {}} onClick={(e) => selectRow(it.n, path, e.shiftKey)} />
 									</td>
 									{columns.map((c, ci) => {
@@ -790,10 +834,10 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 												key={c.id}
 												data-r={it.n}
 												data-c={ci}
-												className={`oe-td${focused ? " is-focused" : ""}${target ? " is-editable" : ""}${problem ? ` has-problem is-${problem.severity}` : ""}${hl ? ` ${hlClasses(hl.style)}` : ""}`}
+												className={`oe-td${focused ? " is-focused" : ""}${target ? " is-editable" : ""}${problem ? ` has-problem is-${problem.severity}` : ""}${hl ? ` ${hlClasses(hl.style)}` : ""}${freezeCls(ci)}`}
 												aria-label={problem?.message}
 												// The first column is indented to the row's grouping depth, in line with its group's label (after the chevron).
-												style={ci === 0 && it.depth ? { paddingLeft: 10 + it.depth * 16 } : undefined}
+												style={freezeStyle(ci, ci === 0 && it.depth ? { paddingLeft: 10 + it.depth * 16 } : undefined)}
 												onClick={() => {
 													setFocus({ r: it.n, c: ci });
 													scrollRef.current?.focus({ preventScroll: true });
@@ -843,13 +887,14 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					</tbody>
 					<tfoot>
 						<tr className="oe-summary-row">
-							<td className="oe-td-select" />
-							{columns.map((c) => {
+							<td className={`oe-td-select${freezeCls(-1)}`} style={freezeStyle(-1)} />
+							{columns.map((c, ci) => {
 								const s = sums.total[c.id];
 								return (
 									<td
 										key={c.id}
-										className={`oe-sum-cell${c.kind === "number" ? " is-number" : ""}${def.summary?.[c.id] ? " is-set" : ""}`}
+										className={`oe-sum-cell${c.kind === "number" ? " is-number" : ""}${def.summary?.[c.id] ? " is-set" : ""}${freezeCls(ci)}`}
+										style={freezeStyle(ci)}
 										data-col={c.id}
 										onClick={(e) => !c.invalid && summaryMenu(c, { x: e.clientX, y: e.clientY })}
 									>
