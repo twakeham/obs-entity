@@ -12,6 +12,7 @@ import {
 	dateValue,
 	fillWidths,
 	flattenGroups,
+	formatKind,
 	frozenCount,
 	GROUP_PATH_SEP,
 	highlightOf,
@@ -376,6 +377,57 @@ describe("fill columns", () => {
 		expect(two).toEqual({ name: 200, a: 200, b: 601 });
 		expect(Object.values(two).reduce((n, w) => n + w, 0)).toBe(1001);
 		expect(fillWidths(cols, ["b"], 500)).toEqual({ name: 200, a: 100, b: 300 });
+	});
+});
+
+describe("formula columns", () => {
+	const F = (raw: Record<string, unknown>) => runView(view({ types: ["project"], ...raw }), ROWS, ctx);
+	const vals = (raw: Record<string, unknown>, id: string) => F(raw).rows.map((r) => `${r.row.name}=${r.cells[id]?.error ? `!${r.cells[id].error}` : r.cells[id]?.text}`);
+
+	it("compute per row, with an inferred kind used for sorting and filtering", () => {
+		const raw = { columns: [{ formula: "[due] - today()", label: "Days left", id: "left" }], sort: [{ by: "left", dir: "asc" }] };
+		const r = F(raw);
+		expect(r.columns[1].kind).toBe("number");
+		expect(r.rows.map((x) => `${x.row.name}=${x.cells.left.text}`)).toEqual(["Lander=30", "Apollo=150", "Project 2=", "Project 10="]);
+		expect(F({ ...raw, filters: { all: [{ field: "left", op: "<", value: 100 }] } }).rows.map((x) => x.row.name)).toEqual(["Lander"]);
+		expect(formatKind(r.columns[1])).toBe("number");
+	});
+
+	it("reference labels or ids, other formulas, and fields of linked notes", () => {
+		const cols = [
+			{ formula: "[Due] + 7", label: "Grace", id: "grace" },
+			{ formula: "dateDiff(today(), [grace], \"weeks\")", label: "Weeks", id: "weeks" },
+			{ formula: 'prop([Owner], "status") & " / " & count([Team])', label: "Owner status", id: "os" },
+			{ formula: "join(map([Team], name(item)), \" + \")", label: "Team names", id: "tn" },
+		];
+		const r = F({ columns: cols });
+		expect(r.columns.map((c) => c.kind)).toEqual(["text", "date", "number", "text", "text"]);
+		const apollo = r.rows.find((x) => x.row.name === "Apollo")!;
+		expect([apollo.cells.grace.text, apollo.cells.weeks.text, apollo.cells.os.text, apollo.cells.tn.text]).toEqual(["2027-04-07", "22", "active / 2", "Ada + Grace"]);
+	});
+
+	it("override the type, and report problems per column and per row", () => {
+		const r = F({
+			columns: [
+				{ formula: '"2027-01-0" & 5', label: "As date", id: "d", type: "date" },
+				{ formula: "[budget] + 1", label: "Bad ref", id: "bad" },
+				{ formula: "1 / count([Team])", label: "Per member", id: "pm" },
+				{ formula: "[b] + 1", label: "A", id: "a" },
+				{ formula: "[a] + 1", label: "B", id: "b" },
+			],
+		});
+		const c = Object.fromEntries(r.columns.map((x) => [x.id, x]));
+		expect(c.d.kind).toBe("date");
+		expect(r.rows[0].cells.d.text).toBe("2027-01-05");
+		expect(c.bad.invalid).toBe("Unknown column [budget].");
+		expect(c.a.invalid).toBe("Circular reference: A → B → A.");
+		expect(vals({ columns: [{ formula: "1 / count([Team])", label: "Per member", id: "pm" }] }, "pm")).toEqual(["Apollo=0.5", "Lander=!Division by zero.", "Project 2=!Division by zero.", "Project 10=!Division by zero."]);
+		expect(parseView({ columns: [{ formula: "1", type: "colour" }] }).errors).toEqual(['Unknown formula type "colour". Use number, text, bool, date, list, links.']);
+	});
+
+	it("round-trip, with the type override", () => {
+		const def = view({ columns: [{ formula: "[due] - today()", label: "Days left", id: "left", type: "number" }] });
+		expect(serializeView(def).columns).toEqual(["name", { formula: "[due] - today()", label: "Days left", id: "left", type: "number" }]);
 	});
 });
 

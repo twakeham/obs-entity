@@ -241,7 +241,25 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
 
 **Saving:** changes to columns, filters, sorting and grouping are saved into the block automatically, held while a panel is open. Large views stay fast: only the visible rows are drawn.
 
-Formula columns are reserved in the format (`formula:`) but not supported yet.
+**Formula columns** calculate a value for each row: **Columns → Add formula…**. For example:
+- `[Due] - today()` gives the days left.
+- `[Budget] / [Tasks]`
+- `if([Status] = "done", "✓", "")`
+- `dateDiff([Start], [Due], "weeks")`
+- `join(map([Team], name(item)), ", ")`
+- `prop([Project], "Due")` reads a field of the linked project.
+
+The editor:
+- **Colouring and checks:** syntax colouring, matching brackets, and errors underlined as you type.
+- **Autocomplete:** type `[` for columns, or start a function name.
+- **Help:** hover help on functions and columns, and a searchable reference panel.
+- **Preview:** the results for the first rows.
+- **Result type:** worked out automatically, or chosen yourself.
+- **Saving:** Ctrl/Cmd+Enter saves.
+
+In the table, formulas sort, filter, group, highlight, summarise and format like any other column. A row whose formula fails shows "–" with the reason in a tooltip. Double-click a formula cell, or right-click its header → **Edit formula…**, to change it.
+
+Functions: logic (`if`, `ifs`, `and`, `or`, `not`, `empty`, `coalesce`), maths (`round`, `floor`, `ceil`, `abs`, `min`, `max`, `sum`, `avg`, `pow`, `sqrt`, `mod`, `number`), text (`concat`, `text`, `upper`, `lower`, `trim`, `len`, `left`, `right`, `mid`, `replace`, `contains`, `startsWith`, `format`), dates (`today`, `date`, `year`, `month`, `day`, `weekday`, `dateAdd`, `dateDiff`, `startOf`, `endOf`), lists (`count`, `first`, `last`, `join`, `includes`, `unique`, `sort`, `map`, `filter`) and links (`name`, `prop`).
 
 **Full-tab views:** opening a view note shows it as an **entity view** tab: the table fills the whole tab, edge to edge, like the Entity types editor.
 - **Open as Markdown** (header button or ⋯) shows the note itself, e.g. to edit the definition or write notes below the block. **Open as entity view** switches back.
@@ -328,7 +346,10 @@ src/
     typeEditing.ts           type/group drafts, field + status renames, migrations, import/export, previews
     settings.ts              defaults and merging
     tree.ts                  browser forest: parent links, sections/type blocks, filtering with context, reveal paths
-    views.ts                 entity views: definition parse/serialize, columns, cells, roll-ups, filters, sort, group, runView
+    views.ts                 entity views: definition parse/serialize, columns, cells, roll-ups, formula cells, filters, sort, group, runView
+    formula.ts               formula language: lexer, parser, function registry, type inference, evaluator, label/id references
+    formats.ts               column display formats (dates, numbers)
+    summary.ts               column summaries (count, sum, earliest…)
     viewBlock.ts             find / rewrite an entity-view block inside a note
   services/
     entityIndex.ts           entities from the metadata cache
@@ -336,12 +357,12 @@ src/
     entityFactory.ts         create/convert/retype notes, add/remove links (with Undo), folders, move
   settings/settingTab.ts
   ui/components/             entity picker, relation input, date picker button
-  ui/modals/                 create, switcher, import types, add link, check entities, views (new / open / name / roll-up)
+  ui/modals/                 create, switcher, import types, add link, check entities, views (new / open / name / roll-up), formula editor (CodeMirror)
   ui/header/formManager.tsx  puts the properties form into Live Preview and Reading view, hiding Obsidian's Properties
   ui/react/                  EntityForm, ConnectionsPanel, EntityChip, EntityBits (status tones, relation groups), EntityBrowser
   ui/react/table/            EntityTable (toolbar, virtual rows, editing), cells, popovers (filters, sort, group, columns)
   ui/react/types/            Entity types view: TypeManager (sidebar, group editor, save), General/Fields/Relationships/Display tabs, Preview, controls
   ui/views/                  BrowserView (left sidebar), ConnectionsView (right sidebar), TypesView (main area), EntityViewView (view notes as full tabs), viewBlock (renders entity-view blocks in notes)
-tests/                       model.test.ts, relations.test.ts, typeEditing.test.ts, tree.test.ts, form.test.ts, views.test.ts, viewBlock.test.ts
+tests/                       model, relations, typeEditing, tree, form, views, viewBlock, formats and formula tests
 styles.css                   all classes prefixed `oe-`
 ```

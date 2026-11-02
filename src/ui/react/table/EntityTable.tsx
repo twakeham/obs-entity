@@ -31,6 +31,7 @@ import {
 import { VIEW_BLOCK } from "../../../services/viewIndex";
 import { TypePickerModal } from "../../components/entityPicker";
 import { NameModal, RollupModal } from "../../modals/viewModals";
+import { FormulaModal } from "../../modals/formulaModal";
 import { PluginContext, usePlugin, useRelationsVersion } from "../context";
 import { HOVER_SOURCE } from "../EntityChip";
 import { Icon } from "../Icon";
@@ -246,6 +247,11 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 			fill: on ? cur.fill : (cur.fill ?? []).filter((id) => id !== c.id),
 		});
 	};
+	const formulaDialog = (existing: Extract<ColumnDef, { kind: "formula" }> | null) =>
+		new FormulaModal(plugin, defRef.current, existing, (col) => {
+			const cur = defRef.current;
+			update({ ...cur, columns: existing ? cur.columns.map((x) => (x.id === existing.id ? col : x)) : [...cur.columns, col] });
+		}).open();
 	const rollupDialog = (existing: Extract<ColumnDef, { kind: "rollup" }> | null) =>
 		new RollupModal(plugin, defRef.current, existing, (col) => {
 			const cur = defRef.current;
@@ -494,6 +500,10 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		if (c.def.kind === "rollup") {
 			const rc = c.def;
 			m.addItem((i) => i.setSection("edit").setTitle("Edit roll-up…").setIcon("pencil").onClick(() => rollupDialog(rc)));
+		}
+		if (c.def.kind === "formula") {
+			const fc = c.def;
+			m.addItem((i) => i.setSection("edit").setTitle("Edit formula…").setIcon("sigma").onClick(() => formulaDialog(fc)));
 		}
 		if (c.id !== "name") m.addItem((i) => i.setSection("edit").setTitle("Hide column").setIcon("eye-off").onClick(() => toggleColumn(c.def, false)));
 		m.showAtMouseEvent(e.nativeEvent);
@@ -950,7 +960,10 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 													setFocus({ r: it.n, c: ci });
 													scrollRef.current?.focus({ preventScroll: true });
 												}}
-												onDoubleClick={(e) => target && c.kind !== "bool" && openEditor(path, c.id, e.currentTarget)}
+												onDoubleClick={(e) => {
+													if (c.def.kind === "formula") formulaDialog(c.def);
+													else if (target && c.kind !== "bool") openEditor(path, c.id, e.currentTarget);
+												}}
 											>
 												{(() => {
 													const content =
@@ -1080,6 +1093,14 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 							onToggle={toggleColumn}
 							onAddRollup={() => rollupDialog(null)}
 							onEditRollup={(c) => rollupDialog(c)}
+							onAddFormula={() => {
+								setPop(null);
+								formulaDialog(null);
+							}}
+							onEditFormula={(c) => {
+								setPop(null);
+								formulaDialog(c);
+							}}
 						/>
 					)}
 				</Popover>

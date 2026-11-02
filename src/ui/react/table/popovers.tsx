@@ -771,6 +771,8 @@ export function ColumnsPanel({
 	onToggle,
 	onAddRollup,
 	onEditRollup,
+	onAddFormula,
+	onEditFormula,
 }: {
 	def: ViewDef;
 	available: { title: string; columns: ColumnDef[] }[];
@@ -778,6 +780,8 @@ export function ColumnsPanel({
 	onToggle: (c: ColumnDef, on: boolean) => void;
 	onAddRollup: () => void;
 	onEditRollup: (c: Extract<ColumnDef, { kind: "rollup" }>) => void;
+	onAddFormula: () => void;
+	onEditFormula: (c: Extract<ColumnDef, { kind: "formula" }>) => void;
 }) {
 	const shown = new Set(def.columns.map((c) => c.id));
 	const computed = def.columns.filter((c): c is Extract<ColumnDef, { kind: "rollup" | "formula" }> => c.kind === "rollup" || c.kind === "formula");
@@ -798,23 +802,31 @@ export function ColumnsPanel({
 				))}
 			<div className="oe-columns-section">
 				<div className="oe-pop-heading">Roll-ups and formulas</div>
-				{computed.length === 0 && <div className="oe-pop-empty">Summarise linked notes: counts, sums, latest dates…</div>}
+				{computed.length === 0 && <div className="oe-pop-empty">Summarise linked notes (counts, sums, latest dates…) or calculate values with a formula.</div>}
 				{computed.map((c) => (
 					<div key={c.id} className="oe-columns-item">
 						<input type="checkbox" checked onChange={() => onToggle(c, false)} aria-label={`Remove ${labelOf(c)}`} />
-						<span className="oe-columns-label">{labelOf(c)}</span>
+						<span className="oe-columns-label">
+							{c.kind === "formula" && <Icon name="sigma" className="oe-columns-kind" />}
+							{labelOf(c)}
+						</span>
 						{c.kind === "rollup" ? (
 							<button className="clickable-icon" aria-label="Edit roll-up" onClick={() => onEditRollup(c)}>
 								<Icon name="pencil" />
 							</button>
 						) : (
-							<span className="oe-pop-hint">not supported yet</span>
+							<button className="clickable-icon" aria-label="Edit formula" onClick={() => onEditFormula(c)}>
+								<Icon name="pencil" />
+							</button>
 						)}
 					</div>
 				))}
 				<div className="oe-pop-actions">
 					<button className="oe-pop-link" onClick={onAddRollup}>
 						<Icon name="plus" /> Add roll-up…
+					</button>
+					<button className="oe-pop-link" onClick={onAddFormula}>
+						<Icon name="plus" /> Add formula…
 					</button>
 				</div>
 			</div>

@@ -29,8 +29,9 @@ const chipItem = (l: LinkValue, source: string): RelationItem => {
 /** A read-only cell, rendered like the properties form shows values. */
 export function CellView({ col, cell, row, onToggle }: { col: ResolvedColumn; cell: Cell | undefined; row: ViewRow; onToggle?: (v: boolean) => void }) {
 	const plugin = usePlugin();
-	if (col.invalid) return <span className="oe-cell-muted">—</span>;
+	if (col.invalid) return <span className="oe-cell-muted" aria-label={col.invalid}>—</span>;
 	if (!cell) return null;
+	if (cell.error) return <span className="oe-cell-muted oe-cell-error" aria-label={cell.error}>–</span>;
 	const v = cell.value;
 	const d = col.def;
 	if (col.kind === "links") {
@@ -44,6 +45,7 @@ export function CellView({ col, cell, row, onToggle }: { col: ResolvedColumn; ce
 		);
 	}
 	if (col.kind === "bool") {
+		if (d.kind === "formula") return <input type="checkbox" className="oe-cell-check" checked={v === true} disabled aria-label={col.label} />;
 		if (!row.type.fields.some((f) => d.kind === "field" && f.key === d.key)) return null;
 		return <input type="checkbox" className="oe-cell-check" checked={v === true} disabled={!onToggle} aria-label={col.label} onChange={(e) => onToggle?.(e.target.checked)} onClick={(e) => e.stopPropagation()} />;
 	}

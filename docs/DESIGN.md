@@ -955,7 +955,7 @@ These are proven in Story Forge and worth adding behind module toggles once the 
   - hubs and loners
   - customisable sections, plus an embeddable code block
 - **Bulk edit in the browser:** multi-select, then set status, add a relation, or move.
-- **More entity view kinds** (§8.10): board (kanban by status), gallery, calendar. Also formula columns.
+- **More entity view kinds** (§8.10): board (kanban by status), gallery, calendar.
 - **Domain views**, as separate modules: timeline (with a date adapter), family tree, relationship grid.
 
 ### 8.10 Entity views
@@ -1006,7 +1006,7 @@ filters: { all: [{ field: status, op: is-not, value: done }] }
 - `{ field: key }` / `{ builtin: key }`, with an optional `label`;
 - `{ incoming: "<type>.<field>" }`: the reverse of a relation field (e.g. `person.works_for` on organisations). The label defaults to the field's inverse;
 - `{ rollup: { via, agg, field? }, label, id }`: summarises linked notes, see below;
-- `{ formula: "…", label, id }`: reserved, shown as "not supported yet".
+- `{ formula: "…", label, id, type? }`: a formula column (see Formulas).
 
 Column ids are the field / built-in key, `in:<type>.<field>`, or the given `id` (for roll-ups and formulas). A field whose key is also a built-in name (e.g. a `type` field) is written `{ field: type }` and has the id `f:type`.
 
@@ -1015,6 +1015,67 @@ Column ids are the field / built-in key, `in:<type>.<field>`, or the given `id` 
 **Fields:** the union of the source types' fields. A key that several types share appears once; types that don't have it show blank.
 
 **Incoming:** offered for every relation field, of any type, whose targets match a source type.
+
+#### Formulas
+
+A formula column calculates a value per row with a small spreadsheet-style expression language (`model/formula.ts`). The language is evaluated by its own interpreter, never as JavaScript.
+
+```yaml
+columns:
+  - formula: "[due] - today()"
+    label: Days left
+    id: days_left
+    type: number        # only when the result type is overridden
+```
+
+- **References:** `[Column]` refers to any column the view could show: its columns, the source types' fields, built-ins, incoming links, roll-ups and other formulas, shown or not.
+  - They're stored by id (`[due]`) and shown by label (`[Due]`); `toStored` / `toDisplay` convert between them. Renaming a field or a column label doesn't break a formula.
+  - A name resolves by label first (ignoring case), then by id.
+- **Syntax:**
+  - Values: numbers, `"text"` (or `'text'`), `true` / `false`.
+  - Arithmetic: `+ - * / %` (`%` is the remainder) and unary minus.
+  - Joining text: `&`.
+  - Comparisons: `= != < <= > >=` (also `==`, `<>`).
+  - Logic: `and`, `or`, `not` (also `&&`, `||`, `!`).
+  - Grouping with brackets, and function calls `name(args)`.
+  - Precedence, from loosest: or, and, not, comparison, `&`, `+ -`, `* / %`, unary minus.
+- **Values:** number, text, true/false, date (whole days, like date cells), list, link.
+  - **Dates:** `date - date` is days; `date ± number` moves by days.
+  - **Empty values:** an empty value makes arithmetic empty and comparisons false. `=` treats empty values as equal to each other.
+  - **Mixed comparisons:** text that reads as a date compares with dates, and numeric text with numbers.
+- **Functions:**
+
+  | Category | Functions |
+  |---|---|
+  | Logic | `if`, `ifs`, `and`, `or`, `not`, `empty`, `coalesce` (lazy: unused branches aren't evaluated) |
+  | Maths | `round`, `floor`, `ceil`, `abs`, `min`, `max`, `sum`, `avg`, `pow`, `sqrt`, `mod`, `number` |
+  | Text | `concat`, `text`, `upper`, `lower`, `trim`, `len`, `left`, `right`, `mid`, `replace`, `contains`, `startsWith`, `format` (column format patterns) |
+  | Dates | `today`, `now`, `date(y, m, d)` / `date(text)`, `year`, `month`, `day`, `weekday` (1 Mon … 7 Sun), `dateAdd`, `dateDiff` (whole units, consistent with `dateAdd`), `startOf`, `endOf` (week / month / year) |
+  | Lists | `count`, `first`, `last`, `join`, `includes`, `unique`, `sort`, `map(list, expr)`, `filter(list, cond)`; `item` is the current element |
+  | Links | `name(link)`, `prop(link, "Field")` (a linked note's field by label or key, or a built-in such as status) |
+
+  Each function has a signature, a description and an example in `FUNCTIONS`; the editor's autocomplete, hover help and reference panel use them.
+- **Types:** the result type is inferred (number, text, true/false, date, list, links, or "any", shown as text) and can be overridden.
+  - The column's kind follows the type, so formulas work in sorting, filters, grouping, highlight rules, summaries and **Format…** like any other column.
+  - With an override, results are converted where possible (e.g. text such as "2027-01-05" to a date). Otherwise the cell gets an error.
+- **Errors:**
+  - **Whole column:** syntax errors, unknown columns, functions or names, wrong argument counts and loops (`Circular reference: A → B → A.`) make the column invalid. Its header is greyed out and its cells show "—" with the message as a tooltip.
+  - **Per row:** runtime problems (division by zero, comparing a date with a number…) are per-row errors. The cell shows a faint "–" with the message, sorts last and counts as empty. Errors in a referenced formula column carry through.
+- **Resolution:** `resolveColumn` compiles the formula against `formulaRefColumns` (the view's possible columns; formula types resolve lazily, with a stack for loop detection) and keeps the compiled tree and the referenced columns.
+  - Top-level resolutions are cached per definition and type list.
+  - `cellOf` evaluates per row. It reads referenced cells with `cellOf`, and linked notes through `ctx.row`.
+- **Editor** (`FormulaModal`): open it from **Columns → Add formula…**, the pencil next to a formula in the Columns panel, the header menu's **Edit formula…**, or by double-clicking a formula cell. It has:
+  - a **Name** box
+  - a CodeMirror editor: colouring for columns, functions, text, numbers, keywords and unknown names, matching brackets, auto-closed brackets and quotes, history, and line wrapping
+  - **autocomplete:** `[` lists the columns with their types; letters list functions grouped by category with their signatures and help
+  - **hover help** on functions and columns
+  - **errors as you type:** a wavy underline at the problem, and a status line showing the message or "Result: Number"
+  - **Result type:** Automatic (inferred) or an override
+  - a **preview** of the first 5 rows of the view
+  - a searchable **reference panel** of columns and functions; clicking one inserts it
+  - **Save** (Ctrl/Cmd+Enter, disabled while there's an error) and **Cancel**. Esc closes the suggestion list first.
+
+  A new column's id comes from its name.
 
 #### Roll-ups
 
@@ -1187,7 +1248,7 @@ highlight:
 - **Editing:**
   - Double-click a cell, or press Enter, to open its editor: a popover with the same control and rules as the properties form.
   - Checkboxes toggle with one click.
-  - Read-only: name, built-ins other than status and tags, incoming links, roll-ups and formulas.
+  - Read-only: name, built-ins other than status and tags, incoming links, roll-ups and formulas. Double-clicking a formula cell opens the formula editor.
   - Edits go into the form's Ctrl/Cmd+Z history. In the table, Ctrl/Cmd+Z undoes the last cell edit.
 - **Keyboard:** arrow keys move the focused cell, Enter edits, Esc cancels.
 - **+ New** (bottom row): creates an entity of the view's type, prefilled from simple top-level `is` / `any-of` conditions with one value. It asks for the type when the view has several.
@@ -1351,6 +1412,7 @@ These cover all of `model/`, with no Obsidian dependency:
   - frozen columns: parse/serialize (removed column dropped), `frozenCount` including a hidden frozen column
   - summaries: parse/serialize (removed columns dropped, the group header toggle), every aggregation, status-order value counts, formatted sums and dates, empty results, options by column kind, `spanText`
 - **formats:** date presets, custom and relative dates; number presets, currencies, custom patterns and their errors.
+- **formula:** tokenizing, precedence, syntax errors with positions; reference resolution by label or id, type inference, unknown columns / names / functions and argument counts; label ↔ id conversion; every function's example compiles; evaluation of arithmetic, dates, comparisons, empty values and runtime errors, and every function category (including lazy logic, `dateAdd` / `dateDiff` month ends, `map` / `filter` / `prop`). In views: per-row values, kinds used for sorting and filtering, formulas using formulas and linked notes' fields, type overrides, invalid columns, loops, per-row errors, round trips.
 - **viewBlock:** finding blocks, and replacing one by line or content, keeping callout prefixes, CRLF, longer fences, and closing an unclosed block.
 - **validation:** every row of §9, with the right `at`.
 - **card:** subtitle composition (several fields, empty values skipped, first line of a textarea); renaming or deleting a field updates `card.subtitle` and `parentFields` in the draft.
@@ -1416,7 +1478,7 @@ Drive a real Obsidian instance via the Chrome DevTools Protocol (Obsidian starte
 | M3 ✅ | **Entity Types view** | Full editor (§8.1): sidebar with groups, group editor (statuses with rename migration, reorder, delete when empty), General/Fields/Relationships/Display tabs, guided relationship dialog, drafts, validation, save bar with migrations, preview (dialog / picker / card, now the properties form), pack import/export, duplicate, reset to starter, delete; settings button, ribbon, command, file menu | Non-technical user can build a domain model end-to-end without editing JSON |
 | M4 ✅ | **Browser** | Groups (or one tree), type headings, hierarchies from parent fields (cross-group option), View menu, filters with dimmed context, reveal active, collapse semantics, row/heading context menus with "New child here", state persistence | Large vaults navigable; hierarchy correct for mixed types |
 | M4.5 ✅ | **Entity properties form** | Form replacing Obsidian's Properties block on entity notes (§8.4): typed controls, link pickers limited to allowed types, rejected invalid input, problems with fixes, Ctrl/Cmd+Z history, Other properties with "Add to type", Change type with move offer, Check entities command; info card removed (settings v3) | Values can only be entered in a form the type allows; problems from elsewhere are visible and fixable |
-| M4.6 ✅ | **Entity views: table** | View notes with an `entity-view` block (§8.10): source types, columns (fields, built-ins, incoming, roll-ups; formulas reserved), filters with groups and relative dates, multi-level sort, group by, inline editing with the form's rules, virtualised rows, autosave, Save as…, New / Open view commands, browser Views section | Named views can be saved, reopened elsewhere, and used to edit entities |
+| M4.6 ✅ | **Entity views: table** | View notes with an `entity-view` block (§8.10): source types, columns (fields, built-ins, incoming, roll-ups; formulas added later), filters with groups and relative dates, multi-level sort, group by, inline editing with the form's rules, virtualised rows, autosave, Save as…, New / Open view commands, browser Views section | Named views can be saved, reopened elsewhere, and used to edit entities |
 | M5 | **Packs & polish** | Type packs (bundled example pack + import/export of groups), template generation, ribbon options, accessibility pass (keyboard navigation in lists, ARIA on toggles), docs | Ready for a public/BRAT release |
 | M6+ | **Modules** | Graph, overview dashboard, bulk edit, Bases generation, domain views | Each behind a module toggle |
 

@@ -3,6 +3,7 @@ import type { EntityInfo } from "./entity";
 import { isEmptyValue } from "./frontmatter";
 import { asArray, parseLabelledEntry, parseLink } from "./links";
 import { formatDate, formatNumber, RELATIVE, type MomentLike } from "./formats";
+import { compile, DateVal, evaluate, FormulaError, FTYPES, isLink, toText, truthy, type Compiled, type EvalEnv, type FType, type FValue, type RefColumn } from "./formula";
 import { COMMON_KEYS, statusesFor, toKey, typeMatchesTarget, type EntityTypeDef, type FieldDef, type GroupDef } from "./types";
 
 // ---------------------------------------------------------------- definition
@@ -64,7 +65,7 @@ export type ColumnDef =
 	| { kind: "field"; id: string; key: string; label?: string }
 	| { kind: "incoming"; id: string; type: string; field: string; label?: string }
 	| { kind: "rollup"; id: string; rollup: RollupDef; label?: string }
-	| { kind: "formula"; id: string; formula: string; label?: string };
+	| { kind: "formula"; id: string; formula: string; label?: string; type?: FType };
 
 export interface Condition {
 	field: string;
@@ -212,7 +213,9 @@ function parseColumn(raw: unknown, errors: string[], taken: Set<string>): Column
 	}
 	if (typeof raw.formula === "string") {
 		const id = str(raw.id) || uniqueId(label ?? "formula");
-		return { kind: "formula", id, formula: raw.formula, ...(label ? { label } : {}) };
+		const type = FTYPES.includes(raw.type as FType) ? { type: raw.type as FType } : {};
+		if (raw.type !== undefined && !type.type) errors.push(`Unknown formula type "${String(raw.type)}". Use ${FTYPES.join(", ")}.`);
+		return { kind: "formula", id, formula: raw.formula, ...(label ? { label } : {}), ...type };
 	}
 	errors.push(`Unknown column: ${JSON.stringify(raw)}.`);
 	return null;
@@ -342,7 +345,7 @@ function serializeColumn(c: ColumnDef): unknown {
 		case "rollup":
 			return { rollup: { ...c.rollup }, ...label, id: c.id };
 		case "formula":
-			return { formula: c.formula, ...label, id: c.id };
+			return { formula: c.formula, ...label, id: c.id, ...(c.type ? { type: c.type } : {}) };
 	}
 }
 
@@ -469,6 +472,8 @@ export interface ResolvedColumn {
 	invalid?: string;
 	/** choices for choice/multi columns (options, statuses, type keys) */
 	options?: string[];
+	/** formula columns: the compiled formula, its referenced columns and its result type */
+	formula?: { compiled: Compiled; refs: Map<string, ResolvedColumn>; type: FType };
 }
 
 const FIELD_VALUE_KIND: Record<string, ValueKind> = {
@@ -524,7 +529,7 @@ function statusOptions(sources: EntityTypeDef[], groups: GroupDef[]): string[] {
 	return out;
 }
 
-export function resolveColumn(col: ColumnDef, def: ViewDef, ctx: Pick<ViewContext, "types" | "groups">): ResolvedColumn {
+export function resolveColumn(col: ColumnDef, def: ViewDef, ctx: Pick<ViewContext, "types" | "groups">, stack: string[] = []): ResolvedColumn {
 	const sources = sourceTypes(def, ctx.types);
 	const base = { def: col, id: col.id };
 	switch (col.kind) {
@@ -569,8 +574,81 @@ export function resolveColumn(col: ColumnDef, def: ViewDef, ctx: Pick<ViewContex
 			return { ...base, label, kind, editable: false, ...(invalid ? { invalid } : {}) };
 		}
 		case "formula":
-			return { ...base, label: col.label ?? "Formula", kind: "text", editable: false, invalid: "Formula columns aren't supported yet." };
+			return resolveFormula(col, def, ctx, stack);
 	}
+}
+
+/** The formula type a column's values have. */
+export const kindToFType = (kind: ValueKind): FType =>
+	kind === "number" ? "number" : kind === "date" ? "date" : kind === "bool" ? "bool" : kind === "multi" ? "list" : kind === "links" ? "links" : "text";
+/** The value kind (for filters, sorting and grouping) of a formula result type. */
+export const ftypeToKind = (t: FType): ValueKind => (t === "number" ? "number" : t === "date" ? "date" : t === "bool" ? "bool" : t === "list" ? "multi" : t === "links" ? "links" : "text");
+
+/**
+ * Columns a formula can refer to: the view's columns plus everything it could show (fields of the source
+ * types, built-ins, incoming links), each once.
+ */
+export function formulaUniverse(def: ViewDef, ctx: Pick<ViewContext, "types" | "groups">): ColumnDef[] {
+	const out: ColumnDef[] = [...def.columns];
+	const a = availableColumns(def, ctx);
+	for (const c of [...a.fields, ...a.builtins, ...a.incoming]) if (!out.some((x) => x.id === c.id)) out.push(c);
+	return out;
+}
+
+/** The universe as formula reference columns (labels and types), for compiling and the editor. Formula types resolve lazily. */
+export function formulaRefColumns(def: ViewDef, ctx: Pick<ViewContext, "types" | "groups">, stack: string[] = []): RefColumn[] {
+	return formulaUniverse(def, ctx).map((c) => {
+		if (c.kind !== "formula") {
+			const r = resolveColumn(c, def, ctx);
+			return { id: c.id, label: r.label, type: kindToFType(r.kind) };
+		}
+		let type: FType | undefined;
+		return {
+			id: c.id,
+			label: c.label ?? "Formula",
+			get type() {
+				type ??= c.type ?? resolveColumn(c, def, ctx, stack).formula?.type ?? "any";
+				return type;
+			},
+		};
+	});
+}
+
+const formulaCache = new WeakMap<ViewDef, WeakMap<object, Map<string, ResolvedColumn>>>();
+
+function resolveFormula(col: Extract<ColumnDef, { kind: "formula" }>, def: ViewDef, ctx: Pick<ViewContext, "types" | "groups">, stack: string[]): ResolvedColumn {
+	const base = { def: col as ColumnDef, id: col.id, label: col.label ?? "Formula", kind: ftypeToKind(col.type ?? "text"), editable: false };
+	const labelOf = (id: string) => (def.columns.find((c) => c.id === id) as { label?: string } | undefined)?.label ?? id;
+	if (stack.includes(col.id)) return { ...base, invalid: `Circular reference: ${[...stack.slice(stack.indexOf(col.id)), col.id].map(labelOf).join(" → ")}.` };
+	// Cache top-level resolutions per definition and type list (the table resolves columns often).
+	const top = stack.length === 0;
+	const cache = top ? formulaCache.get(def)?.get(ctx.types) : undefined;
+	const hit = cache?.get(col.id);
+	if (hit && hit.def === col) return hit;
+	const inner = [...stack, col.id];
+	let out: ResolvedColumn;
+	try {
+		const compiled = compile(col.formula, formulaRefColumns(def, ctx, inner));
+		const refs = new Map<string, ResolvedColumn>();
+		for (const id of compiled.refs) {
+			const c = formulaUniverse(def, ctx).find((x) => x.id === id)!;
+			const r = resolveColumn(c, def, ctx, inner);
+			if (r.invalid && c.kind === "formula") throw new FormulaError(r.invalid.startsWith("Circular") ? r.invalid : `[${r.label}] has a problem: ${r.invalid}`);
+			refs.set(id, r);
+		}
+		const type = col.type ?? compiled.type;
+		out = { ...base, kind: ftypeToKind(type), formula: { compiled, refs, type } };
+	} catch (e) {
+		out = { ...base, invalid: e instanceof FormulaError ? e.message : String(e) };
+	}
+	if (top) {
+		let byTypes = formulaCache.get(def);
+		if (!byTypes) formulaCache.set(def, (byTypes = new WeakMap()));
+		let m = byTypes.get(ctx.types);
+		if (!m) byTypes.set(ctx.types, (m = new Map()));
+		m.set(col.id, out);
+	}
+	return out;
 }
 
 /** Every column the view could show, for the column picker. */
@@ -618,6 +696,8 @@ export interface Cell {
 	text: string;
 	/** comparison key; null sorts last */
 	sort: number | string | null;
+	/** why a formula couldn't be worked out for this row */
+	error?: string;
 }
 
 const EMPTY: Cell = { value: null, text: "", sort: null };
@@ -820,9 +900,105 @@ export function cellOf(row: ViewRow, col: ResolvedColumn, ctx: ViewContext): Cel
 		case "rollup":
 			return rollupCell(row, d.rollup, ctx);
 		case "formula":
-			return EMPTY;
+			return formulaCell(row, col, ctx);
 	}
 }
+
+// ---------------------------------------------------------------- formula cells
+
+/** A cell's value as a formula value, by the column's kind. Formula errors in a referenced column propagate. */
+function cellValue(cell: Cell, col: ResolvedColumn): FValue {
+	if (cell.error) throw new FormulaError(`[${col.label}]: ${cell.error}`);
+	const v = cell.value;
+	switch (col.kind) {
+		case "date":
+			return typeof v === "number" ? new DateVal(v) : null;
+		case "number":
+			return typeof v === "number" ? v : null;
+		case "bool":
+			return v === true;
+		case "multi":
+			return Array.isArray(v) ? (v as string[]) : v === null || v === undefined || v === "" ? [] : [String(v)];
+		case "links":
+			return Array.isArray(v) ? (v as LinkValue[]) : [];
+		default:
+			return v === null || v === undefined || v === "" ? null : String(v);
+	}
+}
+
+/** A linked note's field (by key or label, or a built-in like status), for prop(). */
+function propOf(link: LinkValue, name: string, ctx: ViewContext): FValue {
+	const row = link.path ? ctx.row(link.path) : undefined;
+	if (!row) return null;
+	const n = name.trim().toLowerCase();
+	const field = row.type.fields.find((f) => f.key.toLowerCase() === n) ?? row.type.fields.find((f) => f.label.toLowerCase() === n);
+	const builtin = BUILTINS.find((b) => b === n || BUILTIN_LABELS[b].toLowerCase() === n);
+	const colDef = field ? fieldColumn(field.key) : builtin ? columnFromId(builtin) : null;
+	if (!colDef) throw new FormulaError(`${row.type.name} has no field “${name}”.`);
+	const col = resolveColumn(colDef, emptyView([row.type.key]), ctx);
+	return cellValue(cellOf(row, col, ctx), col);
+}
+
+const numberText = (n: number) => String(Math.round(n * 1e4) / 1e4);
+
+/** A formula result as a cell of the column's type (coercing where it makes sense, otherwise an error). */
+function formulaValueCell(v: FValue, type: FType, ctx: ViewContext): Cell {
+	const env = { dateText: (d: number) => ctx.dates.format(d, "short") };
+	if (v === null || v === "" || (Array.isArray(v) && v.length === 0 && type !== "list" && type !== "links")) return EMPTY;
+	const fail = (what: string): Cell => ({ ...EMPTY, error: `The result isn't ${what}: ${toText(v, env) || "(empty)"}.` });
+	switch (type) {
+		case "number": {
+			const n = typeof v === "number" ? v : typeof v === "boolean" ? Number(v) : typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v)) ? Number(v) : null;
+			if (n === null || !Number.isFinite(n)) return fail("a number");
+			return { value: n, text: numberText(n), sort: n };
+		}
+		case "date": {
+			const days = v instanceof DateVal ? v.days : typeof v === "string" ? ((p) => (p?.ok ? p.value : null))(ctx.dates.parse(v)) : null;
+			return days === null ? fail("a date") : dateCell(days, ctx);
+		}
+		case "bool": {
+			const b = truthy(v);
+			return { value: b, text: b ? "Yes" : "", sort: b ? 0 : 1 };
+		}
+		case "list":
+			return multiCell(asArray(v).map((x) => toText(x as FValue, env)).filter((s) => s !== ""));
+		case "links": {
+			const list = asArray(v);
+			if (!list.every(isLink)) return fail("a link or list of links");
+			return linksCell(list as LinkValue[]);
+		}
+		default: {
+			const s = toText(v, env);
+			return s ? { value: s, text: s, sort: typeof v === "number" ? v : s.toLowerCase() } : EMPTY;
+		}
+	}
+}
+
+function formulaCell(row: ViewRow, col: ResolvedColumn, ctx: ViewContext): Cell {
+	const f = col.formula;
+	if (!f) return EMPTY;
+	const env: EvalEnv = {
+		col: (id) => {
+			const c = f.refs.get(id);
+			return c ? cellValue(cellOf(row, c, ctx), c) : null;
+		},
+		today: ctx.today,
+		prop: (link, name) => propOf(link, name, ctx),
+		dateText: (d) => ctx.dates.format(d, "short"),
+		parseDate: (s) => {
+			const p = ctx.dates.parse(s);
+			return p?.ok ? p.value : null;
+		},
+		format: (v, pattern) =>
+			v instanceof DateVal ? (ctx.moment || pattern === RELATIVE ? formatDate(v.days, pattern, ctx.moment as MomentLike, ctx.today) : ctx.dates.format(v.days, "short")) : formatNumber(v, pattern, ctx.locale ?? "en", ctx.currency),
+	};
+	try {
+		return formulaValueCell(evaluate(f.compiled.ast, env), f.type, ctx);
+	} catch (e) {
+		return { ...EMPTY, error: e instanceof Error ? e.message : String(e) };
+	}
+}
+
 
 // ---------------------------------------------------------------- filters
 
