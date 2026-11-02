@@ -17,11 +17,14 @@ import {
 	frozenCount,
 	GROUP_PATH_SEP,
 	highlightOf,
+	itemAt,
 	parseView,
 	percentile,
 	prefillFromFilters,
 	resolveColumn,
 	rollupSources,
+	rowHeight,
+	rowOffsets,
 	runView,
 	scalePosition,
 	serializeView,
@@ -341,6 +344,27 @@ describe("summaries", () => {
 		expect(summaryOptions(cols[1], ["idea", "done"]).map((o) => o.key).slice(0, 3)).toEqual(["values", "percent:idea", "percent:done"]);
 		expect(summaryOptions(cols[2]).map((o) => o.key).slice(0, 3)).toEqual(["earliest", "latest", "range"]);
 		expect([1, 13, 20, 59, 120, 400, 1000].map(spanText)).toEqual(["1 day", "13 days", "3 weeks", "8 weeks", "4 months", "13 months", "2.7 years"]);
+	});
+});
+
+describe("density and wrapping", () => {
+	it("round-trip, leaving out defaults, dropping removed columns and reporting a bad density", () => {
+		const def = view({ columns: ["status", "due"], density: "compact", wrap: ["due", "due", "gone"], wrapLines: 3 });
+		expect([def.density, def.wrap, def.wrapLines]).toEqual(["compact", ["due", "gone"], 3]);
+		expect(serializeView(def)).toMatchObject({ density: "compact", wrap: ["due"], wrapLines: 3 });
+		const plain = serializeView(view({ columns: ["status"], density: "normal", wrapLines: 5 }));
+		expect([plain.density, plain.wrap, plain.wrapLines]).toEqual([undefined, undefined, undefined]);
+		expect(view({ wrapLines: "unlimited" }).wrapLines).toBe(0);
+		expect(serializeView(view({ wrapLines: "unlimited" })).wrapLines).toBe("unlimited");
+		expect(parseView({ density: "cosy" }).errors).toEqual(['Unknown density "cosy". Use compact, normal or comfortable.']);
+		expect([rowHeight({}), rowHeight({ density: "compact" }), rowHeight({ density: "comfortable" })]).toEqual([34, 26, 44]);
+	});
+
+	it("find rows of different heights by position", () => {
+		const off = rowOffsets([34, 80, 34, 120]);
+		expect(off).toEqual([0, 34, 114, 148, 268]);
+		expect([itemAt(off, 0), itemAt(off, 33), itemAt(off, 34), itemAt(off, 113), itemAt(off, 150), itemAt(off, 999), itemAt(off, -5)]).toEqual([0, 0, 1, 1, 3, 3, 0]);
+		expect(itemAt(rowOffsets([]), 10)).toBe(0);
 	});
 });
 

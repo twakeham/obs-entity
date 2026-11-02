@@ -1,5 +1,5 @@
 import { Menu, Notice, TFile, stringifyYaml } from "obsidian";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import type { FieldProblem } from "../../../model/form";
@@ -15,13 +15,17 @@ import {
 	flattenGroups,
 	frozenCount,
 	highlightOf,
+	itemAt,
 	OPERATORS,
 	prefillFromFilters,
 	resolveColumn,
 	ROW_TARGET,
+	rowHeight,
+	rowOffsets,
 	runView,
 	serializeView,
 	sourceTypes,
+	WRAP_LINES_DEFAULT,
 	type ColumnDef,
 	type ResolvedColumn,
 	type ResultGroup,
@@ -52,7 +56,6 @@ interface Session {
 }
 const sessions = new Map<string, Session>();
 
-const ROW_H = 34;
 const HEAD_H = 34;
 const SELECT_W = 36;
 const DEFAULT_W: Record<string, number> = { text: 170, number: 100, date: 120, choice: 120, multi: 170, bool: 80, links: 200, folder: 180 };
@@ -80,6 +83,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	const version = useRelationsVersion();
 	const session = useMemo(() => sessions.get(stateKey) ?? { search: "", collapsed: [], selected: [], scrollTop: 0 }, [stateKey]);
 	const [def, setDef] = useState(initial);
+	const ROW_H = rowHeight(def);
 	const [search, setSearch] = useState(session.search);
 	const [collapsed, setCollapsed] = useState(() => new Set(session.collapsed));
 	const [selected, setSelected] = useState(() => new Set(session.selected));
@@ -261,9 +265,41 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 			setScrolledX(left > 0);
 		});
 	};
-	const first = Math.max(0, Math.floor((scrollTop - HEAD_H) / ROW_H) - 10);
-	const last = Math.min(items.length, Math.ceil((scrollTop + SCROLL_BLOCK + viewport) / ROW_H) + 10);
+	// Row heights: the density's height, or (with wrapped columns) each drawn row's measured height, estimated
+	// for rows not drawn yet. Measurements are dropped when anything that changes heights changes.
+	const wrapCols = new Set((def.wrap ?? []).filter((id) => columns.some((c) => c.id === id)));
+	const wrapLines = def.wrapLines ?? WRAP_LINES_DEFAULT;
+	const variable = wrapCols.size > 0;
+	const measured = useRef(new Map<string, number>());
+	const layoutKey = useRef("");
+	const [measureTick, setMeasureTick] = useState(0);
+	const nextLayout = JSON.stringify([ROW_H, def.wrap, def.wrapLines, def.widths, def.fill, areaW, columns.map((c) => c.id)]);
+	if (layoutKey.current !== nextLayout) {
+		layoutKey.current = nextLayout;
+		measured.current = new Map();
+	}
+	const itemKey = (it: Item) => (it.kind === "group" ? `g:${it.key}` : `r:${it.r.row.path}`);
+	const offsets = useMemo(
+		() => rowOffsets(items.map((it) => (variable ? (measured.current.get(itemKey(it)) ?? ROW_H) : ROW_H))),
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+		[items, variable, ROW_H, measureTick, nextLayout],
+	);
+	const first = Math.max(0, itemAt(offsets, scrollTop - HEAD_H) - 10);
+	const last = Math.min(items.length, itemAt(offsets, scrollTop + SCROLL_BLOCK + viewport) + 11);
 	const visible = items.slice(first, last);
+	useLayoutEffect(() => {
+		if (!variable) return;
+		let changed = false;
+		scrollRef.current?.querySelectorAll<HTMLElement>("tbody > tr[data-k]").forEach((tr) => {
+			const h = tr.getBoundingClientRect().height;
+			const k = tr.dataset.k!;
+			if (Math.abs((measured.current.get(k) ?? ROW_H) - h) > 0.5) {
+				measured.current.set(k, h);
+				changed = true;
+			}
+		});
+		if (changed) setMeasureTick((t) => t + 1);
+	});
 
 	// ---- actions
 	const write = (path: string, key: string, value: unknown) => {
@@ -513,6 +549,21 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					}),
 			);
 		}
+		{
+			const on = (def.wrap ?? []).includes(c.id);
+			m.addItem((i) =>
+				i
+					.setSection("width")
+					.setTitle("Wrap text")
+					.setIcon("wrap-text")
+					.setChecked(on)
+					.onClick(() => {
+						const cur = defRef.current;
+						const wrap = cur.wrap ?? [];
+						update({ ...cur, wrap: on ? wrap.filter((id) => id !== c.id) : [...wrap, c.id] });
+					}),
+			);
+		}
 		if (fk) {
 			const th = e.currentTarget as HTMLElement;
 			m.addItem((i) =>
@@ -641,6 +692,47 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					void navigator.clipboard.writeText(`\`\`\`${VIEW_BLOCK}\n${stringifyYaml(serializeView(defRef.current))}\`\`\`\n`);
 					new Notice("Copied the view's block. Paste it into any note.");
 				}),
+		);
+		const densities = [
+			["compact", "Compact rows", "rows-4"],
+			["normal", "Normal rows", "rows-3"],
+			["comfortable", "Comfortable rows", "rows-2"],
+		] as const;
+		for (const [d, title, icon] of densities)
+			m.addItem((i) =>
+				i
+					.setSection("layout")
+					.setTitle(title)
+					.setIcon(icon)
+					.setChecked((def.density ?? "normal") === d)
+					.onClick(() => {
+						const { density: _, ...rest } = defRef.current;
+						update(d === "normal" ? rest : { ...rest, density: d });
+					}),
+			);
+		const lines = def.wrapLines ?? WRAP_LINES_DEFAULT;
+		const at = { x: e.clientX, y: e.clientY };
+		m.addItem((i) =>
+			i
+				.setSection("layout")
+				.setTitle(`Wrapped text: ${lines ? `up to ${lines} lines` : "all lines"}…`)
+				.setIcon("wrap-text")
+				.onClick(() =>
+					window.setTimeout(() => {
+						const sub = new Menu();
+						for (const n of [2, 3, 5, 10, 0])
+							sub.addItem((i) =>
+								i
+									.setTitle(n ? `Up to ${n} lines` : "Unlimited")
+									.setChecked(lines === n)
+									.onClick(() => {
+										const { wrapLines: _, ...rest } = defRef.current;
+										update(n === WRAP_LINES_DEFAULT ? rest : { ...rest, wrapLines: n });
+									}),
+							);
+						sub.showAtPosition(at);
+					}, 0),
+				),
 		);
 		m.showAtMouseEvent(e.nativeEvent);
 	};
@@ -776,9 +868,10 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		const el = scrollRef.current;
 		const idx = items.findIndex((i) => i.kind === "row" && i.n === n);
 		if (!el || idx < 0) return;
-		const top = HEAD_H + idx * ROW_H;
+		const top = HEAD_H + offsets[idx];
+		const h = offsets[idx + 1] - offsets[idx];
 		if (top < el.scrollTop + HEAD_H) el.scrollTop = top - HEAD_H;
-		else if (top + ROW_H > el.scrollTop + el.clientHeight) el.scrollTop = top + ROW_H - el.clientHeight;
+		else if (top + h > el.scrollTop + el.clientHeight) el.scrollTop = top + h - el.clientHeight;
 	};
 	const cellEl = (r: number, c: number) => scrollRef.current?.querySelector<HTMLElement>(`td[data-r="${r}"][data-c="${c}"]`);
 
@@ -904,7 +997,12 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	const editCol = editing ? columns.find((c) => c.id === editing.col) : undefined;
 
 	return (
-		<div ref={viewRef} className={`oe-view${fill ? " is-fill" : ""}`} data-view-kind={def.kind}>
+		<div
+			ref={viewRef}
+			className={`oe-view${fill ? " is-fill" : ""}${def.density ? ` is-${def.density}` : ""}`}
+			data-view-kind={def.kind}
+			style={{ "--oe-row-h": `${ROW_H}px`, "--oe-wrap-lines": wrapLines || "none" } as CSSProperties}
+		>
 			<div className="oe-view-toolbar">
 				<span className="oe-view-source">
 					<Icon name={sources.length === 1 ? sources[0].icon : "table"} />
@@ -1034,7 +1132,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					<tbody>
 						{first > 0 && (
 							<tr className="oe-spacer-row">
-								<td colSpan={columns.length + 2} style={{ height: first * ROW_H }} />
+								<td colSpan={columns.length + 2} style={{ height: offsets[first] }} />
 							</tr>
 						)}
 						{visible.map((it) => {
@@ -1059,6 +1157,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 								return (
 									<tr
 										key={`g:${it.key}`}
+										data-k={`g:${it.key}`}
 										className={`oe-group-row is-level-${Math.min(it.level, 3)}${gs ? " has-summaries" : ""}`}
 										onClick={toggle}
 										onContextMenu={(e) => groupMenu(e, it.level)}
@@ -1100,7 +1199,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 							const rowRule = r.hl?.[ROW_TARGET] !== undefined ? def.highlight[r.hl[ROW_TARGET]] : undefined;
 							const rowFill = rowRule?.style.fill ? ` oe-hl-fill oe-hl-fill-${rowRule.style.fill}` : "";
 							return (
-								<tr key={`r:${it.n}:${path}`} className={`oe-tr${selected.has(path) ? " is-selected" : ""}`} style={{ "--oe-type-color": r.row.type.color } as CSSProperties} onContextMenu={(e) => rowMenu(e, r)}>
+								<tr key={`r:${it.n}:${path}`} data-k={`r:${path}`} className={`oe-tr${selected.has(path) ? " is-selected" : ""}`} style={{ "--oe-type-color": r.row.type.color } as CSSProperties} onContextMenu={(e) => rowMenu(e, r)}>
 									<td className={`oe-td-select${rowFill}${freezeCls(-1)}`} style={freezeStyle(-1)}>
 										<input type="checkbox" checked={selected.has(path)} aria-label={`Select ${r.row.name}`} onChange={() => {}} onClick={(e) => selectRow(it.n, path, e.shiftKey)} />
 									</td>
@@ -1135,8 +1234,8 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 												key={c.id}
 												data-r={it.n}
 												data-c={ci}
-												className={`oe-td${focused ? " is-focused" : ""}${target ? " is-editable" : ""}${problem ? ` has-problem is-${problem.severity}` : ""}${hl ? ` ${hlClasses(hl.style)}` : ""}${bar ? " has-bar" : ""}${bar && barRule?.bar?.barOnly ? " is-bar-only" : ""}${freezeCls(ci)}`}
-												aria-label={problem?.message ?? (bar && barRule?.bar?.barOnly ? r.cells[c.id]?.text : undefined)}
+												className={`oe-td${focused ? " is-focused" : ""}${target ? " is-editable" : ""}${problem ? ` has-problem is-${problem.severity}` : ""}${hl ? ` ${hlClasses(hl.style)}` : ""}${bar ? " has-bar" : ""}${bar && barRule?.bar?.barOnly ? " is-bar-only" : ""}${wrapCols.has(c.id) ? " is-wrap" : ""}${freezeCls(ci)}`}
+												aria-label={problem?.message ?? (bar && barRule?.bar?.barOnly ? r.cells[c.id]?.text : wrapCols.has(c.id) && wrapLines ? r.cells[c.id]?.text || undefined : undefined)}
 												// The first column is indented to the row's grouping depth, in line with its group's label (after the chevron).
 												style={freezeStyle(ci, Object.keys(tdStyle).length ? tdStyle : undefined)}
 												onClick={() => {
@@ -1167,7 +1266,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 														) : (
 															<CellView col={c} cell={r.cells[c.id]} row={r.row} onToggle={target && c.kind === "bool" ? (v) => write(path, target.key, v) : undefined} />
 														);
-													const shown = hlIcon ? (
+													const inner = hlIcon ? (
 														<span className="oe-hl-cell">
 															{hlIcon}
 															{content}
@@ -1175,6 +1274,8 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 													) : (
 														content
 													);
+													// Wrapped columns: the content wraps, up to the view's line limit.
+													const shown = wrapCols.has(c.id) ? <div className="oe-wrap">{inner}</div> : inner;
 													return bar ? (
 														<>
 															{bar}
@@ -1193,7 +1294,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 						})}
 						{last < items.length && (
 							<tr className="oe-spacer-row">
-								<td colSpan={columns.length + 2} style={{ height: (items.length - last) * ROW_H }} />
+								<td colSpan={columns.length + 2} style={{ height: offsets[items.length] - offsets[last] }} />
 							</tr>
 						)}
 					</tbody>

@@ -2740,9 +2740,8 @@ button.oe-tm-typegroup-title,
 
 .oe-view table.oe-table > thead > tr > th,
 .oe-view table.oe-table > tbody > tr > td {
-	height: 34px;
-	max-height: 34px;
-	padding: 0 8px;
+	height: var(--oe-row-h, 34px);
+	padding: 0 var(--oe-cell-pad-x, 8px);
 	border: none;
 	border-bottom: 1px solid var(--background-modifier-border);
 	border-right: 1px solid color-mix(in srgb, var(--background-modifier-border) 60%, transparent);
@@ -2759,6 +2758,8 @@ button.oe-tm-typegroup-title,
 	position: sticky;
 	top: 0;
 	z-index: 2;
+	/* The header keeps its height whatever the row density. */
+	height: 34px;
 	background-color: var(--background-secondary);
 	font-weight: var(--font-semibold);
 	color: var(--text-muted);
@@ -3497,8 +3498,8 @@ button.oe-tm-typegroup-title,
 	position: sticky;
 	bottom: 0;
 	z-index: 2;
-	height: 30px;
-	padding: 0 8px;
+	height: var(--oe-sum-h, 30px);
+	padding: 0 var(--oe-cell-pad-x, 8px);
 	border: none;
 	border-top: 1px solid var(--background-modifier-border);
 	/* The bottom edge is a shadow, not a border: pinned to the bottom it's clipped by the scroll area, so it
@@ -4085,4 +4086,96 @@ td.is-bar-only .oe-bar {
 .oe-popover button.oe-scale-preset.is-active {
 	opacity: 1;
 	box-shadow: 0 0 0 2px var(--background-secondary), 0 0 0 4px var(--interactive-accent);
+}/* Row density: the row height comes from the view (--oe-row-h); the summary row and padding follow it */
+.oe-view.is-compact {
+	--oe-sum-h: 24px;
+	--oe-cell-pad-x: 6px;
+}
+
+.oe-view.is-comfortable {
+	--oe-sum-h: 36px;
+	--oe-cell-pad-x: 10px;
+}
+
+.oe-view.is-compact table.oe-table > tbody .oe-chip {
+	padding: 0 5px 0 3px;
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-view.is-compact table.oe-table > tbody .oe-pill {
+	padding: 0 6px;
+}
+
+.oe-view.is-compact .oe-bar {
+	top: 4px;
+	bottom: 4px;
+}
+
+.oe-view.is-compact td.is-bar-only .oe-bar {
+	top: 7px;
+	bottom: 7px;
+}
+
+.oe-view.is-comfortable .oe-bar {
+	top: 9px;
+	bottom: 9px;
+}
+
+.oe-view.is-comfortable td.is-bar-only .oe-bar {
+	top: 13px;
+	bottom: 13px;
+}
+
+/* Wrapped columns: the row grows to fit, up to --oe-wrap-lines lines ("none" = unlimited) */
+.oe-view table.oe-table > tbody > tr > td.is-wrap {
+	padding-top: 4px;
+	padding-bottom: 4px;
+	white-space: normal;
+	text-overflow: clip;
+	overflow-wrap: break-word;
+}
+
+.oe-wrap {
+	display: block;
+	min-width: 0;
+}
+
+.oe-wrap .oe-cell-text,
+.oe-wrap .oe-cell-number,
+.oe-wrap .oe-table-name > span {
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: var(--oe-wrap-lines);
+	overflow: hidden;
+	white-space: normal;
+}
+
+.oe-wrap .oe-table-name {
+	align-items: flex-start;
+}
+
+.oe-wrap .oe-table-name > .oe-chip-icon {
+	margin-top: 2px;
+}
+
+.oe-wrap .oe-hl-cell {
+	align-items: flex-start;
+}
+
+/* Chips and pills wrap onto more lines; "none" makes the calc invalid, so there's no limit */
+.oe-wrap .oe-cell-chips,
+.oe-wrap .oe-cell-pills {
+	flex-wrap: wrap;
+	row-gap: 3px;
+	max-height: calc(var(--oe-wrap-lines) * 25px - 3px);
+}
+
+.oe-view.is-compact .oe-wrap .oe-cell-chips,
+.oe-view.is-compact .oe-wrap .oe-cell-pills {
+	max-height: calc(var(--oe-wrap-lines) * 21px - 3px);
+}
+
+.oe-wrap .oe-bar-value,
+td.is-wrap .oe-bar-value {
+	white-space: normal;
 }

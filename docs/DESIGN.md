@@ -993,6 +993,9 @@ filters: { all: [{ field: status, op: is-not, value: done }] }
 | `widths` | Column id → width in px. For fill columns, the minimum width. |
 | `fill` | A column id, or a list of them, that grows to fill spare width (see Table). Optional. |
 | `freeze` | The last frozen column's id: it and every column to its left stay visible when scrolling sideways (see Table). Optional. |
+| `density` | Row height: `compact` (26px), `normal` (34px) or `comfortable` (44px). Only written when not normal. |
+| `wrap` | Column ids whose text wraps onto more lines; the row grows to fit (see Table). Optional. |
+| `wrapLines` | The most lines a wrapped cell shows: a number, or `unlimited`. Default 5, and only written when different. |
 | `sort` | Sort levels: `{ by: <column id>, dir: asc \| desc }`. |
 | `group` | Grouping levels, outermost first: a list of `{ by: <column id>, date?: month \| year }` (or just the column id). Always a list, even for one level; any number of levels. Optional. |
 | `groupSummaries` | `false` hides column summaries in group headers. Only written when off. |
@@ -1261,7 +1264,12 @@ highlight:
 
 #### Table
 
-- **Toolbar:** quick search · Filters (n) · Sort (n) · Group · Highlight (n) · Columns · ⋯ (Save as…, Rename, Edit definition, Copy block).
+- **Toolbar:** quick search · Filters (n) · Sort (n) · Group · Highlight (n) · Columns · ⋯ (Save as…, Rename, Edit definition, Copy block, row density, wrapped text lines).
+- **Row density:** ⋯ → **Compact rows** / **Normal rows** / **Comfortable rows** (ticked) sets the row height to 26 / 34 / 44px. Group headers follow it, and so does the summary row (24 / 30 / 36px). Compact also tightens cell padding, chips and pills. The header stays 34px.
+- **Wrap text:** right-click a header → **Wrap text** (a checked toggle).
+  - The column's text, chips and pills (and the name) wrap onto more lines, and its rows grow to fit. Rows without long values keep the density's height.
+  - ⋯ → **Wrapped text: up to N lines…** picks 2, 3, 5 (default), 10 or Unlimited. Text past the limit ends in an ellipsis, with the full text as the cell's tooltip; chips and pills past it are cut off.
+  - Text is clamped with `-webkit-line-clamp: var(--oe-wrap-lines)`; chips and pills use a `max-height` from the same variable. `none` (unlimited) makes the `calc` invalid, so there's no limit.
 - **Header:** sort arrows. Drag a header to reorder, and drag its right edge to resize.
 - **Auto-fit:** double-click a column's resize handle, or right-click its header → **Auto-fit width**, to size it to its contents. **Auto-fit all columns** does every shown column.
   - Because the grid only draws the rows in view, the column is measured by drawing its header (with any sort arrow), every shown row (name icons, chips, pills, highlight icons and the group indent included) and its summary off-screen in an auto-sized copy of the table. Each column's natural width becomes its width.
@@ -1293,7 +1301,8 @@ highlight:
 - **Bulk actions:** see below.
 - **+ New** (bottom row): creates an entity of the view's type, prefilled from simple top-level `is` / `any-of` conditions with one value. It asks for the type when the view has several.
 - **Footer:** "12 of 40 · 2 selected". Above it, inside the grid, is the sticky summary row (§ Summaries).
-- **Large views:** rows are virtualised (fixed row height) inside a scroll area, so thousands of rows stay smooth.
+- **Large views:** rows are virtualised inside a scroll area, so thousands of rows stay smooth.
+  - **Row heights:** without wrapped columns every row is the density's height. With them, each drawn row (and group header) is measured after rendering, keyed by its note path or group key; rows not drawn yet are estimated at the density's height. `rowOffsets` turns the heights into running offsets, and `itemAt` (a binary search) finds the rows in view. Measurements are dropped when the density, wrapped columns, line limit, widths or pane width change.
   - **Scrolling:** the scroll position is read once per frame and rounded down to a 5-row block, so the grid only re-renders when the drawn rows must change. The 10-row buffer either side covers the rest.
   - **GPU scrolling:** the scroll area has an opaque background and `will-change: scroll-position`, so Chromium scrolls it on the GPU. Without that it repainted on the main thread while the frozen (sticky) cells, which are GPU layers, moved ahead of the other columns.
 
@@ -1490,6 +1499,7 @@ These cover all of `model/`, with no Obsidian dependency:
   - data bars and colour scales: round trips without defaults and errors for bad kinds and colours; bars from zero, fixed bounds, clamping, negative values from the zero line; date bars; empty cells; conditions limiting rows and bounds; two- and three-colour scales, percentiles and relative dates; leaving highlights alone; hidden and disabled rules; a bar and a scale on one column
   - fill columns: parse/serialize as a name or list, proportional sharing, rounding to the exact width, nothing when there's no spare width
   - frozen columns: parse/serialize (removed column dropped), `frozenCount` including a hidden frozen column
+  - density and wrapping: parse/serialize without defaults, `unlimited` lines, repeated and removed wrap columns dropped, an error for a bad density; `rowHeight`, `rowOffsets`, `itemAt` at and between boundaries
   - summaries: parse/serialize (removed columns dropped, the group header toggle), every aggregation, status-order value counts, formatted sums and dates, empty results, options by column kind, `spanText`
 - **formats:** date presets, custom and relative dates; number presets, currencies, custom patterns and their errors.
 - **formula:** tokenizing, precedence, syntax errors with positions; reference resolution by label or id, type inference, unknown columns / names / functions and argument counts; label ↔ id conversion; every function's example compiles; evaluation of arithmetic, dates, comparisons, empty values and runtime errors, and every function category (including lazy logic, `dateAdd` / `dateDiff` month ends, `map` / `filter` / `prop`). In views: per-row values, kinds used for sorting and filtering, formulas using formulas and linked notes' fields, type overrides, invalid columns, loops, per-row errors, round trips.

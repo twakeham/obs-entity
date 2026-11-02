@@ -204,7 +204,10 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
   - Drag headers to reorder, and drag their edges to resize. Double-click a header's edge (or right-click → **Auto-fit width**) to fit the column to its contents; **Auto-fit all columns** fits them all.
   - Right-click a header → **Fill available width** to make that column stretch to use the spare width, e.g. a long Description or Mitigation column. Its width becomes a minimum: in a narrow pane it stays at that width and the table scrolls.
   - Right-click a header → **Freeze** to keep that column and everything to its left in view while scrolling sideways. Choose it again to unfreeze.
+  - Right-click a header → **Wrap text** to let long values (text, links, tags) wrap onto more lines, e.g. a Mitigation or Description column. Rows grow to fit, up to 5 lines by default; longer text ends in "…" and shows in full when you hover over the cell.
 - **⋯:** Save as…, Rename, Edit definition, Copy block.
+  - **Compact rows**, **Normal rows**, **Comfortable rows:** the row height (26, 34 or 44px), to fit more rows on screen or give them more room.
+  - **Wrapped text: up to N lines…:** how many lines a wrapped cell can show: 2, 3, 5, 10 or Unlimited.
 
 **Formats:** right-click a number or date column's header → **Format…**.
 - **Dates:** presets (2026-12-15, 15 Dec 2026, Tue 15 Dec, 15/12/2026, December 2026…), **Relative** ("in 6 weeks"), or any moment.js pattern such as `D MMM YYYY`.

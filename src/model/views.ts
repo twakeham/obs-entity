@@ -155,6 +155,12 @@ export interface ViewDef {
 	fill: string[];
 	/** the last frozen column: it and every column to its left stay visible when scrolling sideways */
 	freeze?: string;
+	/** row height: compact or comfortable (normal when unset) */
+	density?: "compact" | "comfortable";
+	/** columns whose text wraps (rows grow to fit) */
+	wrap: string[];
+	/** most lines a wrapped cell shows (0: unlimited; 5 when unset) */
+	wrapLines?: number;
 	/** column id → display format (numbers and dates; see formats.ts) */
 	formats: Record<string, string>;
 	/** column id → summary aggregation (see summary.ts) */
@@ -173,8 +179,36 @@ export interface ViewDef {
 
 export const NAME_COLUMN: ColumnDef = { kind: "builtin", id: "name", key: "name" };
 
+/** Lines a wrapped cell shows unless the view says otherwise. */
+export const WRAP_LINES_DEFAULT = 5;
+/** Row heights (px) per density. */
+export const DENSITY_ROW_H = { compact: 26, normal: 34, comfortable: 44 } as const;
+export const rowHeight = (def: Pick<ViewDef, "density">) => DENSITY_ROW_H[def.density ?? "normal"];
+
+/** Top offsets of items with the given heights (one more entry than items: the total at the end). */
+export function rowOffsets(heights: number[]): number[] {
+	const out = new Array<number>(heights.length + 1);
+	out[0] = 0;
+	for (let i = 0; i < heights.length; i++) out[i + 1] = out[i] + heights[i];
+	return out;
+}
+
+/** The item at a vertical position (clamped to the items), by binary search over the offsets. */
+export function itemAt(offsets: number[], y: number): number {
+	const n = offsets.length - 1;
+	if (n <= 0) return 0;
+	let lo = 0;
+	let hi = n - 1;
+	while (lo < hi) {
+		const mid = (lo + hi + 1) >> 1;
+		if (offsets[mid] <= y) lo = mid;
+		else hi = mid - 1;
+	}
+	return lo;
+}
+
 export function emptyView(types: string[] = ["*"]): ViewDef {
-	return { kind: "table", types, columns: [NAME_COLUMN], widths: {}, fill: [], formats: {}, summary: {}, sort: [], group: [], filters: { mode: "all", items: [] }, highlight: [] };
+	return { kind: "table", types, columns: [NAME_COLUMN], widths: {}, fill: [], wrap: [], formats: {}, summary: {}, sort: [], group: [], filters: { mode: "all", items: [] }, highlight: [] };
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -303,6 +337,11 @@ export function parseView(raw: unknown): { def: ViewDef | null; errors: string[]
 	if (isObj(raw.widths)) for (const [k, v] of Object.entries(raw.widths)) if (typeof v === "number" && v > 0) widths[k] = Math.round(v);
 	const fill = [...new Set(asArray(raw.fill).filter((v): v is string => typeof v === "string" && !!v.trim()).map((v) => v.trim()))];
 	const freeze = typeof raw.freeze === "string" && raw.freeze.trim() ? { freeze: raw.freeze.trim() } : {};
+	const density = raw.density === "compact" || raw.density === "comfortable" ? { density: raw.density as "compact" | "comfortable" } : {};
+	if (raw.density !== undefined && raw.density !== "normal" && !density.density) errors.push(`Unknown density "${String(raw.density)}". Use compact, normal or comfortable.`);
+	const wrap = [...new Set(asArray(raw.wrap).filter((v): v is string => typeof v === "string" && !!v.trim()).map((v) => v.trim()))];
+	const lines = raw.wrapLines === "unlimited" ? 0 : typeof raw.wrapLines === "number" && raw.wrapLines >= 0 ? Math.round(raw.wrapLines) : undefined;
+	const wrapLines = lines !== undefined && lines !== WRAP_LINES_DEFAULT ? { wrapLines: lines } : {};
 	const formats: Record<string, string> = {};
 	if (isObj(raw.formats)) for (const [k, v] of Object.entries(raw.formats)) if (typeof v === "string" && v.trim()) formats[k] = v;
 	const summary: Record<string, string> = {};
@@ -334,7 +373,7 @@ export function parseView(raw: unknown): { def: ViewDef | null; errors: string[]
 	const filters = parseFilterItems(raw.filters, errors, 0) ?? { mode: "all", items: [] };
 	const highlight = parseHighlight(raw.highlight, errors);
 	if (errors.length && !VIEW_KINDS.includes(kind)) return { def: null, errors };
-	return { def: { kind, types: types.length ? types : ["*"], columns, widths, fill, ...freeze, formats, summary, sort, group, ...groupSummaries, ...groupFieldNames, filters, highlight }, errors };
+	return { def: { kind, types: types.length ? types : ["*"], columns, widths, fill, ...freeze, ...density, wrap, ...wrapLines, formats, summary, sort, group, ...groupSummaries, ...groupFieldNames, filters, highlight }, errors };
 }
 
 const isColor = (v: unknown): v is HighlightColor => HIGHLIGHT_COLORS.includes(v as HighlightColor);
@@ -440,6 +479,10 @@ export function serializeView(def: ViewDef): Record<string, unknown> {
 	const fill = (def.fill ?? []).filter((id) => def.columns.some((c) => c.id === id));
 	if (fill.length) out.fill = fill.length === 1 ? fill[0] : fill;
 	if (def.freeze && def.columns.some((c) => c.id === def.freeze)) out.freeze = def.freeze;
+	if (def.density) out.density = def.density;
+	const wrap = (def.wrap ?? []).filter((id) => def.columns.some((c) => c.id === id));
+	if (wrap.length) out.wrap = wrap;
+	if (def.wrapLines !== undefined && def.wrapLines !== WRAP_LINES_DEFAULT) out.wrapLines = def.wrapLines === 0 ? "unlimited" : def.wrapLines;
 	const formats = Object.fromEntries(Object.entries(def.formats ?? {}).filter(([id]) => def.columns.some((c) => c.id === id)));
 	if (Object.keys(formats).length) out.formats = formats;
 	const summary = Object.fromEntries(Object.entries(def.summary ?? {}).filter(([id]) => def.columns.some((c) => c.id === id)));
