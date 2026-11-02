@@ -1370,7 +1370,7 @@ Bucket keys are the value (a status or choice), `yes` / `no` (checkboxes), the n
 - **Not saved:** collapsed swimlanes, the selection, "Show more" and scroll positions (kept for the session, like the table's).
 - **+ New** and **Add card** prefill the bucket's (and swimlane's) value, as well as the filters' values.
 - **Notes:**
-  - Cards carry no `aria-label`: Obsidian shows any `aria-label` as a tooltip on hover. A visually hidden span gives screen readers the bucket ("Status: todo").
+  - Cards and the board region carry no `aria-label`: Obsidian shows any `aria-label` as a tooltip on hover (the region's showed "Board" over empty board space). Visually hidden spans name them for screen readers instead (the region via `aria-labelledby`; cards get their bucket, "Status: todo").
   - Cards have a fixed width (`--oe-card-w`); a bucket is as wide as its cards plus a stable scrollbar gutter, and an empty bucket's body is still a card wide.
   - With swimlanes, the board's `scroll-padding-top` is set to the sticky header row's height, so a card scrolled into view (focus, auto-scroll) isn't hidden under it.
   - The drop target is worked out before the drag state is cleared on release (an early version cleared it first and dropped nothing).

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent as RPointerEvent, type ReactNode, type UIEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent as RPointerEvent, type ReactNode, type UIEvent } from "react";
 import { BUCKET_NONE, BUCKET_PAGE, bucketsOf, boardOf, cardWidth, isBucketColumn, orderRows, reorder, type Bucket } from "../../../model/board";
 import { highlightOf, ROW_TARGET, type Cell, type GroupBy, type ResolvedColumn, type ResultGroup, type ResultRow, type ViewContext, type ViewDef, type ViewResult } from "../../../model/views";
 import type { SummaryResult } from "../../../model/summary";
@@ -81,6 +81,7 @@ export function Board(p: BoardProps) {
 	const board = boardOf(def);
 	const sorted = def.sort.length > 0;
 	const scrollRef = useRef<HTMLDivElement>(null);
+	const labelId = useId();
 	const [focus, setFocus] = useState<string | null>(null);
 	const [pages, setPages] = useState<Record<string, number>>({});
 	const [dragging, setDragging] = useState<string[] | null>(null);
@@ -674,8 +675,12 @@ export function Board(p: BoardProps) {
 			onKeyDown={onKeyDown}
 			onScroll={remember}
 			role="region"
-			aria-label="Board"
+			// Named by a hidden label: Obsidian shows any aria-label as a tooltip, here over the whole board.
+			aria-labelledby={labelId}
 		>
+			<span id={labelId} className="oe-sr-only">
+				Board
+			</span>
 			{hasLanes ? (
 				<>
 					<div className="oe-board-heads">
