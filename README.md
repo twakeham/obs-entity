@@ -201,7 +201,7 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
   - built-ins: type, status, tags, aliases, related, folder, created, modified
   - **incoming links**, e.g. "People" on organisations
   - **roll-ups**
-  - Drag headers to reorder, and drag their edges to resize.
+  - Drag headers to reorder, and drag their edges to resize. Double-click a header's edge (or right-click → **Auto-fit width**) to fit the column to its contents; **Auto-fit all columns** fits them all.
   - Right-click a header → **Fill available width** to make that column stretch to use the spare width, e.g. a long Description or Mitigation column. Its width becomes a minimum: in a narrow pane it stays at that width and the table scrolls.
   - Right-click a header → **Freeze** to keep that column and everything to its left in view while scrolling sideways. Choose it again to unfreeze.
 - **⋯:** Save as…, Rename, Edit definition, Copy block.

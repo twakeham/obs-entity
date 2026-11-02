@@ -1,5 +1,7 @@
 import { Menu, Notice, TFile, stringifyYaml } from "obsidian";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
+import { flushSync } from "react-dom";
+import { createRoot } from "react-dom/client";
 import type { FieldProblem } from "../../../model/form";
 import type { FieldValue } from "../../../model/frontmatter";
 import { isListValued, statusesFor, type EntityTypeDef } from "../../../model/types";
@@ -29,7 +31,7 @@ import {
 import { VIEW_BLOCK } from "../../../services/viewIndex";
 import { TypePickerModal } from "../../components/entityPicker";
 import { NameModal, RollupModal } from "../../modals/viewModals";
-import { usePlugin, useRelationsVersion } from "../context";
+import { PluginContext, usePlugin, useRelationsVersion } from "../context";
 import { HOVER_SOURCE } from "../EntityChip";
 import { Icon } from "../Icon";
 import { CellEditor, CellView, editTarget } from "./cells";
@@ -88,6 +90,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	const [areaW, setAreaW] = useState(0);
 	const [showWarnings, setShowWarnings] = useState(false);
 	const scrollRef = useRef<HTMLDivElement>(null);
+	const viewRef = useRef<HTMLDivElement>(null);
 	const defRef = useRef(def);
 	defRef.current = def;
 	/** notes edited from this table, newest last, for Ctrl/Cmd+Z */
@@ -249,6 +252,100 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 			update({ ...cur, columns: existing ? cur.columns.map((x) => (x.id === existing.id ? col : x)) : [...cur.columns, col] });
 		}).open();
 
+	/**
+	 * Fit columns to their contents: draw the header, every shown row and the summary of each column off-screen
+	 * (the grid only draws the rows in view) in an auto-sized table, and use each column's natural width.
+	 */
+	const autoFit = (cols: ResolvedColumn[]) => {
+		const host = viewRef.current;
+		if (!host || !cols.length) return;
+		const depth = result.groups ? def.group.filter((g) => result.known.has(g.by)).length : 0;
+		const box = host.createDiv({ cls: "oe-measure" });
+		const root = createRoot(box);
+		try {
+			flushSync(() =>
+				root.render(
+					<PluginContext.Provider value={plugin}>
+						<table className="oe-table oe-measure-table">
+							<thead>
+								<tr>
+									{cols.map((c) => {
+										const s = def.sort.findIndex((x) => x.by === c.id);
+										return (
+											<th key={c.id} className="oe-th" data-col={c.id}>
+												<span className="oe-th-inner">
+													<span className="oe-th-label">{c.label}</span>
+													{s >= 0 && (
+														<span className="oe-th-sort">
+															<Icon name="arrow-up" />
+															{def.sort.length > 1 && s + 1}
+														</span>
+													)}
+												</span>
+											</th>
+										);
+									})}
+								</tr>
+							</thead>
+							<tbody>
+								{result.rows.map((r) => (
+									<tr key={r.row.path} className="oe-tr">
+										{cols.map((c) => {
+											const hl = r.hl ? highlightOf(def, r, c.id) : null;
+											const content =
+												c.id === "name" ? (
+													<a className="oe-table-name">
+														<Icon name={r.row.type.icon} className="oe-chip-icon" />
+														<span>{r.row.name}</span>
+													</a>
+												) : (
+													<CellView col={c} cell={r.cells[c.id]} row={r.row} />
+												);
+											return (
+												<td key={c.id} className={`oe-td${hl ? ` ${hlClasses(hl.style)}` : ""}`} style={c.id === "name" && depth ? { paddingLeft: 10 + depth * 16 } : undefined}>
+													{hl?.style.icon ? (
+														<span className="oe-hl-cell">
+															<span className="oe-hl-icon">
+																<Icon name={hl.style.icon} />
+															</span>
+															{content}
+														</span>
+													) : (
+														content
+													)}
+												</td>
+											);
+										})}
+									</tr>
+								))}
+							</tbody>
+							<tfoot>
+								<tr>
+									{cols.map((c) => (
+										<td key={c.id} className="oe-sum-cell">
+											<SummaryText s={sums.total[c.id]} />
+										</td>
+									))}
+								</tr>
+							</tfoot>
+						</table>
+					</PluginContext.Provider>,
+				),
+			);
+			const widths: Record<string, number> = {};
+			box.querySelectorAll<HTMLElement>("thead th").forEach((th) => {
+				const id = th.dataset.col;
+				// +2: the resize handle and rounding, so text never ends in an ellipsis
+				if (id) widths[id] = Math.min(800, Math.max(60, Math.ceil(th.getBoundingClientRect().width) + 2));
+			});
+			const cur = defRef.current;
+			update({ ...cur, widths: { ...cur.widths, ...widths } });
+		} finally {
+			root.unmount();
+			box.remove();
+		}
+	};
+
 	const startResize = (e: MouseEvent, c: ResolvedColumn) => {
 		e.preventDefault();
 		e.stopPropagation();
@@ -343,6 +440,8 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					.setIcon("sigma")
 					.onClick(() => window.setTimeout(() => summaryMenu(c, at), 0)),
 			);
+		m.addItem((i) => i.setSection("width").setTitle("Auto-fit width").setIcon("arrow-left-right").onClick(() => autoFit([c])));
+		m.addItem((i) => i.setSection("width").setTitle("Auto-fit all columns").setIcon("columns-3").onClick(() => autoFit(columns)));
 		{
 			const on = def.freeze === c.id;
 			m.addItem((i) =>
@@ -651,7 +750,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	const editCol = editing ? columns.find((c) => c.id === editing.col) : undefined;
 
 	return (
-		<div className={`oe-view${fill ? " is-fill" : ""}`} data-view-kind={def.kind}>
+		<div ref={viewRef} className={`oe-view${fill ? " is-fill" : ""}`} data-view-kind={def.kind}>
 			<div className="oe-view-toolbar">
 				<span className="oe-view-source">
 					<Icon name={sources.length === 1 ? sources[0].icon : "table"} />
@@ -739,7 +838,16 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 												</span>
 											)}
 										</span>
-										<span className="oe-th-resize" onMouseDown={(e) => startResize(e, c)} onClick={(e) => e.stopPropagation()} aria-hidden="true" />
+										<span
+											className="oe-th-resize"
+											onMouseDown={(e) => startResize(e, c)}
+											onClick={(e) => e.stopPropagation()}
+											onDoubleClick={(e) => {
+												e.stopPropagation();
+												autoFit([c]);
+											}}
+											aria-hidden="true"
+										/>
 									</th>
 								);
 							})}

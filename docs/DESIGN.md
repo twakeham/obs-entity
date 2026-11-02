@@ -1163,6 +1163,9 @@ highlight:
 
 - **Toolbar:** quick search · Filters (n) · Sort (n) · Group · Highlight (n) · Columns · ⋯ (Save as…, Rename, Edit definition, Copy block).
 - **Header:** sort arrows. Drag a header to reorder, and drag its right edge to resize.
+- **Auto-fit:** double-click a column's resize handle, or right-click its header → **Auto-fit width**, to size it to its contents. **Auto-fit all columns** does every shown column.
+  - Because the grid only draws the rows in view, the column is measured by drawing its header (with any sort arrow), every shown row (name icons, chips, pills, highlight icons and the group indent included) and its summary off-screen in an auto-sized copy of the table. Each column's natural width becomes its width.
+  - The width is clamped to 60–800px. On a fill column it sets the minimum.
 - **Frozen columns:** right-click a header → **Freeze** (a checked toggle; on another column it moves the freeze there).
   - That column, every column to its left and the select column stay in place when scrolling sideways, via `position: sticky` with each cell's `left` offset (computed from the shown widths, fill columns included). This applies to the header, rows, group headers and the summary row.
   - Group headers without summaries span the frozen columns, so their label stays in view.

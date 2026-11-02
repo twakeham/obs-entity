@@ -3632,3 +3632,34 @@ button.oe-tm-typegroup-title,
 .oe-table-scroll.is-scrolled-x td.is-frozen-last.is-focused {
 	box-shadow: inset 0 0 0 2px var(--interactive-accent), 4px 0 6px -4px rgba(0, 0, 0, 0.25);
 }
+/* Auto-fit: an off-screen, auto-sized copy of the columns, measured then removed */
+.oe-measure {
+	position: absolute;
+	top: 0;
+	left: -100000px;
+	visibility: hidden;
+	pointer-events: none;
+	contain: layout style;
+}
+
+.oe-view .oe-measure table.oe-table.oe-measure-table {
+	table-layout: auto;
+	width: max-content;
+	min-width: 0;
+}
+
+.oe-view .oe-measure table.oe-table.oe-measure-table th,
+.oe-view .oe-measure table.oe-table.oe-measure-table td {
+	position: static;
+	width: auto;
+	max-width: none;
+	overflow: visible;
+	text-overflow: clip;
+}
+
+.oe-measure .oe-cell-chips,
+.oe-measure .oe-cell-pills,
+.oe-measure .oe-hl-cell {
+	overflow: visible;
+	flex-wrap: nowrap;
+}
