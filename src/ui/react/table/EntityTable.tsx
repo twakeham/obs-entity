@@ -1235,19 +1235,21 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 			style={{ "--oe-row-h": `${ROW_H}px`, "--oe-wrap-lines": wrapLines || "none" } as CSSProperties}
 		>
 			<div className="oe-view-toolbar">
-				<div className="oe-layout-toggle" role="group" aria-label="Layout">
-					<button className={`clickable-icon${isBoard ? "" : " is-active"}`} aria-label="Table" aria-pressed={!isBoard} onClick={() => setKind("table")}>
-						<Icon name="table" />
-					</button>
-					<button className={`clickable-icon${isBoard ? " is-active" : ""}`} aria-label="Board" aria-pressed={isBoard} onClick={() => setKind("board")}>
-						<Icon name={BOARD_ICON} />
-					</button>
-				</div>
 				<span className="oe-view-source">
 					<Icon name={sources.length === 1 ? sources[0].icon : isBoard ? BOARD_ICON : "table"} />
 					{typeLabel}
 				</span>
 				<input type="search" className="oe-view-search" placeholder="Search…" value={search} aria-label="Search this view" onChange={(e) => setSearch(e.target.value)} />
+				<div className="oe-layout-toggle" role="group" aria-label="Layout">
+					<button className={`oe-layout-btn${isBoard ? "" : " is-active"}`} aria-label="Table" aria-pressed={!isBoard} onClick={() => setKind("table")}>
+						<Icon name="table" />
+						<span className="oe-view-tool-label">Table</span>
+					</button>
+					<button className={`oe-layout-btn${isBoard ? " is-active" : ""}`} aria-label="Board" aria-pressed={isBoard} onClick={() => setKind("board")}>
+						<Icon name={BOARD_ICON} />
+						<span className="oe-view-tool-label">Board</span>
+					</button>
+				</div>
 				<span className="oe-spacer" />
 				{selectedEntities.length > 0 ? (
 					<div className="oe-selbar" role="toolbar" aria-label="Selected entities">

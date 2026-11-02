@@ -1267,7 +1267,7 @@ highlight:
 
 #### Table
 
-- **Toolbar:** quick search · Filters (n) · Sort (n) · Group · Highlight (n) · Columns · ⋯ (Save as…, Rename, Edit definition, Copy block, row density, wrapped text lines).
+- **Toolbar:** source · quick search · Table | Board toggle · Filters (n) · Sort (n) · Group · Highlight (n) · Columns · ⋯ (Save as…, Rename, Edit definition, Copy block, row density, wrapped text lines).
 - **Row density:** ⋯ → **Compact rows** / **Normal rows** / **Comfortable rows** (ticked) sets the row height to 26 / 34 / 44px. Group headers follow it, and so does the summary row (24 / 30 / 36px). Compact also tightens cell padding, chips and pills. The header stays 34px.
 - **Wrap text:** right-click a header → **Wrap text** (a checked toggle).
   - The column's text, chips and pills (and the name) wrap onto more lines, and its rows grow to fit. Rows without long values keep the density's height.
@@ -1311,7 +1311,7 @@ highlight:
 
 #### Board
 
-A board shows the view's entities as cards in **buckets**, one per value of a field, e.g. a kanban by status. Same note, same toolbar: switch with the **Table / Board** toggle at the left of the toolbar.
+A board shows the view's entities as cards in **buckets**, one per value of a field, e.g. a kanban by status. Same note, same toolbar: switch with the **Table | Board** toggle after the search box (a segmented control with icons and words; the words hide in narrow views, like the other toolbar labels).
 
 ```yaml
 kind: board

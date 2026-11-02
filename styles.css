@@ -4181,23 +4181,43 @@ td.is-wrap .oe-bar-value {
 }
 
 /* ---------------------------------------------------------------- boards */
-/* Table / Board toggle at the left of the toolbar */
+/* Table / Board toggle, after the search box: a segmented control */
 .oe-layout-toggle {
 	display: inline-flex;
 	flex: none;
+	gap: 1px;
+	height: 26px;
 	padding: 1px;
+	box-sizing: border-box;
 	border: 1px solid var(--background-modifier-border);
 	border-radius: var(--radius-s);
 	background-color: var(--background-primary);
 }
 
-.oe-layout-toggle .clickable-icon {
-	padding: 2px 6px;
+.oe-view button.oe-layout-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	height: 100%;
+	padding: 0 8px;
+	border: none;
+	border-radius: calc(var(--radius-s) - 1px);
+	box-shadow: none;
+	background-color: transparent;
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+	cursor: pointer;
 }
 
-.oe-layout-toggle .clickable-icon.is-active {
+.oe-view button.oe-layout-btn:hover {
+	background-color: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.oe-view button.oe-layout-btn.is-active {
 	background-color: var(--background-modifier-active-hover);
 	color: var(--text-normal);
+	font-weight: var(--font-medium);
 }
 
 .oe-layout-toggle svg {

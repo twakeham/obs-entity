@@ -286,7 +286,7 @@ Functions: logic (`if`, `ifs`, `and`, `or`, `not`, `empty`, `coalesce`), maths (
 
 ### Boards
 
-Any view can also be shown as a **board**: cards in **buckets**, one per value of a field, like a kanban by status. Use the **Table / Board** toggle at the left of the toolbar. The note keeps both layouts' settings, so switching back and forth loses nothing; it opens in whichever was used last, and the browser shows a board icon for boards. (Want two independent views? Use ⋯ → **Save as…**.) **New entity view** asks for Table or Board, and type headings in the browser have "New board of …".
+Any view can also be shown as a **board**: cards in **buckets**, one per value of a field, like a kanban by status. Use the **Table | Board** toggle next to the search box. The note keeps both layouts' settings, so switching back and forth loses nothing; it opens in whichever was used last, and the browser shows a board icon for boards. (Want two independent views? Use ⋯ → **Save as…**.) **New entity view** asks for Table or Board, and type headings in the browser have "New board of …".
 
 - **Buckets** (toolbar): status, or one of the entities' own choice, checkbox or single-link fields, e.g. Priority, Done, Assignee or Project. Every status or choice gets a bucket, even an empty one, plus "No …" for cards without a value.
   - Each bucket header shows the count and, for card fields with a summary, the bucket's summaries (e.g. "Sum 34 h"). Right-click a header (or its ⋯) to **Add card**, **Collapse** it to a narrow strip, **Set card limit…** (the count turns red, "6 / 5", when there are more), **Hide bucket**, or pick **Summaries…**.
