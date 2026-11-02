@@ -7,6 +7,8 @@ import {
 	ROW_TARGET,
 	dateValue,
 	columnFromId,
+	conditionIssue,
+	NEEDS_VALUE,
 	isGroup,
 	type ColumnDef,
 	type Condition,
@@ -176,9 +178,10 @@ function ConditionEditor({ cond, onChange, onRemove, choices, ctx, valuesOf }: F
 	const col = choices.find((c) => c.col.id === cond.field)?.col;
 	const ops = col ? OPERATORS[col.kind] : [];
 	const op = ops.find((o) => o.op === cond.op);
-	const issue = !col ? `“${cond.field}” isn't a column of this view, so this condition is ignored.` : col.invalid ? col.invalid : !op ? `“${cond.op}” doesn't apply to ${col.label}, so this condition is ignored.` : null;
+	const issue = conditionIssue(cond, new Map(choices.map((c) => [c.col.id, c.col])), ctx);
+	const incomplete = issue === NEEDS_VALUE;
 	return (
-		<div className={`oe-condition${issue ? " is-invalid" : ""}`}>
+		<div className={`oe-condition${issue ? (incomplete ? " is-incomplete" : " is-invalid") : ""}`}>
 			<ColumnSelect
 				label="Column"
 				value={cond.field}
@@ -206,14 +209,17 @@ function ConditionEditor({ cond, onChange, onRemove, choices, ctx, valuesOf }: F
 			</select>
 			{col && op && <ValueEditor kind={op.value} col={col} value={cond.value} ctx={ctx} valuesOf={valuesOf} onChange={(v) => onChange({ ...cond, value: v })} />}
 			<span className="oe-spacer" />
-			{issue && (
-				<span className="oe-condition-issue" aria-label={issue}>
-					<Icon name="alert-triangle" />
-				</span>
-			)}
 			<button className="clickable-icon" aria-label="Remove condition" onClick={onRemove}>
 				<Icon name="x" />
 			</button>
+			{issue && (
+				<div className="oe-condition-issue" role="note">
+					<Icon name={incomplete ? "info" : "alert-triangle"} />
+					<span>
+						{issue} {incomplete ? "Until then, this condition is ignored." : "This condition is ignored."}
+					</span>
+				</div>
+			)}
 		</div>
 	);
 }

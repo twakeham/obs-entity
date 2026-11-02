@@ -188,6 +188,7 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
 - **Filters:** conditions combined with **all** or **any**, plus a nested group, e.g. "status is active AND (owner is Ada OR team has Ada)".
   - The operators suit each column: contains / is, < >, before / after / between, is any of, has any / all / none of, links to, link count…
   - Dates also accept `today`, `-7d`, `+2w` or `1m`.
+  - A condition that's missing its value (or has a number or date that can't be read, or a column that's gone) is **ignored** until it's fixed. The panel notes why under it, and a notice above the view (with **Edit filters**) and an orange Filters button remind you.
 - **Sort:** any number of levels, which can be dragged to reorder. Clicking a header sorts by it (ascending, descending, off), and Shift-click adds a level.
   - Statuses sort in their group's order, text sorts naturally ("Chapter 2" before "Chapter 10"), and empty values go last.
 - **Group:** any number of levels, e.g. status, then assignee, then due by month. Each level groups by status, type, a choice, a link, a list, or a date by day / month / year. Levels can be dragged to reorder in the Group panel; right-click a header → **Group by X** adds a level.

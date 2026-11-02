@@ -9,6 +9,8 @@ import {
 	availableColumns,
 	barGeometry,
 	columnFromId,
+	conditionIssue,
+	conditionText,
 	cycleSort,
 	dateValue,
 	fillWidths,
@@ -17,7 +19,9 @@ import {
 	frozenCount,
 	GROUP_PATH_SEP,
 	highlightOf,
+	ignoredConditions,
 	itemAt,
+	NEEDS_VALUE,
 	parseView,
 	percentile,
 	prefillFromFilters,
@@ -180,6 +184,51 @@ describe("filters", () => {
 		// unknown column and wrong operator are ignored
 		expect(names({ ...P, filters: { all: [{ field: "ghost", op: "is", value: "x" }, { field: "due", op: "contains", value: "x" }] } })).toHaveLength(4);
 		expect(names({ types: ["person"] }, "countess")).toEqual(["Ada"]);
+	});
+
+	it("ignore conditions without a value, or with a number or date that can't be read", () => {
+		const all = names(P);
+		expect(all).toHaveLength(4);
+		// Each would otherwise match nothing (any-of, links-any, a number) or everything (contains "", none-of []).
+		for (const c of [
+			{ field: "owner", op: "links-any" },
+			{ field: "owner", op: "links-any", value: [] },
+			{ field: "status", op: "any-of", value: [] },
+			{ field: "status", op: "none-of" },
+			{ field: "name", op: "contains", value: "  " },
+			{ field: "folder", op: "in-folder", value: "" },
+			{ field: "team", op: "count>", value: "lots" },
+			{ field: "due", op: "before", value: "someday" },
+			{ field: "due", op: "between", value: ["", ""] },
+			{ field: "due", op: "between", value: ["today", "never"] },
+		])
+			expect(names({ ...P, filters: { all: [c, { field: "status", op: "any-of", value: ["idea", "done"] }] } }), JSON.stringify(c)).toEqual(["Apollo", "Lander"]);
+		// One end of a date range is enough.
+		expect(names({ ...P, filters: { all: [{ field: "due", op: "between", value: ["", "2027-01-01"] }] } })).toEqual(["Lander"]);
+		// In an "any" group, an ignored condition doesn't make every row match, and neither does a nested group
+		// with nothing usable in it.
+		expect(names({ ...P, filters: { any: [{ field: "status", op: "any-of", value: ["done"] }, { field: "owner", op: "links-any" }] } })).toEqual(["Lander"]);
+		expect(names({ ...P, filters: { any: [{ field: "status", op: "any-of", value: ["done"] }, { all: [{ field: "owner", op: "links-any" }] }] } })).toEqual(["Lander"]);
+		// A view whose conditions are all ignored shows everything.
+		expect(names({ ...P, filters: { all: [{ field: "owner", op: "links-any" }, { any: [{ field: "name", op: "is" }] }] } })).toEqual(all);
+	});
+
+	it("report ignored conditions and why, in words", () => {
+		const def = view({ types: ["project"], columns: ["status", "owner", "due"], filters: { all: [{ field: "owner", op: "links-any" }, { field: "status", op: "any-of", value: ["idea"] }, { any: [{ field: "due", op: "after", value: "soon" }, { field: "ghost", op: "is", value: "x" }, { field: "team", op: "count<", value: "x" }] }] } });
+		const known = runView(def, ROWS, ctx).known;
+		const ignored = ignoredConditions(def.filters, known, ctx);
+		expect(ignored.map((i) => `${conditionText(i.cond, known)}: ${i.issue}`)).toEqual([
+			"Owner links to any of: It needs a value.",
+			"Due is after: “soon” isn't a date.",
+			"ghost is: “ghost” isn't a column of this view.",
+			"Team count <: “x” isn't a number.",
+		]);
+		expect(ignored[0].issue).toBe(NEEDS_VALUE);
+		// Operators without a value are fine.
+		expect(conditionIssue({ field: "owner", op: "empty" }, known, ctx)).toBeNull();
+		// A highlight rule whose only condition needs a value matches nothing.
+		const r = runView(view({ types: ["project"], highlight: [{ target: "row", when: { all: [{ field: "owner", op: "links-any" }] }, style: { fill: "red" } }] }), ROWS, ctx);
+		expect(r.highlightCounts).toEqual([0]);
 	});
 
 	it("relative dates", () => {

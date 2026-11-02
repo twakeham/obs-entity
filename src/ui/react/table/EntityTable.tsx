@@ -12,6 +12,8 @@ import {
 	fillWidths,
 	formatKind,
 	filterFields,
+	conditionText,
+	ignoredConditions,
 	flattenGroups,
 	frozenCount,
 	highlightOf,
@@ -1196,6 +1198,8 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	// ---- render
 	const typeLabel = def.types.includes("*") ? "All entities" : def.types.map((k) => (k.startsWith("@") ? (lookup.groups.find((g) => `@${g.key}` === k)?.name ?? k) : (lookup.types.find((t) => t.key === k)?.plural ?? k))).join(", ");
 	const conditions = filterFields(def.filters).length;
+	// Filter conditions that can't be used (no value, unknown column…): they don't filter, and the view says so.
+	const ignored = ignoredConditions(def.filters, result.known, ctx);
 	// Fill columns share the spare width; one being resized shows the minimum being set until it's released.
 	const shownW = fillWidths(
 		columns.map((c) => ({ id: c.id, w: widthOf(c) })),
@@ -1273,7 +1277,15 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					</div>
 				) : (
 					<>
-						<ToolButton name="filters" icon="filter" label="Filters" count={conditions} active={pop?.name === "filters"} onClick={openPop} />
+						<ToolButton
+							name="filters"
+							icon="filter"
+							label="Filters"
+							count={conditions}
+							active={pop?.name === "filters"}
+							onClick={openPop}
+							warning={ignored.length ? `${ignored.length} ${ignored.length === 1 ? "condition" : "conditions"} ignored` : undefined}
+						/>
 						<ToolButton name="sort" icon="arrow-up-down" label="Sort" count={def.sort.length} active={pop?.name === "sort"} onClick={openPop} />
 						{isBoard && <ToolButton name="buckets" icon={BOARD_ICON} label={bucketCol ? `Buckets: ${bucketCol.label}` : "Buckets"} count={0} active={pop?.name === "buckets"} onClick={openPop} />}
 						<ToolButton
@@ -1292,6 +1304,24 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					</>
 				)}
 			</div>
+			{ignored.length > 0 && pop?.name !== "filters" && (
+				<div className="oe-view-warning oe-view-ignored" role="status">
+					<Icon name="alert-triangle" />
+					<span>
+						{ignored.length === 1 ? "A filter condition is ignored" : `${ignored.length} filter conditions are ignored`}: {conditionText(ignored[0].cond, result.known)} ({ignored[0].issue.replace(/\.$/, "").replace(/^It /, "it ")})
+						{ignored.length > 1 && ` and ${ignored.length - 1} more`}.
+					</span>
+					<button
+						className="oe-pop-link"
+						onClick={(e) => {
+							const btn = e.currentTarget.closest(".oe-view")?.querySelector<HTMLElement>("[data-pop=filters]");
+							if (btn) openPop("filters", btn);
+						}}
+					>
+						Edit filters
+					</button>
+				</div>
+			)}
 			{warnings.length > 0 && (
 				<div className="oe-view-warning">
 					<button className="oe-pop-link" onClick={() => setShowWarnings(!showWarnings)}>
@@ -1752,12 +1782,40 @@ function SummaryText({ s }: { s: SummaryResult | null | undefined }) {
 	);
 }
 
-function ToolButton({ name, icon, label, count, active, onClick }: { name: PopName; icon: string; label: string; count: number; active: boolean; onClick: (name: PopName, el: HTMLElement) => void }) {
+function ToolButton({
+	name,
+	icon,
+	label,
+	count,
+	active,
+	onClick,
+	warning,
+}: {
+	name: PopName;
+	icon: string;
+	label: string;
+	count: number;
+	active: boolean;
+	onClick: (name: PopName, el: HTMLElement) => void;
+	/** marks the button, e.g. "1 condition ignored" (also its tooltip) */
+	warning?: string;
+}) {
 	return (
-		<button className={`oe-view-tool${count ? " has-count" : ""}${active ? " is-active" : ""}`} data-pop={name} aria-label={label} aria-expanded={active} onClick={(e) => onClick(name, e.currentTarget)}>
+		<button
+			className={`oe-view-tool${count ? " has-count" : ""}${active ? " is-active" : ""}${warning ? " has-warning" : ""}`}
+			data-pop={name}
+			aria-label={warning ? `${label}: ${warning}` : label}
+			aria-expanded={active}
+			onClick={(e) => onClick(name, e.currentTarget)}
+		>
 			<Icon name={icon} />
 			<span className="oe-view-tool-label">{label}</span>
-			{count > 0 && <span className="oe-view-tool-count">{count}</span>}
+			{count > 0 && (
+				<span className="oe-view-tool-count">
+					{warning && <Icon name="alert-triangle" />}
+					{count}
+				</span>
+			)}
 		</button>
 	);
 }

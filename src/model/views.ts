@@ -1439,13 +1439,46 @@ export function matches(cell: Cell, kind: ValueKind, cond: Condition, ctx: Pick<
 	}
 }
 
-/** Why a condition is ignored: an unknown column or an operator the column doesn't support. */
-export function conditionIssue(cond: Condition, columns: Map<string, ResolvedColumn>): string | null {
+/** A condition's value is missing (a blank text, no choices or notes, an empty number or date). */
+const blank = (v: unknown) => v === undefined || v === null || (typeof v === "string" && !v.trim()) || (Array.isArray(v) && v.every((x) => x === undefined || x === null || String(x).trim() === ""));
+/** `conditionIssue` for a condition that's only missing its value (still being set up, rather than broken). */
+export const NEEDS_VALUE = "It needs a value.";
+
+/**
+ * Why a condition is ignored: an unknown column, an operator the column doesn't support, a missing value, or (with
+ * `ctx`) a number or date that can't be read. Ignored conditions don't filter anything.
+ */
+export function conditionIssue(cond: Condition, columns: Map<string, ResolvedColumn>, ctx?: Pick<ViewContext, "dates" | "today">): string | null {
 	const col = columns.get(cond.field);
 	if (!col) return `“${cond.field}” isn't a column of this view.`;
 	if (col.invalid) return col.invalid;
-	if (!OPERATORS[col.kind].some((o) => o.op === cond.op)) return `“${cond.op}” doesn't apply to ${col.label}.`;
+	const op = OPERATORS[col.kind].find((o) => o.op === cond.op);
+	if (!op) return `“${cond.op}” doesn't apply to ${col.label}.`;
+	if (op.value === "none") return null;
+	if (blank(cond.value)) return NEEDS_VALUE;
+	if (op.value === "number" && toNumber(cond.value) === null) return `“${String(cond.value)}” isn't a number.`;
+	if (ctx && op.value === "date" && dateValue(cond.value, ctx) === null) return `“${String(cond.value)}” isn't a date.`;
+	if (ctx && op.value === "range") {
+		const bad = asArray(cond.value).find((x) => !blank(x) && dateValue(x, ctx) === null);
+		if (bad !== undefined) return `“${String(bad)}” isn't a date.`;
+	}
 	return null;
+}
+
+/** A condition as words, e.g. "Project links to any of". */
+export function conditionText(cond: Condition, columns: Map<string, ResolvedColumn>): string {
+	const col = columns.get(cond.field);
+	const op = col ? OPERATORS[col.kind].find((o) => o.op === cond.op) : undefined;
+	return `${col?.label ?? cond.field} ${op?.label ?? cond.op}`;
+}
+
+/** Every condition in a filter group (nested ones included) that's ignored, with why. */
+export function ignoredConditions(g: FilterGroup, columns: Map<string, ResolvedColumn>, ctx: Pick<ViewContext, "dates" | "today">): { cond: Condition; issue: string }[] {
+	return g.items.flatMap((i) => {
+		if (isGroup(i)) return ignoredConditions(i, columns, ctx);
+		const issue = conditionIssue(i, columns, ctx);
+		return issue ? [{ cond: i, issue }] : [];
+	});
 }
 
 /** Column ids a filter group refers to. */
@@ -1453,18 +1486,24 @@ export function filterFields(g: FilterGroup): string[] {
 	return g.items.flatMap((i) => (isGroup(i) ? filterFields(i) : [i.field]));
 }
 
-function passes(g: FilterGroup, cell: (id: string) => Cell, columns: Map<string, ResolvedColumn>, ctx: Pick<ViewContext, "dates" | "today">): boolean {
+/** Whether the row passes a group; null when the group has no usable conditions (it then doesn't count either way). */
+function evalGroup(g: FilterGroup, cell: (id: string) => Cell, columns: Map<string, ResolvedColumn>, ctx: Pick<ViewContext, "dates" | "today">): boolean | null {
 	const results: boolean[] = [];
 	for (const item of g.items) {
 		if (isGroup(item)) {
-			if (item.items.length) results.push(passes(item, cell, columns, ctx));
+			const r = evalGroup(item, cell, columns, ctx);
+			if (r !== null) results.push(r);
 			continue;
 		}
-		if (conditionIssue(item, columns)) continue;
+		if (conditionIssue(item, columns, ctx)) continue;
 		results.push(matches(cell(item.field), columns.get(item.field)!.kind, item, ctx));
 	}
-	if (results.length === 0) return true;
+	if (results.length === 0) return null;
 	return g.mode === "all" ? results.every(Boolean) : results.some(Boolean);
+}
+
+function passes(g: FilterGroup, cell: (id: string) => Cell, columns: Map<string, ResolvedColumn>, ctx: Pick<ViewContext, "dates" | "today">): boolean {
+	return evalGroup(g, cell, columns, ctx) ?? true;
 }
 
 // ---------------------------------------------------------------- sorting and grouping
@@ -1678,7 +1717,7 @@ export function runView(def: ViewDef, all: ViewRow[], ctx: ViewContext, search =
 	// A rule whose conditions are all unusable matches nothing (unlike filters, where they're just ignored).
 	const usable = rules.map((r) => {
 		const conds = conditionsOf(r.when);
-		return conds.length === 0 || conds.some((c) => !conditionIssue(c, known));
+		return conds.length === 0 || conds.some((c) => !conditionIssue(c, known, ctx));
 	});
 	const highlightCounts = rules.map(() => 0);
 	const members: ResultRow[][] = rules.map(() => []);

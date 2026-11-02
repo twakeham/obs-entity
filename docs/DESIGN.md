@@ -1103,7 +1103,14 @@ columns:
 #### Filters
 
 - **Quick search** matches the name, aliases and subtitle. It isn't saved.
-- **Saved filters:** a list of conditions combined with **All** or **Any**, plus one level of nested groups, edited in a popover. Conditions on a column that no longer exists are kept but shown as invalid, and are ignored.
+- **Saved filters:** a list of conditions combined with **All** or **Any**, plus one level of nested groups, edited in a popover.
+- **Ignored conditions** (`conditionIssue`) don't filter anything:
+  - a column that no longer exists, or an operator it doesn't support (the condition is kept, so it can be fixed);
+  - **a missing value**: no text, no choices or notes picked, or an empty number or date (a range needs at least one end);
+  - a number or date that can't be read ("soon", "lots").
+  - A nested group with no usable conditions is skipped too, so it doesn't make an **Any** group match every entity. Before, a missing value matched nothing for some operators (any of, links to any of) and everything for others (contains, none of).
+  - **Shown:** in the panel, each such condition gets a note under it with the reason: a muted "needs a value, until then it's ignored" for one that's still being set up, orange for one that's broken. While the panel is closed, a notice above the view names the first ignored condition ("A filter condition is ignored: Project links to any of (it needs a value).", "…and 2 more") with **Edit filters**, and the Filters button turns orange with a warning in its count (`ignoredConditions`, `conditionText`).
+  - Highlight rules use the same check: a rule whose conditions are all ignored matches nothing.
 
 | Column kind | Operators |
 |---|---|
@@ -1558,7 +1565,7 @@ These cover all of `model/`, with no Obsidian dependency:
   - errors for bad pieces
   - available columns and roll-up sources
   - cell values: fields, built-ins, incoming, every roll-up aggregation
-  - every filter kind, nested groups and relative dates
+  - every filter kind, nested groups and relative dates; ignored conditions (missing values, unreadable numbers and dates, unknown columns and operators) neither matching nor blocking, in "all" and "any" groups and nested groups; reporting them in words
   - natural, status-order and multi-level sorting with empty values last
   - header sort cycling
   - grouping by status, month and list values; nesting any number of levels (paths, levels, per-level order, unknown levels skipped); grouped columns left out of the shown columns; `group` read only as a list, repeats skipped, bad levels reported; `groupSummaries` / `groupFieldNames` round trips
