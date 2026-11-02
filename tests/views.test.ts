@@ -32,6 +32,7 @@ import {
 	runView,
 	scalePosition,
 	serializeView,
+	shareCell,
 	unknownSources,
 	type ViewContext,
 	type ResultGroup,
@@ -643,5 +644,60 @@ describe("prefill", () => {
 		const def = view({ types: ["organisation"], filters: { all: [{ field: "status", op: "any-of", value: ["active"] }, { field: "kind", op: "any-of", value: ["Company"] }, { field: "part_of", op: "links-any", value: ["Acme.md"] }, { field: "website", op: "contains", value: "x" }] } });
 		const { known } = runView(def, ROWS, ctx);
 		expect(prefillFromFilters(def, known)).toEqual({ status: "active", fields: { kind: "Company", part_of: "Acme.md" } });
+	});
+});
+
+describe("roll-ups as a share of the total", () => {
+	const share = (show: string, extra: Record<string, unknown> = {}) => ({
+		types: ["project"],
+		columns: ["status", { rollup: { via: "field:team", agg: "count", show }, label: "Share", id: "sh" }],
+		...extra,
+	});
+	const shares = (raw: Record<string, unknown>, search = "") => runView(view(raw), ROWS, ctx, search).rows.map((r) => `${r.row.name}=${r.cells.sh.text}`);
+
+	it("parse and serialize, only for count and sum", () => {
+		const def = view(share("total"));
+		expect(serializeView(def).columns).toContainEqual({ rollup: { via: "field:team", agg: "count", show: "total" }, label: "Share", id: "sh" });
+		expect(view(share("value")).columns[2]).toEqual({ kind: "rollup", id: "sh", rollup: { via: "field:team", agg: "count" }, label: "Share" });
+		expect(parseView({ columns: [{ rollup: { via: "field:team", agg: "list", show: "total" } }] }).errors).toEqual(['Roll-up "show: total" only works with count and sum.']);
+		expect(parseView({ columns: [{ rollup: { via: "field:team", agg: "count", show: "half" } }] }).errors).toEqual(['Unknown roll-up "show" "half". Use value, total or group.']);
+		const label = runView(view({ types: ["project"], columns: [{ rollup: { via: "field:team", agg: "count", show: "group" } }] }), ROWS, ctx).columns[1].label;
+		expect(label).toBe("Team: count (% of group total)");
+	});
+
+	it("each row's share of the view's total; the shares add up to 100%", () => {
+		expect(shares(share("total"))).toEqual(["Apollo=100%", "Lander=0%", "Project 2=0%", "Project 10=0%"]);
+		const orgs = { types: ["organisation"], columns: [{ rollup: { via: "in:person.works_for", agg: "count", show: "total" }, id: "sh" }] };
+		expect(shares(orgs)).toEqual(["Acme=50%", "Globex=50%"]);
+		// the total follows the search
+		expect(shares(orgs, "acme")).toEqual(["Acme=100%"]);
+		const r = runView(view(orgs), ROWS, ctx);
+		expect(r.rows.map((x) => [x.cells.sh.value, x.cells.sh.raw])).toEqual([[50, 1], [50, 1]]);
+		expect(summarize(r.rows, r.columns[1], "sum", ctx)?.text).toBe("100%");
+	});
+
+	it("of the group's total, per innermost group", () => {
+		const orgs = (show: string, group?: string[]) => ({ types: ["organisation"], columns: [{ rollup: { via: "in:person.works_for", agg: "count", show }, id: "sh" }], ...(group ? { group } : {}) });
+		expect(shares(orgs("group", ["status"]))).toEqual(["Acme=100%", "Globex=100%"]);
+		// not grouped: the same as the view's total
+		expect(shares(orgs("group"))).toEqual(["Acme=50%", "Globex=50%"]);
+		expect(shares(orgs("total", ["status"]))).toEqual(["Acme=50%", "Globex=50%"]);
+	});
+
+	it("filter, sort, format and highlight on the share; formulas get the roll-up's own value", () => {
+		// the share is of the rows the other filters keep, so a filter on it doesn't change the shares
+		expect(shares(share("total", { filters: { all: [{ field: "sh", op: ">", value: 50 }] } }))).toEqual(["Apollo=100%"]);
+		expect(shares(share("total", { sort: [{ by: "sh", dir: "desc" }] }))[0]).toBe("Apollo=100%");
+		expect(shares(share("total", { formats: { sh: "decimal:1" } }))[0]).toBe("Apollo=100.0");
+		const h = runView(view(share("total", { highlight: [{ target: "row", when: { all: [{ field: "sh", op: ">=", value: 100 }] }, style: { fill: "red" } }] })), ROWS, ctx);
+		expect(h.highlightCounts).toEqual([1]);
+		const f = runView(view(share("total", { columns: ["status", { rollup: { via: "field:team", agg: "count", show: "total" }, label: "Share", id: "sh" }, { formula: "[Share] * 10", label: "F", id: "f" }] })), ROWS, ctx);
+		expect(f.rows.map((r) => r.cells.f.value)).toEqual([20, 0, 0, 0]);
+	});
+
+	it("tiny and empty shares", () => {
+		expect(shareCell({ value: 1, text: "1", sort: 1 }, 1000)).toEqual({ value: 0.1, text: "< 1%", sort: 0.1, raw: 1 });
+		expect(shareCell({ value: 3, text: "3", sort: 3 }, 0)).toEqual({ value: null, text: "", sort: null, raw: 3 });
+		expect(shareCell({ value: null, text: "", sort: null }, 10).text).toBe("");
 	});
 });

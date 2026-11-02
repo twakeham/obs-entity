@@ -241,6 +241,7 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
 - **Ranges:** each end is automatic (from the rows shown), a fixed number or date (`today`, `+30d`), or a percentile (`p90`). An optional condition limits which rows get the bar or colour.
 
 **Roll-ups** summarise the notes linked to each row, through an outgoing field or an incoming link: count, names, unique values of a field, sum / average / min / max of a number, earliest / latest date, % done, or count by status. E.g. "Notes: count" on projects, or "Deals: sum of value" on companies.
+- Counts and sums can be **shown as a share**: **% of total** (each row's share of the column's total, e.g. "this person has 18% of the hours") or **% of group total** (of its group, or swimlane on a board). Set it with **Show as** in the roll-up dialog, or right-click the header → **Show as % of total**. Shares sort, filter, highlight and take data bars like any number; formulas still see the count or sum itself.
 
 **Editing:**
 - Double-click a cell, or press Enter on it, to edit it with the same control and rules as the properties form. Checkboxes toggle with one click.

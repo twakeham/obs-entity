@@ -26,6 +26,7 @@ import {
 	rowOffsets,
 	runView,
 	serializeView,
+	SHARE_AGGS,
 	sourceTypes,
 	WRAP_LINES_DEFAULT,
 	type ColumnDef,
@@ -626,6 +627,20 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		if (c.def.kind === "rollup") {
 			const rc = c.def;
 			m.addItem((i) => i.setSection("edit").setTitle("Edit roll-up…").setIcon("pencil").onClick(() => rollupDialog(rc)));
+			if (SHARE_AGGS.includes(rc.rollup.agg))
+				m.addItem((i) =>
+					i
+						.setSection("edit")
+						.setTitle("Show as % of total")
+						.setIcon("percent")
+						.setChecked(rc.rollup.show === "total")
+						.onClick(() => {
+							const cur = defRef.current;
+							const { show: _, ...rollup } = rc.rollup;
+							const next = { ...rc, rollup: rc.rollup.show === "total" ? rollup : { ...rollup, show: "total" as const } };
+							update({ ...cur, columns: cur.columns.map((x) => (x.id === rc.id ? next : x)) });
+						}),
+				);
 		}
 		if (c.def.kind === "formula") {
 			const fc = c.def;

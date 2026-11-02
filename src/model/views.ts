@@ -58,7 +58,14 @@ export interface RollupDef {
 	agg: RollupAgg;
 	/** the linked notes' field to aggregate (unique, sum, avg, min, max, earliest, latest) */
 	field?: string;
+	/** count and sum: show each row's share (%) of the view's total, or of its group's total */
+	show?: RollupShow;
 }
+
+export type RollupShow = "total" | "group";
+/** Aggregations whose values add up, so they can be shown as a share of the total. */
+export const SHARE_AGGS: readonly RollupAgg[] = ["count", "sum"];
+export const SHOW_LABELS: Record<RollupShow, string> = { total: "% of total", group: "% of group total" };
 
 export type ColumnDef =
 	| { kind: "builtin"; id: string; key: BuiltinKey; label?: string }
@@ -307,8 +314,14 @@ function parseColumn(raw: unknown, errors: string[], taken: Set<string>): Column
 			errors.push(`Roll-up "${agg}" needs a field.`);
 			return null;
 		}
+		let show: RollupShow | undefined;
+		if (r.show !== undefined && r.show !== null && r.show !== "value") {
+			if (r.show !== "total" && r.show !== "group") errors.push(`Unknown roll-up "show" "${String(r.show)}". Use value, total or group.`);
+			else if (!SHARE_AGGS.includes(agg)) errors.push(`Roll-up "show: ${r.show}" only works with count and sum.`);
+			else show = r.show;
+		}
 		const id = str(raw.id) || uniqueId(label ?? `${via}_${agg}`);
-		return { kind: "rollup", id, rollup: { via, agg, ...(field ? { field } : {}) }, ...(label ? { label } : {}) };
+		return { kind: "rollup", id, rollup: { via, agg, ...(field ? { field } : {}), ...(show ? { show } : {}) }, ...(label ? { label } : {}) };
 	}
 	if (typeof raw.formula === "string") {
 		const id = str(raw.id) || uniqueId(label ?? "formula");
@@ -747,7 +760,7 @@ export function rollupLabel(r: RollupDef, sources: EntityTypeDef[], types: Entit
 	const rel = v.incoming ? incomingLabel(v.type, v.field, r.via) : (v.field?.label ?? r.via.slice(6));
 	const linked = v.incoming ? (v.type ? [v.type] : []) : targetTypes(v.field, types);
 	const fieldLabel = r.field ? (fieldOf(r.field, linked)?.label ?? r.field) : "";
-	return `${rel}: ${AGG_LABELS[r.agg]}${fieldLabel ? ` of ${fieldLabel.toLowerCase()}` : ""}`;
+	return `${rel}: ${AGG_LABELS[r.agg]}${fieldLabel ? ` of ${fieldLabel.toLowerCase()}` : ""}${r.show ? ` (${SHOW_LABELS[r.show]})` : ""}`;
 }
 
 function statusOptions(sources: EntityTypeDef[], groups: GroupDef[]): string[] {
@@ -925,6 +938,8 @@ export interface Cell {
 	sort: number | string | null;
 	/** why a formula couldn't be worked out for this row */
 	error?: string;
+	/** a roll-up shown as a share: the roll-up's own value (the count or sum) */
+	raw?: number | null;
 }
 
 const EMPTY: Cell = { value: null, text: "", sort: null };
@@ -1493,24 +1508,41 @@ export function filterFields(g: FilterGroup): string[] {
 	return g.items.flatMap((i) => (isGroup(i) ? filterFields(i) : [i.field]));
 }
 
-/** Whether the row passes a group; null when the group has no usable conditions (it then doesn't count either way). */
-function evalGroup(g: FilterGroup, cell: (id: string) => Cell, columns: Map<string, ResolvedColumn>, ctx: Pick<ViewContext, "dates" | "today">): boolean | null {
+/**
+ * Whether the row passes a group; null when the group has no usable conditions (it then doesn't count either way).
+ * Conditions `assume` picks count as passed (a first pass, before the values they need are known).
+ */
+function evalGroup(
+	g: FilterGroup,
+	cell: (id: string) => Cell,
+	columns: Map<string, ResolvedColumn>,
+	ctx: Pick<ViewContext, "dates" | "today">,
+	assume?: (c: Condition) => boolean,
+): boolean | null {
 	const results: boolean[] = [];
 	for (const item of g.items) {
 		if (isGroup(item)) {
-			const r = evalGroup(item, cell, columns, ctx);
+			const r = evalGroup(item, cell, columns, ctx, assume);
 			if (r !== null) results.push(r);
 			continue;
 		}
 		if (conditionIssue(item, columns, ctx)) continue;
-		results.push(matches(cell(item.field), columns.get(item.field)!.kind, item, ctx));
+		results.push(assume?.(item) ? true : matches(cell(item.field), columns.get(item.field)!.kind, item, ctx));
 	}
 	if (results.length === 0) return null;
 	return g.mode === "all" ? results.every(Boolean) : results.some(Boolean);
 }
 
-function passes(g: FilterGroup, cell: (id: string) => Cell, columns: Map<string, ResolvedColumn>, ctx: Pick<ViewContext, "dates" | "today">): boolean {
-	return evalGroup(g, cell, columns, ctx) ?? true;
+function passes(g: FilterGroup, cell: (id: string) => Cell, columns: Map<string, ResolvedColumn>, ctx: Pick<ViewContext, "dates" | "today">, assume?: (c: Condition) => boolean): boolean {
+	return evalGroup(g, cell, columns, ctx, assume) ?? true;
+}
+
+/** A roll-up cell shown as a share (%) of `total`; the roll-up's own value is kept in `raw`. */
+export function shareCell(raw: Cell, total: number): Cell {
+	const n = typeof raw.value === "number" && Number.isFinite(raw.value) ? raw.value : null;
+	if (n === null || !total) return { value: null, text: "", sort: null, raw: n };
+	const pct = (n / total) * 100;
+	return { value: pct, text: pct > 0 && pct < 0.5 ? "< 1%" : `${Math.round(pct)}%`, sort: pct, raw: n };
 }
 
 // ---------------------------------------------------------------- sorting and grouping
@@ -1730,12 +1762,38 @@ export function runView(def: ViewDef, all: ViewRow[], ctx: ViewContext, search =
 	const members: ResultRow[][] = rules.map(() => []);
 
 	const q = search.trim().toLowerCase();
-	const out: ResultRow[] = [];
+	// Roll-ups shown as a share (%) of the total: worked out once the rows are known, then filtered on.
+	const shares = [...known.values()].filter((c) => c.def.kind === "rollup" && !!c.def.rollup.show && !c.invalid);
+	const shareIds = new Set(shares.map((c) => c.id));
+	const onShare = (c: Condition) => shareIds.has(c.field);
+	const pending: { row: ViewRow; cells: Record<string, Cell>; cell: (id: string) => Cell }[] = [];
 	for (const row of rows) {
 		if (q && !searchText(row).includes(q)) continue;
 		const cells: Record<string, Cell> = {};
-		const cell = (id: string) => (cells[id] ??= known.has(id) ? formatCell(cellOf(row, known.get(id)!, ctx), known.get(id)!, def.formats?.[id], ctx) : EMPTY);
-		if (!passes(def.filters, cell, known, ctx)) continue;
+		// Share columns hold the roll-up's own value until the totals are known (then the share, formatted).
+		const cell = (id: string) => (cells[id] ??= known.has(id) ? (shareIds.has(id) ? cellOf(row, known.get(id)!, ctx) : formatCell(cellOf(row, known.get(id)!, ctx), known.get(id)!, def.formats?.[id], ctx)) : EMPTY);
+		if (!passes(def.filters, cell, known, ctx, shareIds.size ? onShare : undefined)) continue;
+		pending.push({ row, cells, cell });
+	}
+	let candidates = pending;
+	if (shares.length) {
+		// The total is over the rows matching the other filters (conditions on the share itself aside) and the search.
+		const levels = def.group.filter((g) => known.has(g.by));
+		const groupOf = (p: (typeof pending)[number]) => levels.map((g) => groupKeys(p.cell(g.by), known.get(g.by)!.kind, g, ctx)[0]?.key ?? "").join(GROUP_PATH_SEP);
+		for (const col of shares) {
+			const byGroup = col.def.kind === "rollup" && col.def.rollup.show === "group" && levels.length > 0;
+			const totals = new Map<string, number>();
+			const keyOf = (p: (typeof pending)[number]) => (byGroup ? groupOf(p) : "");
+			for (const p of pending) {
+				const v = p.cell(col.id).value;
+				if (typeof v === "number" && Number.isFinite(v)) totals.set(keyOf(p), (totals.get(keyOf(p)) ?? 0) + v);
+			}
+			for (const p of pending) p.cells[col.id] = formatCell(shareCell(p.cell(col.id), totals.get(keyOf(p)) ?? 0), col, def.formats?.[col.id], ctx);
+		}
+		if (conditionsOf(def.filters).some(onShare)) candidates = pending.filter((p) => passes(def.filters, p.cell, known, ctx));
+	}
+	const out: ResultRow[] = [];
+	for (const { row, cells, cell } of candidates) {
 		for (const c of columns) cell(c.id);
 		for (const id of extra) cell(id);
 		let hl: Record<string, number> | undefined;

@@ -1,5 +1,5 @@
 import { FuzzySuggestModal, Modal, Notice, Setting, type App, type FuzzyMatch, type TFile } from "obsidian";
-import { AGG_FIELD_KINDS, AGG_LABELS, ROLLUP_AGGS, rollupLabel, rollupSources, sourceTypes, type ColumnDef, type RollupAgg, type ViewDef, type ViewKind } from "../../model/views";
+import { AGG_FIELD_KINDS, AGG_LABELS, ROLLUP_AGGS, rollupLabel, rollupSources, SHARE_AGGS, SHOW_LABELS, sourceTypes, type ColumnDef, type RollupAgg, type RollupShow, type ViewDef, type ViewKind } from "../../model/views";
 import { toKey } from "../../model/types";
 import type EntitiesPlugin from "../../main";
 
@@ -178,6 +178,7 @@ export class RollupModal extends Modal {
 	private agg: RollupAgg = "count";
 	private field = "";
 	private label = "";
+	private show: RollupShow | "" = "";
 	private started = false;
 
 	private render(): void {
@@ -196,6 +197,7 @@ export class RollupModal extends Modal {
 			this.agg = r?.agg ?? "count";
 			this.field = r?.field ?? "";
 			this.label = this.existing?.label ?? "";
+			this.show = r?.show ?? "";
 		}
 		const source = sources.find((s) => s.via === this.via) ?? sources[0];
 		const need = AGG_FIELD_KINDS[this.agg];
@@ -230,7 +232,21 @@ export class RollupModal extends Modal {
 					d.setValue(this.field).onChange((v) => (this.field = v));
 				});
 		}
-		const auto = rollupLabel({ via: source.via, agg: this.agg, ...(this.field && need ? { field: this.field } : {}) }, sourceTypes(this.def, ctx.types), ctx.types);
+		const canShare = SHARE_AGGS.includes(this.agg);
+		const show = canShare ? this.show : "";
+		if (canShare)
+			new Setting(contentEl)
+				.setName("Show as")
+				.setDesc("The value, or each row's share of the total: of the whole view, or of the row's group (swimlane on a board).")
+				.addDropdown((d) => {
+					d.addOption("", "Value");
+					for (const s of ["total", "group"] as const) d.addOption(s, SHOW_LABELS[s]);
+					d.setValue(this.show).onChange((v) => {
+						this.show = v as RollupShow | "";
+						this.render();
+					});
+				});
+		const auto = rollupLabel({ via: source.via, agg: this.agg, ...(this.field && need ? { field: this.field } : {}), ...(show ? { show } : {}) }, sourceTypes(this.def, ctx.types), ctx.types);
 		new Setting(contentEl).setName("Column label").addText((t) => t.setPlaceholder(auto).setValue(this.label).onChange((v) => (this.label = v)));
 		new Setting(contentEl).addButton((b) =>
 			b
@@ -243,7 +259,7 @@ export class RollupModal extends Modal {
 					let id = this.existing?.id ?? toKey(label || auto) ?? "rollup";
 					for (let n = 2; !this.existing && taken.has(id); n++) id = `${toKey(label || auto)}_${n}`;
 					this.close();
-					this.done({ kind: "rollup", id, rollup: { via: source.via, agg: this.agg, ...(need ? { field: this.field } : {}) }, ...(label ? { label } : {}) });
+					this.done({ kind: "rollup", id, rollup: { via: source.via, agg: this.agg, ...(need ? { field: this.field } : {}), ...(show ? { show } : {}) }, ...(label ? { label } : {}) });
 				}),
 		);
 	}

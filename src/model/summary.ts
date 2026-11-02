@@ -100,7 +100,7 @@ export function summarize(
 	const filled = values.filter((v) => !isEmpty(v));
 	const total = rows.length;
 	const plain = (n: number) => formatNumber(n, "number", ctx.locale ?? "en");
-	const isPercentRollup = col.def.kind === "rollup" && col.def.rollup.agg === "percent-done";
+	const isPercentRollup = col.def.kind === "rollup" && (col.def.rollup.agg === "percent-done" || !!col.def.rollup.show);
 	const num = (n: number) => {
 		if (format) return formatCell({ value: n, text: String(n), sort: n }, col, format, ctx).text;
 		return isPercentRollup ? `${Math.round(n)}%` : plain(n);

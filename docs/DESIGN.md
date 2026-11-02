@@ -1098,7 +1098,13 @@ columns:
 | `count-by-status` | | e.g. "2 active · 1 done" (sorted as text) |
 
 - **Read-only**, but sortable and filterable as numbers, dates or text, depending on `agg`.
-- **Editing** happens in a small dialog: relationship → aggregation → field (if needed) → label.
+- **Editing** happens in a small dialog: relationship → aggregation → field (if needed) → show as (count and sum) → label.
+- **Show as a share** (`show: total | group`, count and sum only; Value when unset):
+  - `total`: each row's share (%) of the column's total over the rows the view shows. `group`: of its innermost group's total (the swimlane on a board; rows in several groups use their first); without grouping, the same as `total`. The label gets "(% of total)" / "(% of group total)".
+  - The share is the cell's value (0–100, e.g. 18.4): sorting, filtering, highlight rules, data bars and colour scales use it. Shown as "18%", "< 1%" for tiny shares, empty when the total is 0. Number formats apply to the share (Percent, or decimals). The summary row's Sum shows 100%.
+  - **The total** is worked out after search and filters, in `runView`: a first pass treats conditions on share columns as passed, the totals and shares are computed (`shareCell`), then the full filters apply. So a filter on the share (e.g. > 10%) doesn't change the other rows' shares.
+  - **Formulas** referencing the column get the roll-up's own value (the count or sum, kept in `Cell.raw`), not the share.
+  - Header menu: **Show as % of total** toggles it.
 
 #### Filters
 
@@ -1572,6 +1578,7 @@ These cover all of `model/`, with no Obsidian dependency:
   - available columns and roll-up sources
   - cell values: fields, built-ins, incoming, every roll-up aggregation
   - every filter kind, nested groups and relative dates; ignored conditions (missing values, unreadable numbers and dates, unknown columns and operators) neither matching nor blocking, in "all" and "any" groups and nested groups; reporting them in words
+  - roll-ups as a share: parse / serialize (count and sum only), labels, shares of the view's total and of the group's (and of the search results), adding up to 100% in the summary, filtering / sorting / formatting / highlighting on the share, formulas getting the roll-up's own value, tiny and empty shares
   - natural, status-order and multi-level sorting with empty values last
   - header sort cycling
   - grouping by status, month and list values; nesting any number of levels (paths, levels, per-level order, unknown levels skipped); grouped columns left out of the shown columns; `group` read only as a list, repeats skipped, bad levels reported; `groupSummaries` / `groupFieldNames` round trips
