@@ -1220,7 +1220,8 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	const freezeCls = (i: number) => (frozen && i < frozen ? ` is-frozen${i === frozen - 1 ? " is-frozen-last" : ""}` : "");
 	const freezeStyle = (i: number, extra?: CSSProperties): CSSProperties | undefined => (frozen && i < frozen ? { ...extra, left: i < 0 ? 0 : frozenLeft[i] } : extra);
 	const editRow = editing ? plugin.index.get(editing.path) : undefined;
-	const formatCol = pop?.name === "format" ? columns.find((c) => c.id === pop.col) : undefined;
+	// On a board, a card field may not be a shown column (a swimlane column): look it up among every known column.
+	const formatCol = pop?.name === "format" ? (columns.find((c) => c.id === pop.col) ?? result.known.get(pop.col ?? "")) : undefined;
 	/** a real value from the column for format examples (today / 1234.5 when the column is empty) */
 	const sampleOf = (col: ResolvedColumn) => {
 		for (const r of result.rows) {
@@ -1640,7 +1641,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 			</div>
 
 			{pop && (
-				<Popover anchor={pop.anchor} onClose={() => setPop(null)} className={`oe-pop-${pop.name}`} label={pop.name}>
+				<Popover key={pop.name} anchor={pop.anchor} onClose={() => setPop(null)} className={`oe-pop-${pop.name}`} label={pop.name}>
 					{pop.name === "filters" && <FiltersPanel filters={def.filters} choices={choices} ctx={ctx} valuesOf={valuesOf} onChange={(filters) => update({ ...defRef.current, filters })} />}
 					{pop.name === "sort" && <SortPanel sort={def.sort} choices={choices} onChange={(sort) => update({ ...defRef.current, sort })} />}
 					{pop.name === "group" &&
@@ -1720,6 +1721,13 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 									: undefined
 							}
 							hint={isBoard ? "Fields shown on the cards, in this order. Empty values are left out." : undefined}
+							formatOf={(id) => {
+								const c = result.known.get(id);
+								const k = c ? formatKind(c) : null;
+								return k ? { kind: k, set: !!def.formats[id] } : null;
+							}}
+							// The Format panel opens in the Card fields panel's place.
+							onFormat={isBoard ? (id) => setPop({ name: "format", anchor: pop.anchor, col: id }) : undefined}
 							onAddRollup={() => rollupDialog(null)}
 							onEditRollup={(c) => rollupDialog(c)}
 							onAddFormula={() => {

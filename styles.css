@@ -4945,3 +4945,24 @@ td.is-wrap .oe-bar-value {
 	width: 11px;
 	height: 11px;
 }
+
+/* Card fields: Format (numbers, dates) and Edit buttons on a picked field */
+.oe-ordered-actions {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	margin-left: auto;
+}
+
+.oe-ordered-actions .clickable-icon {
+	padding: 2px;
+}
+
+.oe-ordered-actions svg {
+	width: 14px;
+	height: 14px;
+}
+
+.oe-columns-format.is-set {
+	color: var(--text-accent);
+}

@@ -994,7 +994,7 @@ function OrderedColumns({
 	labelOf,
 	onToggle,
 	onReorder,
-	editButton,
+	editButton: actions,
 }: {
 	ids: string[];
 	defOf: (id: string) => ColumnDef;
@@ -1066,7 +1066,7 @@ function OrderedColumns({
 								{c.kind === "formula" && <Icon name="sigma" className="oe-columns-kind" />}
 								{label}
 							</span>
-							{editButton(c)}
+							<span className="oe-ordered-actions">{actions(c)}</span>
 						</div>
 					);
 				})}
@@ -1089,6 +1089,8 @@ export function ColumnsPanel({
 	shown: shownIds,
 	hint,
 	onReorder,
+	formatOf,
+	onFormat,
 }: {
 	def: ViewDef;
 	available: { title: string; columns: ColumnDef[] }[];
@@ -1103,6 +1105,9 @@ export function ColumnsPanel({
 	hint?: string;
 	/** with `shown`: list the ticked columns first, in order, to drag into a new order (a board's card fields) */
 	onReorder?: (ids: string[]) => void;
+	/** in the ordered list: a Format button for number and date columns (null: no format applies) */
+	formatOf?: (id: string) => { kind: "number" | "date"; set: boolean } | null;
+	onFormat?: (id: string) => void;
 }) {
 	const shown = new Set(shownIds ?? def.columns.map((c) => c.id));
 	const computed = def.columns.filter((c): c is Extract<ColumnDef, { kind: "rollup" | "formula" }> => c.kind === "rollup" || c.kind === "formula");
@@ -1120,10 +1125,28 @@ export function ColumnsPanel({
 				<Icon name="pencil" />
 			</button>
 		) : null;
+	/** an ordered row's buttons: Format (numbers and dates), then Edit (roll-ups and formulas) */
+	const rowActions = (c: ColumnDef) => {
+		const f = onFormat ? formatOf?.(c.id) : null;
+		return (
+			<>
+				{f && (
+					<button
+						className={`clickable-icon oe-columns-format${f.set ? " is-set" : ""}`}
+						aria-label={`${f.set ? "Format (custom)" : "Format"}: ${labelOf(c)}`}
+						onClick={() => onFormat!(c.id)}
+					>
+						<Icon name={f.kind === "date" ? "calendar-cog" : "hash"} />
+					</button>
+				)}
+				{editButton(c)}
+			</>
+		);
+	};
 	return (
 		<div className="oe-columnspanel">
 			{hint && <div className="oe-pop-hint">{hint}</div>}
-			{ordered && onReorder && <OrderedColumns ids={ordered} defOf={defOf} labelOf={labelOf} onToggle={onToggle} onReorder={onReorder} editButton={editButton} />}
+			{ordered && onReorder && <OrderedColumns ids={ordered} defOf={defOf} labelOf={labelOf} onToggle={onToggle} onReorder={onReorder} editButton={rowActions} />}
 			{available
 				.map((s) => ({ ...s, columns: s.columns.filter(offered) }))
 				.filter((s) => s.columns.length)
