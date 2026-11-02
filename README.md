@@ -52,7 +52,7 @@ On entity notes, a form built from the note's type replaces Obsidian's Propertie
 **Layout:**
 - **Top row:** type, a **status** dropdown (only the group's statuses), the subtitle, a problem count, and buttons for the Connections panel, a **⋯** menu (Change type…, Configure the type) and collapse.
 - **One row per field,** in the type's order, then Related, Tags and Aliases. Required fields have a `*`. Empty fields show a faint "Empty", or are hidden behind "Show N empty fields" if the type's **Hide empty fields** option is on (Display tab).
-- **Custom layouts:** a type can arrange its form in captioned **frames** (optionally collapsible) and **columns** (2–4, with relative widths), with headings and notes between them. Columns stack in narrow places such as the sidebar. Status, Related, Tags and Aliases can be placed too. Fields that aren't placed appear under **Other fields** at the end. The create dialog uses the same layout: frames can be left out of it (they appear with "Show more fields"), and required fields are always asked for. A drag-and-drop designer is coming in the type editor; for now a layout is set in the type's settings (`form.layout`, see the design doc), and the Display tab shows it with **Reset layout**.
+- **Custom layouts:** a type can arrange its form in captioned **frames** (optionally collapsible) and **columns** (2–4, with relative widths), with headings and notes between them. Columns stack in narrow places such as the sidebar. Status, Related, Tags and Aliases can be placed too. Fields that aren't placed appear under **Other fields** at the end. The create dialog uses the same layout: frames can be left out of it (they appear with "Show more fields"), and required fields are always asked for. Layouts are designed by drag and drop on the type editor's **Layout** tab.
 - **Other properties:** a collapsed section for keys the type doesn't define, each edited by its Obsidian property type.
   - **+ Add property** adds a key.
   - A key's **⋯** menu offers **Add to the *type* type**, which opens the type editor with a draft field, or **Remove**.
@@ -118,7 +118,13 @@ Opened from:
 - **Fields:** a field list (drag to reorder) and a details panel with label, key, kind, description, choices, default, create-dialog / required toggles, and relation options.
   - Kinds: text, long text, number, date, choice, multiple choice, list, checkbox, link (URL), relation.
 - **Relationships:** a diagram, links from and to this type (click to jump to the field), and a guided **Add relationship** dialog with a plain-English summary.
-- **Display:** parent fields (for the hierarchy), subtitle fields, and the properties form's **Hide empty fields** option and layout.
+- **Display:** parent fields (for the hierarchy), subtitle fields, and the properties form's **Hide empty fields** option.
+- **Layout:** design the properties form and create dialog by drag and drop.
+  - **Palette** (left): the type's fields and the built-in properties (placed ones are greyed; click one to find it), and the components: Frame, 2/3/4 columns, Heading, Text. Drag one onto the layout, or click it to add it next to what's selected.
+  - **Layout** (middle): looks like the form. Drag things to move them; a line shows where they'll land. Drag one back to the palette, or press Delete, to remove it (fields go back to the palette).
+  - **Settings** (right) for what's selected: a frame's caption, "Can be collapsed", "Starts collapsed" and "Show in the create dialog"; the number of columns and their relative widths; a field's label (above or beside); heading and text. With nothing selected: **Hide fields that aren't placed**.
+  - **Keyboard:** Tab or ↑/↓ to move between items, Alt+↑/↓ to move the selected one, Delete to remove it, the context-menu key or ⋯ for **Move to…** and **Add field here…**, Ctrl/Cmd+Z to undo and Ctrl/Cmd+Shift+Z to redo.
+  - **Start from fields** puts every field in one frame. **Reset layout** goes back to the plain list. Changes are part of the type's draft, so Save or Discard them as usual.
 
 **Preview:** Create dialog, Picker row and Properties form. It uses the existing note with the most values, or made-up values.
 
@@ -405,7 +411,7 @@ src/
   ui/react/                  EntityForm (properties form, layouts, shared rows and controls), CreateForm (create dialog), ConnectionsPanel, EntityChip, EntityBits (status tones, relation groups), EntityBrowser
   ui/react/table/            EntityTable (toolbar, virtual rows, editing; hosts the board too), cells, popovers (filters, sort, group, columns)
   ui/react/board/            Board (buckets, swimlanes, cards, pointer drag and drop, keyboard), Buckets and Swimlanes panels
-  ui/react/types/            Entity types view: TypeManager (sidebar, group editor, save), General/Fields/Relationships/Display tabs, Preview, controls
+  ui/react/types/            Entity types view: TypeManager (sidebar, group editor, save), General/Fields/Relationships/Display/Layout tabs, Preview, controls
   ui/views/                  BrowserView (left sidebar), ConnectionsView (right sidebar), TypesView (main area), EntityViewView (view notes as full tabs), viewBlock (renders entity-view blocks in notes)
 tests/                       model, relations, typeEditing, tree, form, views, viewBlock, formats, formula, bulk, board and form layout tests
 styles.css                   all classes prefixed `oe-`

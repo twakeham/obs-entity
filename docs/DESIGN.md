@@ -602,8 +602,20 @@ Big icon, name, a "group · N notes · starter/custom · `key`" line, and the ta
 New in Obsidian Entities.
 - **Hierarchy:** the parent fields, in priority order, chosen from this type's relation fields. A preview line reads "In the browser, people nest under their Team (via Member of)".
 - **Subtitle** (§4.5): an ordered chip list of eligible fields, with "+ Add field". When it's empty, it reads "No subtitle".
-- **Properties form** (§8.4): **Hide empty fields** (default off), and **Layout**: "One list, in field order", or a summary of the custom layout with **Reset layout** and any problems with it (until the Layout tab's designer arrives).
+- **Properties form** (§8.4): **Hide empty fields** (default off), and **Layout**: "One list, in field order" or a summary of the custom layout, with a button to the Layout tab.
 - **Default sort among siblings:** `order`, then name.
+
+#### Layout tab
+
+The form layout designer (§8.4 Custom layouts), `LayoutTab.tsx`. Three panes; under about 820px the settings pane moves below the layout.
+- **Palette:** the type's fields in field order, then the built-in properties (status, related, tags, aliases, and order with parent fields), then the components (Frame, 2/3/4 columns, Heading, Text). Placed properties are greyed with a tick; clicking one selects its slot. Dragging an unplaced one, or a component, onto the layout places it; clicking it adds it where the selection is (`insertionPoint`: into a selected frame, into the shortest column of selected columns, else after the selection in the nearest list that can hold it, else at the end).
+- **Layout:** drawn like the form, with placeholder controls (the field kind), required stars, a frame's caption and "not in the create dialog" badge, and the "Other fields" that aren't placed. Slots for keys the type doesn't have, or repeats, are flagged (`slotProblems`). Empty frames and columns say "Drop fields here". Without a layout it offers **Start from fields** and **Start with an empty frame**; dropping anything starts one.
+- **Dragging** uses pointer events (mouse, pen; touch after a long press), with a ghost of the item, a drop line between rows (or a highlighted empty list), auto-scroll near the edges, and Esc to cancel. The target is the nearest list under the pointer that can hold the item (frames only at the top level, columns not in a column). Dropping on the palette removes the item.
+- **Settings pane:** frame (caption, can be collapsed, starts collapsed, show in the create dialog, "Remove frame, keep contents", "Remove with contents"); columns (2/3/4, with fields from dropped columns moving to the last one; relative widths 1–12, **Equal**); field (label above or beside, **Edit field** opens it on the Fields tab, remove); heading and text. With nothing selected: **Hide fields that aren't placed** and a count of unplaced fields.
+- **Keyboard:** every item is focusable; focus selects. ↑/↓ moves focus, Alt+↑/↓ moves the item within its list, Delete/Backspace removes it, Esc deselects, the context-menu key / Shift+F10 / ⋯ / right-click opens a menu (Move up / down, **Move to** any list that can hold it, **Add field here…** for frames and columns, Remove).
+- **Undo:** Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z (or Ctrl+Y), and toolbar buttons. The history is per type and survives switching tabs; typing in one text box is one step. It's dropped when the layout changes elsewhere (Save keeps it, Discard resets it).
+- **Toolbar:** undo / redo, a summary, **Start from fields** (one frame with every field; "Start again" replaces the layout) and **Reset layout** (back to the plain list).
+- Changes go into the type's draft, so the save bar, Discard and the preview (Create dialog / Properties form) work as for other edits. Problems with the layout show at the top of this tab, which gets the red dot.
 
 #### Saving
 
@@ -818,8 +830,8 @@ interface LayoutColumns { kind: "columns"; columns: LayoutField[][]; widths?: nu
 - **Hide empty fields** applies inside the layout: a frame whose fields are all hidden is hidden with its caption and text; an empty column is left out and the others share the row.
 - **Built-ins:** status, related, tags, aliases and order can be placed like fields. Placed, status leaves the form's header. Unplaced, they stay where they've always been (status in the header; order, related, tags and aliases as rows after the fields).
 - **Unplaced fields** (fields added later, or never placed) are listed in an **Other fields** section at the end (dashed), shown only when it has something in it. `hideUnplaced` leaves them out.
-- **Keeping in step:** renaming a field updates its slot, deleting it removes the slot (`renameFieldRefs` → `renameLayoutKey`). Slots for keys the type doesn't have, and repeats, are left out when shown (`resolveLayout`) and reported by type validation (`layoutIssues`, at `form:layout`, on the Display tab).
-- **Type editor:** the Display tab's **Layout** row shows "One list, in field order" or a summary of the layout, with **Reset layout**. The Layout tab's designer comes in phase 3; until then a layout is written in the type's settings.
+- **Keeping in step:** renaming a field updates its slot, deleting it removes the slot (`renameFieldRefs` → `renameLayoutKey`). Slots for keys the type doesn't have, and repeats, are left out when shown (`resolveLayout`) and reported by type validation (`layoutIssues`, at `form:layout`, on the Layout tab).
+- **Type editor:** the **Layout tab** (§8.1) designs layouts by drag and drop. Its edits are pure functions in `formLayout.ts`: nodes are addressed by paths (`[frame, row]`, `[…, column, position]`), lists by `LayoutList` (`nodeAt`, `listItems`, `insertNode`, `removeNode`, `moveNode` with drop positions as shown, `moveBy`, `updateNode`, `ungroupFrame`, `setColumnCount`, `insertionPoint`, `slotProblems`). The Display tab's **Layout** row summarises it and links there.
 
 #### Controls
 
@@ -1634,7 +1646,7 @@ These cover all of `model/`, with no Obsidian dependency:
 - **viewBlock:** finding blocks, and replacing one by line or content, keeping callout prefixes, CRLF, longer fences, and closing an unclosed block.
 - **validation:** every row of §9, with the right `at`.
 - **card:** subtitle composition (several fields, empty values skipped, first line of a textarea); renaming or deleting a field updates `card.subtitle` and `parentFields` in the draft.
-- **formLayout:** tidying layouts (nested frames lifted, 2–4 columns, widths, defaults dropped), listing slots and placeable keys (order only with parent fields), resolving against a type (unknown and repeated slots dropped, unplaced fields and built-ins, whether status is placed), renames and deletions through `renameFieldRefs`, "start from fields", and problems in type validation.
+- **formLayout:** tidying layouts (nested frames lifted, 2–4 columns, widths, defaults dropped), listing slots and placeable keys (order only with parent fields), resolving against a type (unknown and repeated slots dropped, unplaced fields and built-ins, whether status is placed), renames and deletions through `renameFieldRefs`, "start from fields", problems in type validation, and the designer's edits (paths, lists and what they hold, insert / remove / move with drop positions, keyboard moves, column counts and widths, ungrouping frames, where "add" goes, flagged slots).
 - **form:**
   - `checkField` / `entityProblems` for every row of the §8.4 table, with fixes
   - `otherKeys`, `otherKind` / `fieldKindFor`, `parseInput`

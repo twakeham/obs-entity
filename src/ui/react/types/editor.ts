@@ -4,7 +4,7 @@ import type { FieldMeta, SampleNote, TypeDraft } from "../../../model/typeEditin
 import type { TypeIssue } from "../../../model/validation";
 import type { EntityTypeDef, FieldKind, GroupDef } from "../../../model/types";
 
-export type EditorTab = "general" | "fields" | "relationships" | "display";
+export type EditorTab = "general" | "fields" | "relationships" | "display" | "layout";
 
 /** Everything the editor tabs need to read and change the type being edited. */
 export interface EditorApi {

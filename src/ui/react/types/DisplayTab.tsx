@@ -6,7 +6,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 
 /** Hierarchy (parent fields), the subtitle shown in pickers and search, and properties form options. */
 export function DisplayTab() {
-	const { draft, update, issuesAt, allTypes } = useEditor();
+	const { draft, update, issuesAt, allTypes, setTab } = useEditor();
 	const t = draft.type;
 	const card = t.card ?? {};
 	const relations = t.fields.filter((f) => f.kind === "relation" && f.key);
@@ -71,16 +71,13 @@ export function DisplayTab() {
 					label="Layout"
 					desc={
 						layout
-							? `Custom: ${plural(layout.items.filter((i) => i.kind === "frame").length, "frame")}, ${plural(layoutFields(layout).length, "property", "properties")} placed. Fields that aren't placed are listed under “Other fields”.`
-							: "One list, in field order."
+							? `Custom: ${plural(layout.items.filter((i) => i.kind === "frame").length, "frame")}, ${plural(layoutFields(layout).length, "property", "properties")} placed.`
+							: "One list, in field order. Arrange fields in frames and columns on the Layout tab."
 					}
-					issues={issuesAt("form:layout")}
 				>
-					{layout && (
-						<button type="button" onClick={() => setForm((f) => (f.layout = undefined))}>
-							Reset layout
-						</button>
-					)}
+					<button type="button" onClick={() => setTab("layout")}>
+						{layout ? "Edit layout" : "Design a layout"}
+					</button>
 				</Row>
 			</Section>
 		</div>

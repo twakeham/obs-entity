@@ -35,6 +35,7 @@ import { IconPicker, PALETTE, Row, Section, TextInput } from "./controls";
 import { EditorContext, type EditorApi, type EditorTab } from "./editor";
 import { FieldsTab } from "./FieldsTab";
 import { GeneralTab } from "./GeneralTab";
+import { LayoutTab } from "./LayoutTab";
 import { PreviewPanel, type PreviewMode } from "./Preview";
 import { AddRelationshipDialog, RelationshipsTab } from "./RelationshipsTab";
 
@@ -59,6 +60,7 @@ const TABS: { id: EditorTab; label: string; icon: string }[] = [
 	{ id: "fields", label: "Fields", icon: "list" },
 	{ id: "relationships", label: "Relationships", icon: "waypoints" },
 	{ id: "display", label: "Display", icon: "layout-panel-top" },
+	{ id: "layout", label: "Layout", icon: "layout-dashboard" },
 ];
 
 const GROUP_PREFIX = "group:";
@@ -79,7 +81,8 @@ function friendly(i: TypeIssue, t: EntityTypeDef): TypeIssue {
 	return i;
 }
 
-const tabFor = (at: string): EditorTab => (at.startsWith("field:") ? "fields" : at === "parentFields" || at.startsWith("card:") || at.startsWith("form:") ? "display" : "general");
+const tabFor = (at: string): EditorTab =>
+	at.startsWith("field:") ? "fields" : at.startsWith("form:layout") ? "layout" : at === "parentFields" || at.startsWith("card:") || at.startsWith("form:") ? "display" : "general";
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
@@ -583,6 +586,7 @@ export function TypeManager({ state, setState, pendingField: addRequest, onPendi
 							{state.tab === "fields" && <FieldsTab addRelationship={() => setWizard(true)} />}
 							{state.tab === "relationships" && <RelationshipsTab addRelationship={() => setWizard(true)} />}
 							{state.tab === "display" && <DisplayTab />}
+							{state.tab === "layout" && <LayoutTab />}
 						</div>
 
 						{dirty && (
