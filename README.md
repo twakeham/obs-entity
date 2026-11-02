@@ -231,6 +231,11 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
 - **The first matching rule wins:** drag rules to reorder them. A cell rule sits on top of the row's rule. What it leaves unset (e.g. no fill) comes from the row's rule.
 - Rules can be switched off without deleting them. Each rule shows how many rows it matches.
 
+**Data bars and colour scales** are two more kinds of rule for number and date columns: **Highlight → Data bar / Colour scale**, or right-click a header → **Data bar…** / **Colour scale…**.
+- **Data bars** draw a bar behind each value: Budget, Estimate (h), % done. You can set the colour, a gradient, or bars only. Negative numbers draw leftwards in red.
+- **Colour scales** shade each cell between two or three colours. Presets include red → yellow → green and green → yellow → red. For example, Days left can go from red (overdue) to green.
+- **Ranges:** each end is automatic (from the rows shown), a fixed number or date (`today`, `+30d`), or a percentile (`p90`). An optional condition limits which rows get the bar or colour.
+
 **Roll-ups** summarise the notes linked to each row, through an outgoing field or an incoming link: count, names, unique values of a field, sum / average / min / max of a number, earliest / latest date, % done, or count by status. E.g. "Notes: count" on projects, or "Deals: sum of value" on companies.
 
 **Editing:**

@@ -102,12 +102,46 @@ export interface HighlightStyle {
 	icon?: string;
 }
 
-/** Conditional formatting: rows (or one column's cells) matching `when` get `style`. The first matching rule wins. */
+/**
+ * A data bar's or colour scale's end point: "auto" (from the values), a fixed number, a percentile ("p50"), or
+ * for date columns a date or relative date ("today", "+30d", "2026-12-31").
+ */
+export type ScaleBound = "auto" | number | string;
+
+export interface BarOptions {
+	color?: HighlightColor;
+	/** fade the bar out towards its end */
+	gradient?: boolean;
+	min?: ScaleBound;
+	max?: ScaleBound;
+	/** colour for negative values (default red) */
+	negative?: HighlightColor;
+	/** hide the value, show only the bar */
+	barOnly?: boolean;
+}
+
+export interface ScaleOptions {
+	/** low → high (2) or low → middle → high (3) */
+	colors: HighlightColor[];
+	min?: ScaleBound;
+	mid?: ScaleBound;
+	max?: ScaleBound;
+}
+
+export type HighlightKind = "highlight" | "bar" | "scale";
+
+/**
+ * Conditional formatting: rows (or one column's cells) matching `when` get `style`. The first matching rule wins.
+ * Data bars and colour scales (kind "bar" / "scale") apply to one number or date column, on the rows `when` matches.
+ */
 export interface HighlightRule {
 	name?: string;
+	kind?: HighlightKind;
 	target: string;
 	when: FilterGroup;
 	style: HighlightStyle;
+	bar?: BarOptions;
+	scale?: ScaleOptions;
 	off?: boolean;
 }
 
@@ -328,7 +362,52 @@ function parseHighlight(raw: unknown, errors: string[]): HighlightRule[] {
 		for (const k of ["bold", "italic", "strike"] as const) if (s[k] === true) style[k] = true;
 		if (typeof s.icon === "string" && s.icon.trim()) style.icon = s.icon.trim();
 		const name = str(item.name);
-		rules.push({ ...(name ? { name } : {}), target: str(item.target) || ROW_TARGET, when, style, ...(item.off === true ? { off: true } : {}) });
+		const kind: HighlightKind = item.kind === "bar" || item.kind === "scale" ? item.kind : "highlight";
+		if (item.kind !== undefined && item.kind !== kind) errors.push(`Unknown highlight kind "${String(item.kind)}". Use highlight, bar or scale.`);
+		const color = (v: unknown, what: string): HighlightColor | undefined => {
+			if (v === undefined) return undefined;
+			if (isColor(v)) return v;
+			errors.push(`Unknown ${what} colour "${String(v)}". Use ${HIGHLIGHT_COLORS.join(", ")}.`);
+			return undefined;
+		};
+		const bound = (v: unknown): ScaleBound | undefined => (v === undefined || v === null || v === "auto" ? undefined : typeof v === "number" ? v : typeof v === "string" && v.trim() ? v.trim() : undefined);
+		const extra: Partial<HighlightRule> = {};
+		if (kind === "bar") {
+			const b = isObj(item.bar) ? item.bar : {};
+			const bar: BarOptions = {};
+			const c = color(b.color, "bar");
+			if (c) bar.color = c;
+			const neg = color(b.negative, "negative bar");
+			if (neg) bar.negative = neg;
+			if (b.gradient === true) bar.gradient = true;
+			if (b.barOnly === true) bar.barOnly = true;
+			for (const k of ["min", "max"] as const) {
+				const v = bound(b[k]);
+				if (v !== undefined) bar[k] = v;
+			}
+			extra.bar = bar;
+		} else if (kind === "scale") {
+			const sc = isObj(item.scale) ? item.scale : {};
+			const colors = asArray(sc.colors)
+				.map((c) => color(c, "scale"))
+				.filter((c): c is HighlightColor => !!c);
+			const scale: ScaleOptions = { colors: colors.length >= 2 && colors.length <= 3 ? colors : ["red", "yellow", "green"] };
+			if (colors.length && (colors.length < 2 || colors.length > 3)) errors.push("A colour scale needs 2 or 3 colours.");
+			for (const k of ["min", "mid", "max"] as const) {
+				const v = bound(sc[k]);
+				if (v !== undefined) scale[k] = v;
+			}
+			extra.scale = scale;
+		}
+		rules.push({
+			...(name ? { name } : {}),
+			...(kind !== "highlight" ? { kind } : {}),
+			target: str(item.target) || ROW_TARGET,
+			when,
+			style,
+			...extra,
+			...(item.off === true ? { off: true } : {}),
+		});
 	}
 	return rules;
 }
@@ -373,7 +452,18 @@ export function serializeView(def: ViewDef): Record<string, unknown> {
 	if (def.highlight?.length)
 		out.highlight = def.highlight.map((r) => {
 			const style = Object.fromEntries(Object.entries(r.style).filter(([, v]) => v !== undefined && v !== false && v !== ""));
-			return { ...(r.name ? { name: r.name } : {}), target: r.target, when: serializeFilters(r.when), style, ...(r.off ? { off: true } : {}) };
+			const kind = r.kind ?? "highlight";
+			const clean = (o: object) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && v !== false && v !== "" && v !== "auto"));
+			return {
+				...(r.name ? { name: r.name } : {}),
+				...(kind !== "highlight" ? { kind } : {}),
+				target: r.target,
+				...(r.when.items.length || kind === "highlight" ? { when: serializeFilters(r.when) } : {}),
+				...(kind === "highlight" ? { style } : {}),
+				...(kind === "bar" ? { bar: clean(r.bar ?? {}) } : {}),
+				...(kind === "scale" ? { scale: clean(r.scale ?? { colors: ["red", "yellow", "green"] }) } : {}),
+				...(r.off ? { off: true } : {}),
+			};
 		});
 	return out;
 }
@@ -1316,6 +1406,57 @@ export interface ResultRow {
 	cells: Record<string, Cell>;
 	/** highlight rule index styling the row (ROW_TARGET) and each column that has a matching cell rule */
 	hl?: Record<string, number>;
+	/** data bars and colour scales, by column */
+	viz?: Record<string, CellViz>;
+}
+
+/** A cell's data bar (fractions of the cell width) and colour-scale position (0 low … 1 high), with their rules. */
+export interface CellViz {
+	bar?: { rule: number; start: number; end: number; negative: boolean };
+	scale?: { rule: number; t: number };
+}
+
+/** Linear-interpolated percentile of sorted values (p 0–100). */
+export function percentile(sorted: number[], p: number): number {
+	if (!sorted.length) return NaN;
+	const x = (Math.max(0, Math.min(100, p)) / 100) * (sorted.length - 1);
+	const lo = Math.floor(x);
+	const hi = Math.ceil(x);
+	return sorted[lo] + (sorted[hi] - sorted[lo]) * (x - lo);
+}
+
+/** A bound's value: auto (the given fallback), a number, a percentile ("p90"), or a date / relative date for date columns. */
+function resolveBound(b: ScaleBound | undefined, sorted: number[], auto: number, isDate: boolean, ctx: Pick<ViewContext, "dates" | "today">): number {
+	if (b === undefined || b === "auto") return auto;
+	if (typeof b === "number") return b;
+	const p = /^p(\d+(?:\.\d+)?)$/i.exec(b.trim());
+	if (p) return percentile(sorted, Number(p[1]));
+	if (isDate) return dateValue(b, ctx) ?? auto;
+	const n = Number(b);
+	return Number.isFinite(n) ? n : auto;
+}
+
+/** Bar geometry for a value in [lo, hi]: from the zero line when the range spans zero, clamped. */
+export function barGeometry(v: number, lo: number, hi: number): { start: number; end: number; negative: boolean } {
+	if (!(hi > lo)) return { start: 0, end: v >= hi ? 1 : 0, negative: v < 0 };
+	const span = hi - lo;
+	const pos = (Math.min(hi, Math.max(lo, v)) - lo) / span;
+	if (lo < 0 && hi > 0) {
+		const zero = -lo / span;
+		return { start: Math.min(zero, pos), end: Math.max(zero, pos), negative: v < 0 };
+	}
+	if (hi <= 0) return { start: pos, end: 1, negative: true };
+	return { start: 0, end: pos, negative: false };
+}
+
+/** Where a value sits on a colour scale (0–1), with an optional middle point. */
+export function scalePosition(v: number, lo: number, hi: number, mid?: number): number {
+	const clamp = (x: number) => (Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0.5);
+	if (mid !== undefined && Number.isFinite(mid)) {
+		if (v <= mid) return mid > lo ? clamp(0.5 * ((v - lo) / (mid - lo))) : 0;
+		return hi > mid ? clamp(0.5 + 0.5 * ((v - mid) / (hi - mid))) : 1;
+	}
+	return hi > lo ? clamp((v - lo) / (hi - lo)) : 0.5;
 }
 
 /** Separates the keys in a nested group's path ("active␟Ada"). */
@@ -1410,6 +1551,7 @@ export function runView(def: ViewDef, all: ViewRow[], ctx: ViewContext, search =
 		return conds.length === 0 || conds.some((c) => !conditionIssue(c, known));
 	});
 	const highlightCounts = rules.map(() => 0);
+	const members: ResultRow[][] = rules.map(() => []);
 
 	const q = search.trim().toLowerCase();
 	const out: ResultRow[] = [];
@@ -1421,15 +1563,58 @@ export function runView(def: ViewDef, all: ViewRow[], ctx: ViewContext, search =
 		for (const c of columns) cell(c.id);
 		for (const id of extra) cell(id);
 		let hl: Record<string, number> | undefined;
+		const rr: ResultRow = { row, cells };
 		rules.forEach((rule, i) => {
 			if (!usable[i] || !passes(rule.when, cell, known, ctx)) return;
 			highlightCounts[i]++;
 			if (rule.off || (rule.target !== ROW_TARGET && !shown.has(rule.target))) return;
+			if (rule.kind === "bar" || rule.kind === "scale") {
+				members[i].push(rr);
+				return;
+			}
 			hl ??= {};
 			hl[rule.target] ??= i;
 		});
-		out.push({ row, cells, ...(hl ? { hl } : {}) });
+		if (hl) rr.hl = hl;
+		out.push(rr);
 	}
+
+	// Data bars and colour scales: bounds over the rows each rule applies to, then each row's bar or position.
+	rules.forEach((rule, i) => {
+		const col = known.get(rule.target);
+		if (!members[i].length || !col || (col.kind !== "number" && col.kind !== "date")) return;
+		const isDate = col.kind === "date";
+		const vals = members[i].map((r) => r.cells[rule.target]?.value).filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+		if (!vals.length) return;
+		const sorted = [...vals].sort((a, b) => a - b);
+		const first = sorted[0];
+		const last = sorted[sorted.length - 1];
+		if (rule.kind === "bar") {
+			const o = rule.bar ?? {};
+			// Number bars start from zero unless a minimum is set; date bars span the dates.
+			const lo = resolveBound(o.min, sorted, isDate ? first : Math.min(0, first), isDate, ctx);
+			const hi = resolveBound(o.max, sorted, isDate ? last : Math.max(0, last), isDate, ctx);
+			for (const r of members[i]) {
+				const v = r.cells[rule.target]?.value;
+				if (typeof v !== "number" || !Number.isFinite(v)) continue;
+				r.viz ??= {};
+				const cv = (r.viz[rule.target] ??= {});
+				cv.bar ??= { rule: i, ...barGeometry(v, lo, hi) };
+			}
+		} else {
+			const o = rule.scale ?? { colors: ["red", "yellow", "green"] };
+			const lo = resolveBound(o.min, sorted, first, isDate, ctx);
+			const hi = resolveBound(o.max, sorted, last, isDate, ctx);
+			const mid = o.colors.length === 3 ? resolveBound(o.mid, sorted, percentile(sorted, 50), isDate, ctx) : undefined;
+			for (const r of members[i]) {
+				const v = r.cells[rule.target]?.value;
+				if (typeof v !== "number" || !Number.isFinite(v)) continue;
+				r.viz ??= {};
+				const cv = (r.viz[rule.target] ??= {});
+				cv.scale ??= { rule: i, t: scalePosition(v, lo, hi, mid) };
+			}
+		}
+	});
 
 	const levels = def.sort.filter((s) => known.has(s.by));
 	out.sort((a, b) => {

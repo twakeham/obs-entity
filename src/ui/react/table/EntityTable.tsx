@@ -41,7 +41,7 @@ import { HOVER_SOURCE } from "../EntityChip";
 import { Icon } from "../Icon";
 import { CellEditor, CellView, editTarget } from "./cells";
 import { summarize, summaryOptions, type SummaryResult } from "../../../model/summary";
-import { ColumnsPanel, FiltersPanel, FormatPanel, GroupPanel, HighlightPanel, hlClasses, newHighlightRule, Popover, SortPanel, type ColumnChoice } from "./popovers";
+import { ColumnsPanel, cssColor, FiltersPanel, FormatPanel, GroupPanel, HighlightPanel, hlClasses, newHighlightRule, newVizRule, Popover, scaleFill, SortPanel, type ColumnChoice } from "./popovers";
 
 /** What survives the re-render after a save, per block, for the session. */
 interface Session {
@@ -515,6 +515,20 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 						if (btn) setPop({ name: "highlight", anchor: btn.getBoundingClientRect(), open: rules.length });
 					}),
 			);
+		if (fk)
+			for (const k of ["bar", "scale"] as const)
+				m.addItem((i) =>
+					i
+						.setSection("edit")
+						.setTitle(k === "bar" ? "Data bar…" : "Colour scale…")
+						.setIcon(k === "bar" ? "bar-chart-horizontal" : "palette")
+						.onClick(() => {
+							const rules = defRef.current.highlight ?? [];
+							update({ ...defRef.current, highlight: [...rules, newVizRule(k, c.id)] });
+							const btn = scrollRef.current?.parentElement?.querySelector<HTMLElement>("[data-pop=highlight]");
+							if (btn) setPop({ name: "highlight", anchor: btn.getBoundingClientRect(), open: rules.length });
+						}),
+				);
 		if (c.def.kind === "rollup") {
 			const rc = c.def;
 			m.addItem((i) => i.setSection("edit").setTitle("Edit roll-up…").setIcon("pencil").onClick(() => rollupDialog(rc)));
@@ -1080,15 +1094,31 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 												<Icon name={hl.style.icon} />
 											</span>
 										) : null;
+										// Data bars and colour scales. An earlier cell highlight rule with its own fill keeps its fill.
+										const viz = r.viz?.[c.id];
+										const barRule = viz?.bar ? def.highlight[viz.bar.rule] : undefined;
+										const scaleRule = viz?.scale ? def.highlight[viz.scale.rule] : undefined;
+										const cellRule = r.hl?.[c.id];
+										const scaleBg =
+											viz?.scale && scaleRule?.scale && !(cellRule !== undefined && cellRule < viz.scale.rule && def.highlight[cellRule]?.style.fill) ? scaleFill(scaleRule.scale.colors, viz.scale.t) : undefined;
+										const bar =
+											viz?.bar && barRule ? (
+												<span
+													className={`oe-bar${barRule.bar?.gradient ? " is-gradient" : ""}`}
+													aria-hidden="true"
+													style={{ left: `${viz.bar.start * 100}%`, width: `${(viz.bar.end - viz.bar.start) * 100}%`, "--oe-bar": cssColor(viz.bar.negative ? (barRule.bar?.negative ?? "red") : (barRule.bar?.color ?? "blue")) } as CSSProperties}
+												/>
+											) : null;
+										const tdStyle: CSSProperties = { ...(ci === 0 && it.depth ? { paddingLeft: 10 + it.depth * 16 } : {}), ...(scaleBg ? { backgroundColor: scaleBg } : {}) };
 										return (
 											<td
 												key={c.id}
 												data-r={it.n}
 												data-c={ci}
-												className={`oe-td${focused ? " is-focused" : ""}${target ? " is-editable" : ""}${problem ? ` has-problem is-${problem.severity}` : ""}${hl ? ` ${hlClasses(hl.style)}` : ""}${freezeCls(ci)}`}
-												aria-label={problem?.message}
+												className={`oe-td${focused ? " is-focused" : ""}${target ? " is-editable" : ""}${problem ? ` has-problem is-${problem.severity}` : ""}${hl ? ` ${hlClasses(hl.style)}` : ""}${bar ? " has-bar" : ""}${bar && barRule?.bar?.barOnly ? " is-bar-only" : ""}${freezeCls(ci)}`}
+												aria-label={problem?.message ?? (bar && barRule?.bar?.barOnly ? r.cells[c.id]?.text : undefined)}
 												// The first column is indented to the row's grouping depth, in line with its group's label (after the chevron).
-												style={freezeStyle(ci, ci === 0 && it.depth ? { paddingLeft: 10 + it.depth * 16 } : undefined)}
+												style={freezeStyle(ci, Object.keys(tdStyle).length ? tdStyle : undefined)}
 												onClick={() => {
 													setFocus({ r: it.n, c: ci });
 													scrollRef.current?.focus({ preventScroll: true });
@@ -1117,13 +1147,21 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 														) : (
 															<CellView col={c} cell={r.cells[c.id]} row={r.row} onToggle={target && c.kind === "bool" ? (v) => write(path, target.key, v) : undefined} />
 														);
-													return hlIcon ? (
+													const shown = hlIcon ? (
 														<span className="oe-hl-cell">
 															{hlIcon}
 															{content}
 														</span>
 													) : (
 														content
+													);
+													return bar ? (
+														<>
+															{bar}
+															<span className="oe-bar-value">{shown}</span>
+														</>
+													) : (
+														shown
 													);
 												})()}
 											</td>

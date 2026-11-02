@@ -4012,3 +4012,73 @@ button.oe-fx-ref-item:hover {
 	gap: var(--size-4-2);
 	margin-top: var(--size-4-2);
 }
+/* Data bars: a bar behind the value; the value stays on top */
+.oe-view table.oe-table > tbody > tr > td.has-bar:not(.is-frozen) {
+	position: relative;
+}
+
+.oe-bar {
+	position: absolute;
+	top: 6px;
+	bottom: 6px;
+	border-radius: 3px;
+	background-color: color-mix(in srgb, var(--oe-bar) 35%, transparent);
+	pointer-events: none;
+}
+
+.oe-bar.is-gradient {
+	background-color: transparent;
+	background-image: linear-gradient(90deg, color-mix(in srgb, var(--oe-bar) 55%, transparent), color-mix(in srgb, var(--oe-bar) 8%, transparent));
+}
+
+.oe-bar-value {
+	position: relative;
+	display: block;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+td.is-bar-only .oe-bar-value {
+	visibility: hidden;
+}
+
+td.is-bar-only .oe-bar {
+	top: 9px;
+	bottom: 9px;
+}
+
+/* Rule samples and scale presets in the Highlight panel */
+.oe-hl-sample.is-bar {
+	width: 34px;
+	padding: 0 3px;
+}
+
+.oe-hl-sample.is-bar > span {
+	display: block;
+	width: 70%;
+	height: 10px;
+	border-radius: 2px;
+	opacity: 0.6;
+}
+
+.oe-hl-sample.is-scale {
+	width: 34px;
+	opacity: 0.6;
+}
+
+.oe-popover button.oe-scale-preset {
+	width: 54px;
+	height: 18px;
+	padding: 0;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	box-shadow: none;
+	opacity: 0.65;
+	cursor: pointer;
+}
+
+.oe-popover button.oe-scale-preset.is-active {
+	opacity: 1;
+	box-shadow: 0 0 0 2px var(--background-secondary), 0 0 0 4px var(--interactive-accent);
+}

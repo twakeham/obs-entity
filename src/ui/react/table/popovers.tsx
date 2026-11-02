@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
 	HIGHLIGHT_COLORS,
@@ -14,6 +14,9 @@ import {
 	type HighlightColor,
 	type HighlightRule,
 	type HighlightStyle,
+	type BarOptions,
+	type ScaleBound,
+	type ScaleOptions,
 	type ResolvedColumn,
 	type SortLevel,
 	type ViewContext,
@@ -590,8 +593,40 @@ export function newHighlightRule(target: string, choices: ColumnChoice[]): Highl
 	return { target, when: { mode: "all", items: [firstCondition(choices, target === ROW_TARGET ? undefined : target)] }, style: { fill: "yellow" } };
 }
 
+/** CSS colour for a palette colour (theme variables, so light and dark themes both work). */
+export const cssColor = (c: HighlightColor) => (c === "grey" ? "var(--text-muted)" : `var(--color-${c})`);
+
+/** A colour scale's cell fill at position t (0–1): mixed between its 2 or 3 colours, as a tint like highlight fills. */
+export function scaleFill(colors: HighlightColor[], t: number, strength = 30): string {
+	const [a, b, c] = colors.map(cssColor);
+	let mixed: string;
+	if (colors.length === 3) mixed = t <= 0.5 ? `color-mix(in srgb, ${b} ${Math.round(t * 200)}%, ${a})` : `color-mix(in srgb, ${c} ${Math.round((t - 0.5) * 200)}%, ${b})`;
+	else mixed = `color-mix(in srgb, ${b} ${Math.round(t * 100)}%, ${a})`;
+	return `color-mix(in srgb, ${mixed} ${strength}%, var(--background-primary))`;
+}
+
+export const SCALE_PRESETS: { label: string; colors: HighlightColor[] }[] = [
+	{ label: "Red → Yellow → Green", colors: ["red", "yellow", "green"] },
+	{ label: "Green → Yellow → Red", colors: ["green", "yellow", "red"] },
+	{ label: "Grey → Blue", colors: ["grey", "blue"] },
+	{ label: "Red → Green", colors: ["red", "green"] },
+];
+
+const isMeasurable = (c: ResolvedColumn) => !c.invalid && (c.kind === "number" || c.kind === "date");
+
+/** A data bar (blue, automatic range) or colour scale (red → yellow → green) on a number or date column. */
+export function newVizRule(kind: "bar" | "scale", target: string): HighlightRule {
+	return kind === "bar"
+		? { kind, target, when: { mode: "all", items: [] }, style: {}, bar: { color: "blue" } }
+		: { kind, target, when: { mode: "all", items: [] }, style: {}, scale: { colors: ["red", "yellow", "green"] } };
+}
+
 /** "Status is any of done, review" (+ how many more conditions) for a rule without a name. */
 function ruleSummary(r: HighlightRule, choices: ColumnChoice[]): string {
+	if (r.kind === "bar" || r.kind === "scale") {
+		const col = choices.find((x) => x.col.id === r.target)?.col.label ?? r.target;
+		return `${r.kind === "bar" ? "Data bar" : "Colour scale"} on ${col}`;
+	}
 	const all: Condition[] = [];
 	const walk = (g: FilterGroup) => g.items.forEach((i) => (isGroup(i) ? walk(i) : all.push(i)));
 	walk(r.when);
@@ -602,6 +637,149 @@ function ruleSummary(r: HighlightRule, choices: ColumnChoice[]): string {
 	const value = Array.isArray(c.value) ? c.value.map((v) => String(v).replace(/^.*\//, "").replace(/\.md$/, "")).join(", ") : c.value === undefined ? "" : String(c.value);
 	const first = [col?.label ?? c.field, op?.label ?? c.op, value].filter(Boolean).join(" ");
 	return all.length > 1 ? `${first} +${all.length - 1}` : first;
+}
+
+/** A data bar's or colour scale's end point: automatic, a fixed value (a number, or a date / "today" / "+30d" for dates), or a percentile. */
+function BoundEditor({ value, label, isDate, auto, onChange }: { value: ScaleBound | undefined; label: string; isDate: boolean; auto: string; onChange: (v: ScaleBound | undefined) => void }) {
+	const mode = value === undefined || value === "auto" ? "auto" : typeof value === "string" && /^p\d/i.test(value) ? "pct" : "fixed";
+	const text = mode === "pct" ? String(value).slice(1) : mode === "fixed" ? String(value) : "";
+	return (
+		<span className="oe-condition">
+			<select
+				className="dropdown oe-pop-select"
+				value={mode}
+				aria-label={`${label} kind`}
+				onChange={(e) => onChange(e.target.value === "auto" ? undefined : e.target.value === "pct" ? "p50" : isDate ? "today" : 0)}
+			>
+				<option value="auto">{auto}</option>
+				<option value="fixed">{isDate ? "Date" : "Number"}</option>
+				<option value="pct">Percentile</option>
+			</select>
+			{mode !== "auto" && (
+				<input
+					type="text"
+					className="oe-pop-input is-number"
+					value={text}
+					aria-label={label}
+					placeholder={mode === "pct" ? "50" : isDate ? "today, +30d" : "0"}
+					onChange={(e) => {
+						const t = e.target.value.trim();
+						if (mode === "pct") onChange(`p${t}`);
+						else if (isDate) onChange(t || "today");
+						else onChange(t !== "" && Number.isFinite(Number(t)) ? Number(t) : t);
+					}}
+				/>
+			)}
+			{mode === "pct" && <span className="oe-pop-hint">th</span>}
+		</span>
+	);
+}
+
+function ColourPick({ value, onChange, label }: { value: HighlightColor; onChange: (c: HighlightColor) => void; label: string }) {
+	return (
+		<span className="oe-hl-swatches" role="radiogroup" aria-label={label}>
+			{HIGHLIGHT_COLORS.map((c) => (
+				<button key={c} className={`oe-hl-swatch is-fill oe-hl-fill-${c}${value === c ? " is-active" : ""}`} role="radio" aria-checked={value === c} aria-label={`${COLOR_LABEL[c]} ${label.toLowerCase()}`} onClick={() => onChange(c)} />
+			))}
+		</span>
+	);
+}
+
+/** Options for a data bar or colour scale rule. */
+function VizBody({ r, columns, onChange }: { r: HighlightRule; columns: ResolvedColumn[]; onChange: (r: HighlightRule) => void }) {
+	const col = columns.find((c) => c.id === r.target);
+	const isDate = col?.kind === "date";
+	const targets = columns.filter(isMeasurable);
+	const hidden = !col;
+	const target = (
+		<span className="oe-condition">
+			<select className="dropdown oe-pop-select" value={r.target} aria-label="Column" onChange={(e) => onChange({ ...r, target: e.target.value })}>
+				{targets.map((c) => (
+					<option key={c.id} value={c.id}>
+						{c.label}
+					</option>
+				))}
+				{hidden && <option value={r.target}>{r.target} (not shown)</option>}
+			</select>
+			{hidden && <span className="oe-pop-hint">That column isn't shown, so this rule has no effect.</span>}
+			{col && !isMeasurable(col) && <span className="oe-pop-hint">Data bars and colour scales need a number or date column.</span>}
+		</span>
+	);
+	if (r.kind === "bar") {
+		const b = r.bar ?? {};
+		const setBar = (patch: Partial<BarOptions>) => {
+			const bar = { ...b, ...patch };
+			for (const k of Object.keys(bar) as (keyof BarOptions)[]) if (bar[k] === undefined || bar[k] === false) delete bar[k];
+			onChange({ ...r, bar });
+		};
+		return (
+			<div className="oe-hl-grid">
+				<span className="oe-hl-label">Column</span>
+				{target}
+				<span className="oe-hl-label">Colour</span>
+				<ColourPick label="Bar colour" value={b.color ?? "blue"} onChange={(color) => setBar({ color })} />
+				<span className="oe-hl-label">Negative</span>
+				<ColourPick label="Negative colour" value={b.negative ?? "red"} onChange={(negative) => setBar({ negative })} />
+				<span className="oe-hl-label">Minimum</span>
+				<BoundEditor label="Minimum" isDate={isDate} auto={isDate ? "Earliest" : "Automatic (0 or lowest)"} value={b.min} onChange={(min) => setBar({ min })} />
+				<span className="oe-hl-label">Maximum</span>
+				<BoundEditor label="Maximum" isDate={isDate} auto={isDate ? "Latest" : "Automatic (highest)"} value={b.max} onChange={(max) => setBar({ max })} />
+				<span className="oe-hl-label">Look</span>
+				<span className="oe-condition">
+					<label className="oe-columns-item">
+						<input type="checkbox" checked={!!b.gradient} onChange={(e) => setBar({ gradient: e.target.checked })} />
+						<span>Gradient</span>
+					</label>
+					<label className="oe-columns-item">
+						<input type="checkbox" checked={!!b.barOnly} onChange={(e) => setBar({ barOnly: e.target.checked })} />
+						<span>Bar only (hide the value)</span>
+					</label>
+				</span>
+			</div>
+		);
+	}
+	const s = r.scale ?? { colors: ["red", "yellow", "green"] as HighlightColor[] };
+	const setScale = (patch: Partial<ScaleOptions>) => {
+		const scale = { ...s, ...patch };
+		for (const k of ["min", "mid", "max"] as const) if (scale[k] === undefined) delete scale[k];
+		if (scale.colors.length !== 3) delete scale.mid;
+		onChange({ ...r, scale });
+	};
+	return (
+		<div className="oe-hl-grid">
+			<span className="oe-hl-label">Column</span>
+			{target}
+			<span className="oe-hl-label">Preset</span>
+			<span className="oe-hl-swatches">
+				{SCALE_PRESETS.map((p) => (
+					<button key={p.label} className={`oe-scale-preset${p.colors.join() === s.colors.join() ? " is-active" : ""}`} aria-label={p.label} style={{ background: `linear-gradient(90deg, ${p.colors.map(cssColor).join(", ")})` }} onClick={() => setScale({ colors: p.colors })} />
+				))}
+			</span>
+			<span className="oe-hl-label">Colours</span>
+			<span className="oe-condition">
+				<select className="dropdown oe-pop-select is-narrow" value={s.colors.length} aria-label="Number of colours" onChange={(e) => setScale({ colors: e.target.value === "3" ? [s.colors[0], "yellow", s.colors[s.colors.length - 1]] : [s.colors[0], s.colors[s.colors.length - 1]] })}>
+					<option value={2}>2 colours</option>
+					<option value={3}>3 colours</option>
+				</select>
+			</span>
+			{s.colors.map((c, k) => (
+				<Fragment key={k}>
+					<span className="oe-hl-label">{k === 0 ? "Low" : k === s.colors.length - 1 ? "High" : "Middle"}</span>
+					<ColourPick label={`${k === 0 ? "Low" : k === s.colors.length - 1 ? "High" : "Middle"} colour`} value={c} onChange={(nc) => setScale({ colors: s.colors.map((x, j) => (j === k ? nc : x)) })} />
+				</Fragment>
+			))}
+			<span className="oe-hl-label">Low at</span>
+			<BoundEditor label="Low value" isDate={isDate} auto={isDate ? "Earliest" : "Lowest"} value={s.min} onChange={(min) => setScale({ min })} />
+			{s.colors.length === 3 && (
+				<>
+					<span className="oe-hl-label">Middle at</span>
+					<BoundEditor label="Middle value" isDate={isDate} auto="Median (50th percentile)" value={s.mid} onChange={(mid) => setScale({ mid })} />
+				</>
+			)}
+			<span className="oe-hl-label">High at</span>
+			<BoundEditor label="High value" isDate={isDate} auto={isDate ? "Latest" : "Highest"} value={s.max} onChange={(max) => setScale({ max })} />
+		</div>
+	);
 }
 
 function Swatches({ value, kind, onChange }: { value: HighlightColor | undefined; kind: "fill" | "text"; onChange: (c: HighlightColor | undefined) => void }) {
@@ -674,10 +852,18 @@ export function HighlightPanel({
 								<Icon name="grip-vertical" />
 							</span>
 							<input type="checkbox" checked={!r.off} aria-label="Rule on" onChange={(e) => set(i, { ...r, off: e.target.checked ? undefined : true })} />
-							<span className={`oe-hl-sample ${hlClasses(r.style)}`} aria-hidden="true">
-								{r.style.icon && <Icon name={r.style.icon} className="oe-hl-icon" />}
-								<span>Aa</span>
-							</span>
+							{r.kind === "bar" ? (
+								<span className="oe-hl-sample is-bar" aria-hidden="true">
+									<span style={{ background: cssColor(r.bar?.color ?? "blue") }} />
+								</span>
+							) : r.kind === "scale" ? (
+								<span className="oe-hl-sample is-scale" aria-hidden="true" style={{ background: `linear-gradient(90deg, ${(r.scale?.colors ?? ["red", "green"]).map(cssColor).join(", ")})` }} />
+							) : (
+								<span className={`oe-hl-sample ${hlClasses(r.style)}`} aria-hidden="true">
+									{r.style.icon && <Icon name={r.style.icon} className="oe-hl-icon" />}
+									<span>Aa</span>
+								</span>
+							)}
 							<button className="oe-hl-title" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : i)}>
 								<span className="oe-hl-name">{r.name || ruleSummary(r, choices)}</span>
 								<span className="oe-hl-meta">
@@ -688,7 +874,18 @@ export function HighlightPanel({
 								<Icon name="x" />
 							</button>
 						</div>
-						{isOpen && (
+						{isOpen && (r.kind === "bar" || r.kind === "scale") && (
+							<div className="oe-hl-body">
+								<div className="oe-hl-grid">
+									<span className="oe-hl-label">Name</span>
+									<input type="text" className="oe-pop-input" value={r.name ?? ""} placeholder="Optional" aria-label="Rule name" onChange={(e) => set(i, { ...r, name: e.target.value || undefined })} />
+								</div>
+								<VizBody r={r} columns={columns} onChange={(nr) => set(i, nr)} />
+								<GroupEditor group={r.when} depth={0} onChange={(when) => set(i, { ...r, when })} {...rest} heading="Only rows that match" emptyText="No conditions: every row with a value." />
+								<div className="oe-pop-hint">Automatic ranges come from the rows shown (after filters and search) that this rule applies to.</div>
+							</div>
+						)}
+						{isOpen && r.kind !== "bar" && r.kind !== "scale" && (
 							<div className="oe-hl-body">
 								<div className="oe-hl-grid">
 									<span className="oe-hl-label">Name</span>
@@ -755,8 +952,26 @@ export function HighlightPanel({
 						setOpen(rules.length);
 					}}
 				>
-					<Icon name="plus" /> Add rule
+					<Icon name="plus" /> Highlight rule
 				</button>
+				{(["bar", "scale"] as const).map((k) => {
+					const first = columns.find(isMeasurable);
+					return (
+						<button
+							key={k}
+							className="oe-pop-link"
+							disabled={!first}
+							aria-label={first ? undefined : "Needs a number or date column"}
+							onClick={() => {
+								if (!first) return;
+								onChange([...rules, newVizRule(k, first.id)]);
+								setOpen(rules.length);
+							}}
+						>
+							<Icon name={k === "bar" ? "bar-chart-horizontal" : "palette"} /> {k === "bar" ? "Data bar" : "Colour scale"}
+						</button>
+					);
+				})}
 			</div>
 		</div>
 	);

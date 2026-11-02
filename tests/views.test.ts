@@ -7,6 +7,7 @@ import { extractEdges } from "../src/model/relations";
 import { spanText, summarize, summaryOptions } from "../src/model/summary";
 import {
 	availableColumns,
+	barGeometry,
 	columnFromId,
 	cycleSort,
 	dateValue,
@@ -17,10 +18,12 @@ import {
 	GROUP_PATH_SEP,
 	highlightOf,
 	parseView,
+	percentile,
 	prefillFromFilters,
 	resolveColumn,
 	rollupSources,
 	runView,
+	scalePosition,
 	serializeView,
 	unknownSources,
 	type ViewContext,
@@ -485,6 +488,80 @@ describe("highlight", () => {
 		const r = run({ columns: ["due"], highlight: [{ target: "row", when: { all: [{ field: "owner", op: "not-empty" }] }, style: { fill: "blue" } }, { target: "status", when: { all: [] }, style: { fill: "red" } }, { target: "row", when: { all: [{ field: "ghost", op: "is", value: "x" }] }, style: { fill: "pink" } }] });
 		expect(r.rows.filter((x) => x.hl).map((x) => `${x.row.name}:${JSON.stringify(x.hl)}`)).toEqual(['Apollo:{"row":0}', 'Lander:{"row":0}']);
 		expect(r.highlightCounts).toEqual([2, 4, 0]);
+	});
+});
+
+describe("data bars and colour scales", () => {
+	const D = (rules: unknown[], extra: Record<string, unknown> = {}) => runView(view({ types: ["deal"], columns: ["value", "close_date"], highlight: rules, ...extra }), ROWS, ctx);
+	const P = (rules: unknown[]) => runView(view({ types: ["project"], columns: ["due"], highlight: rules }), ROWS, ctx);
+
+	it("round-trip, leaving out defaults, and report bad options", () => {
+		const raw = [
+			{ kind: "bar", target: "value", bar: { color: "blue", min: 0, max: "p90", gradient: true, barOnly: false } },
+			{ kind: "scale", target: "due", when: { all: [{ field: "status", op: "none-of", value: ["done"] }] }, scale: { colors: ["red", "yellow", "green"], min: "today", mid: "auto", max: "+30d" } },
+		];
+		const def = view({ types: ["project"], columns: ["due"], highlight: raw });
+		expect(def.highlight[0]).toMatchObject({ kind: "bar", bar: { color: "blue", min: 0, max: "p90", gradient: true } });
+		expect(serializeView(def).highlight).toEqual([
+			{ kind: "bar", target: "value", bar: { color: "blue", min: 0, max: "p90", gradient: true } },
+			{ kind: "scale", target: "due", when: raw[1].when, scale: { colors: ["red", "yellow", "green"], min: "today", max: "+30d" } },
+		]);
+		expect(view(serializeView(def))).toEqual(def);
+		const bad = parseView({ highlight: [{ kind: "sparkle" }, { kind: "scale", scale: { colors: ["red"] } }, { kind: "bar", bar: { color: "teal" } }] });
+		expect(bad.errors).toEqual(['Unknown highlight kind "sparkle". Use highlight, bar or scale.', "A colour scale needs 2 or 3 colours.", 'Unknown bar colour "teal". Use red, orange, yellow, green, blue, purple, pink, grey.']);
+		expect(bad.def!.highlight[1].scale!.colors).toEqual(["red", "yellow", "green"]);
+	});
+
+	it("bars: from zero for numbers, clamped to fixed bounds, from the zero line for negatives", () => {
+		const r = D([{ kind: "bar", target: "value" }]);
+		expect(r.rows.map((x) => [x.row.name, x.cells.value.value, x.viz?.value?.bar])).toEqual([
+			["Deal one", 100, { rule: 0, start: 0, end: 1, negative: false }],
+			["Deal two", 50, { rule: 0, start: 0, end: 0.5, negative: false }],
+		]);
+		expect(D([{ kind: "bar", target: "value", bar: { min: 50, max: 80 } }]).rows.map((x) => x.viz?.value?.bar?.end)).toEqual([1, 0]);
+		expect(barGeometry(-25, -50, 50)).toEqual({ start: 0.25, end: 0.5, negative: true });
+		expect(barGeometry(25, -50, 50)).toEqual({ start: 0.5, end: 0.75, negative: false });
+		expect(barGeometry(-10, -20, -5)).toEqual({ start: 10 / 15, end: 1, negative: true });
+		expect(barGeometry(5, 5, 5)).toEqual({ start: 0, end: 1, negative: false });
+	});
+
+	it("bars on dates span the dates; rows with no value get none; the rule's condition limits rows and bounds", () => {
+		const r = P([{ kind: "bar", target: "due" }]);
+		const by = Object.fromEntries(r.rows.map((x) => [x.row.name, x.viz?.due?.bar ?? null]));
+		expect(by.Lander).toEqual({ rule: 0, start: 0, end: 0, negative: false });
+		expect(by.Apollo).toEqual({ rule: 0, start: 0, end: 1, negative: false });
+		expect(by["Project 2"]).toBeNull();
+		const only = P([{ kind: "bar", target: "due", when: { all: [{ field: "status", op: "any-of", value: ["idea"] }] } }]);
+		expect(only.rows.filter((x) => x.viz).map((x) => x.row.name)).toEqual(["Apollo"]);
+		expect(only.highlightCounts).toEqual([1]);
+	});
+
+	it("scales: two or three colours, percentiles and relative dates", () => {
+		expect(D([{ kind: "scale", target: "value", scale: { colors: ["white", "blue"].map((c) => (c === "white" ? "grey" : c)) } }]).rows.map((x) => x.viz?.value?.scale?.t)).toEqual([1, 0]);
+		expect(scalePosition(25, 0, 100, 50)).toBe(0.25);
+		expect(scalePosition(75, 0, 100, 50)).toBe(0.75);
+		expect(scalePosition(5, 5, 5)).toBe(0.5);
+		expect(scalePosition(200, 0, 100)).toBe(1);
+		expect(percentile([1, 2, 3, 4], 50)).toBe(2.5);
+		// today (2026-11-01) red → +60d green: Lander (2026-12-01, 30 days) sits half way
+		const r = P([{ kind: "scale", target: "due", scale: { colors: ["red", "green"], min: "today", max: "+60d" } }]);
+		expect(r.rows.find((x) => x.row.name === "Lander")!.viz!.due!.scale!.t).toBeCloseTo(0.5, 1);
+		expect(r.rows.find((x) => x.row.name === "Apollo")!.viz!.due!.scale!.t).toBe(1);
+	});
+
+	it("leave highlights alone, skip hidden or disabled columns, and both kinds can share a column", () => {
+		const r = D([
+			{ kind: "bar", target: "value" },
+			{ kind: "scale", target: "value", scale: { colors: ["red", "green"] } },
+			{ kind: "bar", target: "close_date", off: true },
+			{ target: "value", when: { all: [{ field: "value", op: ">", value: 60 }] }, style: { bold: true } },
+		]);
+		const one = r.rows[0];
+		expect(Object.keys(one.viz!)).toEqual(["value"]);
+		expect(one.viz!.value).toEqual({ bar: { rule: 0, start: 0, end: 1, negative: false }, scale: { rule: 1, t: 1 } });
+		expect(one.hl).toEqual({ value: 3 });
+		expect(highlightOf(view({ types: ["deal"], columns: ["value"], highlight: [{ kind: "bar", target: "value" }] }), r.rows[1], "value")).toBeNull();
+		expect(runView(view({ types: ["deal"], columns: ["close_date"], highlight: [{ kind: "bar", target: "value" }] }), ROWS, ctx).rows.some((x) => x.viz)).toBe(false);
 	});
 });
 

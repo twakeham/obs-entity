@@ -1220,6 +1220,45 @@ highlight:
   - Right-clicking a header gives **Highlight cells…**, which adds a cell rule for that column, with a condition on it and a yellow fill, and opens it.
 - `runView` returns each row's matching rule per target (`hl`) and a match count per rule. Future board, gallery and calendar views will use row rules to colour cards.
 
+#### Data bars and colour scales
+
+Two more kinds of rule, in the same `highlight:` list (so they can be reordered, named and switched off). Each targets **one number or date column** (fields, roll-ups or formulas of those types). An optional condition (`when`, the filter editor) limits which rows get it.
+
+```yaml
+highlight:
+  - kind: bar
+    target: budget
+    bar: { color: blue, min: 0, max: p90, gradient: true, negative: red, barOnly: false }
+  - kind: scale
+    target: days_left
+    when: { all: [ { field: status, op: none-of, value: [done] } ] }
+    scale: { colors: [red, yellow, green], min: auto, mid: p50, max: +60d }
+```
+
+- **Bounds** (`min`, `max`, and `mid` for three-colour scales):
+  - `auto` (the default) is the lowest or highest value of the rows the rule applies to, among those shown after filters and search.
+  - A fixed number. For date columns, a date or relative date (`today`, `+30d`, `-1m`, `2026-12-31`).
+  - A percentile, `p90`.
+  - `mid` defaults to the median.
+- **Data bars:**
+  - A bar behind the value, which stays readable on top. It's the palette colour (blue by default) as a 35% tint, or a gradient that fades out.
+  - **Number bars** start from zero: automatic bounds are `min(0, lowest)` and `max(0, highest)`. When the range spans zero, negative values draw leftwards from the zero line in the negative colour (red by default), and positive values rightwards.
+  - **Date bars** span the earliest to latest date.
+  - Values outside the range are clamped, and empty cells get no bar.
+  - **Bar only** hides the value; it's still the cell's tooltip.
+  - `barGeometry` gives the bar's start and end as fractions of the cell.
+- **Colour scales:**
+  - Two colours (low → high) or three (low → middle → high), as a 30% tint of the mixed colour (`color-mix` of the palette's theme variables), so text stays readable in light and dark themes.
+  - Presets: Red → Yellow → Green, Green → Yellow → Red, Grey → Blue, Red → Green.
+  - `scalePosition` gives the value's position (0–1), measured from the middle point when there is one.
+- **Precedence:** a scale's fill replaces the row highlight's fill in its column. A cell highlight rule with its own fill keeps it if it comes before the scale in the list. A bar and a scale can share a column, and the first rule of each kind wins.
+- **Groups and summaries:** values are compared across the whole view, not per group. The summary row isn't affected.
+- **Editing:**
+  - The Highlight panel adds **Data bar** and **Colour scale** next to **Highlight rule**. A rule's sample shows a bar or the gradient, and its summary reads "Data bar on Budget".
+  - The editor has the column, colours (with presets for scales), each bound (Automatic / Number or Date / Percentile), the bar's gradient and bar-only options, and the optional conditions.
+  - Right-clicking a number or date header gives **Data bar…** and **Colour scale…**, which add the rule and open it.
+- **Runtime:** `runView` collects the rows each enabled rule matches, works out the bounds from their values (`percentile`), and stores each row's `viz[column] = { bar?: { rule, start, end, negative }, scale?: { rule, t } }`.
+
 #### Table
 
 - **Toolbar:** quick search · Filters (n) · Sort (n) · Group · Highlight (n) · Columns · ⋯ (Save as…, Rename, Edit definition, Copy block).
@@ -1446,6 +1485,7 @@ These cover all of `model/`, with no Obsidian dependency:
   - prefill from filters
   - formats: parse/serialize, formatted cells and group labels, sorting on raw values
   - highlight: parse/serialize and errors, first-match precedence for rows and cells, cell styles layered over row styles (icons replaced), disabled rules, hidden fields in conditions, hidden target columns, unusable conditions, match counts
+  - data bars and colour scales: round trips without defaults and errors for bad kinds and colours; bars from zero, fixed bounds, clamping, negative values from the zero line; date bars; empty cells; conditions limiting rows and bounds; two- and three-colour scales, percentiles and relative dates; leaving highlights alone; hidden and disabled rules; a bar and a scale on one column
   - fill columns: parse/serialize as a name or list, proportional sharing, rounding to the exact width, nothing when there's no spare width
   - frozen columns: parse/serialize (removed column dropped), `frozenCount` including a hidden frozen column
   - summaries: parse/serialize (removed columns dropped, the group header toggle), every aggregation, status-order value counts, formatted sums and dates, empty results, options by column kind, `spanText`
