@@ -403,10 +403,10 @@ src/
   settings/
     settingTab.ts               folders, behaviour, "Open entity types"
   ui/
-    react/                      shared components (EntityChip, Icon, StatusSelect, RelationGroups…)
+    react/                      shared components (EntityForm, CreateForm, EntityChip, Icon, StatusSelect, RelationGroups…)
     react/types/                Entity Types view: TypeManager, tabs, controls, preview
     modals/                     CreateEntityModal, EntitySwitcherModal, AddRelationModal, ConfirmModal
-    components/                 EntitySuggest (inline picker), RelationInput, TypePickerModal, EntityPickModal
+    components/                 EntitySuggest (inline picker), TypePickerModal, EntityPickModal
     views/                      TypesView, BrowserView, ConnectionsView (+ GraphView optional)
     header/                     InfoCardManager (Live Preview + Reading view injection)
 tests/                          vitest unit tests for model/*
@@ -667,20 +667,24 @@ Opened from:
 - the browser's "+" and "New <child> here"
 - clicking an unresolved link
 
-**Layout:**
-- **Header:** the type icon and "New <type>", with a **change type** button.
+**Layout** (`CreateForm`, a React form in the `Modal`, built from the properties form's rows and controls, §8.4):
+- **Header:** the type icon and "New <type>", with a **change type** button (values typed so far are kept).
 - **Name:** autofocused; Enter submits.
 - **Status:** from the type's statuses, defaulting to the first.
-- **Fields:** those that are `inModal`, `required`, used in the type's subtitle, or already prefilled.
-  - Required fields have an asterisk; a missing value blocks creation and names the field.
-  - "Show N more fields" reveals the rest.
-- **Tags** (comma-separated), then **Cancel** and **Create**.
-- **Ctrl/Cmd+Enter** creates the entity from any field.
+- **Fields**, each with the properties form's control (editable), its description shown under it, and `*` when required:
+  - **Without a layout:** those that are `inModal`, `required`, used in the type's subtitle, or already prefilled, in field order.
+  - **With a layout** (§8.4 Custom layouts): the layout's frames that are on for the dialog (`create` isn't `false`) and its rows outside frames. Required or prefilled fields that aren't on show yet are asked for in a **Required** frame at the end ("Required and filled in" when some were prefilled). Status, related, aliases and order slots are left out (status is at the top; the others aren't set here); tags can be placed.
+  - A missing required value blocks creation and names the field.
+  - **"Show N more fields"** reveals the rest: with a layout, its other frames, and the fields that aren't placed under "Other fields". "Show fewer fields" goes back.
+- **Tags** (unless the layout places them), the folder the note will go in, then **Cancel** and **Create**.
+- **Ctrl/Cmd+Enter** creates the entity from any field. A text box still being typed in is committed first.
+- **Values:** the dialog keeps field values the way the form's controls do (relations as wikilinks) and converts them for `EntityFormValues` (link texts) when creating (`toFormFields`, `fromFormFields`).
+- **Type editor:** the Preview's **Create dialog** mode shows this same form for the draft type, with Cancel and Create turned off.
 
-**The relation input:**
-- **Chips** for the chosen entities: icon and colour, the name, and a label input for labelled fields. Each chip can be removed with ×.
-- **Inline fuzzy picker** (`AbstractInputSuggest`):
-  - It searches names and aliases among entities matching the field's targets, and excludes notes already chosen and the note being created.
+**The relation input** is the properties form's relation control:
+- **Chips** for the chosen entities, with ×. Labelled fields ask for the label when a link is added.
+- **Inline fuzzy picker** (`EntitySuggest`):
+  - It searches names and aliases among entities matching the field's targets, and excludes notes already chosen.
   - An empty query lists the most recently edited first.
 - **"Create 'X'" entries:**
   - With 1–3 candidate types, one entry per type, e.g. *Create person "X"*.
@@ -693,7 +697,7 @@ Opened from:
 - From context: "New child here" prefills the parent field (§8.3). A double-click elsewhere can prefill any field.
 - From field `default` values.
 
-**Date fields** have a calendar button (§4.4) and show the adapter's live preview or error underneath.
+**Date fields** have a calendar button (§4.4); a date that can't be read isn't taken (a notice says why), as in the properties form.
 
 **AC:**
 - [ ] Every field is written to frontmatter, with empty values for unset ones.
@@ -787,7 +791,7 @@ On entity notes, a form built from the note's type **replaces Obsidian's Propert
 
 #### Custom layouts
 
-A type can arrange its form with a **layout** (`form.layout`, `model/formLayout.ts`): captioned frames, columns, headings and text. It travels with the type (export, import, packs). Without one, the form is the plain list above.
+A type can arrange its form with a **layout** (`form.layout`, `model/formLayout.ts`): captioned frames, columns, headings and text. It's used by the properties form, the create dialog (§8.2) and the type editor's previews, and it travels with the type (export, import, packs). Without one, the form is the plain list above. `EntityForm.tsx` renders it (`layoutNodes`, `fieldControl`, `PropRow`) for both the form and the dialog.
 
 ```ts
 interface FormLayout { items: LayoutNode[]; hideUnplaced?: true }
@@ -810,7 +814,7 @@ interface LayoutColumns { kind: "columns"; columns: LayoutField[][]; widths?: nu
 - **Nesting:** two levels at most. The form holds frames and rows; a frame holds rows (not frames); a row is a field, columns, a heading or text; a column holds fields. `normaliseLayout` tidies layouts from settings or imports (unknown parts dropped, a nested frame's items lifted, 2–4 columns, widths kept only when they differ).
 - **Fields** show their label above the value by default (`label: "beside"` for the plain list's label | value row). Outside columns a field spans the row.
 - **Columns** share the row by their widths (`2:1`…); in narrow places (under about 420px: sidebars, hover previews, phones) they stack, via a container query on the form.
-- **Frames:** an optional caption; `collapsible` (click the caption; `collapsed` starts it closed; a warning dot on the caption when a field inside has a problem, and "N problems" opens every frame); `create: false` leaves it out of the create dialog (from phase 2).
+- **Frames:** an optional caption; `collapsible` (click the caption; `collapsed` starts it closed; a warning dot on the caption when a field inside has a problem, and "N problems" opens every frame); `create: false` leaves it out of the create dialog (§8.2) until "Show more fields".
 - **Hide empty fields** applies inside the layout: a frame whose fields are all hidden is hidden with its caption and text; an empty column is left out and the others share the row.
 - **Built-ins:** status, related, tags, aliases and order can be placed like fields. Placed, status leaves the form's header. Unplaced, they stay where they've always been (status in the header; order, related, tags and aliases as rows after the fields).
 - **Unplaced fields** (fields added later, or never placed) are listed in an **Other fields** section at the end (dashed), shown only when it has something in it. `hideUnplaced` leaves them out.

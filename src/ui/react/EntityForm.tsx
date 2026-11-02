@@ -6,7 +6,7 @@ import { isEmptyValue } from "../../model/frontmatter";
 import { asArray, parseLabelledEntry, parseLink } from "../../model/links";
 import { addLink, type Edge, type RelationItem } from "../../model/relations";
 import { COMMON_KEYS, isListValued, statusesFor, type EntityTypeDef, type FieldDef, type FieldKind, type RelationTarget } from "../../model/types";
-import { normaliseLayout, resolveLayout, type LabelPosition, type LayoutItem } from "../../model/formLayout";
+import { normaliseLayout, resolveLayout, type LabelPosition, type LayoutFrame, type LayoutItem, type LayoutNode } from "../../model/formLayout";
 import type { EntityRecord } from "../../services/entityIndex";
 import { openNativePicker } from "../components/datePicker";
 import { EntitySuggest, TypePickerModal } from "../components/entityPicker";
@@ -60,6 +60,131 @@ interface Pending {
 }
 
 const json = (v: unknown) => JSON.stringify(v);
+
+/** The control for one of a type's fields (the properties form's, also used by the create dialog). */
+export function fieldControl(
+	f: FieldDef,
+	o: { value: unknown; editable: boolean; path: string; type: EntityTypeDef; live: boolean; problems: FieldProblem[]; onCommit: (v: unknown) => void },
+): ReactNode {
+	const label = f.label || f.key;
+	switch (f.kind) {
+		case "relation":
+			return (
+				<RelationControl
+					fieldKey={f.key}
+					label={label}
+					targets={f.targets}
+					list={isListValued(f)}
+					labelled={!!f.labelled}
+					symmetric={!!f.symmetric}
+					value={o.value}
+					editable={o.editable}
+					path={o.path}
+					type={o.type}
+					live={o.live}
+					problems={o.problems}
+					onCommit={o.onCommit}
+				/>
+			);
+		case "boolean":
+			return <CheckControl value={o.value} editable={o.editable} label={label} onCommit={o.onCommit} />;
+		case "select":
+			return <SelectControl options={f.options ?? []} value={o.value} editable={o.editable} label={label} onCommit={o.onCommit} />;
+		case "multiselect":
+			return <MultiControl options={f.options ?? []} value={o.value} editable={o.editable} label={label} onCommit={o.onCommit} />;
+		case "list":
+			return <ListControl value={o.value} editable={o.editable} label={label} onCommit={o.onCommit} />;
+		default:
+			return <TextControl kind={f.kind} value={o.value} editable={o.editable} label={label} onCommit={o.onCommit} />;
+	}
+}
+
+/** How a layout's frames behave where it's shown. */
+export interface FrameControls {
+	/** frames (by position) that are collapsed */
+	closed: Set<number>;
+	toggle: (i: number) => void;
+	/** whether a field in these keys has a problem (a dot on a collapsed frame's caption) */
+	flagged: (keys: string[]) => boolean;
+	/** which frames to show (default: all), e.g. the create dialog's */
+	include?: (frame: LayoutFrame, i: number) => boolean;
+}
+
+/** Keys of the fields in some layout items. */
+export const itemKeys = (items: LayoutItem[]) => items.flatMap((i) => (i.kind === "field" ? [i.key] : i.kind === "columns" ? i.columns.flat().map((f) => f.key) : []));
+
+/**
+ * A layout's frames and rows. `propFor` gives a property's row, or null when it's hidden (then frames and columns
+ * with nothing shown are left out). Call it while rendering (not as a component), so hidden-row counts add up.
+ */
+export function layoutNodes(items: LayoutNode[], propFor: (key: string, labelPos?: LabelPosition) => ReactNode | null, frames: FrameControls): ReactNode[] {
+	/** an item and whether it shows (text always; a field or columns when a field in it is shown) */
+	const renderItem = (it: LayoutItem, key: string): { node: ReactNode; fields: boolean; shown: boolean } => {
+		if (it.kind === "heading" || it.kind === "text") return { node: <div key={key} className={it.kind === "heading" ? "oe-form-heading" : "oe-form-note"}>{it.text}</div>, fields: false, shown: true };
+		if (it.kind === "field") {
+			const r = propFor(it.key, it.label ?? "above");
+			return { node: r, fields: true, shown: r !== null };
+		}
+		// Columns: empty ones (every field hidden) are left out, and the rest share the row.
+		const cols = it.columns.map((c, ci) => ({ rows: c.map((f) => propFor(f.key, f.label ?? "above")).filter((r) => r !== null), w: it.widths?.[ci] ?? 1, ci }));
+		const shown = cols.filter((c) => c.rows.length);
+		return {
+			node: shown.length ? (
+				<div key={key} className="oe-form-columns" style={{ gridTemplateColumns: shown.map((c) => `minmax(0, ${c.w}fr)`).join(" ") }}>
+					{shown.map((c) => (
+						<div key={c.ci} className="oe-form-column">
+							{c.rows}
+						</div>
+					))}
+				</div>
+			) : null,
+			fields: true,
+			shown: shown.length > 0,
+		};
+	};
+	const nodes: ReactNode[] = [];
+	items.forEach((n, i) => {
+		if (n.kind !== "frame") {
+			const r = renderItem(n, `i${i}`);
+			if (r.shown) nodes.push(r.node);
+			return;
+		}
+		if (frames.include && !frames.include(n, i)) return;
+		const rendered = n.items.map((it, j) => renderItem(it, `f${i}-${j}`));
+		// A frame shows when a field in it does (or it has no fields, only text).
+		if (rendered.some((r) => r.fields) && !rendered.some((r) => r.fields && r.shown)) return;
+		const open = !n.collapsible || !frames.closed.has(i);
+		const flagged = frames.flagged(itemKeys(n.items));
+		const caption = n.caption ? (
+			n.collapsible ? (
+				<button type="button" className="oe-form-frame-caption is-toggle" aria-expanded={open} onClick={() => frames.toggle(i)}>
+					<Icon name={open ? "chevron-down" : "chevron-right"} />
+					<span>{n.caption}</span>
+					{flagged && !open && <span className="oe-form-frame-dot" aria-label="A field in here has a problem" />}
+				</button>
+			) : (
+				<div className="oe-form-frame-caption">{n.caption}</div>
+			)
+		) : null;
+		nodes.push(
+			<section key={`f${i}`} className={`oe-form-frame${open ? "" : " is-closed"}`} data-frame={i}>
+				{caption}
+				{open && <div className="oe-form-rows">{rendered.filter((r) => r.shown).map((r) => r.node)}</div>}
+			</section>,
+		);
+	});
+	return nodes;
+}
+
+/** A captioned frame of rows the layout doesn't define ("Other fields", the create dialog's "Required"). */
+export function extraFrame(key: string, caption: string, rows: ReactNode[], cls = "is-other"): ReactNode {
+	return (
+		<section key={key} className={`oe-form-frame ${cls}`}>
+			<div className="oe-form-frame-caption">{caption}</div>
+			<div className="oe-form-rows">{rows}</div>
+		</section>
+	);
+}
 
 function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewProps) {
 	const plugin = usePlugin();
@@ -161,41 +286,8 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 		else new Notice("Nothing to undo in the properties form.");
 	};
 
-	const controlFor = (f: FieldDef): ReactNode => {
-		const raw = get(f.key);
-		const commit = (v: unknown) => write(f.key, v);
-		const label = f.label || f.key;
-		switch (f.kind) {
-			case "relation":
-				return (
-					<RelationControl
-						fieldKey={f.key}
-						label={label}
-						targets={f.targets}
-						list={isListValued(f)}
-						labelled={!!f.labelled}
-						symmetric={!!f.symmetric}
-						value={raw}
-						editable={editable}
-						path={path}
-						type={type}
-						live={mode !== "preview"}
-						problems={problemsAt(f.key)}
-						onCommit={commit}
-					/>
-				);
-			case "boolean":
-				return <CheckControl value={raw} editable={editable} label={label} onCommit={commit} />;
-			case "select":
-				return <SelectControl options={f.options ?? []} value={raw} editable={editable} label={label} onCommit={commit} />;
-			case "multiselect":
-				return <MultiControl options={f.options ?? []} value={raw} editable={editable} label={label} onCommit={commit} />;
-			case "list":
-				return <ListControl value={raw} editable={editable} label={label} onCommit={commit} />;
-			default:
-				return <TextControl kind={f.kind} value={raw} editable={editable} label={label} onCommit={commit} />;
-		}
-	};
+	const controlFor = (f: FieldDef): ReactNode =>
+		fieldControl(f, { value: get(f.key), editable, path, type, live: mode !== "preview", problems: problemsAt(f.key), onCommit: (v) => write(f.key, v) });
 
 	const isBlank = (kind: FieldKind | "order", raw: unknown) => isEmptyValue(raw) || (kind === "boolean" && raw !== true);
 	const hideEmpty = !!type.form?.hideEmpty && !showEmpty;
@@ -266,60 +358,10 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 		// No layout: one list, in field order, then the built-ins.
 		body = <div className="oe-form-rows">{[...type.fields.map((f) => propFor(f.key)), ...TAIL.map((k) => propFor(k))]}</div>;
 	} else {
-		const frameKeys = (items: LayoutItem[]) => items.flatMap((i) => (i.kind === "field" ? [i.key] : i.kind === "columns" ? i.columns.flat().map((f) => f.key) : []));
-		/** an item and whether it shows (text always; a field or columns when a field in it is shown) */
-		const renderItem = (it: LayoutItem, key: string): { node: ReactNode; fields: boolean; shown: boolean } => {
-			if (it.kind === "heading" || it.kind === "text") return { node: <div key={key} className={it.kind === "heading" ? "oe-form-heading" : "oe-form-note"}>{it.text}</div>, fields: false, shown: true };
-			if (it.kind === "field") {
-				const r = propFor(it.key, it.label ?? "above");
-				return { node: r, fields: true, shown: r !== null };
-			}
-			// Columns: empty ones (every field hidden) are left out, and the rest share the row.
-			const cols = it.columns.map((c, ci) => ({ rows: c.map((f) => propFor(f.key, f.label ?? "above")).filter((r) => r !== null), w: it.widths?.[ci] ?? 1, ci }));
-			const shown = cols.filter((c) => c.rows.length);
-			return {
-				node: shown.length ? (
-					<div key={key} className="oe-form-columns" style={{ gridTemplateColumns: shown.map((c) => `minmax(0, ${c.w}fr)`).join(" ") }}>
-						{shown.map((c) => (
-							<div key={c.ci} className="oe-form-column">
-								{c.rows}
-							</div>
-						))}
-					</div>
-				) : null,
-				fields: true,
-				shown: shown.length > 0,
-			};
-		};
-		const nodes: ReactNode[] = [];
-		resolved.items.forEach((n, i) => {
-			if (n.kind !== "frame") {
-				const r = renderItem(n, `i${i}`);
-				if (r.shown) nodes.push(r.node);
-				return;
-			}
-			const items = n.items.map((it, j) => renderItem(it, `f${i}-${j}`));
-			// A frame shows when a field in it does (or it has no fields, only text).
-			if (items.some((r) => r.fields) && !items.some((r) => r.fields && r.shown)) return;
-			const open = !n.collapsible || !closedFrames.has(i);
-			const flagged = frameKeys(n.items).some((k) => problemsAt(k).length > 0);
-			const caption = n.caption ? (
-				n.collapsible ? (
-					<button type="button" className="oe-form-frame-caption is-toggle" aria-expanded={open} onClick={() => setClosedFrames((s) => (s.has(i) ? new Set([...s].filter((x) => x !== i)) : new Set([...s, i])))}>
-						<Icon name={open ? "chevron-down" : "chevron-right"} />
-						<span>{n.caption}</span>
-						{flagged && !open && <span className="oe-form-frame-dot" aria-label="A field in here has a problem" />}
-					</button>
-				) : (
-					<div className="oe-form-frame-caption">{n.caption}</div>
-				)
-			) : null;
-			nodes.push(
-				<section key={`f${i}`} className={`oe-form-frame${open ? "" : " is-closed"}`} data-frame={i}>
-					{caption}
-					{open && <div className="oe-form-rows">{items.filter((r) => r.shown).map((r) => r.node)}</div>}
-				</section>,
-			);
+		const nodes = layoutNodes(resolved.items, propFor, {
+			closed: closedFrames,
+			toggle: (i) => setClosedFrames((s) => (s.has(i) ? new Set([...s].filter((x) => x !== i)) : new Set([...s, i]))),
+			flagged: (keys) => keys.some((k) => problemsAt(k).length > 0),
 		});
 		// Fields that aren't placed: an "Other fields" section (only when something's in it).
 		const others = layout!.hideUnplaced ? [] : resolved.unplaced.map((k) => propFor(k)).filter((r) => r !== null);
@@ -426,7 +468,7 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 	);
 }
 
-function PropRow({
+export function PropRow({
 	k,
 	label,
 	icon,
@@ -438,6 +480,7 @@ function PropRow({
 	onFix,
 	menu,
 	labelPos,
+	showDesc,
 	children,
 }: {
 	k: string;
@@ -452,12 +495,14 @@ function PropRow({
 	menu?: (evt: MouseEvent) => void;
 	/** in a layout: the label above the value, or beside it (unset: the plain list's label | value row) */
 	labelPos?: LabelPosition;
+	/** show the description under the value (the create dialog), not only as the label's tooltip */
+	showDesc?: boolean;
 	children: ReactNode;
 }) {
 	const worst = problems.find((p) => p.severity === "error") ?? problems[0];
 	return (
 		<div className={`oe-prop${worst ? ` has-problem is-${worst.severity}` : ""}${empty ? " is-empty" : ""}${labelPos === "above" ? " is-label-above" : ""}`} data-key={k}>
-			<div className="oe-prop-label" aria-label={desc}>
+			<div className="oe-prop-label" aria-label={showDesc ? undefined : desc}>
 				<Icon name={icon} className="oe-prop-icon" />
 				<span className="oe-prop-name">{label}</span>
 				{required && (
@@ -468,6 +513,7 @@ function PropRow({
 			</div>
 			<div className="oe-prop-value">
 				{children}
+				{showDesc && desc && <div className="oe-prop-desc">{desc}</div>}
 				{worst && (
 					<span className="oe-prop-problem">
 						<span className="oe-prop-problem-icon" aria-label={problems.map((p) => p.message).join("\n")}>

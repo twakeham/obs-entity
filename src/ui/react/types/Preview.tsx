@@ -1,7 +1,8 @@
-import { type CSSProperties, type ReactNode } from "react";
+import { useMemo, type CSSProperties } from "react";
 import { subtitleOf } from "../../../model/card";
-import { statusesFor, type FieldDef } from "../../../model/types";
+import { emptyFormValues } from "../../../services/entityFactory";
 import { usePlugin } from "../context";
+import { CreateForm } from "../CreateForm";
 import { FormPreview } from "../EntityForm";
 import { Icon } from "../Icon";
 import { Segmented } from "./controls";
@@ -84,108 +85,16 @@ function FormPreviewPane() {
 	);
 }
 
-function MockRow({ name, desc, children }: { name: ReactNode; desc?: string; children: ReactNode }) {
-	return (
-		<div className="setting-item">
-			<div className="setting-item-info">
-				<div className="setting-item-name">{name}</div>
-				{desc && <div className="setting-item-description">{desc}</div>}
-			</div>
-			<div className="setting-item-control">{children}</div>
-		</div>
-	);
-}
-
+/** The create dialog as it shows for this type (the real one, with nothing created). */
 function DialogPreview() {
-	const plugin = usePlugin();
 	const { draft, groups } = useEditor();
 	const t = draft.type;
-	const subtitle = new Set(t.card?.subtitle ?? []);
-	const visible = t.fields.filter((f) => f.inModal || f.required || subtitle.has(f.key));
-	const hidden = t.fields.length - visible.length;
-	const control = (f: FieldDef) => {
-		switch (f.kind) {
-			case "textarea":
-				return <textarea disabled rows={2} />;
-			case "select":
-				return (
-					<select className="dropdown" disabled>
-						<option>{typeof f.default === "string" ? f.default : "—"}</option>
-					</select>
-				);
-			case "multiselect":
-				return (
-					<span className="oe-multiselect">
-						{(f.options ?? []).slice(0, 4).map((o) => (
-							<button key={o} className="oe-option" disabled>
-								{o}
-							</button>
-						))}
-					</span>
-				);
-			case "boolean":
-				return (
-					<div className="checkbox-container">
-						<input type="checkbox" disabled />
-					</div>
-				);
-			case "relation":
-				return (
-					<span className="oe-tm-mockrel">
-						<Icon name="search" /> {f.multiple || f.labelled ? "Add links…" : "Choose…"}
-					</span>
-				);
-			case "date":
-				return <input type="text" disabled placeholder={plugin.dates.placeholder} />;
-			case "url":
-				return <input type="text" disabled placeholder="https://…" />;
-			case "number":
-				return <input type="number" disabled />;
-			default:
-				return <input type="text" disabled />;
-		}
-	};
+	const initial = useMemo(() => emptyFormValues(t, groups), [t, groups]);
 	return (
 		<div className="oe-tm-mockmodal">
-			<div className="oe-modal-header">
-				<span className="oe-type-icon oe-type-icon-lg" style={{ "--oe-type-color": t.color } as CSSProperties}>
-					<Icon name={t.icon} />
-				</span>
-				<h2>New {(t.name || "entity").toLowerCase()}</h2>
-			</div>
-			<MockRow name="Name">
-				<input type="text" disabled placeholder={`${t.name || "Entity"} name`} />
-			</MockRow>
-			<MockRow name="Status">
-				<select className="dropdown" disabled>
-					<option>{statusesFor(t, groups)[0]}</option>
-				</select>
-			</MockRow>
-			{visible.map((f) => (
-				<MockRow
-					key={f.key}
-					name={
-						<>
-							{f.label || f.key}
-							{f.required && <span className="oe-tm-required"> *</span>}
-						</>
-					}
-					desc={f.description}
-				>
-					{control(f)}
-				</MockRow>
-			))}
-			{hidden > 0 && (
-				<div className="oe-more-fields">
-					<a>
-						Show {hidden} more field{hidden === 1 ? "" : "s"}
-					</a>
-				</div>
-			)}
-			<MockRow name="Tags" desc="Comma-separated.">
-				<input type="text" disabled />
-			</MockRow>
-			<div className="oe-tm-muted oe-tm-card-note">Preview only. Fields not in the dialog are under “Show more fields”.</div>
+			{/* Remount when the draft changes, so the preview starts from the type's defaults. */}
+			<CreateForm key={JSON.stringify(t)} type={t} initial={initial} preview />
+			<div className="oe-tm-muted oe-tm-card-note">Preview only: nothing is created. Fields not in the dialog are under “Show more fields”.</div>
 		</div>
 	);
 }

@@ -1,4 +1,4 @@
-import { toLabelledWikilink, toWikilink } from "./links";
+import { parseLabelledEntry, toLabelledWikilink, toWikilink } from "./links";
 import { COMMON_KEYS, isListValued, type EntityTypeDef, type FieldDef } from "./types";
 
 export interface LabelledValue {
@@ -111,4 +111,39 @@ export function fieldDisplay(value: FieldValue | undefined): string {
 			.join(", ");
 	}
 	return String(value);
+}
+
+/**
+ * The create dialog's field values (relations as link texts, see `EntityFormValues`) as the properties form's
+ * controls hold them: relations as frontmatter wikilinks, a list when the field holds several.
+ */
+export function toFormFields(type: EntityTypeDef, fields: Record<string, FieldValue>): Record<string, unknown> {
+	const out: Record<string, unknown> = { ...fields };
+	for (const f of type.fields) {
+		if (f.kind !== "relation" || isEmptyValue(fields[f.key])) continue;
+		const v = toYamlValue(f, fields[f.key]);
+		if (v === null || (Array.isArray(v) && v.length === 0)) delete out[f.key];
+		else out[f.key] = v;
+	}
+	return out;
+}
+
+/** The reverse of `toFormFields`: wikilinks back to link texts (labelled fields: `{ target, label }`). */
+export function fromFormFields(type: EntityTypeDef, fields: Record<string, unknown>): Record<string, FieldValue> {
+	const out: Record<string, FieldValue> = {};
+	for (const [k, v] of Object.entries(fields)) {
+		const f = type.fields.find((x) => x.key === k);
+		if (f?.kind !== "relation") {
+			out[k] = v as FieldValue;
+			continue;
+		}
+		const entries = (Array.isArray(v) ? v : v === null || v === undefined || v === "" ? [] : [v]).flatMap((raw) => {
+			const p = parseLabelledEntry(raw);
+			return p ? [p] : [];
+		});
+		if (f.labelled) out[k] = entries.map((p) => ({ target: p.link.path, label: p.label ?? "" }));
+		else if (isListValued(f)) out[k] = entries.map((p) => p.link.path);
+		else out[k] = entries[0]?.link.path ?? null;
+	}
+	return out;
 }

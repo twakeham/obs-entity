@@ -52,7 +52,7 @@ On entity notes, a form built from the note's type replaces Obsidian's Propertie
 **Layout:**
 - **Top row:** type, a **status** dropdown (only the group's statuses), the subtitle, a problem count, and buttons for the Connections panel, a **⋯** menu (Change type…, Configure the type) and collapse.
 - **One row per field,** in the type's order, then Related, Tags and Aliases. Required fields have a `*`. Empty fields show a faint "Empty", or are hidden behind "Show N empty fields" if the type's **Hide empty fields** option is on (Display tab).
-- **Custom layouts:** a type can arrange its form in captioned **frames** (optionally collapsible) and **columns** (2–4, with relative widths), with headings and notes between them. Columns stack in narrow places such as the sidebar. Status, Related, Tags and Aliases can be placed too. Fields that aren't placed appear under **Other fields** at the end. A drag-and-drop designer is coming in the type editor; for now a layout is set in the type's settings (`form.layout`, see the design doc), and the Display tab shows it with **Reset layout**.
+- **Custom layouts:** a type can arrange its form in captioned **frames** (optionally collapsible) and **columns** (2–4, with relative widths), with headings and notes between them. Columns stack in narrow places such as the sidebar. Status, Related, Tags and Aliases can be placed too. Fields that aren't placed appear under **Other fields** at the end. The create dialog uses the same layout: frames can be left out of it (they appear with "Show more fields"), and required fields are always asked for. A drag-and-drop designer is coming in the type editor; for now a layout is set in the type's settings (`form.layout`, see the design doc), and the Display tab shows it with **Reset layout**.
 - **Other properties:** a collapsed section for keys the type doesn't define, each edited by its Obsidian property type.
   - **+ Add property** adds a key.
   - A key's **⋯** menu offers **Add to the *type* type**, which opens the type editor with a draft field, or **Remove**.
@@ -321,9 +321,12 @@ Any view can also be shown as a **board**: cards in **buckets**, one per value o
 | Rebuild entity index | Re-reads every note |
 
 The create dialog:
+- **Same controls as the properties form,** with each field's description shown under it.
+- **Which fields:** without a layout, the fields set to show in the dialog, required ones and subtitle fields, with **Show N more fields** for the rest. With a [custom layout](#properties-form), the frames marked to show in the create dialog, plus any required field that isn't in one, under **Required**.
 - **Link fields:** fuzzy-searches entities of the allowed types, and offers **Create "X"** to make the linked note on the spot.
 - **Prefill:** fills in a link to the active note when a field accepts its type (parent fields first), e.g. a new note while viewing a project.
 - **Folder:** shows where the note will be created.
+- **Ctrl/Cmd+Enter** creates from any field; Enter in the name does too.
 
 ## Relationships
 
@@ -396,10 +399,10 @@ src/
     entityFactory.ts         create/convert/retype notes, add/remove links (with Undo), folders, move
     bulkActions.ts           apply changes to many notes: progress, failures, one undo step; type, move, duplicate, delete, open, copy
   settings/settingTab.ts
-  ui/components/             entity picker, relation input, date picker button
-  ui/modals/                 create, switcher, import types, add link, check entities, views (new / open / name / roll-up), formula editor (CodeMirror), bulk actions (set field, links, tags, folder picker)
+  ui/components/             entity picker, native date picker
+  ui/modals/                 create (hosts CreateForm), switcher, import types, add link, check entities, views (new / open / name / roll-up), formula editor (CodeMirror), bulk actions (set field, links, tags, folder picker)
   ui/header/formManager.tsx  puts the properties form into Live Preview and Reading view, hiding Obsidian's Properties
-  ui/react/                  EntityForm, ConnectionsPanel, EntityChip, EntityBits (status tones, relation groups), EntityBrowser
+  ui/react/                  EntityForm (properties form, layouts, shared rows and controls), CreateForm (create dialog), ConnectionsPanel, EntityChip, EntityBits (status tones, relation groups), EntityBrowser
   ui/react/table/            EntityTable (toolbar, virtual rows, editing; hosts the board too), cells, popovers (filters, sort, group, columns)
   ui/react/board/            Board (buckets, swimlanes, cards, pointer drag and drop, keyboard), Buckets and Swimlanes panels
   ui/react/types/            Entity types view: TypeManager (sidebar, group editor, save), General/Fields/Relationships/Display tabs, Preview, controls

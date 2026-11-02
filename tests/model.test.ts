@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { subtitleOf, valueDisplay } from "../src/model/card";
 import { isoDateAdapter } from "../src/model/dates";
-import { buildFrontmatter, defaultFieldValue, fieldDisplay, mergeFrontmatter, toYamlValue } from "../src/model/frontmatter";
+import { buildFrontmatter, defaultFieldValue, fieldDisplay, fromFormFields, mergeFrontmatter, toFormFields, toYamlValue } from "../src/model/frontmatter";
 import { asArray, parseLabelledEntry, parseLink, toLabelledWikilink, toWikilink } from "../src/model/links";
 import { CRM_PACK, STARTER_PACK, installPack, parsePack } from "../src/model/packs";
 import { propertyTypeFor, propertyTypes } from "../src/model/propertyTypes";
@@ -561,5 +561,22 @@ describe("settings", () => {
 		a.groups[0].statuses.push("x");
 		expect(mergeSettings(null).types[0].fields.some((f) => f.key === "x")).toBe(false);
 		expect(STARTER_PACK.groups![0].statuses).not.toContain("x");
+	});
+});
+
+describe("create dialog values ↔ form controls", () => {
+	const person = STARTER_PACK.types.find((t) => t.key === "person")!;
+	const project = STARTER_PACK.types.find((t) => t.key === "project")!;
+	it("relations become wikilinks for the controls, and link texts again for creating", () => {
+		const dialog = { role: "CTO", works_for: "Org/Acme", knows: [{ target: "Grace", label: "friend" }, { target: "Alan", label: "" }] };
+		const form = toFormFields(person, dialog);
+		expect(form).toEqual({ role: "CTO", works_for: "[[Org/Acme]]", knows: ["[[Grace|friend]]", "[[Alan]]"] });
+		expect(fromFormFields(person, form)).toEqual({ role: "CTO", works_for: "Org/Acme", knows: [{ target: "Grace", label: "friend" }, { target: "Alan", label: "" }] });
+		// a multi-link field stays a list; an empty link field is left out of the controls' values
+		expect(toFormFields(project, { team: ["Ada", "Grace"], owner: null })).toEqual({ team: ["[[Ada]]", "[[Grace]]"], owner: null });
+		expect(fromFormFields(project, { team: ["[[Ada]]"], owner: "[[Ada]]", client: null })).toEqual({ team: ["Ada"], owner: "Ada", client: null });
+		// round trip into the note's frontmatter
+		const fm = buildFrontmatter(person, { name: "Ada", status: "active", tags: [], fields: fromFormFields(person, form) });
+		expect([fm.works_for, fm.knows]).toEqual(["[[Org/Acme]]", ["[[Grace|friend]]", "[[Alan]]"]]);
 	});
 });
