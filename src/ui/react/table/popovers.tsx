@@ -6,6 +6,7 @@ import {
 	OPERATORS,
 	ROW_TARGET,
 	dateValue,
+	columnFromId,
 	isGroup,
 	type ColumnDef,
 	type Condition,
@@ -977,6 +978,97 @@ export function HighlightPanel({
 	);
 }
 
+/**
+ * Picked columns in order (a board's card fields): drag the handle to reorder, or Alt+↑/↓ on a row. A line shows
+ * where the dragged one will go. Unticking removes it from the list.
+ */
+function OrderedColumns({
+	ids,
+	defOf,
+	labelOf,
+	onToggle,
+	onReorder,
+	editButton,
+}: {
+	ids: string[];
+	defOf: (id: string) => ColumnDef;
+	labelOf: (c: ColumnDef) => string;
+	onToggle: (c: ColumnDef, on: boolean) => void;
+	onReorder: (ids: string[]) => void;
+	editButton: (c: ColumnDef) => ReactNode;
+}) {
+	const [drag, setDrag] = useState<number | null>(null);
+	const [over, setOver] = useState<number | null>(null);
+	const listRef = useRef<HTMLDivElement>(null);
+	const move = (from: number, to: number) => {
+		if (from === to || to < 0 || to >= ids.length) return;
+		const next = [...ids];
+		const [m] = next.splice(from, 1);
+		next.splice(to, 0, m);
+		onReorder(next);
+	};
+	return (
+		<div className="oe-columns-section">
+			<div className="oe-pop-heading">On cards</div>
+			{ids.length === 0 && <div className="oe-pop-empty">Only the name. Tick fields below to add them.</div>}
+			<div ref={listRef} className="oe-ordered-list">
+				{ids.map((id, i) => {
+					const c = defOf(id);
+					const label = labelOf(c);
+					// The dragged item lands where the target is: below it when moving down, above when moving up.
+					const line = drag !== null && over === i && drag !== i ? (drag < i ? " is-drop-after" : " is-drop-before") : "";
+					return (
+						<div
+							key={id}
+							className={`oe-columns-item oe-ordered-item${drag === i ? " is-dragging" : ""}${line}`}
+							data-col={id}
+							draggable
+							onDragStart={(e) => {
+								setDrag(i);
+								e.dataTransfer.effectAllowed = "move";
+								e.dataTransfer.setData("text/plain", id);
+							}}
+							onDragEnd={() => {
+								setDrag(null);
+								setOver(null);
+							}}
+							onDragOver={(e) => {
+								if (drag === null) return;
+								e.preventDefault();
+								if (over !== i) setOver(i);
+							}}
+							onDrop={(e) => {
+								e.preventDefault();
+								if (drag !== null) move(drag, i);
+								setDrag(null);
+								setOver(null);
+							}}
+							onKeyDown={(e) => {
+								if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+								e.preventDefault();
+								const to = i + (e.key === "ArrowUp" ? -1 : 1);
+								move(i, to);
+								// Keep focus on the moved row's checkbox.
+								window.setTimeout(() => listRef.current?.querySelector<HTMLInputElement>(`[data-col="${CSS.escape(id)}"] input`)?.focus(), 0);
+							}}
+						>
+							<span className="oe-drag" aria-hidden="true" title="Drag to reorder">
+								<Icon name="grip-vertical" />
+							</span>
+							<input type="checkbox" checked onChange={() => onToggle(c, false)} aria-label={`Hide ${label} (Alt+↑/↓ to move)`} />
+							<span className="oe-columns-label">
+								{c.kind === "formula" && <Icon name="sigma" className="oe-columns-kind" />}
+								{label}
+							</span>
+							{editButton(c)}
+						</div>
+					);
+				})}
+			</div>
+		</div>
+	);
+}
+
 // ---------------------------------------------------------------- columns
 
 export function ColumnsPanel({
@@ -990,6 +1082,7 @@ export function ColumnsPanel({
 	onEditFormula,
 	shown: shownIds,
 	hint,
+	onReorder,
 }: {
 	def: ViewDef;
 	available: { title: string; columns: ColumnDef[] }[];
@@ -1002,13 +1095,31 @@ export function ColumnsPanel({
 	/** the ticked columns (default: the view's columns) — a board's card fields */
 	shown?: string[];
 	hint?: string;
+	/** with `shown`: list the ticked columns first, in order, to drag into a new order (a board's card fields) */
+	onReorder?: (ids: string[]) => void;
 }) {
 	const shown = new Set(shownIds ?? def.columns.map((c) => c.id));
 	const computed = def.columns.filter((c): c is Extract<ColumnDef, { kind: "rollup" | "formula" }> => c.kind === "rollup" || c.kind === "formula");
+	const ordered = onReorder && shownIds ? shownIds : null;
+	// With an ordered list on top, the sections below offer only what isn't picked yet.
+	const offered = (c: ColumnDef) => !ordered || !shown.has(c.id);
+	const defOf = (id: string): ColumnDef => def.columns.find((c) => c.id === id) ?? available.flatMap((s) => s.columns).find((c) => c.id === id) ?? columnFromId(id);
+	const editButton = (c: ColumnDef) =>
+		c.kind === "rollup" ? (
+			<button className="clickable-icon" aria-label="Edit roll-up" onClick={() => onEditRollup(c)}>
+				<Icon name="pencil" />
+			</button>
+		) : c.kind === "formula" ? (
+			<button className="clickable-icon" aria-label="Edit formula" onClick={() => onEditFormula(c)}>
+				<Icon name="pencil" />
+			</button>
+		) : null;
 	return (
 		<div className="oe-columnspanel">
 			{hint && <div className="oe-pop-hint">{hint}</div>}
+			{ordered && onReorder && <OrderedColumns ids={ordered} defOf={defOf} labelOf={labelOf} onToggle={onToggle} onReorder={onReorder} editButton={editButton} />}
 			{available
+				.map((s) => ({ ...s, columns: s.columns.filter(offered) }))
 				.filter((s) => s.columns.length)
 				.map((s) => (
 					<div key={s.title} className="oe-columns-section">
@@ -1024,22 +1135,14 @@ export function ColumnsPanel({
 			<div className="oe-columns-section">
 				<div className="oe-pop-heading">Roll-ups and formulas</div>
 				{computed.length === 0 && <div className="oe-pop-empty">Summarise linked notes (counts, sums, latest dates…) or calculate values with a formula.</div>}
-				{computed.map((c) => (
+				{computed.filter(offered).map((c) => (
 					<div key={c.id} className="oe-columns-item">
 						<input type="checkbox" checked={shown.has(c.id)} onChange={(e) => onToggle(c, e.target.checked)} aria-label={shownIds ? `${shown.has(c.id) ? "Hide" : "Show"} ${labelOf(c)}` : `Remove ${labelOf(c)}`} />
 						<span className="oe-columns-label">
 							{c.kind === "formula" && <Icon name="sigma" className="oe-columns-kind" />}
 							{labelOf(c)}
 						</span>
-						{c.kind === "rollup" ? (
-							<button className="clickable-icon" aria-label="Edit roll-up" onClick={() => onEditRollup(c)}>
-								<Icon name="pencil" />
-							</button>
-						) : (
-							<button className="clickable-icon" aria-label="Edit formula" onClick={() => onEditFormula(c)}>
-								<Icon name="pencil" />
-							</button>
-						)}
+						{editButton(c)}
 					</div>
 				))}
 				<div className="oe-pop-actions">

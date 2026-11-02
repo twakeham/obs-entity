@@ -1681,7 +1681,15 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 							labelOf={labelOf}
 							onToggle={isBoard ? toggleCardField : toggleColumn}
 							shown={isBoard ? cardFieldIds(def) : undefined}
-							hint={isBoard ? "Fields shown on the cards. Empty values are left out." : undefined}
+							onReorder={
+								isBoard
+									? (ids) => {
+											const cur = defRef.current;
+											update({ ...cur, board: { ...boardOf(cur), cardFields: ids } });
+										}
+									: undefined
+							}
+							hint={isBoard ? "Fields shown on the cards, in this order. Empty values are left out." : undefined}
 							onAddRollup={() => rollupDialog(null)}
 							onEditRollup={(c) => rollupDialog(c)}
 							onAddFormula={() => {
