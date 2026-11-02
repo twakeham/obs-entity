@@ -995,6 +995,7 @@ filters: { all: [{ field: status, op: is-not, value: done }] }
 | `sort` | Sort levels: `{ by: <column id>, dir: asc \| desc }`. |
 | `group` | Grouping levels, outermost first: a list of `{ by: <column id>, date?: month \| year }` (or just the column id). Always a list, even for one level; any number of levels. Optional. |
 | `groupSummaries` | `false` hides column summaries in group headers. Only written when off. |
+| `groupFieldNames` | `false` labels group headers with the value alone ("todo") instead of "Field: value" ("Status: todo"). Only written when off. |
 | `filters` | `{ all: [...] }` or `{ any: [...] }`. Items are conditions, or one level of nested groups. |
 | `formats` | Column id → display format, for number and date columns (see Formats). Optional. |
 | `highlight` | Conditional formatting rules, in priority order (see Highlight rules). Optional. |
@@ -1062,13 +1063,15 @@ Column ids are the field / built-in key, `in:<type>.<field>`, or the given `id` 
   - **Tree:** `runView` returns a tree of `ResultGroup`s: `key` (the path of keys joined with `GROUP_PATH_SEP`), `label`, `level`, `by`, `rows` (every row inside, sub-groups included) and `children`. `flattenGroups` lists them depth first.
   - **Order:** each level is ordered by its own column, following that column's sort direction if it's sorted, otherwise ascending. Empty goes last.
   - **Rows in several groups:** list and link values put a row in each matching group, at every level.
-  - **Group headers:** each is indented 16px per level and gets a lighter background the deeper it is. It shows a chevron, the value ("No <column>" when empty), the row count and the group's summaries.
+  - **Group headers:** each is indented 16px per level and gets a lighter background the deeper it is. It shows a chevron, the label, the row count and the group's summaries.
+    - **Label:** "Field: value" by default, e.g. "Status: todo", with the field name muted and "none" in faint italics for an empty value. With **Show field names in group headers** off (`groupFieldNames: false`) it's the value alone, with "No <column>" when empty.
+  - **Grouped columns are hidden:** a column used as a grouping level isn't shown in the grid (`runView` leaves it out of `columns`), because its value is in the group header. It stays in `columns` in the definition, so it comes back when its level is removed. Highlight cell rules and summaries on it have no effect while it's hidden.
   - **Rows:** the first column (Name) of each row is indented to its grouping depth (16px per level), so it sits under its group's label and the start and end of each group are easy to see.
   - **Collapsing:** clicking a header collapses everything inside it. Collapsed paths are kept for the session. Right-clicking a header offers **Collapse all at this level**, **Expand all at this level** and **Expand all**.
   - **Selection:** each header has a checkbox in the select column. It selects or clears every row in the group, sub-groups and collapsed groups included, and is indeterminate when some are selected. The column header's select-all works the same way over every row in the view.
   - **Editing:**
-    - **Group panel:** levels like the Sort panel ("Group by", "then by"), each with a column picker (columns used by other levels are left out) and by day / month / year for dates. Levels can be dragged to reorder, removed, or added with **+ Add level**. **Show summaries in group headers** sits below.
-    - **Header menu:** **Group by X** adds X as the innermost level. **Stop grouping by X** appears instead when X is already a level, and removes it.
+    - **Group panel:** levels like the Sort panel ("Group by", "then by"), each with a column picker (columns used by other levels are left out) and by day / month / year for dates. Levels can be dragged to reorder, removed, or added with **+ Add level**. **Show field names in group headers** and **Show summaries in group headers** sit below; both are on by default.
+    - **Header menu:** **Group by X** adds X as the innermost level, which hides its column. Levels are removed in the Group panel.
 
 #### Formats
 
@@ -1331,7 +1334,7 @@ These cover all of `model/`, with no Obsidian dependency:
   - every filter kind, nested groups and relative dates
   - natural, status-order and multi-level sorting with empty values last
   - header sort cycling
-  - grouping by status, month and list values; nesting any number of levels (paths, levels, per-level order, unknown levels skipped); `group` read only as a list, repeats skipped, bad levels reported
+  - grouping by status, month and list values; nesting any number of levels (paths, levels, per-level order, unknown levels skipped); grouped columns left out of the shown columns; `group` read only as a list, repeats skipped, bad levels reported; `groupSummaries` / `groupFieldNames` round trips
   - prefill from filters
   - formats: parse/serialize, formatted cells and group labels, sorting on raw values
   - highlight: parse/serialize and errors, first-match precedence for rows and cells, cell styles layered over row styles (icons replaced), disabled rules, hidden fields in conditions, hidden target columns, unusable conditions, match counts

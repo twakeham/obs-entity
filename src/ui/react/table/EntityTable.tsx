@@ -132,7 +132,8 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	const sources = useMemo(() => sourceTypes(def, lookup.types), [def, lookup]);
 	const available = useMemo(() => availableColumns(def, lookup), [def, lookup]);
 	const choices: ColumnChoice[] = useMemo(() => {
-		const out: ColumnChoice[] = columns.map((col) => ({ col, group: "In this view" }));
+		// Every column in the definition, grouped (hidden) ones included.
+		const out: ColumnChoice[] = def.columns.map((c) => ({ col: columns.find((x) => x.id === c.id) ?? resolveColumn(c, def, lookup), group: "In this view" }));
 		const add = (list: ColumnDef[], group: string) => {
 			for (const c of list) if (!out.some((o) => o.col.id === c.id)) out.push({ col: resolveColumn(c, def, lookup), group });
 		};
@@ -310,16 +311,15 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		m.addItem((i) => i.setSection("sort").setTitle("Sort ascending").setIcon("arrow-up").onClick(() => update({ ...def, sort: [{ by: c.id, dir: "asc" }] })));
 		m.addItem((i) => i.setSection("sort").setTitle("Sort descending").setIcon("arrow-down").onClick(() => update({ ...def, sort: [{ by: c.id, dir: "desc" }] })));
 		if (def.sort.length) m.addItem((i) => i.setSection("sort").setTitle("Clear sorting").setIcon("x").onClick(() => update({ ...def, sort: [] })));
-		if (c.id !== "name" && !c.invalid) {
-			const at = def.group.findIndex((g) => g.by === c.id);
+		// Grouped columns are hidden, so a shown column is never a level yet: this adds one.
+		if (c.id !== "name" && !c.invalid)
 			m.addItem((i) =>
 				i
 					.setSection("view")
-					.setTitle(at >= 0 ? `Stop grouping by ${c.label}` : `Group by ${c.label}`)
+					.setTitle(`Group by ${c.label}`)
 					.setIcon("rows-3")
-					.onClick(() => update({ ...defRef.current, group: at >= 0 ? defRef.current.group.filter((g) => g.by !== c.id) : [...defRef.current.group, { by: c.id }] })),
+					.onClick(() => update({ ...defRef.current, group: [...defRef.current.group.filter((g) => g.by !== c.id), { by: c.id }] })),
 			);
-		}
 		if (!c.invalid)
 			m.addItem((i) =>
 				i
@@ -726,7 +726,13 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 								const head = (
 									<span className="oe-group-head-inner" style={{ paddingLeft: it.level * 16 }}>
 										<Icon name={it.open ? "chevron-down" : "chevron-right"} />
-										<span className="oe-group-label">{it.label || `No ${(col?.label ?? "value").toLowerCase()}`}</span>
+										{def.groupFieldNames !== false ? (
+											<span className="oe-group-label">
+												<span className="oe-group-field">{col?.label ?? it.by}:</span> {it.label || <span className="oe-group-none">none</span>}
+											</span>
+										) : (
+											<span className="oe-group-label">{it.label || `No ${(col?.label ?? "value").toLowerCase()}`}</span>
+										)}
 										<span className="oe-group-count">{it.count}</span>
 									</span>
 								);
@@ -874,7 +880,13 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 				<Popover anchor={pop.anchor} onClose={() => setPop(null)} className={`oe-pop-${pop.name}`} label={pop.name}>
 					{pop.name === "filters" && <FiltersPanel filters={def.filters} choices={choices} ctx={ctx} valuesOf={valuesOf} onChange={(filters) => update({ ...defRef.current, filters })} />}
 					{pop.name === "sort" && <SortPanel sort={def.sort} choices={choices} onChange={(sort) => update({ ...defRef.current, sort })} />}
-					{pop.name === "group" && <GroupPanel def={def} choices={choices} onChange={(group, groupSummaries) => update({ ...defRef.current, group, groupSummaries })} />}
+					{pop.name === "group" && (
+						<GroupPanel
+							def={def}
+							choices={choices}
+							onChange={(group, groupSummaries, groupFieldNames) => update({ ...defRef.current, group, groupSummaries, groupFieldNames })}
+						/>
+					)}
 					{pop.name === "highlight" && (
 						<HighlightPanel
 							rules={def.highlight ?? []}

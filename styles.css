@@ -3595,3 +3595,13 @@ button.oe-tm-typegroup-title,
 .oe-view table.oe-table > tbody > tr.oe-group-row > td.oe-td-select {
 	cursor: default;
 }
+.oe-group-field {
+	font-weight: normal;
+	color: var(--text-muted);
+}
+
+.oe-group-none {
+	font-weight: normal;
+	font-style: italic;
+	color: var(--text-faint);
+}

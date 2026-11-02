@@ -127,6 +127,8 @@ export interface ViewDef {
 	group: GroupBy[];
 	/** show column summaries in group headers (default on) */
 	groupSummaries?: false;
+	/** label group headers "Field: value" (default on) */
+	groupFieldNames?: false;
 	filters: FilterGroup;
 	/** conditional formatting, in priority order */
 	highlight: HighlightRule[];
@@ -287,11 +289,12 @@ export function parseView(raw: unknown): { def: ViewDef | null; errors: string[]
 			}
 	}
 	const groupSummaries = raw.groupSummaries === false ? { groupSummaries: false as const } : {};
+	const groupFieldNames = raw.groupFieldNames === false ? { groupFieldNames: false as const } : {};
 
 	const filters = parseFilterItems(raw.filters, errors, 0) ?? { mode: "all", items: [] };
 	const highlight = parseHighlight(raw.highlight, errors);
 	if (errors.length && !VIEW_KINDS.includes(kind)) return { def: null, errors };
-	return { def: { kind, types: types.length ? types : ["*"], columns, widths, fill, formats, summary, sort, group, ...groupSummaries, filters, highlight }, errors };
+	return { def: { kind, types: types.length ? types : ["*"], columns, widths, fill, formats, summary, sort, group, ...groupSummaries, ...groupFieldNames, filters, highlight }, errors };
 }
 
 const isColor = (v: unknown): v is HighlightColor => HIGHLIGHT_COLORS.includes(v as HighlightColor);
@@ -358,6 +361,7 @@ export function serializeView(def: ViewDef): Record<string, unknown> {
 	if (def.sort.length) out.sort = def.sort.map((s) => ({ by: s.by, dir: s.dir }));
 	if (def.group.length) out.group = def.group.map((g) => ({ by: g.by, ...(g.date ? { date: g.date } : {}) }));
 	if (def.groupSummaries === false) out.groupSummaries = false;
+	if (def.groupFieldNames === false) out.groupFieldNames = false;
 	if (def.filters.items.length) out.filters = serializeFilters(def.filters);
 	if (def.highlight?.length)
 		out.highlight = def.highlight.map((r) => {
@@ -1138,7 +1142,7 @@ export interface ResultGroup {
 }
 
 export interface ViewResult {
-	/** the shown columns */
+	/** the shown columns (columns used as grouping levels are left out) */
 	columns: ResolvedColumn[];
 	/** every column the view refers to (shown, filtered, sorted, grouped), by id */
 	known: Map<string, ResolvedColumn>;
@@ -1194,7 +1198,8 @@ export function highlightOf(def: ViewDef, r: ResultRow, colId: string): { style:
 export function runView(def: ViewDef, all: ViewRow[], ctx: ViewContext, search = ""): ViewResult {
 	const sources = new Set(sourceTypes(def, ctx.types).map((t) => t.key));
 	const rows = all.filter((r) => sources.has(r.type.key));
-	const columns = def.columns.map((c) => resolveColumn(c, def, ctx));
+	// Columns used as grouping levels aren't shown: their value is in the group header.
+	const columns = def.columns.filter((c) => !def.group.some((g) => g.by === c.id)).map((c) => resolveColumn(c, def, ctx));
 	const known = new Map(columns.map((c) => [c.id, c]));
 	const rules = def.highlight ?? [];
 	const extra = [...filterFields(def.filters), ...def.sort.map((s) => s.by), ...def.group.map((g) => g.by), ...rules.flatMap((r) => filterFields(r.when))];

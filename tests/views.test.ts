@@ -236,6 +236,11 @@ describe("sorting and grouping", () => {
 		]);
 		const flat = flattenGroups(r.groups);
 		expect(flat.length).toBe(20);
+		// grouped columns aren't shown, but stay in the definition and still group
+		const g2 = runView(view({ types: ["project"], columns: ["status", "due", "team"], group: ["status"] }), ROWS, ctx);
+		expect(g2.columns.map((c) => c.id)).toEqual(["name", "due", "team"]);
+		expect(g2.known.has("status")).toBe(true);
+		expect(g2.groups!.length).toBe(4);
 		expect(flat.find((g) => g.label === "Grace")!.key).toBe(["project", "idea", "Grace.md"].join(GROUP_PATH_SEP));
 		expect(runView(view({ types: ["project"] }), ROWS, ctx).groups).toBeNull();
 		// unknown levels are skipped
@@ -293,6 +298,9 @@ describe("summaries", () => {
 		expect(out.group).toEqual([{ by: "status" }]);
 		expect(out.groupSummaries).toBe(false);
 		expect(serializeView(view({ ...P, group: ["status"] })).groupSummaries).toBeUndefined();
+		expect(view({ ...P, group: ["status"], groupFieldNames: false }).groupFieldNames).toBe(false);
+		expect(serializeView(view({ ...P, group: ["status"], groupFieldNames: false })).groupFieldNames).toBe(false);
+		expect(serializeView(view({ ...P, group: ["status"], groupFieldNames: true })).groupFieldNames).toBeUndefined();
 		expect(serializeView(view(P)).summary).toBeUndefined();
 	});
 

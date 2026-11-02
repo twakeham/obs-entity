@@ -368,11 +368,19 @@ export function SortPanel({ sort, choices, onChange }: { sort: SortLevel[]; choi
 
 // ---------------------------------------------------------------- group
 
-export function GroupPanel({ def, choices, onChange }: { def: ViewDef; choices: ColumnChoice[]; onChange: (group: GroupBy[], groupSummaries: false | undefined) => void }) {
+export function GroupPanel({
+	def,
+	choices,
+	onChange,
+}: {
+	def: ViewDef;
+	choices: ColumnChoice[];
+	onChange: (group: GroupBy[], groupSummaries: false | undefined, groupFieldNames: false | undefined) => void;
+}) {
 	const levels = def.group;
 	const [drag, setDrag] = useState<number | null>(null);
 	const usable = choices.filter((c) => c.col.id !== "name" && !c.col.invalid);
-	const emit = (next: GroupBy[]) => onChange(next, def.groupSummaries);
+	const emit = (next: GroupBy[]) => onChange(next, def.groupSummaries, def.groupFieldNames);
 	const set = (i: number, g: GroupBy | null) => emit(g ? levels.map((x, j) => (j === i ? g : x)) : levels.filter((_, j) => j !== i));
 	const unused = usable.find((c) => !levels.some((g) => g.by === c.col.id));
 	return (
@@ -423,12 +431,18 @@ export function GroupPanel({ def, choices, onChange }: { def: ViewDef; choices: 
 					<Icon name="plus" /> Add level
 				</button>
 			</div>
-			<div className="oe-pop-hint">Rows with several values (lists, links) appear in each of their groups.</div>
+			<div className="oe-pop-hint">Grouped columns are hidden from the table: their value is in the group header. Rows with several values (lists, links) appear in each of their groups.</div>
 			{levels.length > 0 && (
-				<label className="oe-columns-item">
-					<input type="checkbox" checked={def.groupSummaries !== false} onChange={(e) => onChange(levels, e.target.checked ? undefined : false)} />
-					<span className="oe-columns-label">Show summaries in group headers</span>
-				</label>
+				<>
+					<label className="oe-columns-item">
+						<input type="checkbox" checked={def.groupFieldNames !== false} onChange={(e) => onChange(levels, def.groupSummaries, e.target.checked ? undefined : false)} />
+						<span className="oe-columns-label">Show field names in group headers</span>
+					</label>
+					<label className="oe-columns-item">
+						<input type="checkbox" checked={def.groupSummaries !== false} onChange={(e) => onChange(levels, e.target.checked ? undefined : false, def.groupFieldNames)} />
+						<span className="oe-columns-label">Show summaries in group headers</span>
+					</label>
+				</>
 			)}
 		</div>
 	);
