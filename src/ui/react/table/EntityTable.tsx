@@ -49,7 +49,7 @@ const HEAD_H = 34;
 const SELECT_W = 36;
 const DEFAULT_W: Record<string, number> = { text: 170, number: 100, date: 120, choice: 120, multi: 170, bool: 80, links: 200, folder: 180 };
 
-type Item = { kind: "group"; key: string; label: string; count: number; open: boolean; level: number; by: string; rows: ResultRow[] } | { kind: "row"; r: ResultRow; n: number };
+type Item = { kind: "group"; key: string; label: string; count: number; open: boolean; level: number; by: string; rows: ResultRow[] } | { kind: "row"; r: ResultRow; n: number; depth: number };
 type PopName = "filters" | "sort" | "group" | "highlight" | "columns" | "format";
 
 export interface EntityTableProps {
@@ -163,11 +163,11 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 				out.push({ kind: "group", key: g.key, label: g.label, count: g.rows.length, open, level: g.level, by: g.by, rows: g.rows });
 				if (!open) continue;
 				if (g.children) walk(g.children);
-				else for (const r of g.rows) out.push({ kind: "row", r, n: n++ });
+				else for (const r of g.rows) out.push({ kind: "row", r, n: n++, depth: g.level + 1 });
 			}
 		};
 		if (result.groups) walk(result.groups);
-		else for (const r of result.rows) out.push({ kind: "row", r, n: n++ });
+		else for (const r of result.rows) out.push({ kind: "row", r, n: n++, depth: 0 });
 		return out;
 	}, [result, collapsed]);
 	const rowItems = useMemo(() => items.filter((i): i is Extract<Item, { kind: "row" }> => i.kind === "row"), [items]);
@@ -786,6 +786,8 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 												data-c={ci}
 												className={`oe-td${focused ? " is-focused" : ""}${target ? " is-editable" : ""}${problem ? ` has-problem is-${problem.severity}` : ""}${hl ? ` ${hlClasses(hl.style)}` : ""}`}
 												aria-label={problem?.message}
+												// The first column is indented to the row's grouping depth, in line with its group's label (after the chevron).
+												style={ci === 0 && it.depth ? { paddingLeft: 10 + it.depth * 16 } : undefined}
 												onClick={() => {
 													setFocus({ r: it.n, c: ci });
 													scrollRef.current?.focus({ preventScroll: true });

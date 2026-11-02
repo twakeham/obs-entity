@@ -191,7 +191,7 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
 - **Sort:** any number of levels, which can be dragged to reorder. Clicking a header sorts by it (ascending, descending, off), and Shift-click adds a level.
   - Statuses sort in their group's order, text sorts naturally ("Chapter 2" before "Chapter 10"), and empty values go last.
 - **Group:** any number of levels, e.g. status, then assignee, then due by month. Each level groups by status, type, a choice, a link, a list, or a date by day / month / year. Levels can be dragged to reorder in the Group panel; right-click a header → **Group by X** adds a level.
-  - Each group has a collapsible header (indented per level) with a count and the group's column summaries (turn off with **Show summaries in group headers**).
+  - Each group has a collapsible header (indented per level) with a count and the group's column summaries (turn off with **Show summaries in group headers**). Row names are indented under their group.
   - The checkbox on a group header selects every row in that group, sub-groups included.
   - Right-click a group header to collapse or expand all groups at that level.
 - **Highlight:** conditional formatting rules, see below.

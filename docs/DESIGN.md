@@ -1063,6 +1063,7 @@ Column ids are the field / built-in key, `in:<type>.<field>`, or the given `id` 
   - **Order:** each level is ordered by its own column, following that column's sort direction if it's sorted, otherwise ascending. Empty goes last.
   - **Rows in several groups:** list and link values put a row in each matching group, at every level.
   - **Group headers:** each is indented 16px per level and gets a lighter background the deeper it is. It shows a chevron, the value ("No <column>" when empty), the row count and the group's summaries.
+  - **Rows:** the first column (Name) of each row is indented to its grouping depth (16px per level), so it sits under its group's label and the start and end of each group are easy to see.
   - **Collapsing:** clicking a header collapses everything inside it. Collapsed paths are kept for the session. Right-clicking a header offers **Collapse all at this level**, **Expand all at this level** and **Expand all**.
   - **Selection:** each header has a checkbox in the select column. It selects or clears every row in the group, sub-groups and collapsed groups included, and is indeterminate when some are selected. The column header's select-all works the same way over every row in the view.
   - **Editing:**
