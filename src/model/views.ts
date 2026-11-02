@@ -8,8 +8,8 @@ import { COMMON_KEYS, statusesFor, toKey, typeMatchesTarget, type EntityTypeDef,
 
 // ---------------------------------------------------------------- definition
 
-export type ViewKind = "table";
-export const VIEW_KINDS: ViewKind[] = ["table"];
+export type ViewKind = "table" | "board";
+export const VIEW_KINDS: ViewKind[] = ["table", "board"];
 
 export const BUILTINS = ["name", "type", "status", "tags", "aliases", "related", "folder", "created", "modified"] as const;
 export type BuiltinKey = (typeof BUILTINS)[number];
@@ -175,7 +175,36 @@ export interface ViewDef {
 	filters: FilterGroup;
 	/** conditional formatting, in priority order */
 	highlight: HighlightRule[];
+	/** the board layout's own settings (kept whichever layout is shown) */
+	board?: BoardDef;
 }
+
+/** Card widths (px) per card size. */
+export const CARD_WIDTH = { small: 220, medium: 280, large: 360 } as const;
+
+/** A board's settings. Bucket keys are values (status, choice), "yes" / "no" (checkboxes), note paths (links) or BUCKET_NONE. */
+export interface BoardDef {
+	/** the field whose values are the buckets: status or one of the entity's own choice, checkbox or single-link fields */
+	buckets?: string;
+	/** one grouping level, shown as horizontal swimlanes */
+	swimlanes?: GroupBy;
+	/** columns shown on cards (unset: the table's first few columns) */
+	cardFields?: string[];
+	collapsedBuckets: string[];
+	hiddenBuckets: string[];
+	hideEmpty?: true;
+	/** bucket key → most cards it should hold */
+	limits: Record<string, number>;
+	cardSize?: "small" | "large";
+	/** show the type's subtitle under the card title */
+	cardSubtitle?: true;
+	/** label each card field with its name */
+	cardLabels?: true;
+	/** bucket key → note paths in manual order (used when the view isn't sorted) */
+	order: Record<string, string[]>;
+}
+
+export const emptyBoard = (): BoardDef => ({ collapsedBuckets: [], hiddenBuckets: [], limits: {}, order: {} });
 
 export const NAME_COLUMN: ColumnDef = { kind: "builtin", id: "name", key: "name" };
 
@@ -372,8 +401,62 @@ export function parseView(raw: unknown): { def: ViewDef | null; errors: string[]
 
 	const filters = parseFilterItems(raw.filters, errors, 0) ?? { mode: "all", items: [] };
 	const highlight = parseHighlight(raw.highlight, errors);
+	const board = raw.board === undefined || raw.board === null ? {} : { board: parseBoard(raw.board, errors) };
 	if (errors.length && !VIEW_KINDS.includes(kind)) return { def: null, errors };
-	return { def: { kind, types: types.length ? types : ["*"], columns, widths, fill, ...freeze, ...density, wrap, ...wrapLines, formats, summary, sort, group, ...groupSummaries, ...groupFieldNames, filters, highlight }, errors };
+	return { def: { kind, types: types.length ? types : ["*"], columns, widths, fill, ...freeze, ...density, wrap, ...wrapLines, formats, summary, sort, group, ...groupSummaries, ...groupFieldNames, filters, highlight, ...board }, errors };
+}
+
+const strList = (v: unknown) => [...new Set(asArray(v).filter((x): x is string => typeof x === "string" && !!x.trim()).map((x) => x.trim()))];
+
+function parseGroupBy(g: unknown): GroupBy | null {
+	const by = typeof g === "string" ? g.trim() : isObj(g) && typeof g.by === "string" ? g.by.trim() : "";
+	if (!by) return null;
+	const date = isObj(g) && (g.date === "month" || g.date === "year") ? g.date : undefined;
+	return { by, ...(date ? { date } : {}) };
+}
+
+function parseBoard(raw: unknown, errors: string[]): BoardDef {
+	const b = emptyBoard();
+	if (!isObj(raw)) {
+		errors.push("board should be a set of keys like buckets:, cardFields:.");
+		return b;
+	}
+	if (typeof raw.buckets === "string" && raw.buckets.trim()) b.buckets = raw.buckets.trim();
+	if (raw.swimlanes !== undefined && raw.swimlanes !== null) {
+		const g = parseGroupBy(Array.isArray(raw.swimlanes) ? raw.swimlanes[0] : raw.swimlanes);
+		if (g) b.swimlanes = g;
+		else errors.push(`board swimlanes should be a column id: ${JSON.stringify(raw.swimlanes)}.`);
+	}
+	if (raw.cardFields !== undefined) b.cardFields = strList(raw.cardFields);
+	b.collapsedBuckets = strList(raw.collapsedBuckets);
+	b.hiddenBuckets = strList(raw.hiddenBuckets);
+	if (raw.hideEmpty === true) b.hideEmpty = true;
+	if (isObj(raw.limits)) for (const [k, v] of Object.entries(raw.limits)) if (typeof v === "number" && v > 0) b.limits[k] = Math.round(v);
+	if (raw.cardSize === "small" || raw.cardSize === "large") b.cardSize = raw.cardSize;
+	else if (raw.cardSize !== undefined && raw.cardSize !== "medium") errors.push(`Unknown card size "${String(raw.cardSize)}". Use small, medium or large.`);
+	if (raw.cardSubtitle === true) b.cardSubtitle = true;
+	if (raw.cardLabels === true) b.cardLabels = true;
+	if (isObj(raw.order)) for (const [k, v] of Object.entries(raw.order)) if (Array.isArray(v)) b.order[k] = strList(v);
+	return b;
+}
+
+/** The board's settings as plain data, leaving out defaults (undefined when there's nothing to write). */
+function serializeBoard(b: BoardDef | undefined): Record<string, unknown> | undefined {
+	if (!b) return undefined;
+	const out: Record<string, unknown> = {};
+	if (b.buckets) out.buckets = b.buckets;
+	if (b.swimlanes) out.swimlanes = b.swimlanes.date ? { by: b.swimlanes.by, date: b.swimlanes.date } : b.swimlanes.by;
+	if (b.cardFields) out.cardFields = b.cardFields;
+	if (b.cardSize) out.cardSize = b.cardSize;
+	if (b.cardSubtitle) out.cardSubtitle = true;
+	if (b.cardLabels) out.cardLabels = true;
+	if (b.hideEmpty) out.hideEmpty = true;
+	if (b.collapsedBuckets.length) out.collapsedBuckets = b.collapsedBuckets;
+	if (b.hiddenBuckets.length) out.hiddenBuckets = b.hiddenBuckets;
+	if (Object.keys(b.limits).length) out.limits = b.limits;
+	const order = Object.fromEntries(Object.entries(b.order).filter(([, v]) => v.length));
+	if (Object.keys(order).length) out.order = order;
+	return Object.keys(out).length ? out : undefined;
 }
 
 const isColor = (v: unknown): v is HighlightColor => HIGHLIGHT_COLORS.includes(v as HighlightColor);
@@ -474,6 +557,8 @@ function serializeFilters(g: FilterGroup): Record<string, unknown> {
 /** The definition as plain data for YAML, leaving out empty parts. */
 export function serializeView(def: ViewDef): Record<string, unknown> {
 	const out: Record<string, unknown> = { kind: def.kind, types: def.types, columns: def.columns.map(serializeColumn) };
+	// Formats and summaries also apply to card fields that aren't table columns.
+	const referenced = new Set([...def.columns.map((c) => c.id), ...(def.board?.cardFields ?? [])]);
 	const widths = Object.fromEntries(Object.entries(def.widths).filter(([id]) => def.columns.some((c) => c.id === id)));
 	if (Object.keys(widths).length) out.widths = widths;
 	const fill = (def.fill ?? []).filter((id) => def.columns.some((c) => c.id === id));
@@ -483,9 +568,9 @@ export function serializeView(def: ViewDef): Record<string, unknown> {
 	const wrap = (def.wrap ?? []).filter((id) => def.columns.some((c) => c.id === id));
 	if (wrap.length) out.wrap = wrap;
 	if (def.wrapLines !== undefined && def.wrapLines !== WRAP_LINES_DEFAULT) out.wrapLines = def.wrapLines === 0 ? "unlimited" : def.wrapLines;
-	const formats = Object.fromEntries(Object.entries(def.formats ?? {}).filter(([id]) => def.columns.some((c) => c.id === id)));
+	const formats = Object.fromEntries(Object.entries(def.formats ?? {}).filter(([id]) => referenced.has(id)));
 	if (Object.keys(formats).length) out.formats = formats;
-	const summary = Object.fromEntries(Object.entries(def.summary ?? {}).filter(([id]) => def.columns.some((c) => c.id === id)));
+	const summary = Object.fromEntries(Object.entries(def.summary ?? {}).filter(([id]) => referenced.has(id)));
 	if (Object.keys(summary).length) out.summary = summary;
 	if (def.sort.length) out.sort = def.sort.map((s) => ({ by: s.by, dir: s.dir }));
 	if (def.group.length) out.group = def.group.map((g) => ({ by: g.by, ...(g.date ? { date: g.date } : {}) }));
@@ -508,6 +593,8 @@ export function serializeView(def: ViewDef): Record<string, unknown> {
 				...(r.off ? { off: true } : {}),
 			};
 		});
+	const board = serializeBoard(def.board);
+	if (board) out.board = board;
 	return out;
 }
 

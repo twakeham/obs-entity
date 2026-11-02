@@ -908,7 +908,7 @@ The command **Find entity** opens a `SuggestModal` over entities only.
 | Open entity browser | Left sidebar |
 | Open connections panel | Right sidebar |
 | Check entities | Lists entities whose values don't fit their type (§8.4) |
-| New table view | Name + source → a view note in the views folder (§8.10) |
+| New entity view (table or board) | Name + source + layout → a view note in the views folder (§8.10) |
 | Open entity view… | Picker of view notes |
 | Configure entity types | Types view (active note's type) |
 | Convert current note to entity | Type picker → convert (only for Markdown notes) |
@@ -955,12 +955,12 @@ These are proven in Story Forge and worth adding behind module toggles once the 
   - hubs and loners
   - customisable sections, plus an embeddable code block
 - **Bulk edit in the browser:** multi-select, then set status, add a relation, or move.
-- **More entity view kinds** (§8.10): board (kanban by status), gallery, calendar.
+- **More entity view kinds** (§8.10): gallery, calendar. (Boards are done.)
 - **Domain views**, as separate modules: timeline (with a date adapter), family tree, relationship grid.
 
 ### 8.10 Entity views
 
-Saved, named views over entities. The first kind is a **table**. Every view kind shares the same source, columns, filters, sorting and grouping.
+Saved, named views over entities, shown as a **table** or a **board** (cards in buckets). Every view kind shares the same source, columns, filters, sorting and highlight rules; one note keeps both layouts' settings.
 
 #### Storage: a Markdown note
 
@@ -987,7 +987,7 @@ filters: { all: [{ field: status, op: is-not, value: done }] }
 
 | Key | Meaning |
 |---|---|
-| `kind` | `table` (later `board`, `gallery`, `calendar`) |
+| `kind` | The layout the view opens in: `table` or `board` (later `gallery`, `calendar`). The Table / Board toggle switches it. |
 | `types` | Type keys, `@group`, or `*` (all entities), like relation targets. Default `*`. |
 | `columns` | Ordered columns (below). `name` is always first, and is added if missing. |
 | `widths` | Column id → width in px. For fill columns, the minimum width. |
@@ -1004,6 +1004,9 @@ filters: { all: [{ field: status, op: is-not, value: done }] }
 | `formats` | Column id → display format, for number and date columns (see Formats). Optional. |
 | `highlight` | Conditional formatting rules, in priority order (see Highlight rules). Optional. |
 | `summary` | Column id → summary aggregation, shown in the summary row and group headers (see Summaries). Optional. |
+| `board` | The board layout's own settings (see Board). Kept whichever layout is shown. Optional. |
+
+**Shared and per-layout settings.** Both layouts use `types`, `filters`, `sort`, `highlight`, `formats`, `summary` and the column definitions (roll-ups and formulas are defined once, in `columns`). The table alone uses the shown `columns` and their order, `group`, `widths`, `fill`, `freeze`, `density` and `wrap`; the board alone uses `board:`. Formats and summaries are kept for card fields that aren't table columns.
 
 **Columns.** A plain string is a built-in or a field key. An object is one of:
 - `{ field: key }` / `{ builtin: key }`, with an optional `label`;
@@ -1306,6 +1309,72 @@ highlight:
   - **Scrolling:** the scroll position is read once per frame and rounded down to a 5-row block, so the grid only re-renders when the drawn rows must change. The 10-row buffer either side covers the rest.
   - **GPU scrolling:** the scroll area has an opaque background and `will-change: scroll-position`, so Chromium scrolls it on the GPU. Without that it repainted on the main thread while the frozen (sticky) cells, which are GPU layers, moved ahead of the other columns.
 
+#### Board
+
+A board shows the view's entities as cards in **buckets**, one per value of a field, e.g. a kanban by status. Same note, same toolbar: switch with the **Table / Board** toggle at the left of the toolbar.
+
+```yaml
+kind: board
+types: [task]
+columns: [name, status, assignee, due, priority, estimate]
+summary: { estimate: sum }
+board:
+  buckets: status
+  swimlanes: assignee            # optional, one level
+  cardFields: [assignee, due, priority, estimate]
+  cardSize: large                # small | medium (default) | large
+  cardSubtitle: true             # the type's subtitle under the title
+  cardLabels: true               # field names on cards
+  hideEmpty: true
+  collapsedBuckets: [done]
+  hiddenBuckets: [cancelled]
+  limits: { in-progress: 5 }
+  order: { todo: [Tasks/B.md, Tasks/A.md] }
+```
+
+| `board:` key | Meaning |
+|---|---|
+| `buckets` | The bucket field: `status`, or one of the source types' own **choice**, **checkbox** or **single-link** fields. Read-only columns (formulas, roll-ups, incoming links, type, folder…), lists and multi-links can't be buckets. |
+| `swimlanes` | One grouping level (`<column id>` or `{ by, date }`), shown as horizontal swimlanes. Any column can be used. |
+| `cardFields` | Columns shown on cards. Unset: the table's first 4 columns after the name (the bucket and swimlane columns aside). |
+| `cardSize`, `cardSubtitle`, `cardLabels` | Card width (220 / 280 / 360px), the type's subtitle, field names. Only written when not the default. |
+| `hideEmpty` | Leave out buckets with no cards. |
+| `collapsedBuckets`, `hiddenBuckets` | Bucket keys shown as a narrow strip, or not at all. |
+| `limits` | Bucket key → card limit. |
+| `order` | Bucket key → note paths in manual order (used when the view isn't sorted). |
+
+Bucket keys are the value (a status or choice), `yes` / `no` (checkboxes), the note path (links), or `(none)` for cards without a value.
+
+- **Buckets:**
+  - **Toolbar → Buckets** picks the field (it resets the collapsed, hidden, limit and order settings, which belong to the old values). Switching to Board picks status when nothing is set (`defaultBuckets`); if the types have no usable field, the board says so.
+  - **Order** (`bucketsOf`): statuses and choices in their defined order, every one even when empty, then values in use that aren't defined; No then Yes for checkboxes; links A→Z by name. The empty bucket ("No status", in faint italics) comes last: always for choices and links, since dropping there clears the field; for status only when used.
+  - **Header:** the value (a status pill, choice pill, link with the note's type icon, or Yes / No), the count ("6 / 5" in red over a limit), +, ⋯, and a line of summaries for the bucket's cards (the view's `summary`, for card fields).
+  - **Menu** (right-click or ⋯): Add card, Collapse / Expand, Set card limit…, Hide bucket, Summaries… (pick a card field, then its aggregation).
+  - **Collapsed** buckets are a 40px strip with the name running down and the count, and still take drops. Hidden buckets come back from ⋯ → Hidden buckets.
+  - Without swimlanes each bucket scrolls on its own and the board scrolls sideways; with swimlanes the whole board scrolls, under a sticky row of bucket headers.
+  - **Large buckets** draw 50 cards, then "Show 50 more…" (the count in the header is always the full count). Drops still work.
+- **Cards** (`Board.tsx`):
+  - Title: the type icon and name, which opens the note (Ctrl/Cmd-click: new tab; Ctrl + hover: preview). A checkbox appears on hover to select the card.
+  - Optional subtitle (2 lines), then the card fields, rendered like table cells (chips, pills, formats, formulas, roll-ups). Empty values are left out. Card text wraps.
+  - Left edge: the type's colour. A matching **row** highlight rule styles the card (fill, text, icon by the title); **cell** rules style their field; data bars and colour scales show on their field.
+  - **No editing on cards:** fields are read-only here; open the note, use the table, or bulk actions.
+  - Right-click: the row's entity menu, or bulk actions when several cards are selected (the table's selection bar works the same).
+- **Dragging** (pointer events, so mouse, pen and touch; on touch, long-press to pick a card up):
+  - Dropping in another bucket writes the bucket field: a status, a choice, true / false, a link (`[[…]]` as seen from the note) or empty. Status values a card's type doesn't use are refused with a notice; cards whose type lacks the field stay put.
+  - Several selected cards move together. A ghost card follows the pointer (with a count badge), the target bucket is outlined, and a line shows where the cards land. Esc cancels; the board scrolls near its edges.
+  - **Order within a bucket:** with a sort, cards follow it and a drop only changes the bucket. Without one, dropping between cards saves a manual order (`board.order`, note paths; `orderRows`, `reorder`). It's written only when the cards wouldn't land there anyway, and new cards go to the bottom. Order paths follow renames while the view is open.
+  - **Swimlanes:** dropping in another swimlane also sets that column, when it's one dragging can change (the same kinds as buckets, not by date). Otherwise cards stay in their own swimlane, and other swimlanes show a "can't drop" outline.
+  - Each drop is one Ctrl/Cmd+Z step, restoring the frontmatter and the order. No notice for moves (failures are still reported).
+- **Keyboard:** arrows move between cards (←/→ to the neighbouring bucket), Enter opens, Space selects, the context-menu key or Shift+F10 opens the card menu, Ctrl/Cmd+Shift+←/→ moves the card (or selection) to the neighbouring bucket, announced in a live region. Ctrl/Cmd+A, Delete, Esc and Ctrl/Cmd+Z work as in the table.
+- **Toolbar on a board:** Filters, Sort (within buckets), **Buckets**, **Swimlanes** (one level; "Field: value" labels and summaries follow `groupFieldNames` / `groupSummaries`), Highlight, **Card fields** (the Columns panel, ticking card fields; a new roll-up or formula is added to the view's columns and to the cards), ⋯ (Save as…, Rename, Edit definition, Copy block, Small / Medium / Large cards, Show subtitles, Show field names, Hide empty buckets, Hidden buckets…).
+- **Not saved:** collapsed swimlanes, the selection, "Show more" and scroll positions (kept for the session, like the table's).
+- **+ New** and **Add card** prefill the bucket's (and swimlane's) value, as well as the filters' values.
+- **Notes:**
+  - Cards carry no `aria-label`: Obsidian shows any `aria-label` as a tooltip on hover. A visually hidden span gives screen readers the bucket ("Status: todo").
+  - Cards have a fixed width (`--oe-card-w`); a bucket is as wide as its cards plus a stable scrollbar gutter, and an empty bucket's body is still a card wide.
+  - With swimlanes, the board's `scroll-padding-top` is set to the sticky header row's height, so a card scrolled into view (focus, auto-scroll) isn't hidden under it.
+  - The drop target is worked out before the drag state is cleared on release (an early version cleared it first and dropped nothing).
+
 #### Bulk actions
 
 - **Selecting:**
@@ -1355,14 +1424,14 @@ highlight:
 
 - **Entity view tabs:** a view note opens as a dedicated **entity view** tab (`EntityViewView`, a `TextFileView`). The table fills the tab edge to edge, like the Entity Types editor: toolbar on top, the grid filling the rest, footer at the bottom, no page margins.
   - **How:** `WorkspaceLeaf.prototype.setViewState` is wrapped, the approach the Kanban plugin uses for its board notes. A Markdown open of a view note (any way of opening it: browser, picker, links, file explorer) becomes an entity view.
-  - **Tab:** the note's name, with a table icon.
+  - **Tab:** the note's name, with a table or board icon (it follows the Table / Board toggle).
   - **Open as Markdown** (a header button, the pane menu, and ⋯) shows the note itself in that tab, to edit the definition or text below the block, until another file opens there. A Markdown tab showing a view note has an **Open as entity view** header button.
   - **Saving:** edits go into the note's first `entity-view` block through the view's own data (`requestSave`). Pending changes are flushed before the file unloads.
   - **Setting:** "Open view notes as entity views" (on by default).
 - **Elsewhere:** embeds (`![[View]]`) and blocks in other notes render inline as before.
-- **New table view** (command, and the browser's Views section +): pick a type (or all entities), name the view, and the note is created and opened.
+- **New entity view** (command, and the browser's Views section +): pick a type (or all entities), Table or Board, and a name, and the note is created and opened. A new board has status buckets.
 - **Open entity view…**: a picker of view notes, i.e. notes in the views folder that contain an `entity-view` block.
-- **Browser:** a **Views** section at the top lists view notes. Type headings get "New table view of <plural>".
+- **Browser:** a **Views** section at the top lists view notes, with a board icon for boards (`ViewIndex` reads each block's `kind`); clicking opens the view in its saved layout. Type and group headings get "New table view of <plural>" and "New board of <plural>".
 
 **AC:**
 - [x] A view note renders an interactive table in both modes and survives sync without the plugin.
@@ -1500,6 +1569,7 @@ These cover all of `model/`, with no Obsidian dependency:
   - fill columns: parse/serialize as a name or list, proportional sharing, rounding to the exact width, nothing when there's no spare width
   - frozen columns: parse/serialize (removed column dropped), `frozenCount` including a hidden frozen column
   - density and wrapping: parse/serialize without defaults, `unlimited` lines, repeated and removed wrap columns dropped, an error for a bad density; `rowHeight`, `rowOffsets`, `itemAt` at and between boundaries
+- **board:** `board:` round trips without defaults, both layouts' settings surviving a switch, formats and summaries of card fields kept, errors; bucket fields (status and single-value choice / checkbox / link fields only, never read-only columns), types with the field; default card fields and the run definition; bucket order for status, choices (undefined values, the empty bucket), links and checkboxes, hidden and empty buckets, sort within buckets; manual order (`orderRows`, `reorder`).
   - summaries: parse/serialize (removed columns dropped, the group header toggle), every aggregation, status-order value counts, formatted sums and dates, empty results, options by column kind, `spanText`
 - **formats:** date presets, custom and relative dates; number presets, currencies, custom patterns and their errors.
 - **formula:** tokenizing, precedence, syntax errors with positions; reference resolution by label or id, type inference, unknown columns / names / functions and argument counts; label ↔ id conversion; every function's example compiles; evaluation of arithmetic, dates, comparisons, empty values and runtime errors, and every function category (including lazy logic, `dateAdd` / `dateDiff` month ends, `map` / `filter` / `prop`). In views: per-row values, kinds used for sorting and filtering, formulas using formulas and linked notes' fields, type overrides, invalid columns, loops, per-row errors, round trips.
@@ -1544,6 +1614,7 @@ Drive a real Obsidian instance via the Chrome DevTools Protocol (Obsidian starte
   - Connections panel add/remove link
   - switcher type prefixes
   - import/export
+  - boards, on a scratch view: buckets and counts, mouse drags between buckets (status, choice, empty bucket, link) with undo, reordering (drop line, saved order, undo), moving a selection, swimlanes (writable and not), collapsed buckets taking drops, limits, hiding, card options and fields, highlight rules on cards, keyboard moves, Add card prefill, the Table / Board toggle and tab icon, paging big buckets, the New view dialog. Scroll the card and the target into view (centred) before dragging, as auto-scroll would. Board drags write notes: back up the vault's notes first and compare afterwards.
 - Check **dark and light themes** and at least one community theme.
 
 ### Manual checklist per release

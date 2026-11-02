@@ -31,20 +31,22 @@ export class BulkActions {
 	}
 
 	private report(message: string, undo: BulkUndo | null, failed: { name: string; error: string }[]): void {
-		const frag = document.createDocumentFragment();
-		frag.append(message);
-		if (undo) {
-			frag.append(" · ");
-			const a = frag.appendChild(document.createElement("a"));
-			a.href = "#";
-			a.textContent = "Undo";
-			const notice = new Notice(frag, 10000);
-			a.addEventListener("click", (e) => {
-				e.preventDefault();
-				notice.hide();
-				void undo();
-			});
-		} else new Notice(frag, 6000);
+		if (message) {
+			const frag = document.createDocumentFragment();
+			frag.append(message);
+			if (undo) {
+				frag.append(" · ");
+				const a = frag.appendChild(document.createElement("a"));
+				a.href = "#";
+				a.textContent = "Undo";
+				const notice = new Notice(frag, 10000);
+				a.addEventListener("click", (e) => {
+					e.preventDefault();
+					notice.hide();
+					void undo();
+				});
+			} else new Notice(frag, 6000);
+		}
 		if (failed.length) {
 			const list = failed.slice(0, 8).map((f) => `• ${f.name}: ${f.error}`);
 			if (failed.length > 8) list.push(`…and ${failed.length - 8} more`);
@@ -54,12 +56,13 @@ export class BulkActions {
 
 	/**
 	 * Apply a frontmatter change to each note. `changeFor` returns the change for a note (null skips it); notes it
-	 * wouldn't change aren't written. Returns the undo (null when nothing changed).
+	 * wouldn't change aren't written. Returns the undo (null when nothing changed). A null `message` reports only
+	 * failures (board moves: the board shows the result, and Ctrl/Cmd+Z undoes it).
 	 */
 	async updateFrontmatter(
 		paths: string[],
 		changeFor: (entity: EntityRecord, file: TFile) => BulkChange | ((fm: Record<string, unknown>) => boolean) | null,
-		message: (changed: number, skipped: number) => string,
+		message: ((changed: number, skipped: number) => string) | null,
 	): Promise<BulkUndo | null> {
 		const snapshots = new Map<TFile, Record<string, unknown>>();
 		const failed: { name: string; error: string }[] = [];
@@ -101,7 +104,8 @@ export class BulkActions {
 					new Notice(`Undone: ${entitiesText(snapshots.size)} restored.`);
 				}
 			: null;
-		this.report(snapshots.size ? message(snapshots.size, skipped) : `Nothing to change${skipped ? ` (${entitiesText(skipped)} skipped)` : ""}.`, undo, failed);
+		if (message) this.report(snapshots.size ? message(snapshots.size, skipped) : `Nothing to change${skipped ? ` (${entitiesText(skipped)} skipped)` : ""}.`, undo, failed);
+		else if (failed.length) this.report("", null, failed);
 		return undo;
 	}
 

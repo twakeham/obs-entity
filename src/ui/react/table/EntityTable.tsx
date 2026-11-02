@@ -31,6 +31,7 @@ import {
 	type ResultGroup,
 	type ResultRow,
 	type ViewDef,
+	type ViewKind,
 } from "../../../model/views";
 import { VIEW_BLOCK } from "../../../services/viewIndex";
 import { TypePickerModal } from "../../components/entityPicker";
@@ -46,6 +47,11 @@ import { Icon } from "../Icon";
 import { CellEditor, CellView, editTarget } from "./cells";
 import { summarize, summaryOptions, type SummaryResult } from "../../../model/summary";
 import { ColumnsPanel, cssColor, FiltersPanel, FormatPanel, GroupPanel, HighlightPanel, hlClasses, newHighlightRule, newVizRule, Popover, scaleFill, SortPanel, type ColumnChoice } from "./popovers";
+import { BOARD_ICON, BUCKET_NONE, boardOf, boardRunDef, bucketColumn, bucketColumns, cardFieldIds, defaultBuckets, type Bucket } from "../../../model/board";
+import { applyChange } from "../../../model/bulk";
+import { toWikilink } from "../../../model/links";
+import { COMMON_KEYS } from "../../../model/types";
+import { Board, BucketsPanel, SwimlanePanel, type BoardMemory, type CardMove, type LaneTarget } from "../board/Board";
 
 /** What survives the re-render after a save, per block, for the session. */
 interface Session {
@@ -53,6 +59,7 @@ interface Session {
 	collapsed: string[];
 	selected: string[];
 	scrollTop: number;
+	board?: BoardMemory;
 }
 const sessions = new Map<string, Session>();
 
@@ -61,7 +68,7 @@ const SELECT_W = 36;
 const DEFAULT_W: Record<string, number> = { text: 170, number: 100, date: 120, choice: 120, multi: 170, bool: 80, links: 200, folder: 180 };
 
 type Item = { kind: "group"; key: string; label: string; count: number; open: boolean; level: number; by: string; rows: ResultRow[] } | { kind: "row"; r: ResultRow; n: number; depth: number };
-type PopName = "filters" | "sort" | "group" | "highlight" | "columns" | "format";
+type PopName = "filters" | "sort" | "group" | "highlight" | "columns" | "format" | "buckets";
 
 export interface EntityTableProps {
 	initial: ViewDef;
@@ -106,22 +113,28 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	/** Ctrl/Cmd+Z in the table: cell edits (per note) and bulk actions (one step each), newest last. */
 	const edits = useRef<({ kind: "cell"; path: string } | { kind: "bulk"; undo: BulkUndo })[]>([]);
 	const lastClicked = useRef<number | null>(null);
+	const boardMem = useRef<BoardMemory>(session.board ?? { left: 0, top: 0, bodies: {} });
 
 	useEffect(() => {
-		sessions.set(stateKey, { search, collapsed: [...collapsed], selected: [...selected], scrollTop: liveScroll.current.top });
+		sessions.set(stateKey, { search, collapsed: [...collapsed], selected: [...selected], scrollTop: liveScroll.current.top, board: boardMem.current });
 	});
-	// The selection is by path: follow renames and moves (including a bulk move and its undo).
+	// The selection is by path: follow renames and moves (including a bulk move and its undo). So does a board's manual order.
 	useEffect(() => {
-		const ref = app.vault.on("rename", (file, oldPath) =>
+		const ref = app.vault.on("rename", (file, oldPath) => {
 			setSelected((s) => {
 				if (!s.has(oldPath)) return s;
 				const next = new Set(s);
 				next.delete(oldPath);
 				next.add(file.path);
 				return next;
-			}),
-		);
+			});
+			const cur = defRef.current;
+			const order = cur.board?.order ?? {};
+			if (Object.values(order).some((ps) => ps.includes(oldPath)))
+				update({ ...cur, board: { ...boardOf(cur), order: Object.fromEntries(Object.entries(order).map(([k, ps]) => [k, ps.map((p) => (p === oldPath ? file.path : p))])) } });
+		});
 		return () => app.vault.offref(ref);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [app]);
 
 	// ---- saving: debounced, held while a popover or cell editor is open, flushed on unmount
@@ -155,7 +168,12 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	// ---- data
 	const lookup = useMemo(() => ({ types: plugin.settings.types, groups: plugin.settings.groups }), [plugin, version]);
 	const { rows, ctx } = useMemo(() => plugin.viewData(), [plugin, version]);
-	const result = useMemo(() => runView(def, rows, ctx, search), [def, rows, ctx, search]);
+	// A board runs its card fields and bucket column, with its swimlane as the only grouping level.
+	const isBoard = def.kind === "board";
+	const runDef = useMemo(() => (isBoard ? boardRunDef(def) : def), [def, isBoard]);
+	const result = useMemo(() => runView(runDef, rows, ctx, search), [runDef, rows, ctx, search]);
+	const bucketCol = useMemo(() => (isBoard ? bucketColumn(def, lookup) : null), [isBoard, def, lookup]);
+	const bucketChoices = useMemo(() => (isBoard ? bucketColumns(def, lookup) : []), [isBoard, def, lookup]);
 	const columns = result.columns;
 	const sources = useMemo(() => sourceTypes(def, lookup.types), [def, lookup]);
 	const available = useMemo(() => availableColumns(def, lookup), [def, lookup]);
@@ -204,12 +222,14 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 
 	// ---- summaries: the bottom row (each shown row once) and, when grouping, each group's header
 	const summaryKeys = def.summary ?? {};
+	/** each shown column's summary over some rows (a group, a bucket, a swimlane) */
+	const summarizeRows = (rs: ResultRow[]) => {
+		const out: Record<string, SummaryResult | null> = {};
+		for (const c of columns) if (summaryKeys[c.id]) out[c.id] = summarize(rs, c, summaryKeys[c.id], ctx, def.formats[c.id]);
+		return out;
+	};
 	const sums = useMemo(() => {
-		const of = (rs: ResultRow[]) => {
-			const out: Record<string, SummaryResult | null> = {};
-			for (const c of columns) if (summaryKeys[c.id]) out[c.id] = summarize(rs, c, summaryKeys[c.id], ctx, def.formats[c.id]);
-			return out;
-		};
+		const of = summarizeRows;
 		const hasAny = columns.some((c) => summaryKeys[c.id]);
 		const groups = new Map<string, Record<string, SummaryResult | null>>();
 		if (hasAny && def.groupSummaries !== false) for (const g of allGroups) groups.set(g.key, of(g.rows));
@@ -322,16 +342,15 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 			fill: on ? cur.fill : (cur.fill ?? []).filter((id) => id !== c.id),
 		});
 	};
-	const formulaDialog = (existing: Extract<ColumnDef, { kind: "formula" }> | null) =>
-		new FormulaModal(plugin, defRef.current, existing, (col) => {
-			const cur = defRef.current;
-			update({ ...cur, columns: existing ? cur.columns.map((x) => (x.id === existing.id ? col : x)) : [...cur.columns, col] });
-		}).open();
-	const rollupDialog = (existing: Extract<ColumnDef, { kind: "rollup" }> | null) =>
-		new RollupModal(plugin, defRef.current, existing, (col) => {
-			const cur = defRef.current;
-			update({ ...cur, columns: existing ? cur.columns.map((x) => (x.id === existing.id ? col : x)) : [...cur.columns, col] });
-		}).open();
+	/** A new roll-up or formula column (on a board, it's shown on the cards too). */
+	const addComputed = (existing: ColumnDef | null, col: ColumnDef) => {
+		const cur = defRef.current;
+		const columns = existing ? cur.columns.map((x) => (x.id === existing.id ? col : x)) : [...cur.columns, col];
+		const board = !existing && cur.kind === "board" ? { board: { ...boardOf(cur), cardFields: [...cardFieldIds(cur), col.id] } } : {};
+		update({ ...cur, columns, ...board });
+	};
+	const formulaDialog = (existing: Extract<ColumnDef, { kind: "formula" }> | null) => new FormulaModal(plugin, defRef.current, existing, (col) => addComputed(existing, col)).open();
+	const rollupDialog = (existing: Extract<ColumnDef, { kind: "rollup" }> | null) => new RollupModal(plugin, defRef.current, existing, (col) => addComputed(existing, col)).open();
 
 	/**
 	 * Fit columns to their contents: draw the header, every shown row and the summary of each column off-screen
@@ -615,9 +634,12 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 
 	const rowMenu = (e: MouseEvent, r: ResultRow) => {
 		e.preventDefault();
+		rowMenuAt({ x: e.clientX, y: e.clientY }, r);
+	};
+	const rowMenuAt = (at: { x: number; y: number }, r: ResultRow) => {
 		// Right-clicking one of several selected rows acts on the selection.
 		if (selected.has(r.row.path) && selectedEntities.length > 1) {
-			bulkMenu(new Menu()).showAtMouseEvent(e.nativeEvent);
+			bulkMenu(new Menu()).showAtPosition(at);
 			return;
 		}
 		const entity = plugin.index.get(r.row.path);
@@ -650,7 +672,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 				),
 		);
 		app.workspace.trigger("file-menu", m, entity.file, "obs-entities-table");
-		m.showAtMouseEvent(e.nativeEvent);
+		m.showAtPosition(at);
 	};
 
 	const moreMenu = (e: MouseEvent) => {
@@ -693,6 +715,62 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					new Notice("Copied the view's block. Paste it into any note.");
 				}),
 		);
+		if (isBoard) boardMoreItems(m, { x: e.clientX, y: e.clientY });
+		else tableMoreItems(m, { x: e.clientX, y: e.clientY });
+		m.showAtMouseEvent(e.nativeEvent);
+	};
+
+	/** ⋯ on a board: card size, what cards show, empty and hidden buckets. */
+	const boardMoreItems = (m: Menu, at: { x: number; y: number }) => {
+		const b = boardOf(def);
+		const setBoard = (patch: Partial<typeof b>) => {
+			const cur = defRef.current;
+			update({ ...cur, board: { ...boardOf(cur), ...patch } });
+		};
+		for (const [size, title] of [
+			["small", "Small cards"],
+			["medium", "Medium cards"],
+			["large", "Large cards"],
+		] as const)
+			m.addItem((i) =>
+				i
+					.setSection("layout")
+					.setTitle(title)
+					.setIcon(size === "small" ? "minimize-2" : size === "large" ? "maximize-2" : "square")
+					.setChecked((b.cardSize ?? "medium") === size)
+					.onClick(() => setBoard({ cardSize: size === "medium" ? undefined : size })),
+			);
+		m.addItem((i) => i.setSection("cards").setTitle("Show subtitles").setIcon("text").setChecked(!!b.cardSubtitle).onClick(() => setBoard({ cardSubtitle: b.cardSubtitle ? undefined : true })));
+		m.addItem((i) => i.setSection("cards").setTitle("Show field names").setIcon("tag").setChecked(!!b.cardLabels).onClick(() => setBoard({ cardLabels: b.cardLabels ? undefined : true })));
+		m.addItem((i) => i.setSection("buckets").setTitle("Hide empty buckets").setIcon("eye-off").setChecked(!!b.hideEmpty).onClick(() => setBoard({ hideEmpty: b.hideEmpty ? undefined : true })));
+		if (b.hiddenBuckets.length)
+			m.addItem((i) =>
+				i
+					.setSection("buckets")
+					.setTitle(`Hidden buckets (${b.hiddenBuckets.length})…`)
+					.setIcon("eye")
+					.onClick(() =>
+						window.setTimeout(() => {
+							const sub = new Menu();
+							for (const key of b.hiddenBuckets)
+								sub.addItem((i) =>
+									i
+										.setTitle(`Show “${bucketName(key)}”`)
+										.setIcon("eye")
+										.onClick(() => setBoard({ hiddenBuckets: boardOf(defRef.current).hiddenBuckets.filter((k) => k !== key) })),
+								);
+							sub.addItem((i) => i.setSection("all").setTitle("Show all").setIcon("eye").onClick(() => setBoard({ hiddenBuckets: [] })));
+							sub.showAtPosition(at);
+						}, 0),
+					),
+			);
+	};
+	/** A bucket key as shown (link buckets show the note's name). */
+	const bucketName = (key: string) =>
+		key === BUCKET_NONE ? `No ${(bucketCol?.label ?? "value").toLowerCase()}` : bucketCol?.kind === "links" ? (ctx.row(key)?.name ?? key) : bucketCol?.kind === "bool" ? (key === "yes" ? "Yes" : "No") : key;
+
+	/** ⋯ in a table: row density and wrapped lines. */
+	const tableMoreItems = (m: Menu, at: { x: number; y: number }) => {
 		const densities = [
 			["compact", "Compact rows", "rows-4"],
 			["normal", "Normal rows", "rows-3"],
@@ -711,7 +789,6 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					}),
 			);
 		const lines = def.wrapLines ?? WRAP_LINES_DEFAULT;
-		const at = { x: e.clientX, y: e.clientY };
 		m.addItem((i) =>
 			i
 				.setSection("layout")
@@ -734,11 +811,20 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					}, 0),
 				),
 		);
-		m.showAtMouseEvent(e.nativeEvent);
 	};
 
-	const newEntity = () => {
+	/** + New: a new entity, prefilled from the filters (and on a board, the bucket's and swimlane's values). */
+	const newEntity = (extra: LaneTarget[] = []) => {
 		const pre = prefillFromFilters(def, result.known);
+		for (const { col, value } of extra) {
+			const key = col.def.kind === "builtin" ? COMMON_KEYS.status : col.def.kind === "field" ? col.def.key : null;
+			if (!key) continue;
+			if (key === COMMON_KEYS.status) {
+				if (typeof value === "string") pre.status = value;
+				else delete pre.status;
+			} else if (value === null) delete pre.fields[key];
+			else pre.fields[key] = value;
+		}
 		const go = (t: EntityTypeDef) => {
 			const fields: Record<string, FieldValue> = {};
 			for (const [k, v] of Object.entries(pre.fields)) {
@@ -756,6 +842,145 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		};
 		if (sources.length === 1) go(sources[0]);
 		else if (sources.length) new TypePickerModal(plugin, go, sources).open();
+	};
+
+	// ---- board actions
+	/** Switch between the table and the board (each keeps its own settings). A board without buckets gets status. */
+	const setKind = (kind: ViewKind) => {
+		const cur = defRef.current;
+		if (cur.kind === kind) return;
+		const next: ViewDef = { ...cur, kind };
+		if (kind === "board" && !boardOf(cur).buckets) {
+			const b = defaultBuckets(cur, lookup);
+			if (b) next.board = { ...boardOf(cur), buckets: b };
+		}
+		setFocus(null);
+		setPop(null);
+		update(next);
+	};
+	/** The frontmatter key a bucket or swimlane column writes. */
+	const keyOf = (col: ResolvedColumn) => (col.def.kind === "builtin" ? COMMON_KEYS.status : col.def.kind === "field" ? col.def.key : null);
+	/**
+	 * Drop cards into a bucket (and swimlane): set the fields that differ, and the bucket's manual order. One
+	 * Ctrl/Cmd+Z step undoes both. Cards whose type lacks the field, or can't have that status, stay put.
+	 */
+	const moveCards = async (mv: CardMove) => {
+		const prev = defRef.current;
+		if (mv.order) {
+			const b = boardOf(prev);
+			update({ ...prev, board: { ...b, order: { ...b.order, [mv.order.bucket]: mv.order.paths } } });
+		}
+		const writes: LaneTarget[] = [];
+		if (bucketCol) writes.push({ col: bucketCol, value: mv.bucket.value });
+		if (mv.lane) writes.push(mv.lane);
+		const refused: string[] = [];
+		const undoFm = await plugin.bulk.updateFrontmatter(
+			mv.paths,
+			(entity, file) => (fm) => {
+				let changed = false;
+				for (const w of writes) {
+					const key = keyOf(w.col);
+					if (!key) continue;
+					if (key !== COMMON_KEYS.status && !entity.type.fields.some((f) => f.key === key)) continue;
+					let value: unknown = w.value;
+					if (key === COMMON_KEYS.status && typeof value === "string" && !statusesFor(entity.type, plugin.settings.groups).includes(value)) {
+						if (!refused.includes(entity.name)) refused.push(entity.name);
+						continue;
+					}
+					if (w.col.kind === "links" && typeof value === "string") {
+						const target = app.vault.getAbstractFileByPath(value);
+						value = target instanceof TFile ? toWikilink(app.metadataCache.fileToLinktext(target, file.path, true)) : null;
+					}
+					if (applyChange(fm, { op: "set", key, value })) changed = true;
+				}
+				return changed;
+			},
+			null,
+		);
+		if (refused.length) new Notice(`${refused.join(", ")} can't have the status “${mv.bucket.label}”: ${refused.length === 1 ? "its type doesn't" : "their types don't"} use it.`);
+		if (undoFm || mv.order)
+			edits.current.push({
+				kind: "bulk",
+				undo: async () => {
+					if (undoFm) await undoFm();
+					if (mv.order) {
+						const cur = defRef.current;
+						update({ ...cur, board: { ...boardOf(cur), order: boardOf(prev).order } });
+					}
+				},
+			});
+	};
+	const setLimit = (b: Bucket) => {
+		const cur = boardOf(defRef.current);
+		new NameModal(
+			app,
+			`Card limit for “${bucketName(b.key)}”`,
+			cur.limits[b.key] ? String(cur.limits[b.key]) : "",
+			"Save",
+			(v) => {
+				const n = Math.round(Number(v));
+				const d = defRef.current;
+				const limits = { ...boardOf(d).limits };
+				if (v && Number.isFinite(n) && n > 0) limits[b.key] = n;
+				else delete limits[b.key];
+				update({ ...d, board: { ...boardOf(d), limits } });
+			},
+			{ label: "Most cards", allowEmpty: true, desc: "The count turns red when the bucket holds more. Leave empty for no limit." },
+		).open();
+	};
+	const bucketMenu = (at: { x: number; y: number }, b: Bucket) => {
+		const cur = boardOf(def);
+		const setBoard = (patch: Partial<typeof cur>) => {
+			const d = defRef.current;
+			update({ ...d, board: { ...boardOf(d), ...patch } });
+		};
+		const isCollapsed = cur.collapsedBuckets.includes(b.key);
+		const m = new Menu();
+		m.addItem((i) => i.setSection("add").setTitle("Add card").setIcon("plus").onClick(() => newEntity(bucketCol ? [{ col: bucketCol, value: b.value }] : [])));
+		m.addItem((i) =>
+			i
+				.setSection("bucket")
+				.setTitle(isCollapsed ? "Expand" : "Collapse")
+				.setIcon(isCollapsed ? "chevrons-up-down" : "chevrons-down-up")
+				.onClick(() => setBoard({ collapsedBuckets: isCollapsed ? cur.collapsedBuckets.filter((k) => k !== b.key) : [...cur.collapsedBuckets, b.key] })),
+		);
+		m.addItem((i) => i.setSection("bucket").setTitle(cur.limits[b.key] ? `Card limit (${cur.limits[b.key]})…` : "Set card limit…").setIcon("gauge").onClick(() => setLimit(b)));
+		m.addItem((i) => i.setSection("bucket").setTitle("Hide bucket").setIcon("eye-off").onClick(() => setBoard({ hiddenBuckets: [...cur.hiddenBuckets, b.key] })));
+		const fields = columns.filter((c) => c.id !== "name" && c.id !== bucketCol?.id && !c.invalid);
+		if (fields.length)
+			m.addItem((i) =>
+				i
+					.setSection("sum")
+					.setTitle("Summaries…")
+					.setIcon("sigma")
+					.onClick(() =>
+						window.setTimeout(() => {
+							const sub = new Menu();
+							for (const c of fields)
+								sub.addItem((i) =>
+									i
+										.setTitle(def.summary[c.id] ? `${c.label} (on)` : c.label)
+										.setChecked(!!def.summary[c.id])
+										.onClick(() => window.setTimeout(() => summaryMenu(c, at), 0)),
+								);
+							sub.showAtPosition(at);
+						}, 0),
+					),
+			);
+		m.showAtPosition(at);
+	};
+	const laneMenu = (at: { x: number; y: number }) => {
+		const m = new Menu();
+		m.addItem((i) => i.setTitle("Collapse all swimlanes").setIcon("chevrons-down-up").onClick(() => setGroupsOpen(false)));
+		m.addItem((i) => i.setTitle("Expand all swimlanes").setIcon("chevrons-up-down").onClick(() => setGroupsOpen(true)));
+		m.showAtPosition(at);
+	};
+	const toggleLane = (key: string) => setCollapsed((s) => (s.has(key) ? new Set([...s].filter((k) => k !== key)) : new Set([...s, key])));
+	/** Columns ticked in the Columns panel on a board: the card fields. */
+	const toggleCardField = (c: ColumnDef, on: boolean) => {
+		const cur = defRef.current;
+		const ids = cardFieldIds(cur).filter((id) => id !== c.id);
+		update({ ...cur, board: { ...boardOf(cur), cardFields: on ? [...ids, c.id] : ids } });
 	};
 
 	const selectRow = (n: number, path: string, range: boolean) => {
@@ -804,7 +1029,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 
 	// ---- bulk actions on the selection
 	/** Rows that match the view's filters, search aside (so a search doesn't drop selected rows). */
-	const viewRows = useMemo(() => (search.trim() ? runView(def, rows, ctx).rows : result.rows), [search, def, rows, ctx, result]);
+	const viewRows = useMemo(() => (search.trim() ? runView(runDef, rows, ctx).rows : result.rows), [search, runDef, rows, ctx, result]);
 	const selectedEntities = useMemo(
 		() => viewRows.filter((r) => selected.has(r.row.path)).flatMap((r) => plugin.index.get(r.row.path) ?? []),
 		// eslint-disable-next-line react-hooks/exhaustive-deps
@@ -875,37 +1100,43 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	};
 	const cellEl = (r: number, c: number) => scrollRef.current?.querySelector<HTMLElement>(`td[data-r="${r}"][data-c="${c}"]`);
 
-	const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-		if (editing || pop) return;
-		const t = e.target as HTMLElement;
-		if (t.matches("input:not([type=checkbox]), select, textarea")) return;
+	/** Keys the table and the board share: undo, select all, delete and clearing the selection. True when handled. */
+	const commonKey = (e: KeyboardEvent<HTMLDivElement>): boolean => {
 		if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
 			e.preventDefault();
 			e.stopPropagation();
 			const last = edits.current.pop();
 			if (last?.kind === "bulk") {
 				void last.undo();
-				return;
+				return true;
 			}
 			const edit = last ? plugin.undoProperty(last.path) : null;
-			if (!edit) new Notice("Nothing to undo in this table.");
-			return;
+			if (!edit) new Notice(`Nothing to undo in this ${isBoard ? "board" : "table"}.`);
+			return true;
 		}
 		if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "a") {
 			e.preventDefault();
 			setSelected(new Set([...selected, ...result.rows.map((r) => r.row.path)]));
-			return;
+			return true;
 		}
 		if ((e.key === "Delete" || e.key === "Backspace") && selectedEntities.length) {
 			e.preventDefault();
 			bulkDelete();
-			return;
+			return true;
 		}
 		if (e.key === "Escape" && selected.size) {
 			e.preventDefault();
 			setSelected(new Set());
-			return;
+			return true;
 		}
+		return false;
+	};
+
+	const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+		if (editing || pop) return;
+		const t = e.target as HTMLElement;
+		if (t.matches("input:not([type=checkbox]), select, textarea")) return;
+		if (commonKey(e)) return;
 		const maxR = rowItems.length - 1;
 		const maxC = columns.length - 1;
 		const cur = focus ?? { r: 0, c: 0 };
@@ -1004,8 +1235,16 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 			style={{ "--oe-row-h": `${ROW_H}px`, "--oe-wrap-lines": wrapLines || "none" } as CSSProperties}
 		>
 			<div className="oe-view-toolbar">
+				<div className="oe-layout-toggle" role="group" aria-label="Layout">
+					<button className={`clickable-icon${isBoard ? "" : " is-active"}`} aria-label="Table" aria-pressed={!isBoard} onClick={() => setKind("table")}>
+						<Icon name="table" />
+					</button>
+					<button className={`clickable-icon${isBoard ? " is-active" : ""}`} aria-label="Board" aria-pressed={isBoard} onClick={() => setKind("board")}>
+						<Icon name={BOARD_ICON} />
+					</button>
+				</div>
 				<span className="oe-view-source">
-					<Icon name={sources.length === 1 ? sources[0].icon : "table"} />
+					<Icon name={sources.length === 1 ? sources[0].icon : isBoard ? BOARD_ICON : "table"} />
 					{typeLabel}
 				</span>
 				<input type="search" className="oe-view-search" placeholder="Search…" value={search} aria-label="Search this view" onChange={(e) => setSearch(e.target.value)} />
@@ -1034,9 +1273,17 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					<>
 						<ToolButton name="filters" icon="filter" label="Filters" count={conditions} active={pop?.name === "filters"} onClick={openPop} />
 						<ToolButton name="sort" icon="arrow-up-down" label="Sort" count={def.sort.length} active={pop?.name === "sort"} onClick={openPop} />
-						<ToolButton name="group" icon="rows-3" label="Group" count={def.group.length} active={pop?.name === "group"} onClick={openPop} />
+						{isBoard && <ToolButton name="buckets" icon={BOARD_ICON} label={bucketCol ? `Buckets: ${bucketCol.label}` : "Buckets"} count={0} active={pop?.name === "buckets"} onClick={openPop} />}
+						<ToolButton
+							name="group"
+							icon="rows-3"
+							label={isBoard ? "Swimlanes" : "Group"}
+							count={isBoard ? (boardOf(def).swimlanes ? 1 : 0) : def.group.length}
+							active={pop?.name === "group"}
+							onClick={openPop}
+						/>
 						<ToolButton name="highlight" icon="highlighter" label="Highlight" count={(def.highlight ?? []).filter((r) => !r.off).length} active={pop?.name === "highlight"} onClick={openPop} />
-						<ToolButton name="columns" icon="columns-3" label="Columns" count={0} active={pop?.name === "columns"} onClick={openPop} />
+						<ToolButton name="columns" icon={isBoard ? "list" : "columns-3"} label={isBoard ? "Card fields" : "Columns"} count={0} active={pop?.name === "columns"} onClick={openPop} />
 						<button className="clickable-icon" aria-label="More options" onClick={moreMenu}>
 							<Icon name="more-horizontal" />
 						</button>
@@ -1057,6 +1304,31 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					)}
 				</div>
 			)}
+			{isBoard ? (
+				<Board
+					def={def}
+					update={update}
+					result={result}
+					bucketCol={bucketCol}
+					bucketChoices={bucketChoices}
+					ctx={ctx}
+					selected={selected}
+					setSelected={setSelected}
+					collapsedLanes={collapsed}
+					toggleLane={toggleLane}
+					summarize={summarizeRows}
+					rowMenu={rowMenuAt}
+					bucketMenu={bucketMenu}
+					laneMenu={laneMenu}
+					hover={hover}
+					move={moveCards}
+					newCard={(b, lane) => newEntity([...(bucketCol ? [{ col: bucketCol, value: b.value }] : []), ...(lane ? [lane] : [])])}
+					onCommonKey={(e) => !pop && !editing && commonKey(e)}
+					chooseBuckets={(el) => setPop({ name: "buckets", anchor: el.getBoundingClientRect() })}
+					memory={boardMem.current}
+					SummaryText={SummaryText}
+				/>
+			) : (
 			<div
 				ref={scrollRef}
 				className={`oe-table-scroll${frozen && scrolledX ? " is-scrolled-x" : ""}`}
@@ -1323,8 +1595,9 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					<div className="oe-table-empty">{result.total === 0 ? `No ${sources.length === 1 ? sources[0].plural.toLowerCase() : "entities"} yet.` : "No entities match this view's filters or search."}</div>
 				)}
 			</div>
+			)}
 			<div className="oe-table-footer">
-				<button className="oe-pop-link" onClick={newEntity} disabled={!sources.length}>
+				<button className="oe-pop-link" onClick={() => newEntity()} disabled={!sources.length}>
 					<Icon name="plus" /> New
 				</button>
 				<span className="oe-spacer" />
@@ -1338,11 +1611,33 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 				<Popover anchor={pop.anchor} onClose={() => setPop(null)} className={`oe-pop-${pop.name}`} label={pop.name}>
 					{pop.name === "filters" && <FiltersPanel filters={def.filters} choices={choices} ctx={ctx} valuesOf={valuesOf} onChange={(filters) => update({ ...defRef.current, filters })} />}
 					{pop.name === "sort" && <SortPanel sort={def.sort} choices={choices} onChange={(sort) => update({ ...defRef.current, sort })} />}
-					{pop.name === "group" && (
-						<GroupPanel
-							def={def}
-							choices={choices}
-							onChange={(group, groupSummaries, groupFieldNames) => update({ ...defRef.current, group, groupSummaries, groupFieldNames })}
+					{pop.name === "group" &&
+						(isBoard ? (
+							<SwimlanePanel
+								def={def}
+								choices={choices}
+								onChange={(swimlanes, groupSummaries, groupFieldNames) => {
+									const cur = defRef.current;
+									update({ ...cur, groupSummaries, groupFieldNames, board: { ...boardOf(cur), swimlanes } });
+								}}
+							/>
+						) : (
+							<GroupPanel
+								def={def}
+								choices={choices}
+								onChange={(group, groupSummaries, groupFieldNames) => update({ ...defRef.current, group, groupSummaries, groupFieldNames })}
+							/>
+						))}
+					{pop.name === "buckets" && (
+						<BucketsPanel
+							value={bucketCol?.id}
+							choices={bucketChoices}
+							onChange={(id) => {
+								const cur = defRef.current;
+								const b = boardOf(cur);
+								// Collapsed, hidden, limits and order belong to the old buckets' values.
+								update({ ...cur, board: { ...b, buckets: id, swimlanes: b.swimlanes?.by === id ? undefined : b.swimlanes, collapsedBuckets: [], hiddenBuckets: [], limits: {}, order: {} } });
+							}}
 						/>
 					)}
 					{pop.name === "highlight" && (
@@ -1382,7 +1677,9 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 								{ title: "Incoming links", columns: available.incoming },
 							]}
 							labelOf={labelOf}
-							onToggle={toggleColumn}
+							onToggle={isBoard ? toggleCardField : toggleColumn}
+							shown={isBoard ? cardFieldIds(def) : undefined}
+							hint={isBoard ? "Fields shown on the cards. Empty values are left out." : undefined}
 							onAddRollup={() => rollupDialog(null)}
 							onEditRollup={(c) => rollupDialog(c)}
 							onAddFormula={() => {

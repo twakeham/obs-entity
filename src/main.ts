@@ -23,7 +23,8 @@ import { BROWSER_VIEW, BrowserView } from "./ui/views/BrowserView";
 import type { EntityRecord } from "./services/entityIndex";
 import { TYPES_VIEW, TypesView } from "./ui/views/TypesView";
 import type { GroupDraft, TypeDraft } from "./model/typeEditing";
-import { emptyView, fieldColumn, serializeView, sourceTypes, type ViewContext, type ViewDef, type ViewRow, columnFromId } from "./model/views";
+import { emptyBoard, emptyView, fieldColumn, serializeView, sourceTypes, type ViewContext, type ViewDef, type ViewKind, type ViewRow, columnFromId } from "./model/views";
+import { defaultBuckets } from "./model/board";
 import { VIEW_BLOCK, ViewIndex } from "./services/viewIndex";
 import { NewViewModal, OpenViewModal } from "./ui/modals/viewModals";
 import { ViewBlock } from "./ui/views/viewBlock";
@@ -170,8 +171,8 @@ export default class EntitiesPlugin extends Plugin {
 		});
 		this.addCommand({
 			id: "new-table-view",
-			name: "New table view",
-			callback: () => this.newTableView(this.index.getByFile(this.app.workspace.getActiveFile())?.type.key ?? ""),
+			name: "New entity view (table or board)",
+			callback: () => this.newView(this.index.getByFile(this.app.workspace.getActiveFile())?.type.key ?? ""),
 		});
 		this.addCommand({
 			id: "open-entity-view",
@@ -382,8 +383,8 @@ export default class EntitiesPlugin extends Plugin {
 		return { rows, ctx };
 	}
 
-	/** Starting columns for a new view: name, type (when several), status, then up to four fields. */
-	defaultView(source: string): ViewDef {
+	/** Starting columns for a new view: name, type (when several), status, then up to four fields. A board starts with status buckets. */
+	defaultView(source: string, kind: ViewKind = "table"): ViewDef {
 		const def = emptyView([source || "*"]);
 		const types = sourceTypes(def, this.settings.types);
 		const ids = ["name", ...(types.length > 1 ? ["type"] : []), "status"];
@@ -391,6 +392,11 @@ export default class EntitiesPlugin extends Plugin {
 		def.columns = ids.map(columnFromId);
 		for (const f of fields.slice(0, 4)) def.columns.push(fieldColumn(f.key));
 		if (types.length > 1) def.columns.push(columnFromId("modified"));
+		if (kind === "board") {
+			def.kind = "board";
+			const lookup = { types: this.settings.types, groups: this.settings.groups };
+			def.board = { ...emptyBoard(), buckets: defaultBuckets(def, lookup) };
+		}
 		return def;
 	}
 
@@ -401,7 +407,7 @@ export default class EntitiesPlugin extends Plugin {
 		let path = normalizePath(`${folder ? `${folder}/` : ""}${base}.md`);
 		for (let n = 2; this.app.vault.getAbstractFileByPath(path); n++) path = normalizePath(`${folder ? `${folder}/` : ""}${base} ${n}.md`);
 		const file = await this.app.vault.create(path, `\`\`\`${VIEW_BLOCK}\n${stringifyYaml(serializeView(def))}\`\`\`\n`);
-		this.views.add(file.path);
+		this.views.add(file.path, def.kind);
 		const leaf = this.app.workspace.getLeaf(this.settings.openInNewTab);
 		await leaf.openFile(file);
 		// Put the cursor after the block, so Live Preview shows the table rather than its source.
@@ -410,11 +416,16 @@ export default class EntitiesPlugin extends Plugin {
 		return file;
 	}
 
-	/** "New table view": ask for a name and source, then create the note. */
-	newTableView(preset = ""): void {
-		new NewViewModal(this, preset, async (name, source) => {
-			await this.createViewNote(name, this.defaultView(source));
-		}).open();
+	/** "New entity view": ask for the source, layout and name, then create the note. */
+	newView(preset = "", kind: ViewKind = "table"): void {
+		new NewViewModal(
+			this,
+			preset,
+			async (name, source, k) => {
+				await this.createViewNote(name, this.defaultView(source, k));
+			},
+			kind,
+		).open();
 	}
 
 	/** Tabs showing a view note as Markdown on purpose ("Open as Markdown"): leaf → that note's path. */

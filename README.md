@@ -13,7 +13,7 @@ Derived from the Story Forge worldbuilding plugin, made domain-neutral. The full
 | M3 Entity Types view | Visual editor for types and groups: fields, relationships, display, drafts, note migrations, previews, import/export | ✅ Done |
 | M4 Browser | Grouped, hierarchical entity browser with filters | ✅ Done |
 | M4.5 Properties form | A form that replaces Obsidian's Properties on entity notes, so only values the type allows go in, and problems are flagged | ✅ Done |
-| M4.6 Entity views | Saved, named table views over entities, stored as notes: columns, roll-ups, filters, sorting, grouping, editing in place | ✅ Done |
+| M4.6 Entity views | Saved, named table and board views over entities, stored as notes: columns, roll-ups, formulas, filters, sorting, grouping, editing in place, kanban boards with drag and drop | ✅ Done |
 | M5 Packs & polish | Pack picker on first run, accessibility, docs | Planned |
 
 ## How notes are stored
@@ -166,7 +166,7 @@ A left sidebar tree of all entities. Open it with the **library** ribbon icon or
 
 ## Entity views
 
-A view is a saved, named table of entities. It's an ordinary note in the **views folder** (default `Entities/Views`, set in settings). The definition lives in an `entity-view` code block, so the view syncs and opens anywhere; without the plugin you see the readable definition:
+A view is a saved, named table (or board, see Boards) of entities. It's an ordinary note in the **views folder** (default `Entities/Views`, set in settings). The definition lives in an `entity-view` code block, so the view syncs and opens anywhere; without the plugin you see the readable definition:
 
 ````markdown
 ```entity-view
@@ -179,7 +179,7 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
 ````
 
 **Creating and opening views:**
-- **New table view** (command, the + on the browser's **Views** section, or "New table view of …" on a type or group heading): pick what it shows, name it, and the note is created.
+- **New entity view** (command, the + on the browser's **Views** section, or "New table view of …" / "New board of …" on a type or group heading): pick what it shows, Table or Board, name it, and the note is created.
 - **Open entity view…** lists the view notes. The browser shows them at the top.
 - **Embed** a view in any note with `![[Active projects]]`, or paste the block anywhere.
 
@@ -284,6 +284,20 @@ Functions: logic (`if`, `ifs`, `and`, `or`, `not`, `empty`, `coalesce`), maths (
 - The setting **Open view notes as entity views** turns this off.
 - A view embedded in another note (`![[View]]`) stays inline.
 
+### Boards
+
+Any view can also be shown as a **board**: cards in **buckets**, one per value of a field, like a kanban by status. Use the **Table / Board** toggle at the left of the toolbar. The note keeps both layouts' settings, so switching back and forth loses nothing; it opens in whichever was used last, and the browser shows a board icon for boards. (Want two independent views? Use ⋯ → **Save as…**.) **New entity view** asks for Table or Board, and type headings in the browser have "New board of …".
+
+- **Buckets** (toolbar): status, or one of the entities' own choice, checkbox or single-link fields, e.g. Priority, Done, Assignee or Project. Every status or choice gets a bucket, even an empty one, plus "No …" for cards without a value.
+  - Each bucket header shows the count and, for card fields with a summary, the bucket's summaries (e.g. "Sum 34 h"). Right-click a header (or its ⋯) to **Add card**, **Collapse** it to a narrow strip, **Set card limit…** (the count turns red, "6 / 5", when there are more), **Hide bucket**, or pick **Summaries…**.
+  - ⋯ → **Hide empty buckets**, and **Hidden buckets…** to bring hidden ones back.
+- **Cards** show the type icon and name (click to open), the **Card fields** you pick in the toolbar (empty values are left out), and optionally the subtitle and field names (⋯ → **Show subtitles** / **Show field names**). ⋯ → **Small / Medium / Large cards** sets their width. Highlight rules colour cards (row rules) and fields (cell rules, data bars, colour scales). Cards are read-only: open the note to edit.
+- **Drag cards** to another bucket to change the field: status, choice, checkbox or link (the "No …" bucket clears it). Selected cards (tick the checkbox on hover, or Ctrl/Cmd-click) move together. On touch screens, press and hold a card to pick it up. Ctrl/Cmd+Z undoes a move.
+  - **Order:** with a sort, cards follow it. Without one, drop a card between others to put it there; the order is saved in the view, and new cards go to the bottom.
+- **Swimlanes** (toolbar, where Group is in the table): one grouping field, splitting the board into rows, e.g. buckets by status and swimlanes by assignee. Dragging between swimlanes changes that field too, if it's one dragging can change; otherwise cards stay in their own swimlane.
+- **Keyboard:** arrow keys move between cards, Enter opens, Space selects, Ctrl/Cmd+Shift+←/→ moves a card to the next bucket.
+- Big buckets show 50 cards at a time, with "Show 50 more…".
+
 ## Commands
 
 | Command | Action |
@@ -296,7 +310,7 @@ Functions: logic (`if`, `ifs`, `and`, `or`, `not`, `empty`, `coalesce`), maths (
 | Configure entity types | The Entity types view, opened on the open note's type (also a ribbon icon, settings button and file menu) |
 | Convert current note to entity | Adds the type's fields to an existing note (existing values win). Also in the file menu, and as "Change type…" on entities |
 | Check entities | Lists every entity whose values don't fit its type, with the problems; choose one to open it |
-| New table view | Name a new view and pick what it shows; creates the view note |
+| New entity view (table or board) | Pick what it shows, Table or Board, and a name; creates the view note |
 | Open entity view… | Picker of view notes |
 | Import entity types… | Paste a type pack, single type or list of types (JSON) |
 | Generate template files | Writes editable templates for types without one |
@@ -369,6 +383,7 @@ src/
     formats.ts               column display formats (dates, numbers)
     summary.ts               column summaries (count, sum, earliest…)
     bulk.ts                  bulk actions: shared fields, applying set / link / tag changes, notice text
+    board.ts                 boards: bucket fields, buckets in order, card fields, the run definition, manual card order
     viewBlock.ts             find / rewrite an entity-view block inside a note
   services/
     entityIndex.ts           entities from the metadata cache
@@ -380,9 +395,10 @@ src/
   ui/modals/                 create, switcher, import types, add link, check entities, views (new / open / name / roll-up), formula editor (CodeMirror), bulk actions (set field, links, tags, folder picker)
   ui/header/formManager.tsx  puts the properties form into Live Preview and Reading view, hiding Obsidian's Properties
   ui/react/                  EntityForm, ConnectionsPanel, EntityChip, EntityBits (status tones, relation groups), EntityBrowser
-  ui/react/table/            EntityTable (toolbar, virtual rows, editing), cells, popovers (filters, sort, group, columns)
+  ui/react/table/            EntityTable (toolbar, virtual rows, editing; hosts the board too), cells, popovers (filters, sort, group, columns)
+  ui/react/board/            Board (buckets, swimlanes, cards, pointer drag and drop, keyboard), Buckets and Swimlanes panels
   ui/react/types/            Entity types view: TypeManager (sidebar, group editor, save), General/Fields/Relationships/Display tabs, Preview, controls
   ui/views/                  BrowserView (left sidebar), ConnectionsView (right sidebar), TypesView (main area), EntityViewView (view notes as full tabs), viewBlock (renders entity-view blocks in notes)
-tests/                       model, relations, typeEditing, tree, form, views, viewBlock, formats, formula and bulk tests
+tests/                       model, relations, typeEditing, tree, form, views, viewBlock, formats, formula, bulk and board tests
 styles.css                   all classes prefixed `oe-`
 ```

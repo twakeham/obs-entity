@@ -1,5 +1,7 @@
 import { Events, TFile, debounce, normalizePath, type TAbstractFile } from "obsidian";
 import type EntitiesPlugin from "../main";
+import { findViewBlocks } from "../model/viewBlock";
+import type { ViewKind } from "../model/views";
 
 export const VIEW_BLOCK = "entity-view";
 const FENCE = new RegExp("^(```+|~~~+)" + VIEW_BLOCK + "\\s*$", "m");
@@ -10,6 +12,7 @@ const FENCE = new RegExp("^(```+|~~~+)" + VIEW_BLOCK + "\\s*$", "m");
  */
 export class ViewIndex extends Events {
 	private paths = new Set<string>();
+	private kinds = new Map<string, ViewKind>();
 	private notify = debounce(() => this.trigger("updated"), 100, true);
 
 	constructor(private plugin: EntitiesPlugin) {
@@ -25,11 +28,13 @@ export class ViewIndex extends Events {
 		this.plugin.registerEvent(vault.on("modify", check));
 		this.plugin.registerEvent(
 			vault.on("delete", (f) => {
+				this.kinds.delete(f.path);
 				if (this.paths.delete(f.path)) this.notify();
 			}),
 		);
 		this.plugin.registerEvent(
 			vault.on("rename", (f, old) => {
+				this.kinds.delete(old);
 				const had = this.paths.delete(old);
 				if (f instanceof TFile) void this.check(f, had);
 				else if (had) this.notify();
@@ -49,29 +54,51 @@ export class ViewIndex extends Events {
 
 	async rebuild(): Promise<void> {
 		this.paths.clear();
-		for (const f of this.plugin.app.vault.getMarkdownFiles()) if (this.inFolder(f.path) && (await this.hasBlock(f))) this.paths.add(f.path);
+		this.kinds.clear();
+		for (const f of this.plugin.app.vault.getMarkdownFiles()) {
+			const kind = this.inFolder(f.path) ? await this.kindOf(f) : null;
+			if (kind) {
+				this.paths.add(f.path);
+				this.kinds.set(f.path, kind);
+			}
+		}
 		this.trigger("updated");
 	}
 
-	private async hasBlock(f: TFile): Promise<boolean> {
-		return FENCE.test(await this.plugin.app.vault.cachedRead(f));
+	/** The layout of the note's first view block (null when it has none). */
+	private async kindOf(f: TFile): Promise<ViewKind | null> {
+		const text = await this.plugin.app.vault.cachedRead(f);
+		if (!FENCE.test(text)) return null;
+		const m = /^kind:\s*["']?(\w+)/m.exec(findViewBlocks(text)[0]?.inner ?? "");
+		return m?.[1] === "board" ? "board" : "table";
 	}
 
 	private async check(f: TFile, changed = false): Promise<void> {
 		if (f.extension !== "md") return;
-		const is = this.inFolder(f.path) && (await this.hasBlock(f));
-		const was = this.paths.has(f.path);
-		if (is) this.paths.add(f.path);
-		else this.paths.delete(f.path);
-		if (is !== was || changed) this.notify();
+		const kind = this.inFolder(f.path) ? await this.kindOf(f) : null;
+		const was = this.kinds.get(f.path) ?? null;
+		if (kind) {
+			this.paths.add(f.path);
+			this.kinds.set(f.path, kind);
+		} else {
+			this.paths.delete(f.path);
+			this.kinds.delete(f.path);
+		}
+		if (kind !== was || changed) this.notify();
 	}
 
 	has(path: string): boolean {
 		return this.paths.has(path);
 	}
 
+	/** A view note's layout (table when not known yet). */
+	kind(path: string): ViewKind {
+		return this.kinds.get(path) ?? "table";
+	}
+
 	/** Record a view note created just now (before the async check has read it). */
-	add(path: string): void {
+	add(path: string, kind: ViewKind = "table"): void {
+		this.kinds.set(path, kind);
 		if (this.paths.has(path)) return;
 		this.paths.add(path);
 		this.notify();

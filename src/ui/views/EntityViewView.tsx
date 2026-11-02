@@ -2,7 +2,8 @@ import { Notice, TextFileView, parseYaml, stringifyYaml, type Menu, type TFile, 
 import { createRoot, type Root } from "react-dom/client";
 import type EntitiesPlugin from "../../main";
 import { findViewBlocks, replaceViewBlock } from "../../model/viewBlock";
-import { parseView, serializeView, unknownSources, type ViewDef } from "../../model/views";
+import { parseView, serializeView, unknownSources, type ViewDef, type ViewKind } from "../../model/views";
+import { BOARD_ICON } from "../../model/board";
 import { PluginContext } from "../react/context";
 import { EntityTable } from "../react/table/EntityTable";
 
@@ -33,7 +34,15 @@ export class EntityViewView extends TextFileView {
 	}
 
 	getIcon(): string {
-		return "table";
+		return this.kind === "board" ? BOARD_ICON : "table";
+	}
+
+	/** The layout shown, for the tab icon (it changes with the Table / Board toggle). */
+	private kind: ViewKind = "table";
+	private setKind(kind: ViewKind): void {
+		if (kind === this.kind) return;
+		this.kind = kind;
+		(this.leaf as unknown as { updateHeader?: () => void }).updateHeader?.();
 	}
 
 	getDisplayText(): string {
@@ -124,6 +133,7 @@ export class EntityViewView extends TextFileView {
 			return;
 		}
 		const path = this.file?.path ?? "";
+		this.setKind(def.kind);
 		this.root = createRoot(el);
 		this.root.render(
 			<PluginContext.Provider value={this.plugin}>
@@ -159,6 +169,7 @@ export class EntityViewView extends TextFileView {
 	 */
 	private async saveDef(def: ViewDef): Promise<void> {
 		if (!this.block) return;
+		this.setKind(def.kind);
 		const yaml = stringifyYaml(serializeView(def));
 		const next = replaceViewBlock(this.data, { lineStart: this.block.start, source: this.block.inner }, yaml);
 		if (next === null) {

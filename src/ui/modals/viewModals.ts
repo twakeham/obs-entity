@@ -1,5 +1,5 @@
 import { FuzzySuggestModal, Modal, Notice, Setting, type App, type FuzzyMatch, type TFile } from "obsidian";
-import { AGG_FIELD_KINDS, AGG_LABELS, ROLLUP_AGGS, rollupLabel, rollupSources, sourceTypes, type ColumnDef, type RollupAgg, type ViewDef } from "../../model/views";
+import { AGG_FIELD_KINDS, AGG_LABELS, ROLLUP_AGGS, rollupLabel, rollupSources, sourceTypes, type ColumnDef, type RollupAgg, type ViewDef, type ViewKind } from "../../model/views";
 import { toKey } from "../../model/types";
 import type EntitiesPlugin from "../../main";
 
@@ -11,6 +11,8 @@ export class NameModal extends Modal {
 		private initial: string,
 		private button: string,
 		private done: (name: string) => void | Promise<void>,
+		/** the field's label (Name), and whether an empty value is accepted */
+		private opts: { label?: string; allowEmpty?: boolean; desc?: string } = {},
 	) {
 		super(app);
 	}
@@ -18,7 +20,7 @@ export class NameModal extends Modal {
 	onOpen(): void {
 		this.titleEl.setText(this.heading);
 		let value = this.initial;
-		new Setting(this.contentEl).setName("Name").addText((t) => {
+		const s = new Setting(this.contentEl).setName(this.opts.label ?? "Name").addText((t) => {
 			t.setValue(value).onChange((v) => (value = v));
 			t.inputEl.addEventListener("keydown", (e) => {
 				if (e.key === "Enter" && !e.isComposing) {
@@ -28,6 +30,7 @@ export class NameModal extends Modal {
 			});
 			window.setTimeout(() => t.inputEl.select(), 0);
 		});
+		if (this.opts.desc) s.setDesc(this.opts.desc);
 		new Setting(this.contentEl).addButton((b) =>
 			b
 				.setButtonText(this.button)
@@ -38,7 +41,7 @@ export class NameModal extends Modal {
 
 	private async submit(v: string): Promise<void> {
 		const name = v.trim();
-		if (!name) return;
+		if (!name && !this.opts.allowEmpty) return;
 		this.close();
 		await this.done(name);
 	}
@@ -48,19 +51,20 @@ export class NameModal extends Modal {
 	}
 }
 
-/** New table view: a name and which entities it shows. */
+/** New entity view: which entities it shows, as a table or a board, and its name. */
 export class NewViewModal extends Modal {
 	constructor(
 		private plugin: EntitiesPlugin,
 		private preset: string,
-		private done: (name: string, source: string) => void | Promise<void>,
+		private done: (name: string, source: string, kind: ViewKind) => void | Promise<void>,
+		private kind: ViewKind = "table",
 	) {
 		super(plugin.app);
 	}
 
 	onOpen(): void {
 		const { types, groups } = this.plugin.settings;
-		this.titleEl.setText("New table view");
+		this.titleEl.setText("New entity view");
 		this.modalEl.addClass("oe-newview-modal");
 		let source = this.preset || "*";
 		const sourceName = () => (source === "*" ? "Entities" : source.startsWith("@") ? (groups.find((g) => `@${g.key}` === source)?.name ?? "Entities") : (types.find((t) => t.key === source)?.plural ?? "Entities"));
@@ -79,6 +83,16 @@ export class NewViewModal extends Modal {
 					if (!nameEdited && nameInput) nameInput.value = name = sourceName();
 				});
 			});
+		new Setting(this.contentEl)
+			.setName("Layout")
+			.setDesc("A table, or a board of cards in buckets (by status, for example). You can switch at any time.")
+			.addDropdown((d) =>
+				d
+					.addOption("table", "Table")
+					.addOption("board", "Board")
+					.setValue(this.kind)
+					.onChange((v) => (this.kind = v as ViewKind)),
+			);
 		new Setting(this.contentEl)
 			.setName("Name")
 			.setDesc(`Saved as a note in ${this.plugin.settings.viewsFolder || "the vault root"}/.`)
@@ -110,7 +124,7 @@ export class NewViewModal extends Modal {
 			return;
 		}
 		this.close();
-		await this.done(name.trim(), source);
+		await this.done(name.trim(), source, this.kind);
 	}
 
 	onClose(): void {
@@ -122,7 +136,7 @@ export class NewViewModal extends Modal {
 export class OpenViewModal extends FuzzySuggestModal<TFile> {
 	constructor(private plugin: EntitiesPlugin) {
 		super(plugin.app);
-		this.setPlaceholder(plugin.views.all().length ? "Open an entity view…" : "No views yet. Use “New table view” to create one.");
+		this.setPlaceholder(plugin.views.all().length ? "Open an entity view…" : "No views yet. Use “New entity view” to create one.");
 	}
 
 	getItems(): TFile[] {

@@ -19,6 +19,7 @@ import { usePlugin, useRelationsVersion } from "./context";
 import { HOVER_SOURCE } from "./EntityChip";
 import { statusTone } from "./EntityBits";
 import { Icon } from "./Icon";
+import { BOARD_ICON } from "../../model/board";
 
 export interface BrowserState extends BrowserOptions {
 	search: string;
@@ -228,8 +229,8 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 							count={views.length}
 							className="oe-bsection-header"
 							onToggle={() => toggleHeading("v:views")}
-							onAdd={() => plugin.newTableView()}
-							addLabel="New table view"
+							onAdd={() => plugin.newView()}
+							addLabel="New entity view"
 						/>
 						{!isCollapsed("v:views") &&
 							views.map((f) => (
@@ -248,7 +249,7 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 									}}
 								>
 									<span className="oe-tree-toggle is-leaf" />
-									<Icon name="table" className="oe-tree-icon" />
+									<Icon name={plugin.views.kind(f.path) === "board" ? BOARD_ICON : "table"} className="oe-tree-icon" />
 									<span className="oe-tree-name">{f.basename}</span>
 								</div>
 							))}
@@ -277,7 +278,8 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 											? (evt) => {
 													const m = new Menu();
 													for (const t of sectionTypes) m.addItem((i) => i.setSection("new").setTitle(`New ${t.name.toLowerCase()}`).setIcon(t.icon).onClick(() => plugin.openCreateModal(t)));
-													m.addItem((i) => i.setSection("view").setTitle(`New table view of ${s.group!.name}`).setIcon("table").onClick(() => plugin.newTableView(`@${s.group!.key}`)));
+													m.addItem((i) => i.setSection("view").setTitle(`New table view of ${s.group!.name}`).setIcon("table").onClick(() => plugin.newView(`@${s.group!.key}`)));
+													m.addItem((i) => i.setSection("view").setTitle(`New board of ${s.group!.name}`).setIcon(BOARD_ICON).onClick(() => plugin.newView(`@${s.group!.key}`, "board")));
 													m.addItem((i) => i.setSection("config").setTitle("Configure group").setIcon("settings-2").onClick(() => void plugin.activateTypes(`group:${s.group!.key}`)));
 													m.showAtMouseEvent(evt.nativeEvent);
 												}
@@ -307,7 +309,8 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 													onMenu={(evt) => {
 														const m = new Menu();
 														m.addItem((i) => i.setSection("new").setTitle(`New ${t.name.toLowerCase()}`).setIcon(t.icon).onClick(() => plugin.openCreateModal(t)));
-														m.addItem((i) => i.setSection("view").setTitle(`New table view of ${(t.plural || t.name).toLowerCase()}`).setIcon("table").onClick(() => plugin.newTableView(t.key)));
+														m.addItem((i) => i.setSection("view").setTitle(`New table view of ${(t.plural || t.name).toLowerCase()}`).setIcon("table").onClick(() => plugin.newView(t.key)));
+														m.addItem((i) => i.setSection("view").setTitle(`New board of ${(t.plural || t.name).toLowerCase()}`).setIcon(BOARD_ICON).onClick(() => plugin.newView(t.key, "board")));
 														m.addItem((i) => i.setSection("config").setTitle(`Configure the ${t.name} type`).setIcon("shapes").onClick(() => void plugin.activateTypes(t.key)));
 														m.showAtMouseEvent(evt.nativeEvent);
 													}}

@@ -4179,3 +4179,622 @@ td.is-bar-only .oe-bar {
 td.is-wrap .oe-bar-value {
 	white-space: normal;
 }
+
+/* ---------------------------------------------------------------- boards */
+/* Table / Board toggle at the left of the toolbar */
+.oe-layout-toggle {
+	display: inline-flex;
+	flex: none;
+	padding: 1px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background-color: var(--background-primary);
+}
+
+.oe-layout-toggle .clickable-icon {
+	padding: 2px 6px;
+}
+
+.oe-layout-toggle .clickable-icon.is-active {
+	background-color: var(--background-modifier-active-hover);
+	color: var(--text-normal);
+}
+
+.oe-layout-toggle svg {
+	width: 14px;
+	height: 14px;
+}
+
+.oe-board-scroll {
+	position: relative;
+	max-height: var(--oe-view-max-height, min(70vh, 720px));
+	overflow: auto;
+	outline: none;
+	background-color: var(--background-primary);
+}
+
+.oe-board-scroll:not(.has-lanes) {
+	overflow-y: hidden;
+}
+
+.oe-view.is-fill .oe-board-scroll {
+	flex: 1;
+	min-height: 0;
+	max-height: none;
+}
+
+.oe-board-scroll.is-empty {
+	padding: var(--size-4-4);
+}
+
+.oe-board-scroll.is-dragging,
+.oe-board-scroll.is-dragging * {
+	cursor: grabbing !important;
+}
+
+.oe-lane-row {
+	display: flex;
+	gap: var(--size-4-2);
+	width: max-content;
+	min-width: 100%;
+	padding: 0 var(--size-4-2) var(--size-4-2);
+	box-sizing: border-box;
+}
+
+.oe-lane-row.is-single {
+	align-items: flex-start;
+	padding-top: var(--size-4-2);
+}
+
+.oe-view.is-fill .oe-lane-row.is-single {
+	height: 100%;
+}
+
+/* A bucket: header and cards. Without swimlanes, each bucket scrolls on its own. */
+.oe-bucket {
+	flex: none;
+	width: calc(var(--oe-card-w, 280px) + 16px);
+	border-radius: var(--radius-m);
+	background-color: var(--background-secondary);
+}
+
+.oe-bucket.is-collapsed,
+.oe-bucket-cell.is-collapsed {
+	width: 40px;
+}
+
+.oe-bucket.is-single {
+	display: flex;
+	flex-direction: column;
+	max-height: calc(var(--oe-view-max-height, min(70vh, 720px)) - 16px);
+}
+
+.oe-view.is-fill .oe-bucket.is-single {
+	max-height: 100%;
+}
+
+.oe-bucket.is-single.is-collapsed {
+	align-self: stretch;
+}
+
+.oe-bucket-head {
+	flex: none;
+	padding: 6px 6px 4px 4px;
+	font-weight: var(--font-semibold);
+}
+
+.oe-bucket-title {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+}
+
+.oe-bucket-title > .oe-pill,
+.oe-bucket-title > .oe-status-pill,
+.oe-bucket-link,
+.oe-bucket-bool,
+.oe-bucket-none {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	min-width: 0;
+}
+
+.oe-bucket-title .clickable-icon {
+	padding: 2px;
+}
+
+.oe-bucket-title svg {
+	width: 14px;
+	height: 14px;
+}
+
+.oe-bucket-link,
+.oe-bucket-bool {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.oe-bucket-none {
+	color: var(--text-faint);
+	font-style: italic;
+	font-weight: var(--font-normal);
+}
+
+.oe-bucket-count {
+	flex: none;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-normal);
+	font-variant-numeric: tabular-nums;
+}
+
+.oe-bucket-count.is-over {
+	color: var(--text-error);
+	font-weight: var(--font-bold);
+}
+
+.oe-bucket-sums {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 2px 10px;
+	padding: 2px 0 0 26px;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-normal);
+}
+
+.oe-bucket-sums .oe-sum-label {
+	margin-right: 3px;
+}
+
+/* A collapsed bucket: a narrow strip with its name running down */
+.oe-bucket-head.is-collapsed {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 6px;
+	height: 100%;
+	padding: 6px 0;
+	box-sizing: border-box;
+}
+
+.oe-bucket-head.is-collapsed .clickable-icon {
+	padding: 2px;
+}
+
+.oe-bucket-vlabel {
+	writing-mode: vertical-rl;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	max-height: 260px;
+}
+
+.oe-bucket-cell {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	min-height: 44px;
+	padding: 2px 8px 8px;
+	border-radius: var(--radius-m);
+	outline: 2px dashed transparent;
+	outline-offset: -2px;
+}
+
+.oe-bucket-cell.is-single {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+}
+
+.oe-bucket-cell.is-drop {
+	outline-color: color-mix(in srgb, var(--interactive-accent) 60%, transparent);
+	background-color: color-mix(in srgb, var(--interactive-accent) 6%, transparent);
+}
+
+.oe-bucket-cell.is-no-drop {
+	outline-color: color-mix(in srgb, var(--text-error) 50%, transparent);
+	background-color: color-mix(in srgb, var(--text-error) 5%, transparent);
+}
+
+.oe-bucket.is-single.is-collapsed .oe-bucket-cell {
+	flex: 1;
+	padding: 0;
+}
+
+.oe-drop-line {
+	flex: none;
+	height: 3px;
+	margin: -2px 0;
+	border-radius: 2px;
+	background-color: var(--interactive-accent);
+}
+
+.oe-bucket-more {
+	align-self: center;
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-bucket-more-n {
+	color: var(--text-faint);
+}
+
+.oe-view button.oe-bucket-add {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	width: 100%;
+	height: auto;
+	padding: 4px 6px;
+	border: none;
+	box-shadow: none;
+	background: transparent;
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+	justify-content: flex-start;
+	cursor: pointer;
+}
+
+.oe-view button.oe-bucket-add:hover {
+	background-color: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.oe-bucket-add svg {
+	width: 12px;
+	height: 12px;
+}
+
+.oe-board-scroll.has-lanes .oe-bucket-add {
+	opacity: 0;
+}
+
+.oe-board-scroll.has-lanes .oe-bucket-cell:hover .oe-bucket-add,
+.oe-board-scroll.has-lanes .oe-bucket-add:focus-visible {
+	opacity: 1;
+}
+
+/* Swimlanes: a sticky row of bucket headers, then one row of cells per lane */
+.oe-board-heads {
+	position: sticky;
+	top: 0;
+	z-index: 3;
+	display: flex;
+	gap: var(--size-4-2);
+	width: max-content;
+	min-width: 100%;
+	padding: var(--size-4-2) var(--size-4-2) 0;
+	box-sizing: border-box;
+	background-color: var(--background-primary);
+}
+
+.oe-board-heads .oe-bucket {
+	border-radius: var(--radius-m) var(--radius-m) 0 0;
+}
+
+.oe-board-heads .oe-bucket-head.is-collapsed {
+	flex-direction: row;
+	justify-content: center;
+	padding: 6px 0;
+}
+
+.oe-board-heads .oe-bucket-head.is-collapsed .oe-bucket-vlabel {
+	display: none;
+}
+
+.oe-lane {
+	width: max-content;
+	min-width: 100%;
+}
+
+.oe-lane-head {
+	position: sticky;
+	left: 0;
+	display: inline-flex;
+	padding: 8px var(--size-4-3) 4px;
+	cursor: pointer;
+	font-weight: var(--font-semibold);
+	user-select: none;
+}
+
+.oe-lane-label {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.oe-lane-label svg {
+	width: 14px;
+	height: 14px;
+}
+
+.oe-lane-label .oe-bucket-sums {
+	padding: 0 0 0 6px;
+}
+
+.oe-lane + .oe-lane {
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.oe-lane .oe-bucket-cell {
+	flex: none;
+	width: calc(var(--oe-card-w, 280px) + 16px);
+	box-sizing: border-box;
+	padding-top: 8px;
+	background-color: var(--background-secondary);
+}
+
+.oe-lane .oe-bucket-cell.is-collapsed {
+	width: 40px;
+}
+
+.oe-board-note {
+	padding: var(--size-4-4);
+	color: var(--text-faint);
+	text-align: center;
+}
+
+/* Cards */
+.oe-card {
+	--oe-type-color: var(--text-muted);
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 6px 8px 7px;
+	border: 1px solid var(--background-modifier-border);
+	border-left: 3px solid var(--oe-type-color);
+	border-radius: var(--radius-s);
+	background-color: var(--background-primary);
+	box-shadow: var(--shadow-xs, 0 1px 2px rgba(0, 0, 0, 0.06));
+	font-family: var(--font-interface);
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
+	cursor: grab;
+	user-select: none;
+	touch-action: manipulation;
+	outline: none;
+}
+
+.oe-card:hover {
+	border-color: var(--background-modifier-border-hover);
+	border-left-color: var(--oe-type-color);
+}
+
+.oe-card.is-selected {
+	background-color: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-primary));
+	border-color: color-mix(in srgb, var(--interactive-accent) 50%, var(--background-modifier-border));
+	border-left-color: var(--oe-type-color);
+}
+
+.oe-card:focus-visible,
+.oe-card.is-focused:focus {
+	box-shadow: 0 0 0 2px var(--interactive-accent);
+}
+
+.oe-card.is-dragging {
+	opacity: 0.35;
+}
+
+.oe-card.oe-hl-fill {
+	background-color: color-mix(in srgb, var(--oe-hl-fill) 16%, var(--background-primary));
+}
+
+.oe-card.oe-hl-fill.is-selected {
+	background-color: color-mix(in srgb, var(--oe-hl-fill) 16%, color-mix(in srgb, var(--interactive-accent) 14%, var(--background-primary)));
+}
+
+.oe-card-title {
+	display: flex;
+	align-items: flex-start;
+	gap: 4px;
+	min-width: 0;
+}
+
+.oe-card-title .oe-hl-icon {
+	margin: 2px 0 0;
+}
+
+.oe-card .oe-card-name {
+	flex: 1;
+	align-items: flex-start;
+	min-width: 0;
+	white-space: normal;
+	overflow-wrap: break-word;
+	cursor: pointer;
+}
+
+.oe-card .oe-card-name > .oe-chip-icon {
+	margin-top: 2px;
+}
+
+.oe-card .oe-card-name > span {
+	overflow: visible;
+}
+
+.oe-card-check {
+	flex: none;
+	margin: 1px 0 0 !important;
+	opacity: 0;
+}
+
+.oe-card:hover .oe-card-check,
+.oe-card.is-selected .oe-card-check,
+.oe-card-check:focus-visible {
+	opacity: 1;
+}
+
+.oe-card-subtitle {
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	overflow: hidden;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-card-fields {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+}
+
+.oe-card-field {
+	display: flex;
+	align-items: baseline;
+	gap: 6px;
+	min-width: 0;
+	border-radius: 4px;
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-card-field.oe-hl-fill,
+.oe-card-field.has-scale {
+	padding: 1px 4px;
+	margin: 0 -4px;
+}
+
+.oe-card-field.oe-hl-fill {
+	background-color: color-mix(in srgb, var(--oe-hl-fill) 16%, var(--background-primary));
+}
+
+.oe-card-label {
+	flex: none;
+	max-width: 40%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--text-muted);
+}
+
+.oe-card-label::after {
+	content: ":";
+}
+
+.oe-card-value {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	flex: 1;
+	min-width: 0;
+	white-space: normal;
+	overflow-wrap: break-word;
+}
+
+.oe-card-value > .oe-bar-value {
+	white-space: normal;
+}
+
+.oe-card-value .oe-hl-icon {
+	flex: none;
+	margin-right: 0;
+}
+
+.oe-card-value.has-bar {
+	min-height: 18px;
+	padding: 0 4px;
+}
+
+.oe-card-value .oe-bar {
+	top: 1px;
+	bottom: 1px;
+}
+
+.oe-card-value.is-bar-only .oe-bar-value {
+	visibility: hidden;
+}
+
+.oe-card .oe-cell-chips,
+.oe-card .oe-cell-pills {
+	flex-wrap: wrap;
+	row-gap: 3px;
+}
+
+.oe-card .oe-cell-number {
+	text-align: left;
+}
+
+/* The card following the pointer while dragging */
+.oe-card.oe-card-ghost {
+	position: fixed;
+	z-index: var(--layer-dragged-item, 1000);
+	margin: 0;
+	pointer-events: none;
+	opacity: 0.95;
+	transform: rotate(1.5deg);
+	box-shadow: var(--shadow-l);
+	cursor: grabbing;
+}
+
+.oe-card-ghost[data-count]::after {
+	content: attr(data-count);
+	position: absolute;
+	top: -8px;
+	right: -8px;
+	min-width: 20px;
+	height: 20px;
+	padding: 0 5px;
+	border-radius: 10px;
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-bold);
+	line-height: 20px;
+	text-align: center;
+	box-sizing: border-box;
+}
+
+/* Toolbar → Buckets */
+.oe-pop-buckets {
+	width: 300px;
+}
+
+.oe-bucketspanel-kind {
+	margin-left: auto;
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+}
+
+/* Cards keep their width whether or not a bucket scrolls: the bucket fits the cards plus a stable scrollbar gutter. */
+.oe-card {
+	flex: none;
+	width: var(--oe-card-w, 280px);
+	box-sizing: border-box;
+}
+
+.oe-bucket.is-single:not(.is-collapsed) {
+	width: auto;
+}
+
+.oe-bucket.is-single > .oe-bucket-head:not(.is-collapsed) {
+	width: 0;
+	min-width: 100%;
+	box-sizing: border-box;
+}
+
+.oe-bucket-cell.is-single {
+	scrollbar-gutter: stable;
+	padding-right: 2px;
+	/* An empty bucket is still a card wide. */
+	min-width: var(--oe-card-w, 280px);
+	box-sizing: content-box;
+}
+
+.oe-bucket.is-single.is-collapsed.is-drop {
+	outline: 2px dashed color-mix(in srgb, var(--interactive-accent) 60%, transparent);
+	outline-offset: -2px;
+	background-color: color-mix(in srgb, var(--interactive-accent) 8%, var(--background-secondary));
+}

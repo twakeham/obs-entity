@@ -117,7 +117,7 @@ describe("parse and serialize", () => {
 	});
 
 	it("reports bad pieces and rejects unknown kinds", () => {
-		expect(parseView({ kind: "board" }).def).toBeNull();
+		expect(parseView({ kind: "gallery" }).def).toBeNull();
 		const { def, errors } = parseView({ columns: [{ rollup: { via: "nope", agg: "count" } }, { rollup: { via: "field:team", agg: "sum" } }, 7], filters: { all: [{ any: [{ any: [] }] }, { op: "x" }] } });
 		expect(def?.columns.map((c) => c.id)).toEqual(["name"]);
 		expect(errors).toEqual([

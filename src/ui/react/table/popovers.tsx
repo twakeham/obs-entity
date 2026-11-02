@@ -988,6 +988,8 @@ export function ColumnsPanel({
 	onEditRollup,
 	onAddFormula,
 	onEditFormula,
+	shown: shownIds,
+	hint,
 }: {
 	def: ViewDef;
 	available: { title: string; columns: ColumnDef[] }[];
@@ -997,11 +999,15 @@ export function ColumnsPanel({
 	onEditRollup: (c: Extract<ColumnDef, { kind: "rollup" }>) => void;
 	onAddFormula: () => void;
 	onEditFormula: (c: Extract<ColumnDef, { kind: "formula" }>) => void;
+	/** the ticked columns (default: the view's columns) — a board's card fields */
+	shown?: string[];
+	hint?: string;
 }) {
-	const shown = new Set(def.columns.map((c) => c.id));
+	const shown = new Set(shownIds ?? def.columns.map((c) => c.id));
 	const computed = def.columns.filter((c): c is Extract<ColumnDef, { kind: "rollup" | "formula" }> => c.kind === "rollup" || c.kind === "formula");
 	return (
 		<div className="oe-columnspanel">
+			{hint && <div className="oe-pop-hint">{hint}</div>}
 			{available
 				.filter((s) => s.columns.length)
 				.map((s) => (
@@ -1020,7 +1026,7 @@ export function ColumnsPanel({
 				{computed.length === 0 && <div className="oe-pop-empty">Summarise linked notes (counts, sums, latest dates…) or calculate values with a formula.</div>}
 				{computed.map((c) => (
 					<div key={c.id} className="oe-columns-item">
-						<input type="checkbox" checked onChange={() => onToggle(c, false)} aria-label={`Remove ${labelOf(c)}`} />
+						<input type="checkbox" checked={shown.has(c.id)} onChange={(e) => onToggle(c, e.target.checked)} aria-label={shownIds ? `${shown.has(c.id) ? "Hide" : "Show"} ${labelOf(c)}` : `Remove ${labelOf(c)}`} />
 						<span className="oe-columns-label">
 							{c.kind === "formula" && <Icon name="sigma" className="oe-columns-kind" />}
 							{labelOf(c)}
