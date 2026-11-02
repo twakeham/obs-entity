@@ -63,6 +63,10 @@ export interface BoardProps {
 	laneMenu: (at: { x: number; y: number }) => void;
 	hover: (e: MouseEvent, path: string) => void;
 	move: (m: CardMove) => Promise<void>;
+	/** put a bucket before another (null: at the end, before the empty bucket) */
+	moveBucket: (key: string, before: string | null) => void;
+	/** move a bucket one place left or right; false when it can't */
+	stepBucket: (key: string, dir: -1 | 1) => boolean;
 	newCard: (bucket: Bucket, lane: LaneTarget | null) => void;
 	onCommonKey: (e: KeyboardEvent<HTMLDivElement>) => boolean;
 	chooseBuckets: (el: HTMLElement) => void;
@@ -315,6 +319,121 @@ export function Board(p: BoardProps) {
 		document.addEventListener("keydown", onDragKey, true);
 	};
 
+	// ---- dragging a bucket header to reorder the buckets (the empty bucket stays last)
+	const [bucketDrag, setBucketDrag] = useState<string | null>(null);
+	/** where the dragged bucket would go: before this key (null: the end, before the empty bucket) */
+	const [bucketDrop, setBucketDrop] = useState<{ before: string | null } | null>(null);
+	const bdrag = useRef<{ key: string; el: HTMLElement; x0: number; y0: number; x: number; y: number; dx: number; dy: number; touch: boolean; active: boolean; timer: number; ghost: HTMLElement | null; frame: number } | null>(null);
+	const bucketTarget = (x: number): string | null => {
+		const d = bdrag.current;
+		for (const h of scrollRef.current?.querySelectorAll<HTMLElement>("[data-head]") ?? []) {
+			const k = h.dataset.head!;
+			if (k === BUCKET_NONE || k === d?.key) continue;
+			const r = h.getBoundingClientRect();
+			if (x < r.left + r.width / 2) return k;
+		}
+		return null;
+	};
+	const setBucketTarget = (before: string | null) => setBucketDrop((cur) => (cur && cur.before === before ? cur : { before }));
+	const bucketScroll = () => {
+		const d = bdrag.current;
+		const sc = scrollRef.current;
+		if (!d?.active || !sc) return;
+		const r = sc.getBoundingClientRect();
+		const edge = 60;
+		const before = sc.scrollLeft;
+		if (d.x < r.left + edge) sc.scrollLeft -= Math.ceil(((edge - Math.max(0, d.x - r.left)) / edge) * 20);
+		else if (d.x > r.right - edge) sc.scrollLeft += Math.ceil(((edge - Math.max(0, r.right - d.x)) / edge) * 20);
+		if (sc.scrollLeft !== before) setBucketTarget(bucketTarget(d.x));
+		d.frame = requestAnimationFrame(bucketScroll);
+	};
+	const startBucketDrag = () => {
+		const d = bdrag.current;
+		if (!d || d.active) return;
+		d.active = true;
+		const r = d.el.getBoundingClientRect();
+		const ghost = d.el.cloneNode(true) as HTMLElement;
+		ghost.classList.add("oe-bucket-ghost");
+		ghost.removeAttribute("data-head");
+		ghost.style.width = `${r.width}px`;
+		ghost.style.left = `${d.x - d.dx}px`;
+		ghost.style.top = `${d.y - d.dy}px`;
+		document.body.appendChild(ghost);
+		d.ghost = ghost;
+		window.getSelection()?.removeAllRanges();
+		setBucketDrag(d.key);
+		setBucketTarget(bucketTarget(d.x));
+		d.frame = requestAnimationFrame(bucketScroll);
+	};
+	const endBucketDrag = (commit: boolean) => {
+		const d = bdrag.current;
+		const before = commit && d?.active ? bucketTarget(d.x) : undefined;
+		bdrag.current = null;
+		document.removeEventListener("pointermove", onBucketMove);
+		document.removeEventListener("pointerup", onBucketUp);
+		document.removeEventListener("pointercancel", onBucketCancel);
+		document.removeEventListener("touchmove", blockBucketTouch);
+		document.removeEventListener("keydown", onBucketKey, true);
+		if (!d) return;
+		window.clearTimeout(d.timer);
+		cancelAnimationFrame(d.frame);
+		d.ghost?.remove();
+		if (d.active) {
+			setBucketDrag(null);
+			setBucketDrop(null);
+		}
+		if (before !== undefined) p.moveBucket(d.key, before);
+	};
+	const onBucketMove = (e: PointerEvent) => {
+		const d = bdrag.current;
+		if (!d) return;
+		d.x = e.clientX;
+		d.y = e.clientY;
+		const far = Math.hypot(d.x - d.x0, d.y - d.y0);
+		if (!d.active) {
+			if (d.touch) {
+				if (far > 8) endBucketDrag(false);
+			} else if (far > 5) startBucketDrag();
+			return;
+		}
+		if (d.ghost) {
+			d.ghost.style.left = `${d.x - d.dx}px`;
+			d.ghost.style.top = `${d.y - d.dy}px`;
+		}
+		setBucketTarget(bucketTarget(d.x));
+	};
+	const onBucketUp = () => endBucketDrag(true);
+	const onBucketCancel = () => endBucketDrag(false);
+	const blockBucketTouch = (e: TouchEvent) => {
+		if (bdrag.current?.active) e.preventDefault();
+	};
+	const onBucketKey = (e: globalThis.KeyboardEvent) => {
+		if (e.key !== "Escape" || !bdrag.current?.active) return;
+		e.preventDefault();
+		e.stopPropagation();
+		endBucketDrag(false);
+	};
+	useEffect(() => () => endBucketDrag(false), []); // eslint-disable-line react-hooks/exhaustive-deps
+	const onHeadPointerDown = (e: RPointerEvent<HTMLElement>, b: Bucket) => {
+		if (b.key === BUCKET_NONE || e.button !== 0 || (e.target as HTMLElement).closest("button, input")) return;
+		if (bdrag.current) endBucketDrag(false);
+		const rect = e.currentTarget.getBoundingClientRect();
+		const touch = e.pointerType === "touch";
+		bdrag.current = { key: b.key, el: e.currentTarget, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, dx: e.clientX - rect.left, dy: e.clientY - rect.top, touch, active: false, timer: 0, ghost: null, frame: 0 };
+		if (touch) bdrag.current.timer = window.setTimeout(startBucketDrag, 350);
+		document.addEventListener("pointermove", onBucketMove);
+		document.addEventListener("pointerup", onBucketUp);
+		document.addEventListener("pointercancel", onBucketCancel);
+		document.addEventListener("touchmove", blockBucketTouch, { passive: false });
+		document.addEventListener("keydown", onBucketKey, true);
+	};
+	/** classes for a bucket's column (header and cells) while a bucket is dragged: dimmed, or the drop line */
+	const lastMovable = [...buckets].reverse().find((b) => b.key !== BUCKET_NONE)?.key;
+	const bucketDragCls = (key: string) =>
+		!bucketDrag
+			? ""
+			: `${key === bucketDrag ? " is-bucket-dragging" : ""}${bucketDrop?.before === key ? " is-bucket-drop-before" : ""}${bucketDrop && bucketDrop.before === null && key === lastMovable ? " is-bucket-drop-after" : ""}`;
+
 	/** Put cards in a bucket (and swimlane): write the fields that change, and the manual order. */
 	const dropOn = async (paths: string[], fromLane: string, t: DropTarget) => {
 		const bucket = buckets.find((b) => b.key === t.bucket);
@@ -366,6 +485,16 @@ export function Board(p: BoardProps) {
 			return null;
 		};
 		const arrow = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key);
+		if (arrow && (e.ctrlKey || e.metaKey) && e.shiftKey && e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+			e.preventDefault();
+			if (!at) return;
+			// Move the focused card's whole bucket one place.
+			const b = openBuckets[at.bi];
+			const dir = e.key === "ArrowLeft" ? -1 : 1;
+			if (p.stepBucket(b.key, dir)) setAnnounce(`Moved the ${bucketTitle(b)} bucket ${dir < 0 ? "left" : "right"}.`);
+			else setAnnounce(b.key === BUCKET_NONE ? `The ${bucketTitle(b)} bucket stays last.` : `The ${bucketTitle(b)} bucket can't move further ${dir < 0 ? "left" : "right"}.`);
+			return;
+		}
 		if (arrow && (e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
 			e.preventDefault();
 			if (!at) return;
@@ -497,7 +626,12 @@ export function Board(p: BoardProps) {
 	};
 	const head = (b: Bucket) =>
 		collapsed.has(b.key) ? (
-			<div className="oe-bucket-head is-collapsed" data-head={b.key} onContextMenu={(e) => menuAt(e, b)}>
+			<div
+				className={`oe-bucket-head is-collapsed${b.key === BUCKET_NONE ? "" : " is-movable"}`}
+				data-head={b.key}
+				onContextMenu={(e) => menuAt(e, b)}
+				onPointerDown={(e) => onHeadPointerDown(e, b)}
+			>
 				<button className="clickable-icon" aria-label={`Expand ${bucketTitle(b)}`} onClick={() => toggleBucket(b)}>
 					<Icon name="chevron-right" />
 				</button>
@@ -505,7 +639,7 @@ export function Board(p: BoardProps) {
 				<span className="oe-bucket-vlabel">{bucketTitle(b)}</span>
 			</div>
 		) : (
-			<div className="oe-bucket-head" data-head={b.key} onContextMenu={(e) => menuAt(e, b)}>
+			<div className={`oe-bucket-head${b.key === BUCKET_NONE ? "" : " is-movable"}`} data-head={b.key} onContextMenu={(e) => menuAt(e, b)} onPointerDown={(e) => onHeadPointerDown(e, b)}>
 				<div className="oe-bucket-title">
 					<button className="clickable-icon oe-bucket-chevron" aria-label={`Collapse ${bucketTitle(b)}`} onClick={() => toggleBucket(b)}>
 						<Icon name="chevron-down" />
@@ -639,13 +773,13 @@ export function Board(p: BoardProps) {
 		const here = drop && drop.lane === lane.key && drop.bucket === b.key ? drop : null;
 		const zone = { "data-drop": "", "data-lane": lane.key, "data-bucket": b.key, title: here && !here.ok ? here.why : undefined };
 		const dropCls = here ? (here.ok ? " is-drop" : " is-no-drop") : "";
-		if (collapsed.has(b.key)) return <div key={ck} className={`oe-bucket-cell is-collapsed${dropCls}`} {...zone} />;
+		if (collapsed.has(b.key)) return <div key={ck} className={`oe-bucket-cell is-collapsed${dropCls}${bucketDragCls(b.key)}`} {...zone} />;
 		const list = cells.get(ck) ?? [];
 		const shown = list.slice(0, shownOf(ck));
 		const line = here?.ok && !sorted ? <div className="oe-drop-line" aria-hidden="true" /> : null;
 		const laneTarget = laneCol && lane.group && laneWritable ? { col: laneCol, value: laneValue(laneCol, lane.key) } : null;
 		return (
-			<div key={ck} className={`oe-bucket-cell${dropCls}${single ? " is-single" : ""}`} {...zone} data-body={single ? b.key : undefined} onScroll={single ? remember : undefined}>
+			<div key={ck} className={`oe-bucket-cell${dropCls}${single ? " is-single" : ""}${single ? "" : bucketDragCls(b.key)}`} {...zone} data-body={single ? b.key : undefined} onScroll={single ? remember : undefined}>
 				{shown.map((r) => (
 					<CardSlot key={r.row.path} line={here?.before === r.row.path ? line : null}>
 						{card(r, lane.key, b)}
@@ -670,7 +804,7 @@ export function Board(p: BoardProps) {
 	return (
 		<div
 			ref={scrollRef}
-			className={`oe-board-scroll${hasLanes ? " has-lanes" : ""}${dragging ? " is-dragging" : ""}`}
+			className={`oe-board-scroll${hasLanes ? " has-lanes" : ""}${dragging ? " is-dragging" : ""}${bucketDrag ? " is-dragging-bucket" : ""}`}
 			style={style}
 			tabIndex={0}
 			onKeyDown={onKeyDown}
@@ -686,7 +820,7 @@ export function Board(p: BoardProps) {
 				<>
 					<div className="oe-board-heads">
 						{buckets.map((b) => (
-							<div key={b.key} className={`oe-bucket${colCls(b)}`}>
+							<div key={b.key} className={`oe-bucket${colCls(b)}${bucketDragCls(b.key)}`}>
 								{head(b)}
 							</div>
 						))}
@@ -715,7 +849,7 @@ export function Board(p: BoardProps) {
 						const here = drop && drop.lane === "" && drop.bucket === b.key ? drop : null;
 						const zone = collapsed.has(b.key) ? { "data-drop": "", "data-lane": "", "data-bucket": b.key, title: here && !here.ok ? here.why : undefined } : {};
 						return (
-							<div key={b.key} className={`oe-bucket is-single${colCls(b)}${collapsed.has(b.key) && here ? " is-drop" : ""}`} {...zone}>
+							<div key={b.key} className={`oe-bucket is-single${colCls(b)}${collapsed.has(b.key) && here ? " is-drop" : ""}${bucketDragCls(b.key)}`} {...zone}>
 								{head(b)}
 								{!collapsed.has(b.key) && body(lanes[0], b, true)}
 							</div>

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { isoDateAdapter } from "../src/model/dates";
 import { CRM_PACK, STARTER_PACK } from "../src/model/packs";
 import { extractEdges } from "../src/model/relations";
-import { boardRunDef, bucketColumn, bucketColumns, bucketsOf, BUCKET_NONE, cardFieldIds, cardWidth, defaultBuckets, isBucketColumn, orderRows, reorder, typesWithField } from "../src/model/board";
+import { applyBucketOrder, boardRunDef, bucketColumn, bucketStep, moveBucketOrder, bucketColumns, bucketsOf, BUCKET_NONE, cardFieldIds, cardWidth, defaultBuckets, isBucketColumn, orderRows, reorder, typesWithField } from "../src/model/board";
 import { emptyBoard, parseView, resolveColumn, runView, serializeView, columnFromId, type ViewContext, type ViewDef, type ViewRow } from "../src/model/views";
 
 const TYPES = [...STARTER_PACK.types, ...CRM_PACK.types];
@@ -220,5 +220,51 @@ describe("manual card order", () => {
 		expect(reorder(ps, ["B"], null)).toEqual(["A", "C", "D", "B"]);
 		expect(reorder(ps, ["B"], "B")).toEqual(["A", "C", "D", "B"]);
 		expect(reorder(ps, ["X"], "C")).toEqual(["A", "B", "X", "C", "D"]);
+	});
+});
+
+describe("bucket order", () => {
+	it("round-trips, never saving the empty bucket", () => {
+		const def = view({ board: { buckets: "status", bucketOrder: ["done", "(none)", "idea", "done"] } });
+		expect(def.board!.bucketOrder).toEqual(["done", "idea"]);
+		expect(serializeView(def).board).toEqual({ buckets: "status", bucketOrder: ["done", "idea"] });
+		expect(view({ board: { bucketOrder: [] } }).board!.bucketOrder).toBeUndefined();
+	});
+
+	it("applies the saved order; unknown keys go after their neighbour in the field's order", () => {
+		const nat = ["idea", "active", "on-hold", "done"];
+		expect(applyBucketOrder(nat, undefined)).toEqual(nat);
+		expect(applyBucketOrder(nat, ["done", "idea", "active", "on-hold"])).toEqual(["done", "idea", "active", "on-hold"]);
+		// "on-hold" is new: after "active", its neighbour in the field's order; "gone" is dropped
+		expect(applyBucketOrder(nat, ["done", "gone", "active", "idea"])).toEqual(["done", "active", "on-hold", "idea"]);
+		// new keys at the start of the field's order go first, in order
+		expect(applyBucketOrder(["a", "b", "c", "d"], ["d", "c"])).toEqual(["a", "b", "d", "c"]);
+		expect(applyBucketOrder([...nat, BUCKET_NONE], ["done"])).not.toContain(BUCKET_NONE);
+	});
+
+	it("keeps the empty bucket last in a board", () => {
+		const { buckets } = board({ types: ["project"], board: { buckets: "status", bucketOrder: ["done", "idea"] } });
+		expect(buckets.map((b) => b.key)).toEqual(["done", "idea", "active", "on-hold", BUCKET_NONE]);
+		const choice = board({ types: ["organisation"], board: { buckets: "kind", bucketOrder: ["Other", "Company"] } }).buckets;
+		// Guild (a value that isn't an option) follows Other, its neighbour in the field's order
+		expect(choice.map((b) => b.key)).toEqual(["Other", "Guild", "Company", "Non-profit", "Government", "Community", BUCKET_NONE]);
+	});
+
+	it("moves a bucket, saving nothing when it's back in the field's order", () => {
+		const nat = ["idea", "active", "on-hold", "done", BUCKET_NONE];
+		expect(moveBucketOrder(nat, nat, "done", "idea")).toEqual(["done", "idea", "active", "on-hold"]);
+		expect(moveBucketOrder(nat, nat, "idea", null)).toEqual(["active", "on-hold", "done", "idea"]);
+		// dropping on the empty bucket lands before it
+		expect(moveBucketOrder(nat, nat, "idea", BUCKET_NONE)).toEqual(["active", "on-hold", "done", "idea"]);
+		const moved = ["done", "idea", "active", "on-hold", BUCKET_NONE];
+		expect(moveBucketOrder(moved, nat, "done", null)).toBeUndefined();
+		// the empty bucket can't move
+		expect(moveBucketOrder(nat, nat, BUCKET_NONE, "idea")).toBeUndefined();
+	});
+
+	it("steps a bucket left or right among the shown ones", () => {
+		const shown = ["a", "b", "c", BUCKET_NONE];
+		expect([bucketStep(shown, "b", -1), bucketStep(shown, "b", 1), bucketStep(shown, "a", 1)]).toEqual(["a", null, "c"]);
+		expect([bucketStep(shown, "a", -1), bucketStep(shown, "c", 1), bucketStep(shown, BUCKET_NONE, -1)]).toEqual([undefined, undefined, undefined]);
 	});
 });

@@ -4966,3 +4966,73 @@ td.is-wrap .oe-bar-value {
 .oe-columns-format.is-set {
 	color: var(--text-accent);
 }
+
+/* Reordering buckets by dragging their header (the empty bucket can't move) */
+.oe-bucket-head.is-movable {
+	cursor: grab;
+	touch-action: manipulation;
+	user-select: none;
+}
+
+.oe-bucket-head.is-movable button {
+	cursor: pointer;
+}
+
+.oe-board-scroll.is-dragging-bucket,
+.oe-board-scroll.is-dragging-bucket * {
+	cursor: grabbing !important;
+}
+
+.oe-bucket,
+.oe-lane .oe-bucket-cell {
+	position: relative;
+}
+
+.oe-bucket.is-bucket-dragging,
+.oe-bucket-cell.is-bucket-dragging {
+	opacity: 0.35;
+}
+
+.oe-bucket.is-bucket-drop-before::before,
+.oe-bucket-cell.is-bucket-drop-before::before,
+.oe-bucket.is-bucket-drop-after::after,
+.oe-bucket-cell.is-bucket-drop-after::after {
+	content: "";
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	z-index: 4;
+	width: 3px;
+	border-radius: 2px;
+	background-color: var(--interactive-accent);
+	pointer-events: none;
+}
+
+/* In the gap between buckets (var(--size-4-2) wide) */
+.oe-bucket.is-bucket-drop-before::before,
+.oe-bucket-cell.is-bucket-drop-before::before {
+	left: calc(var(--size-4-2) / -2 - 2px);
+}
+
+.oe-bucket.is-bucket-drop-after::after,
+.oe-bucket-cell.is-bucket-drop-after::after {
+	right: calc(var(--size-4-2) / -2 - 2px);
+}
+
+.oe-bucket-head.oe-bucket-ghost {
+	position: fixed;
+	z-index: var(--layer-dragged-item, 1000);
+	margin: 0;
+	box-sizing: border-box;
+	border-radius: var(--radius-m);
+	background-color: var(--background-secondary);
+	box-shadow: var(--shadow-l);
+	opacity: 0.95;
+	transform: rotate(1deg);
+	pointer-events: none;
+	cursor: grabbing;
+}
+
+.oe-bucket-head.oe-bucket-ghost.is-collapsed {
+	height: 160px;
+}

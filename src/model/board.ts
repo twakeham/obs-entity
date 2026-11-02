@@ -134,8 +134,9 @@ export function bucketsOf(col: ResolvedColumn, rows: ResultRow[], board: BoardDe
 		keys.push(...defined, ...[...byKey.keys()].filter((k) => k !== BUCKET_NONE && !defined.includes(k)).sort(natural));
 	}
 	const isStatus = col.def.kind === "builtin";
-	if (col.kind !== "bool" && (!isStatus || byKey.has(BUCKET_NONE))) keys.push(BUCKET_NONE);
-	const out: Bucket[] = keys.map((key) => ({
+	const ordered = applyBucketOrder(keys, board.bucketOrder);
+	if (col.kind !== "bool" && (!isStatus || byKey.has(BUCKET_NONE))) ordered.push(BUCKET_NONE);
+	const out: Bucket[] = ordered.map((key) => ({
 		key,
 		label: key === BUCKET_NONE ? "" : col.kind === "bool" ? (key === "yes" ? "Yes" : "No") : (labels.get(key) ?? key),
 		value: key === BUCKET_NONE ? null : col.kind === "bool" ? key === "yes" : key,
@@ -143,6 +144,53 @@ export function bucketsOf(col: ResolvedColumn, rows: ResultRow[], board: BoardDe
 		hidden: board.hiddenBuckets.includes(key),
 	}));
 	return board.hideEmpty ? out.filter((b) => b.rows.length) : out;
+}
+
+/**
+ * Bucket keys (the empty bucket aside) in the saved order. Keys the saved order doesn't know (a new status, option
+ * or linked note) go after their neighbour in the field's own order; saved keys that no longer exist are dropped.
+ */
+export function applyBucketOrder(natural: string[], saved: string[] | undefined): string[] {
+	const keys = natural.filter((k) => k !== BUCKET_NONE);
+	if (!saved?.length) return keys;
+	const out = saved.filter((k) => keys.includes(k));
+	keys.forEach((k, i) => {
+		if (out.includes(k)) return;
+		let at = 0;
+		for (let j = i - 1; j >= 0; j--) {
+			const p = out.indexOf(keys[j]);
+			if (p >= 0) {
+				at = p + 1;
+				break;
+			}
+		}
+		out.splice(at, 0, k);
+	});
+	return out;
+}
+
+/**
+ * The saved order after moving `key` before `before` (to the end when null, which is still before the empty
+ * bucket). `all` is every bucket key in its current order (hidden and empty ones included). Undefined when the
+ * result is the field's own order, so nothing needs saving; the empty bucket can't move.
+ */
+export function moveBucketOrder(all: string[], natural: string[], key: string, before: string | null): string[] | undefined {
+	const keys = all.filter((k) => k !== BUCKET_NONE);
+	const next = key === BUCKET_NONE ? keys : reorder(keys, [key], before === BUCKET_NONE ? null : before);
+	const nat = natural.filter((k) => k !== BUCKET_NONE);
+	return next.join("\n") === nat.join("\n") ? undefined : next;
+}
+
+/**
+ * Where a bucket goes when moved one place left (-1) or right (+1) among the shown buckets: the key to put it
+ * before (null: the end). Undefined when it can't move that way (at an end, or the empty bucket).
+ */
+export function bucketStep(shown: string[], key: string, dir: -1 | 1): string | null | undefined {
+	const list = shown.filter((k) => k !== BUCKET_NONE);
+	const i = list.indexOf(key);
+	if (i < 0) return undefined;
+	if (dir < 0) return i > 0 ? list[i - 1] : undefined;
+	return i < list.length - 1 ? (list[i + 2] ?? null) : undefined;
 }
 
 /** Cards in manual order: the saved order first, then the rest (new cards) at the bottom in their current order. */

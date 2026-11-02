@@ -202,6 +202,8 @@ export interface BoardDef {
 	cardLabels?: true;
 	/** bucket key → note paths in manual order (used when the view isn't sorted) */
 	order: Record<string, string[]>;
+	/** bucket keys in the order they're shown (unset: the field's order); the empty bucket is always last */
+	bucketOrder?: string[];
 }
 
 export const emptyBoard = (): BoardDef => ({ collapsedBuckets: [], hiddenBuckets: [], limits: {}, order: {} });
@@ -437,6 +439,10 @@ function parseBoard(raw: unknown, errors: string[]): BoardDef {
 	if (raw.cardSubtitle === true) b.cardSubtitle = true;
 	if (raw.cardLabels === true) b.cardLabels = true;
 	if (isObj(raw.order)) for (const [k, v] of Object.entries(raw.order)) if (Array.isArray(v)) b.order[k] = strList(v);
+	if (raw.bucketOrder !== undefined) {
+		const keys = strList(raw.bucketOrder).filter((k) => k !== "(none)");
+		if (keys.length) b.bucketOrder = keys;
+	}
 	return b;
 }
 
@@ -453,6 +459,7 @@ function serializeBoard(b: BoardDef | undefined): Record<string, unknown> | unde
 	if (b.hideEmpty) out.hideEmpty = true;
 	if (b.collapsedBuckets.length) out.collapsedBuckets = b.collapsedBuckets;
 	if (b.hiddenBuckets.length) out.hiddenBuckets = b.hiddenBuckets;
+	if (b.bucketOrder?.length) out.bucketOrder = b.bucketOrder;
 	if (Object.keys(b.limits).length) out.limits = b.limits;
 	const order = Object.fromEntries(Object.entries(b.order).filter(([, v]) => v.length));
 	if (Object.keys(order).length) out.order = order;

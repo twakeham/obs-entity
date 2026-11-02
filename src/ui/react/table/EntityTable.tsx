@@ -34,6 +34,7 @@ import {
 	type ResultRow,
 	type ViewDef,
 	type ViewKind,
+	emptyBoard,
 } from "../../../model/views";
 import { VIEW_BLOCK } from "../../../services/viewIndex";
 import { TypePickerModal } from "../../components/entityPicker";
@@ -49,7 +50,7 @@ import { Icon } from "../Icon";
 import { CellEditor, CellView, editTarget } from "./cells";
 import { summarize, summaryOptions, type SummaryResult } from "../../../model/summary";
 import { ColumnsPanel, cssColor, FiltersPanel, FormatPanel, GroupPanel, HighlightPanel, hlClasses, newHighlightRule, newVizRule, Popover, scaleFill, SortPanel, type ColumnChoice } from "./popovers";
-import { BOARD_ICON, BUCKET_NONE, boardOf, boardRunDef, bucketColumn, bucketColumns, cardFieldIds, defaultBuckets, type Bucket } from "../../../model/board";
+import { BOARD_ICON, BUCKET_NONE, boardOf, boardRunDef, bucketColumn, bucketColumns, bucketsOf, bucketStep, cardFieldIds, defaultBuckets, moveBucketOrder, type Bucket } from "../../../model/board";
 import { applyChange } from "../../../model/bulk";
 import { toWikilink } from "../../../model/links";
 import { COMMON_KEYS } from "../../../model/types";
@@ -912,6 +913,46 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 				},
 			});
 	};
+	// ---- bucket order
+	/** Every bucket (hidden and empty ones too) as the board orders them. */
+	const allBuckets = () => (bucketCol ? bucketsOf(bucketCol, result.rows, { ...boardOf(defRef.current), hideEmpty: undefined }) : []);
+	/** The buckets the board shows, in order. */
+	const shownBucketKeys = () => (bucketCol ? bucketsOf(bucketCol, result.rows, boardOf(defRef.current)).filter((b) => !b.hidden).map((b) => b.key) : []);
+	/** Save a bucket order (undefined: the field's own), as one Ctrl/Cmd+Z step. */
+	const setBucketOrder = (order: string[] | undefined) => {
+		const cur = defRef.current;
+		const prev = boardOf(cur).bucketOrder;
+		if ((prev ?? []).join("\n") === (order ?? []).join("\n")) return;
+		const { bucketOrder: _, ...rest } = boardOf(cur);
+		update({ ...cur, board: order ? { ...rest, bucketOrder: order } : rest });
+		edits.current.push({
+			kind: "bulk",
+			undo: async () => {
+				const d = defRef.current;
+				const { bucketOrder: __, ...r } = boardOf(d);
+				update({ ...d, board: prev ? { ...r, bucketOrder: prev } : r });
+			},
+		});
+	};
+	/** Move a bucket before another (null: to the end, before the empty bucket). */
+	const moveBucket = (key: string, before: string | null) => {
+		if (!bucketCol) return;
+		const natural = bucketsOf(bucketCol, result.rows, { ...emptyBoard(), buckets: boardOf(defRef.current).buckets }).map((b) => b.key);
+		setBucketOrder(moveBucketOrder(
+			allBuckets().map((b) => b.key),
+			natural,
+			key,
+			before,
+		));
+	};
+	/** Move a bucket one place left or right among the shown ones; false when it can't. */
+	const stepBucket = (key: string, dir: -1 | 1) => {
+		const before = bucketStep(shownBucketKeys(), key, dir);
+		if (before === undefined) return false;
+		moveBucket(key, before);
+		return true;
+	};
+
 	const setLimit = (b: Bucket) => {
 		const cur = boardOf(defRef.current);
 		new NameModal(
@@ -939,6 +980,18 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		const isCollapsed = cur.collapsedBuckets.includes(b.key);
 		const m = new Menu();
 		m.addItem((i) => i.setSection("add").setTitle("Add card").setIcon("plus").onClick(() => newEntity(bucketCol ? [{ col: bucketCol, value: b.value }] : [])));
+		const left = bucketStep(shownBucketKeys(), b.key, -1);
+		const right = bucketStep(shownBucketKeys(), b.key, 1);
+		m.addItem((i) => i.setSection("order").setTitle("Move left").setIcon("arrow-left").setDisabled(left === undefined).onClick(() => left !== undefined && moveBucket(b.key, left)));
+		m.addItem((i) => i.setSection("order").setTitle("Move right").setIcon("arrow-right").setDisabled(right === undefined).onClick(() => right !== undefined && moveBucket(b.key, right)));
+		if (cur.bucketOrder)
+			m.addItem((i) =>
+				i
+					.setSection("order")
+					.setTitle("Reset bucket order")
+					.setIcon("rotate-ccw")
+					.onClick(() => setBucketOrder(undefined)),
+			);
 		m.addItem((i) =>
 			i
 				.setSection("bucket")
@@ -1355,6 +1408,8 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					laneMenu={laneMenu}
 					hover={hover}
 					move={moveCards}
+					moveBucket={moveBucket}
+					stepBucket={stepBucket}
 					newCard={(b, lane) => newEntity([...(bucketCol ? [{ col: bucketCol, value: b.value }] : []), ...(lane ? [lane] : [])])}
 					onCommonKey={(e) => !pop && !editing && commonKey(e)}
 					chooseBuckets={(el) => setPop({ name: "buckets", anchor: el.getBoundingClientRect() })}
@@ -1669,7 +1724,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 								const cur = defRef.current;
 								const b = boardOf(cur);
 								// Collapsed, hidden, limits and order belong to the old buckets' values.
-								update({ ...cur, board: { ...b, buckets: id, swimlanes: b.swimlanes?.by === id ? undefined : b.swimlanes, collapsedBuckets: [], hiddenBuckets: [], limits: {}, order: {} } });
+								update({ ...cur, board: { ...b, buckets: id, swimlanes: b.swimlanes?.by === id ? undefined : b.swimlanes, collapsedBuckets: [], hiddenBuckets: [], limits: {}, order: {}, bucketOrder: undefined } });
 							}}
 						/>
 					)}
