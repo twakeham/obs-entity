@@ -1,5 +1,8 @@
 import { KIND_INFO, useEditor } from "./editor";
 import { OrderedPicker, Row, Section, Toggle } from "./controls";
+import { layoutFields, normaliseLayout } from "../../../model/formLayout";
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** Hierarchy (parent fields), the subtitle shown in pickers and search, and properties form options. */
 export function DisplayTab() {
@@ -18,6 +21,15 @@ export function DisplayTab() {
 		});
 
 	const parent = relations.find((f) => f.key === t.parentFields?.[0]);
+	const layout = t.form?.layout ? normaliseLayout(t.form.layout) : null;
+	const setForm = (fn: (f: NonNullable<typeof t.form>) => void) =>
+		update((x) => {
+			const f = { ...(x.form ?? {}) };
+			fn(f);
+			for (const k of Object.keys(f) as (keyof typeof f)[]) if (f[k] === undefined) delete f[k];
+			if (Object.keys(f).length) x.form = f;
+			else delete x.form;
+		});
 	const parentTargets = parent ? (parent.targets ?? []).map((k) => allTypes.find((x) => x.key === k)?.name ?? k).join(" or ") : "";
 	const hierarchyDesc = parent
 		? `In the browser, ${(t.plural || "these notes").toLowerCase()} nest under their ${parentTargets || "parent"} (via “${parent.label}”). With several, the first one that's filled in wins.`
@@ -53,7 +65,22 @@ export function DisplayTab() {
 
 			<Section title="Properties form" desc="The form that replaces Obsidian's Properties block on notes of this type.">
 				<Row label="Hide empty fields" desc="List only fields with a value, with a “Show N empty fields” link for the rest. Fields with a problem are always shown.">
-					<Toggle label="Hide empty fields" value={!!t.form?.hideEmpty} onChange={(v) => update((x) => (v ? (x.form = { ...x.form, hideEmpty: true }) : delete x.form))} />
+					<Toggle label="Hide empty fields" value={!!t.form?.hideEmpty} onChange={(v) => setForm((f) => (f.hideEmpty = v || undefined))} />
+				</Row>
+				<Row
+					label="Layout"
+					desc={
+						layout
+							? `Custom: ${plural(layout.items.filter((i) => i.kind === "frame").length, "frame")}, ${plural(layoutFields(layout).length, "property", "properties")} placed. Fields that aren't placed are listed under “Other fields”.`
+							: "One list, in field order."
+					}
+					issues={issuesAt("form:layout")}
+				>
+					{layout && (
+						<button type="button" onClick={() => setForm((f) => (f.layout = undefined))}>
+							Reset layout
+						</button>
+					)}
 				</Row>
 			</Section>
 		</div>

@@ -6,6 +6,7 @@ import { isEmptyValue } from "../../model/frontmatter";
 import { asArray, parseLabelledEntry, parseLink } from "../../model/links";
 import { addLink, type Edge, type RelationItem } from "../../model/relations";
 import { COMMON_KEYS, isListValued, statusesFor, type EntityTypeDef, type FieldDef, type FieldKind, type RelationTarget } from "../../model/types";
+import { normaliseLayout, resolveLayout, type LabelPosition, type LayoutItem } from "../../model/formLayout";
 import type { EntityRecord } from "../../services/entityIndex";
 import { openNativePicker } from "../components/datePicker";
 import { EntitySuggest, TypePickerModal } from "../components/entityPicker";
@@ -67,6 +68,11 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 	const [collapsed, setCollapsed] = useState(mode !== "preview" && plugin.settings.formCollapsed);
 	const [showEmpty, setShowEmpty] = useState(false);
 	const [othersOpen, setOthersOpen] = useState(othersOpenDefault);
+	/** layout frames (by position) that are collapsed: those that start collapsed, until opened */
+	const [closedFrames, setClosedFrames] = useState<Set<number>>(() => {
+		const l = type.form?.layout ? normaliseLayout(type.form.layout) : null;
+		return new Set(l ? l.items.flatMap((n, i) => (n.kind === "frame" && n.collapsible && n.collapsed ? [i] : [])) : []);
+	});
 	const rootRef = useRef<HTMLDivElement>(null);
 	// Show written values until the saved copy has them (or another change to the same key wins), key by key.
 	useEffect(
@@ -106,6 +112,8 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 	const jumpToProblem = () => {
 		setCollapsed(false);
 		setShowEmpty(true);
+		// Open collapsed frames, so the problem's field is on screen.
+		setClosedFrames(new Set());
 		window.setTimeout(() => {
 			const row = rootRef.current?.querySelector<HTMLElement>(".oe-status.is-invalid, .oe-prop.has-problem");
 			if (!row) return;
@@ -192,49 +200,141 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 	const isBlank = (kind: FieldKind | "order", raw: unknown) => isEmptyValue(raw) || (kind === "boolean" && raw !== true);
 	const hideEmpty = !!type.form?.hideEmpty && !showEmpty;
 	let hidden = 0;
-	const rows: ReactNode[] = [];
-	const row = (key: string, kind: FieldKind | "order", node: ReactNode, opts: { label: string; icon: string; required?: boolean; desc?: string }) => {
+	/** A property's row, or null when it's hidden (empty, with "hide empty fields" on). */
+	const rowFor = (key: string, kind: FieldKind | "order", node: ReactNode, opts: { label: string; icon: string; required?: boolean; desc?: string }, labelPos?: LabelPosition): ReactNode | null => {
 		const ps = problemsAt(key);
 		const blank = isBlank(kind, get(key));
 		if (hideEmpty && blank && ps.length === 0) {
 			hidden++;
-			return;
+			return null;
 		}
-		rows.push(
-			<PropRow key={key} k={key} {...opts} problems={ps} empty={blank} editable={editable} onFix={fix}>
+		return (
+			<PropRow key={key} k={key} {...opts} problems={ps} empty={blank} editable={editable} onFix={fix} labelPos={labelPos}>
 				{node}
-			</PropRow>,
+			</PropRow>
 		);
 	};
-	for (const f of type.fields) row(f.key, f.kind, controlFor(f), { label: f.label || f.key, icon: KIND_INFO[f.kind].icon, required: f.required, desc: f.description });
-	if (usesOrder(type)) {
-		row(COMMON_KEYS.order, "order", <TextControl kind="number" value={get(COMMON_KEYS.order)} editable={editable} label="Order" onCommit={(v) => write(COMMON_KEYS.order, v)} />, {
-			label: "Order",
-			icon: "arrow-down-01",
-			desc: "Sorts this note among its siblings in the browser.",
+	/** The row for a field or a built-in property (status, order, related, tags, aliases); null when hidden. */
+	const propFor = (key: string, labelPos?: LabelPosition): ReactNode | null => {
+		const f = type.fields.find((x) => x.key === key);
+		if (f) return rowFor(f.key, f.kind, controlFor(f), { label: f.label || f.key, icon: KIND_INFO[f.kind].icon, required: f.required, desc: f.description }, labelPos);
+		switch (key) {
+			case COMMON_KEYS.status:
+				return rowFor(COMMON_KEYS.status, "select", <StatusControl type={type} value={get(COMMON_KEYS.status)} editable={editable} problem={problemsAt(COMMON_KEYS.status)[0]} onCommit={(v) => write(COMMON_KEYS.status, v)} />, { label: "Status", icon: "circle-dot" }, labelPos);
+			case COMMON_KEYS.order:
+				if (!usesOrder(type)) return null;
+				return rowFor(COMMON_KEYS.order, "order", <TextControl kind="number" value={get(COMMON_KEYS.order)} editable={editable} label="Order" onCommit={(v) => write(COMMON_KEYS.order, v)} />, {
+					label: "Order",
+					icon: "arrow-down-01",
+					desc: "Sorts this note among its siblings in the browser.",
+				}, labelPos);
+			case COMMON_KEYS.related:
+				return rowFor(
+					COMMON_KEYS.related,
+					"relation",
+					<RelationControl
+						fieldKey={COMMON_KEYS.related}
+						label="Related"
+						list
+						labelled={false}
+						symmetric
+						value={get(COMMON_KEYS.related)}
+						editable={editable}
+						path={path}
+						type={type}
+						live={mode !== "preview"}
+						problems={problemsAt(COMMON_KEYS.related)}
+						onCommit={(v) => write(COMMON_KEYS.related, v)}
+					/>,
+					{ label: "Related", icon: "link-2", desc: "Links to any entity, shown on both notes." },
+					labelPos,
+				);
+			case COMMON_KEYS.tags:
+				return rowFor(COMMON_KEYS.tags, "list", <ListControl value={get(COMMON_KEYS.tags)} editable={editable} label="Tags" tag onCommit={(v) => write(COMMON_KEYS.tags, v)} />, { label: "Tags", icon: "tags" }, labelPos);
+			case COMMON_KEYS.aliases:
+				return rowFor(COMMON_KEYS.aliases, "list", <ListControl value={get(COMMON_KEYS.aliases)} editable={editable} label="Aliases" onCommit={(v) => write(COMMON_KEYS.aliases, v)} />, { label: "Aliases", icon: "forward" }, labelPos);
+		}
+		return null;
+	};
+	/** Built-in properties in the order the form has always listed them after the fields. */
+	const TAIL = [COMMON_KEYS.order, COMMON_KEYS.related, COMMON_KEYS.tags, COMMON_KEYS.aliases];
+
+	const layout = type.form?.layout ? normaliseLayout(type.form.layout) : null;
+	const resolved = layout ? resolveLayout(layout, type) : null;
+	let body: ReactNode;
+	if (!resolved) {
+		// No layout: one list, in field order, then the built-ins.
+		body = <div className="oe-form-rows">{[...type.fields.map((f) => propFor(f.key)), ...TAIL.map((k) => propFor(k))]}</div>;
+	} else {
+		const frameKeys = (items: LayoutItem[]) => items.flatMap((i) => (i.kind === "field" ? [i.key] : i.kind === "columns" ? i.columns.flat().map((f) => f.key) : []));
+		/** an item and whether it shows (text always; a field or columns when a field in it is shown) */
+		const renderItem = (it: LayoutItem, key: string): { node: ReactNode; fields: boolean; shown: boolean } => {
+			if (it.kind === "heading" || it.kind === "text") return { node: <div key={key} className={it.kind === "heading" ? "oe-form-heading" : "oe-form-note"}>{it.text}</div>, fields: false, shown: true };
+			if (it.kind === "field") {
+				const r = propFor(it.key, it.label ?? "above");
+				return { node: r, fields: true, shown: r !== null };
+			}
+			// Columns: empty ones (every field hidden) are left out, and the rest share the row.
+			const cols = it.columns.map((c, ci) => ({ rows: c.map((f) => propFor(f.key, f.label ?? "above")).filter((r) => r !== null), w: it.widths?.[ci] ?? 1, ci }));
+			const shown = cols.filter((c) => c.rows.length);
+			return {
+				node: shown.length ? (
+					<div key={key} className="oe-form-columns" style={{ gridTemplateColumns: shown.map((c) => `minmax(0, ${c.w}fr)`).join(" ") }}>
+						{shown.map((c) => (
+							<div key={c.ci} className="oe-form-column">
+								{c.rows}
+							</div>
+						))}
+					</div>
+				) : null,
+				fields: true,
+				shown: shown.length > 0,
+			};
+		};
+		const nodes: ReactNode[] = [];
+		resolved.items.forEach((n, i) => {
+			if (n.kind !== "frame") {
+				const r = renderItem(n, `i${i}`);
+				if (r.shown) nodes.push(r.node);
+				return;
+			}
+			const items = n.items.map((it, j) => renderItem(it, `f${i}-${j}`));
+			// A frame shows when a field in it does (or it has no fields, only text).
+			if (items.some((r) => r.fields) && !items.some((r) => r.fields && r.shown)) return;
+			const open = !n.collapsible || !closedFrames.has(i);
+			const flagged = frameKeys(n.items).some((k) => problemsAt(k).length > 0);
+			const caption = n.caption ? (
+				n.collapsible ? (
+					<button type="button" className="oe-form-frame-caption is-toggle" aria-expanded={open} onClick={() => setClosedFrames((s) => (s.has(i) ? new Set([...s].filter((x) => x !== i)) : new Set([...s, i])))}>
+						<Icon name={open ? "chevron-down" : "chevron-right"} />
+						<span>{n.caption}</span>
+						{flagged && !open && <span className="oe-form-frame-dot" aria-label="A field in here has a problem" />}
+					</button>
+				) : (
+					<div className="oe-form-frame-caption">{n.caption}</div>
+				)
+			) : null;
+			nodes.push(
+				<section key={`f${i}`} className={`oe-form-frame${open ? "" : " is-closed"}`} data-frame={i}>
+					{caption}
+					{open && <div className="oe-form-rows">{items.filter((r) => r.shown).map((r) => r.node)}</div>}
+				</section>,
+			);
 		});
+		// Fields that aren't placed: an "Other fields" section (only when something's in it).
+		const others = layout!.hideUnplaced ? [] : resolved.unplaced.map((k) => propFor(k)).filter((r) => r !== null);
+		if (others.length)
+			nodes.push(
+				<section key="other" className="oe-form-frame is-other">
+					<div className="oe-form-frame-caption">Other fields</div>
+					<div className="oe-form-rows">{others}</div>
+				</section>,
+			);
+		// Built-ins that aren't placed stay where they've always been: after the fields (status: the header).
+		const tail = TAIL.filter((k) => resolved.unplacedBuiltins.includes(k)).map((k) => propFor(k)).filter((r) => r !== null);
+		if (tail.length) nodes.push(<div key="tail" className="oe-form-rows">{tail}</div>);
+		body = <div className="oe-form-layout">{nodes}</div>;
 	}
-	row(
-		COMMON_KEYS.related,
-		"relation",
-		<RelationControl
-			fieldKey={COMMON_KEYS.related}
-			label="Related"
-			list
-			labelled={false}
-			symmetric
-			value={get(COMMON_KEYS.related)}
-			editable={editable}
-			path={path}
-			type={type}
-			live={mode !== "preview"}
-			problems={problemsAt(COMMON_KEYS.related)}
-			onCommit={(v) => write(COMMON_KEYS.related, v)}
-		/>,
-		{ label: "Related", icon: "link-2", desc: "Links to any entity, shown on both notes." },
-	);
-	row(COMMON_KEYS.tags, "list", <ListControl value={get(COMMON_KEYS.tags)} editable={editable} label="Tags" tag onCommit={(v) => write(COMMON_KEYS.tags, v)} />, { label: "Tags", icon: "tags" });
-	row(COMMON_KEYS.aliases, "list", <ListControl value={get(COMMON_KEYS.aliases)} editable={editable} label="Aliases" onCommit={(v) => write(COMMON_KEYS.aliases, v)} />, { label: "Aliases", icon: "forward" });
 
 	const others = mode === "preview" ? [] : otherKeys(type, values);
 	const subtitle = subtitleOf(type, values, plugin.dates);
@@ -253,7 +353,7 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 					<Icon name={type.icon} className="oe-chip-icon" />
 					{type.name}
 				</span>
-				<StatusControl type={type} value={get(COMMON_KEYS.status)} editable={editable} problem={statusProblem} onCommit={(v) => write(COMMON_KEYS.status, v)} />
+				{!resolved?.placesStatus && <StatusControl type={type} value={get(COMMON_KEYS.status)} editable={editable} problem={statusProblem} onCommit={(v) => write(COMMON_KEYS.status, v)} />}
 				<span className="oe-form-subtitle" title={subtitle ?? undefined}>
 					{subtitle}
 				</span>
@@ -284,7 +384,7 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 			</div>
 			{!collapsed && (
 				<div className="oe-form-body">
-					<div className="oe-form-rows">{rows}</div>
+					{body}
 					{hidden > 0 && (
 						<button type="button" className="oe-form-more" onClick={() => setShowEmpty(true)}>
 							Show {hidden} empty {hidden === 1 ? "field" : "fields"}
@@ -337,6 +437,7 @@ function PropRow({
 	editable,
 	onFix,
 	menu,
+	labelPos,
 	children,
 }: {
 	k: string;
@@ -349,11 +450,13 @@ function PropRow({
 	editable: boolean;
 	onFix: (p: FieldProblem) => void;
 	menu?: (evt: MouseEvent) => void;
+	/** in a layout: the label above the value, or beside it (unset: the plain list's label | value row) */
+	labelPos?: LabelPosition;
 	children: ReactNode;
 }) {
 	const worst = problems.find((p) => p.severity === "error") ?? problems[0];
 	return (
-		<div className={`oe-prop${worst ? ` has-problem is-${worst.severity}` : ""}${empty ? " is-empty" : ""}`} data-key={k}>
+		<div className={`oe-prop${worst ? ` has-problem is-${worst.severity}` : ""}${empty ? " is-empty" : ""}${labelPos === "above" ? " is-label-above" : ""}`} data-key={k}>
 			<div className="oe-prop-label" aria-label={desc}>
 				<Icon name={icon} className="oe-prop-icon" />
 				<span className="oe-prop-name">{label}</span>

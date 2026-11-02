@@ -52,6 +52,7 @@ On entity notes, a form built from the note's type replaces Obsidian's Propertie
 **Layout:**
 - **Top row:** type, a **status** dropdown (only the group's statuses), the subtitle, a problem count, and buttons for the Connections panel, a **⋯** menu (Change type…, Configure the type) and collapse.
 - **One row per field,** in the type's order, then Related, Tags and Aliases. Required fields have a `*`. Empty fields show a faint "Empty", or are hidden behind "Show N empty fields" if the type's **Hide empty fields** option is on (Display tab).
+- **Custom layouts:** a type can arrange its form in captioned **frames** (optionally collapsible) and **columns** (2–4, with relative widths), with headings and notes between them. Columns stack in narrow places such as the sidebar. Status, Related, Tags and Aliases can be placed too. Fields that aren't placed appear under **Other fields** at the end. A drag-and-drop designer is coming in the type editor; for now a layout is set in the type's settings (`form.layout`, see the design doc), and the Display tab shows it with **Reset layout**.
 - **Other properties:** a collapsed section for keys the type doesn't define, each edited by its Obsidian property type.
   - **+ Add property** adds a key.
   - A key's **⋯** menu offers **Add to the *type* type**, which opens the type editor with a draft field, or **Remove**.
@@ -117,7 +118,7 @@ Opened from:
 - **Fields:** a field list (drag to reorder) and a details panel with label, key, kind, description, choices, default, create-dialog / required toggles, and relation options.
   - Kinds: text, long text, number, date, choice, multiple choice, list, checkbox, link (URL), relation.
 - **Relationships:** a diagram, links from and to this type (click to jump to the field), and a guided **Add relationship** dialog with a plain-English summary.
-- **Display:** parent fields (for the hierarchy), subtitle fields, and the properties form's **Hide empty fields** option.
+- **Display:** parent fields (for the hierarchy), subtitle fields, and the properties form's **Hide empty fields** option and layout.
 
 **Preview:** Create dialog, Picker row and Properties form. It uses the existing note with the most values, or made-up values.
 
@@ -387,6 +388,7 @@ src/
     summary.ts               column summaries (count, sum, earliest…)
     bulk.ts                  bulk actions: shared fields, applying set / link / tag changes, notice text
     board.ts                 boards: bucket fields, buckets in order, card fields, the run definition, manual card order
+    formLayout.ts            custom form layouts: format, tidying, resolving against a type, field renames
     viewBlock.ts             find / rewrite an entity-view block inside a note
   services/
     entityIndex.ts           entities from the metadata cache
@@ -402,6 +404,6 @@ src/
   ui/react/board/            Board (buckets, swimlanes, cards, pointer drag and drop, keyboard), Buckets and Swimlanes panels
   ui/react/types/            Entity types view: TypeManager (sidebar, group editor, save), General/Fields/Relationships/Display tabs, Preview, controls
   ui/views/                  BrowserView (left sidebar), ConnectionsView (right sidebar), TypesView (main area), EntityViewView (view notes as full tabs), viewBlock (renders entity-view blocks in notes)
-tests/                       model, relations, typeEditing, tree, form, views, viewBlock, formats, formula, bulk and board tests
+tests/                       model, relations, typeEditing, tree, form, views, viewBlock, formats, formula, bulk, board and form layout tests
 styles.css                   all classes prefixed `oe-`
 ```

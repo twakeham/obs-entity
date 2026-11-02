@@ -1,3 +1,5 @@
+import type { FormLayout } from "./formLayout";
+
 export type FieldKind =
 	| "text"
 	| "textarea"
@@ -52,6 +54,8 @@ export interface CardConfig {
 export interface FormConfig {
 	/** hide fields with no value (default false: every field is listed, empty ones faintly) */
 	hideEmpty?: boolean;
+	/** a custom layout: frames, columns and field slots (unset: one list in field order) */
+	layout?: FormLayout;
 }
 
 export interface EntityTypeDef {

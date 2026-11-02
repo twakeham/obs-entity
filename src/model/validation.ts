@@ -1,10 +1,11 @@
 import { unknownPlaceholders } from "./paths";
+import { layoutIssues, normaliseLayout } from "./formLayout";
 import { RESERVED_KEYS, isValidKey, type EntityTypeDef } from "./types";
 
 /** A problem with a type definition, tied to the control it belongs to. */
 export interface TypeIssue {
 	/**
-	 * Where: "key", "name", "group", "statuses", "folderPattern", "parentFields", "card:subtitle", "card:fields",
+	 * Where: "key", "name", "group", "statuses", "folderPattern", "parentFields", "card:subtitle", "card:fields", "form:layout",
 	 * "field:<i>:key", "field:<i>:options", "field:<i>:targets", "field:<i>:default".
 	 */
 	at: string;
@@ -71,6 +72,8 @@ export function typeIssues(t: EntityTypeDef, ctx: ValidationContext): TypeIssue[
 		if (!f) add("card:subtitle", `Subtitle field "${key}" doesn't exist.`);
 		else if (f.kind === "relation") add("card:subtitle", `Relation fields can't be used in the subtitle ("${key}").`);
 	}
+	const layout = t.form?.layout ? normaliseLayout(t.form.layout) : null;
+	if (layout) for (const m of layoutIssues(layout, t)) add("form:layout", m);
 	return problems;
 }
 

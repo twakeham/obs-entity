@@ -285,6 +285,7 @@ interface CardConfig {
 }
 interface FormConfig {
   hideEmpty?: boolean;     // properties form: list only filled fields, with "Show N empty fields" (default false)
+  layout?: FormLayout;     // a custom layout: frames, columns and field slots (§8.4 Custom layouts)
 }
 ```
 
@@ -293,7 +294,7 @@ interface FormConfig {
 - **Fields:** each one should be a text, textarea, select, multiselect, list, number, date or url field. Relation fields aren't allowed; they're shown as chips instead.
 - **Textareas** contribute only their first line, ellipsised.
 - **Several fields** can be combined, e.g. Person → `role`, `email` gives "CTO · ada@example.com". Empty values are skipped.
-- **Renames:** the type editor keeps `subtitle` and `parentFields` in step when a field key is renamed or deleted in a draft.
+- **Renames:** the type editor keeps `subtitle`, `parentFields` and the form layout in step when a field key is renamed or deleted in a draft.
 
 **History:** before the properties form, `card` also configured an optional info card (`show`, `fields`, `incoming`, `showEmpty`, `maxChips`). Those keys are dropped when settings or packs are loaded; only `subtitle` remains.
 
@@ -601,7 +602,7 @@ Big icon, name, a "group · N notes · starter/custom · `key`" line, and the ta
 New in Obsidian Entities.
 - **Hierarchy:** the parent fields, in priority order, chosen from this type's relation fields. A preview line reads "In the browser, people nest under their Team (via Member of)".
 - **Subtitle** (§4.5): an ordered chip list of eligible fields, with "+ Add field". When it's empty, it reads "No subtitle".
-- **Properties form** (§8.4): **Hide empty fields** (default off).
+- **Properties form** (§8.4): **Hide empty fields** (default off), and **Layout**: "One list, in field order", or a summary of the custom layout with **Reset layout** and any problems with it (until the Layout tab's designer arrives).
 - **Default sort among siblings:** `order`, then name.
 
 #### Saving
@@ -783,6 +784,38 @@ On entity notes, a form built from the note's type **replaces Obsidian's Propert
 - **Other properties:** a collapsed section for keys the type doesn't define. Whether it's open is shared by all notes for the session.
 - **Hide empty fields** (`form.hideEmpty`, on the Display tab, off by default) lists only filled fields, plus a "Show N empty fields" link. Fields with a problem are always shown.
 - **Phones:** the label sits above the value.
+
+#### Custom layouts
+
+A type can arrange its form with a **layout** (`form.layout`, `model/formLayout.ts`): captioned frames, columns, headings and text. It travels with the type (export, import, packs). Without one, the form is the plain list above.
+
+```ts
+interface FormLayout { items: LayoutNode[]; hideUnplaced?: true }
+type LayoutNode = LayoutFrame | LayoutItem;
+interface LayoutFrame { kind: "frame"; caption?: string; collapsible?: true; collapsed?: true; create?: false; items: LayoutItem[] }
+type LayoutItem = LayoutField | LayoutColumns | { kind: "heading"; text: string } | { kind: "text"; text: string };
+interface LayoutField { kind: "field"; key: string; label?: "above" | "beside" }   // a field, or status / related / tags / aliases / order
+interface LayoutColumns { kind: "columns"; columns: LayoutField[][]; widths?: number[] }   // 2–4 columns, relative widths
+```
+
+```json
+"form": { "layout": { "items": [
+  { "kind": "frame", "caption": "Overview", "items": [
+    { "kind": "columns", "columns": [[{ "kind": "field", "key": "client" }, { "kind": "field", "key": "status" }], [{ "kind": "field", "key": "owner" }]] },
+    { "kind": "field", "key": "description" } ] },
+  { "kind": "frame", "caption": "Team", "collapsible": true, "items": [{ "kind": "field", "key": "team" }] }
+] } }
+```
+
+- **Nesting:** two levels at most. The form holds frames and rows; a frame holds rows (not frames); a row is a field, columns, a heading or text; a column holds fields. `normaliseLayout` tidies layouts from settings or imports (unknown parts dropped, a nested frame's items lifted, 2–4 columns, widths kept only when they differ).
+- **Fields** show their label above the value by default (`label: "beside"` for the plain list's label | value row). Outside columns a field spans the row.
+- **Columns** share the row by their widths (`2:1`…); in narrow places (under about 420px: sidebars, hover previews, phones) they stack, via a container query on the form.
+- **Frames:** an optional caption; `collapsible` (click the caption; `collapsed` starts it closed; a warning dot on the caption when a field inside has a problem, and "N problems" opens every frame); `create: false` leaves it out of the create dialog (from phase 2).
+- **Hide empty fields** applies inside the layout: a frame whose fields are all hidden is hidden with its caption and text; an empty column is left out and the others share the row.
+- **Built-ins:** status, related, tags, aliases and order can be placed like fields. Placed, status leaves the form's header. Unplaced, they stay where they've always been (status in the header; order, related, tags and aliases as rows after the fields).
+- **Unplaced fields** (fields added later, or never placed) are listed in an **Other fields** section at the end (dashed), shown only when it has something in it. `hideUnplaced` leaves them out.
+- **Keeping in step:** renaming a field updates its slot, deleting it removes the slot (`renameFieldRefs` → `renameLayoutKey`). Slots for keys the type doesn't have, and repeats, are left out when shown (`resolveLayout`) and reported by type validation (`layoutIssues`, at `form:layout`, on the Display tab).
+- **Type editor:** the Display tab's **Layout** row shows "One list, in field order" or a summary of the layout, with **Reset layout**. The Layout tab's designer comes in phase 3; until then a layout is written in the type's settings.
 
 #### Controls
 
@@ -1597,6 +1630,7 @@ These cover all of `model/`, with no Obsidian dependency:
 - **viewBlock:** finding blocks, and replacing one by line or content, keeping callout prefixes, CRLF, longer fences, and closing an unclosed block.
 - **validation:** every row of §9, with the right `at`.
 - **card:** subtitle composition (several fields, empty values skipped, first line of a textarea); renaming or deleting a field updates `card.subtitle` and `parentFields` in the draft.
+- **formLayout:** tidying layouts (nested frames lifted, 2–4 columns, widths, defaults dropped), listing slots and placeable keys (order only with parent fields), resolving against a type (unknown and repeated slots dropped, unplaced fields and built-ins, whether status is placed), renames and deletions through `renameFieldRefs`, "start from fields", and problems in type validation.
 - **form:**
   - `checkField` / `entityProblems` for every row of the §8.4 table, with fixes
   - `otherKeys`, `otherKind` / `fieldKindFor`, `parseInput`
@@ -1731,6 +1765,7 @@ export interface CardConfig {
 /** Properties form options for a type (§8.4). */
 export interface FormConfig {
   hideEmpty?: boolean;            // list only filled fields (default false)
+  layout?: FormLayout;            // custom layout (§8.4 Custom layouts)
 }
 
 export interface EntityTypeDef {

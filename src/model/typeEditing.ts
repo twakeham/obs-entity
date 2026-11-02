@@ -1,4 +1,5 @@
 import { isEmptyValue } from "./frontmatter";
+import { renameLayoutKey } from "./formLayout";
 import { installPack, parsePack, type TypePack } from "./packs";
 import { cloneGroup, cloneType, isValidKey, toKey, type EntityTypeDef, type FieldDef, type GroupDef, type RelationTarget } from "./types";
 
@@ -50,7 +51,7 @@ export function finaliseType(t: EntityTypeDef): EntityTypeDef {
 }
 
 /**
- * Keep references to a field (subtitle, parent fields) in step when its key changes.
+ * Keep references to a field (subtitle, parent fields, the form layout) in step when its key changes.
  * `to` null means the field was deleted.
  */
 export function renameFieldRefs(t: EntityTypeDef, from: string, to: string | null): void {
@@ -62,6 +63,7 @@ export function renameFieldRefs(t: EntityTypeDef, from: string, to: string | nul
 	};
 	t.parentFields = swap(t.parentFields);
 	if (t.card) t.card.subtitle = swap(t.card.subtitle);
+	if (t.form?.layout) t.form.layout = renameLayoutKey(t.form.layout, from, to);
 }
 
 export interface FieldChanges {

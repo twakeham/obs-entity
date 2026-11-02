@@ -5036,3 +5036,129 @@ td.is-wrap .oe-bar-value {
 .oe-bucket-head.oe-bucket-ghost.is-collapsed {
 	height: 160px;
 }
+
+/* ---------------------------------------------------------------- custom form layouts */
+.oe-form {
+	container-name: oe-form;
+	container-type: inline-size;
+}
+
+.oe-form-layout {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+}
+
+/* A frame: a captioned box of rows */
+.oe-form-frame {
+	padding: var(--size-4-1) var(--size-4-2) var(--size-4-2);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+}
+
+.oe-form-frame.is-closed {
+	padding-bottom: var(--size-4-1);
+}
+
+.oe-form-frame-caption {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	margin: 0 0 var(--size-4-1);
+	padding: 2px 0;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-semibold);
+	letter-spacing: 0.03em;
+	text-transform: uppercase;
+}
+
+.oe-form-frame.is-closed .oe-form-frame-caption {
+	margin-bottom: 0;
+}
+
+.oe-form button.oe-form-frame-caption.is-toggle {
+	width: 100%;
+	height: auto;
+	justify-content: flex-start;
+	border: none;
+	box-shadow: none;
+	background: none;
+	cursor: pointer;
+}
+
+.oe-form button.oe-form-frame-caption.is-toggle:hover {
+	color: var(--text-normal);
+}
+
+.oe-form-frame-caption svg {
+	width: 14px;
+	height: 14px;
+}
+
+.oe-form-frame-dot {
+	width: 7px;
+	height: 7px;
+	margin-left: 2px;
+	border-radius: 50%;
+	background-color: var(--text-error);
+}
+
+.oe-form-frame.is-other {
+	border-style: dashed;
+}
+
+/* Columns: fields stacked in each; they share the row by their relative widths */
+.oe-form-columns {
+	display: grid;
+	gap: var(--size-4-1) var(--size-4-4);
+	align-items: start;
+}
+
+.oe-form-column {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	min-width: 0;
+}
+
+/* In narrow places (sidebars, hover previews, phones) columns stack */
+@container oe-form (max-width: 420px) {
+	.oe-form-columns {
+		grid-template-columns: minmax(0, 1fr) !important;
+	}
+}
+
+/* Label above the value */
+.oe-prop.is-label-above {
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 0 var(--size-4-2);
+}
+
+.oe-prop.is-label-above > .oe-prop-label {
+	grid-column: 1 / -1;
+	min-height: 0;
+	padding-top: 2px;
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-prop.is-label-above > .oe-prop-value {
+	grid-column: 1;
+}
+
+.oe-form-heading {
+	margin-top: var(--size-4-1);
+	color: var(--text-normal);
+	font-weight: var(--font-semibold);
+}
+
+.oe-form-note {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	white-space: pre-wrap;
+}
+
+.oe-form-layout > .oe-form-heading,
+.oe-form-layout > .oe-form-note {
+	padding: 0 2px;
+}

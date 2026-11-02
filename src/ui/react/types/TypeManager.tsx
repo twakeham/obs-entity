@@ -79,7 +79,7 @@ function friendly(i: TypeIssue, t: EntityTypeDef): TypeIssue {
 	return i;
 }
 
-const tabFor = (at: string): EditorTab => (at.startsWith("field:") ? "fields" : at === "parentFields" || at.startsWith("card:") ? "display" : "general");
+const tabFor = (at: string): EditorTab => (at.startsWith("field:") ? "fields" : at === "parentFields" || at.startsWith("card:") || at.startsWith("form:") ? "display" : "general");
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
