@@ -1336,7 +1336,7 @@ board:
 |---|---|
 | `buckets` | The bucket field: `status`, or one of the source types' own **choice**, **checkbox** or **single-link** fields. Read-only columns (formulas, roll-ups, incoming links, type, folder…), lists and multi-links can't be buckets. |
 | `swimlanes` | One grouping level (`<column id>` or `{ by, date }`), shown as horizontal swimlanes. Any column can be used. |
-| `cardFields` | Columns shown on cards. Unset: the table's first 4 columns after the name (the bucket and swimlane columns aside). |
+| `cardFields` | Columns shown on cards, in order; any column, the bucket and swimlane columns included. Unset: the table's first 4 columns after the name, leaving out the bucket and swimlane columns. |
 | `cardSize`, `cardSubtitle`, `cardLabels` | Card width (220 / 280 / 360px), the type's subtitle, field names. Only written when not the default. |
 | `hideEmpty` | Leave out buckets with no cards. |
 | `collapsedBuckets`, `hiddenBuckets` | Bucket keys shown as a narrow strip, or not at all. |
@@ -1569,7 +1569,7 @@ These cover all of `model/`, with no Obsidian dependency:
   - fill columns: parse/serialize as a name or list, proportional sharing, rounding to the exact width, nothing when there's no spare width
   - frozen columns: parse/serialize (removed column dropped), `frozenCount` including a hidden frozen column
   - density and wrapping: parse/serialize without defaults, `unlimited` lines, repeated and removed wrap columns dropped, an error for a bad density; `rowHeight`, `rowOffsets`, `itemAt` at and between boundaries
-- **board:** `board:` round trips without defaults, both layouts' settings surviving a switch, formats and summaries of card fields kept, errors; bucket fields (status and single-value choice / checkbox / link fields only, never read-only columns), types with the field; default card fields and the run definition; bucket order for status, choices (undefined values, the empty bucket), links and checkboxes, hidden and empty buckets, sort within buckets; manual order (`orderRows`, `reorder`).
+- **board:** `board:` round trips without defaults, both layouts' settings surviving a switch, formats and summaries of card fields kept, errors; bucket fields (status and single-value choice / checkbox / link fields only, never read-only columns), types with the field; default card fields (and picked ones, bucket and swimlane columns included) and the run definition; bucket order for status, choices (undefined values, the empty bucket), links and checkboxes, hidden and empty buckets, sort within buckets; manual order (`orderRows`, `reorder`).
   - summaries: parse/serialize (removed columns dropped, the group header toggle), every aggregation, status-order value counts, formatted sums and dates, empty results, options by column kind, `spanText`
 - **formats:** date presets, custom and relative dates; number presets, currencies, custom patterns and their errors.
 - **formula:** tokenizing, precedence, syntax errors with positions; reference resolution by label or id, type inference, unknown columns / names / functions and argument counts; label ↔ id conversion; every function's example compiles; evaluation of arithmetic, dates, comparisons, empty values and runtime errors, and every function category (including lazy logic, `dateAdd` / `dateDiff` month ends, `map` / `filter` / `prop`). In views: per-row values, kinds used for sorting and filtering, formulas using formulas and linked notes' fields, type overrides, invalid columns, loops, per-row errors, round trips.

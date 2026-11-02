@@ -65,11 +65,14 @@ export function bucketColumn(def: ViewDef, lookup: Lookup): ResolvedColumn | nul
 /** A column definition for an id: the view's own (roll-ups, formulas, labels) or one built from the id. */
 const defFor = (def: ViewDef, id: string): ColumnDef => def.columns.find((c) => c.id === id) ?? columnFromId(id);
 
-/** Card fields: the board's own list, or the table's first few columns (the bucket and swimlane columns aside). */
+/**
+ * Card fields: the board's own list (any column you pick, the bucket and swimlane columns included), or by default
+ * the table's first few columns, leaving out the bucket and swimlane columns (their value is in the header).
+ */
 export function cardFieldIds(def: ViewDef): string[] {
 	const b = boardOf(def);
+	if (b.cardFields) return b.cardFields.filter((id) => id !== "name");
 	const skip = new Set(["name", b.buckets ?? "", b.swimlanes?.by ?? ""]);
-	if (b.cardFields) return b.cardFields.filter((id) => !skip.has(id));
 	return def.columns
 		.map((c) => c.id)
 		.filter((id) => !skip.has(id))

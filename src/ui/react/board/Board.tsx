@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent as RPointerEvent, type ReactNode, type UIEvent } from "react";
-import { BUCKET_NONE, BUCKET_PAGE, bucketsOf, boardOf, cardWidth, isBucketColumn, orderRows, reorder, type Bucket } from "../../../model/board";
+import { BUCKET_NONE, BUCKET_PAGE, bucketsOf, boardOf, cardFieldIds, cardWidth, isBucketColumn, orderRows, reorder, type Bucket } from "../../../model/board";
 import { highlightOf, ROW_TARGET, type Cell, type GroupBy, type ResolvedColumn, type ResultGroup, type ResultRow, type ViewContext, type ViewDef, type ViewResult } from "../../../model/views";
 import type { SummaryResult } from "../../../model/summary";
 import { usePlugin } from "../context";
@@ -108,7 +108,8 @@ export function Board(p: BoardProps) {
 		return out;
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [lanes, buckets, bucketCol, sorted, board.order]);
-	const cardFields = result.columns.filter((c) => c.id !== "name" && c.id !== bucketCol?.id);
+	// The picked card fields, in order (from `known`: a swimlane column isn't among the shown columns).
+	const cardFields = cardFieldIds(def).flatMap((id) => result.known.get(id) ?? []);
 	const collapsed = new Set(board.collapsedBuckets);
 	const shownOf = (cellKey: string) => pages[cellKey] ?? BUCKET_PAGE;
 

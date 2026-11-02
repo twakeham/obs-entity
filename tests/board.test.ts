@@ -154,7 +154,8 @@ describe("card fields", () => {
 	it("default to the table's first four columns, without the bucket and swimlane columns", () => {
 		const def = view({ columns: ["name", "status", "owner", "due", "client", "team", "start"], board: { buckets: "status", swimlanes: "owner" } });
 		expect(cardFieldIds(def)).toEqual(["due", "client", "team", "start"]);
-		expect(cardFieldIds({ ...def, board: { ...def.board!, cardFields: ["status", "team", "name", "description"] } })).toEqual(["team", "description"]);
+		// Picked fields are shown as picked, the bucket and swimlane columns included.
+		expect(cardFieldIds({ ...def, board: { ...def.board!, cardFields: ["status", "team", "name", "owner", "description"] } })).toEqual(["status", "team", "owner", "description"]);
 	});
 
 	it("run as name, the card fields and the bucket column, grouped by the swimlane only", () => {
