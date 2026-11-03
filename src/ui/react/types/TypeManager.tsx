@@ -36,18 +36,21 @@ import { EditorContext, type EditorApi, type EditorTab } from "./editor";
 import { FieldsTab } from "./FieldsTab";
 import { GeneralTab } from "./GeneralTab";
 import { LayoutTab } from "./LayoutTab";
-import { PreviewPanel, type PreviewMode } from "./Preview";
 import { AddRelationshipDialog, RelationshipsTab } from "./RelationshipsTab";
 
 export interface TypesState {
 	/** a saved type's key, "new:<n>" for an unsaved type, "group:<key>" / "group:new:<n>" for groups */
 	selected: string | null;
 	tab: EditorTab;
-	previewOpen: boolean;
-	previewMode: PreviewMode;
 }
 
-export const DEFAULT_TYPES_STATE: TypesState = { selected: null, tab: "general", previewOpen: true, previewMode: "dialog" };
+export const DEFAULT_TYPES_STATE: TypesState = { selected: null, tab: "general" };
+
+/** What the side panel previews: the selected type as edited (null when none is), or that a group is selected. */
+export interface PreviewSource {
+	api: EditorApi | null;
+	group: boolean;
+}
 
 /** A field to add to a type's draft when the view opens it (from "Add to type" on a note's extra property). */
 export interface PendingField {
@@ -86,7 +89,20 @@ const tabFor = (at: string): EditorTab =>
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
-export function TypeManager({ state, setState, pendingField: addRequest, onPendingDone }: { state: TypesState; setState: (p: Partial<TypesState>) => void; pendingField?: PendingField | null; onPendingDone?: () => void }) {
+export function TypeManager({
+	state,
+	setState,
+	pendingField: addRequest,
+	onPendingDone,
+	onPreview,
+}: {
+	state: TypesState;
+	setState: (p: Partial<TypesState>) => void;
+	pendingField?: PendingField | null;
+	onPendingDone?: () => void;
+	/** called after every render with what the side panel's preview shows */
+	onPreview?: (source: PreviewSource) => void;
+}) {
 	const plugin = usePlugin();
 	const version = useRelationsVersion();
 	const settings = plugin.settings;
@@ -429,6 +445,8 @@ export function TypeManager({ state, setState, pendingField: addRequest, onPendi
 				sample,
 			}
 		: null;
+	// The side panel previews the type being edited, including unsaved changes.
+	useEffect(() => onPreview?.({ api, group: !!groupDraft }));
 
 	const dirty = draft ? isDirty(draft) : false;
 	const q = search.trim().toLowerCase();
@@ -564,6 +582,9 @@ export function TypeManager({ state, setState, pendingField: addRequest, onPendi
 										)}
 									</div>
 								</div>
+								<button type="button" className="oe-tm-previewbtn" title="Show the preview in the side panel" onClick={() => void plugin.activateSidePanel()}>
+									<Icon name="eye" /> Preview
+								</button>
 							</div>
 							<nav className="oe-tm-tabs" role="tablist">
 								{TABS.map((tab) => {
@@ -631,8 +652,6 @@ export function TypeManager({ state, setState, pendingField: addRequest, onPendi
 								)}
 							</div>
 						)}
-
-						<PreviewPanel open={state.previewOpen} setOpen={(v) => setState({ previewOpen: v })} mode={state.previewMode} setMode={(m) => setState({ previewMode: m })} />
 					</main>
 					{wizard && <AddRelationshipDialog onClose={() => setWizard(false)} />}
 				</EditorContext.Provider>

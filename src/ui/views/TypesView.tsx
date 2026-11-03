@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import type EntitiesPlugin from "../../main";
 import type { FieldDef } from "../../model/types";
 import { PluginContext } from "../react/context";
-import { DEFAULT_TYPES_STATE, TypeManager, type PendingField, type TypesState } from "../react/types/TypeManager";
+import { DEFAULT_TYPES_STATE, TypeManager, type PendingField, type PreviewSource, type TypesState } from "../react/types/TypeManager";
 
 export const TYPES_VIEW = "obs-entities-types";
 
@@ -40,7 +40,23 @@ export class TypesView extends ItemView {
 	async onClose(): Promise<void> {
 		this.root?.unmount();
 		this.root = null;
+		this.publish({ api: null, group: false });
 	}
+
+	/** The selected type as edited, for the side panel's preview. */
+	preview: PreviewSource = { api: null, group: false };
+	private watchers = new Set<() => void>();
+
+	/** Follow `preview`; returns the function to stop. */
+	onPreview(fn: () => void): () => void {
+		this.watchers.add(fn);
+		return () => this.watchers.delete(fn);
+	}
+
+	private publish = (source: PreviewSource): void => {
+		this.preview = source;
+		for (const fn of this.watchers) fn();
+	};
 
 	getState(): Record<string, unknown> {
 		const { selected, ...rest } = this.state;
@@ -50,9 +66,8 @@ export class TypesView extends ItemView {
 
 	async setState(state: unknown, result: ViewStateResult): Promise<void> {
 		if (state && typeof state === "object") {
-			this.state = { ...DEFAULT_TYPES_STATE, ...this.state, ...(state as Partial<TypesState>) };
-			// The info card preview became the properties form preview.
-			if ((this.state.previewMode as string) === "card") this.state.previewMode = "form";
+			const { selected, tab } = { ...DEFAULT_TYPES_STATE, ...this.state, ...(state as Partial<TypesState>) };
+			this.state = { selected, tab };
 			this.render();
 		}
 		await super.setState(state, result);
@@ -75,7 +90,7 @@ export class TypesView extends ItemView {
 	private render(): void {
 		this.root?.render(
 			<PluginContext.Provider value={this.plugin}>
-				<TypeManager state={this.state} setState={this.update} pendingField={this.pending} onPendingDone={() => (this.pending = null)} />
+				<TypeManager state={this.state} setState={this.update} pendingField={this.pending} onPendingDone={() => (this.pending = null)} onPreview={this.publish} />
 			</PluginContext.Provider>,
 		);
 	}

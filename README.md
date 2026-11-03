@@ -131,7 +131,7 @@ Opened from:
 - **Relationships:** a diagram, links from and to this type (click to jump to the field), and a guided **Add relationship** dialog with a plain-English summary.
 - **Display:** parent fields (for the hierarchy), subtitle fields, and the properties form's **Hide empty fields** option.
 - **Layout:** design the properties form and create dialog by drag and drop.
-  - **Palette** (left): the type's fields, the built-in properties (with the note's Name) and the read-only items (Type, Subtitle, Type + subtitle, Created, Modified); placed ones are greyed (click one to find it); and the components: Frame, 2/3/4 columns, Tabs, Heading, Text. Drag one onto the layout, or click it to add it next to what's selected.
+  - **Palette** (left): the type's fields, the built-in properties (with the note's Name) and the read-only items (Type, Subtitle, Type + subtitle, Created, Modified); placed ones are greyed (click one to find it); and the components: Frame, 2/3/4 columns, Tabs, Heading, Text. Drag one onto the layout, or click it to add it next to what's selected. Click a section's heading (Fields, Properties, Read-only, Layout) to fold it away; a folded heading shows how many of its items are placed. Folded sections are remembered per type on this device.
   - **Layout** (middle): looks like the form. Drag things to move them; a line shows where they'll land. Drag one back to the palette, or press Delete, to remove it (fields go back to the palette).
     - Drag frames into columns to put them side by side.
     - **Tabs:** click a tab to edit what's in it, **+** adds one, drag a tab along the strip to reorder it, and hover over a tab while dragging to open it (or drop on the tab itself).
@@ -139,7 +139,7 @@ Opened from:
   - **Keyboard:** Tab or ↑/↓ to move between items, Alt+↑/↓ to move the selected one, Delete to remove it, the context-menu key or ⋯ for **Move to…** and **Add field here…**, Ctrl/Cmd+Z to undo and Ctrl/Cmd+Shift+Z to redo. On a tab: ←/→ switches tabs, Alt+←/→ moves the tab.
   - **Start from fields** puts every field in one frame. **Reset layout** goes back to the plain list. Changes are part of the type's draft, so Save or Discard them as usual.
 
-**Preview:** Create dialog, Picker row and Properties form. It uses the existing note with the most values, or made-up values.
+**Preview:** shown in the side panel (right sidebar) while the editor is the active tab; the header's **Preview** button opens it. Switch between **Dialog** (the create dialog), **Picker** (the link-picker row) and **Form** (the properties form). It updates as you edit, before you save, and uses the existing note with the most values, or made-up values.
 
 **Saving:**
 - Edits are drafts until you press **Save**. Drafts survive switching types.
@@ -329,7 +329,7 @@ Any view can also be shown as a **board**: cards in **buckets**, one per value o
 | Create *type* | One command per type |
 | Find entity | Entity-only switcher. `person: ada`, `people:` or a shortcut like `p ada` filters by type |
 | Open entity browser | Left sidebar tree of entities (also a ribbon icon) |
-| Open connections panel | Right sidebar panel for the open note (also a ribbon icon and a button on the properties form) |
+| Open side panel (connections, preview) | The plugin's right-sidebar panel (also a ribbon icon and a button on the properties form) |
 | Configure entity types | The Entity types view, opened on the open note's type (also a ribbon icon, settings button and file menu) |
 | Convert current note to entity | Adds the type's fields to an existing note (existing values win). Also in the file menu, and as "Change type…" on entities |
 | Check entities | Lists every entity whose values don't fit its type, with the problems; choose one to open it |
@@ -355,9 +355,16 @@ Only the forward link is stored, e.g. Ada's `works_for: "[[Acme Ltd]]"`. The oth
 - **Links to notes that don't exist yet** show as dashed chips. Clicking one creates the note.
 - **Body links** that aren't relationships are listed under "Mentioned in" in the panel.
 
-### Connections panel
+### Side panel
 
-The right sidebar is the main place to see a note's links. It follows the open note:
+The plugin has one panel in the right sidebar. It follows the last active tab in the main area (clicking in the sidebar doesn't change it), and its tab icon and name change to match:
+- **A note:** its **Connections** (below).
+- **The Entity types editor:** the selected type's **Preview** (see [Entity types view](#entity-types-view)). With a group selected it asks you to pick a type.
+- **Anything else** (entity views, other plugins' tabs, images…): "Nothing to show here".
+
+### Connections
+
+The side panel is the main place to see a note's links:
 - **Header:** the type icon, the note's name and its type. No field values; those are in the properties form.
 - **Filter box**, plus **+ Link**: pick a field, then the target (or create it), then a label if the field has labels.
 - **Groups:** collapsible, with counts and a direction arrow (→ set here, ← set on the other note, ⇄ both ways).
@@ -425,7 +432,7 @@ src/
   ui/react/table/            EntityTable (toolbar, virtual rows, editing; hosts the board too), cells, popovers (filters, sort, group, columns)
   ui/react/board/            Board (buckets, swimlanes, cards, pointer drag and drop, keyboard), Buckets and Swimlanes panels
   ui/react/types/            Entity types view: TypeManager (sidebar, group editor, save), General/Fields/Relationships/Display/Layout tabs, Preview, controls
-  ui/views/                  BrowserView (left sidebar), ConnectionsView (right sidebar), TypesView (main area), EntityViewView (view notes as full tabs), viewBlock (renders entity-view blocks in notes)
+  ui/views/                  BrowserView (left sidebar), SidePanelView (right sidebar: connections or type preview), TypesView (main area), EntityViewView (view notes as full tabs), viewBlock (renders entity-view blocks in notes)
 tests/                       model, relations, typeEditing, tree, form, views, viewBlock, formats, formula, bulk, board and form layout tests
 styles.css                   all classes prefixed `oe-`
 ```

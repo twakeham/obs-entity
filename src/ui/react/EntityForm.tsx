@@ -736,7 +736,7 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 								<Icon name={editing ? "check" : "pencil"} />
 							</button>
 						)}
-						<button type="button" className="clickable-icon" aria-label="Open connections panel" onClick={() => void plugin.activateConnectionsView()}>
+						<button type="button" className="clickable-icon" aria-label="Open connections panel" onClick={() => void plugin.activateSidePanel()}>
 							<Icon name="waypoints" />
 						</button>
 						<button type="button" className="clickable-icon" aria-label="More options" onClick={headerMenu}>

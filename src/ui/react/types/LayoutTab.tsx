@@ -132,6 +132,23 @@ class PlaceModal extends FuzzySuggestModal<string> {
 	}
 }
 
+/** Palette sections that are folded away, per type, in the vault's local storage. */
+const PALETTE_STORAGE = "obs-entities-layout-palette";
+type PalSection = "fields" | "properties" | "readonly" | "layout";
+function foldedSections(app: App, typeKey: string | undefined): Set<PalSection> {
+	const all: unknown = typeKey ? app.loadLocalStorage(PALETTE_STORAGE) : null;
+	const list = all && typeof all === "object" ? (all as Record<string, unknown>)[typeKey!] : null;
+	return new Set(Array.isArray(list) ? (list.filter((x) => typeof x === "string") as PalSection[]) : []);
+}
+function saveFolded(app: App, typeKey: string | undefined, folded: Set<PalSection>): void {
+	if (!typeKey) return;
+	const all: unknown = app.loadLocalStorage(PALETTE_STORAGE);
+	const next: Record<string, unknown> = { ...(all && typeof all === "object" ? (all as Record<string, unknown>) : {}) };
+	if (folded.size) next[typeKey] = [...folded];
+	else delete next[typeKey];
+	app.saveLocalStorage(PALETTE_STORAGE, next);
+}
+
 /**
  * The Layout tab: a palette (fields not placed yet, and components), a canvas laid out like the form, and the
  * selected part's settings. Drag to place and move; drag back to the palette (or Delete) to remove. Keyboard:
@@ -155,6 +172,16 @@ export function LayoutTab() {
 	const paletteRef = useRef<HTMLDivElement>(null);
 	/** a selector to focus after the next render */
 	const focusNext = useRef<string | null>(null);
+	const savedKey = draft.original?.key;
+	const [folded, setFolded] = useState(() => foldedSections(plugin.app, savedKey));
+	useEffect(() => setFolded(foldedSections(plugin.app, savedKey)), [plugin, savedKey]);
+	const toggleSection = (id: PalSection) =>
+		setFolded((cur) => {
+			const next = new Set(cur);
+			if (!next.delete(id)) next.add(id);
+			saveFolded(plugin.app, savedKey, next);
+			return next;
+		});
 
 	const selected = sel ? nodeAt(base, sel) : null;
 	const selGroup = selTab ? nodeAt(base, selTab.group) : null;
@@ -1021,6 +1048,27 @@ export function LayoutTab() {
 		);
 	};
 	const builtinKeys = placeable.filter((k) => !fieldOf(k) && !READ_ONLY_ITEMS.includes(k));
+	const fieldsLeft = notPlaced.filter((k) => fieldOf(k)).length;
+	/** a folded section's note of what's in it */
+	const placedOf = (keys: readonly string[]) => {
+		const n = keys.filter((k) => placedAt.has(k)).length;
+		return n ? `${n} of ${keys.length} placed` : `${keys.length} items`;
+	};
+	/** A palette section whose title folds it away (remembered per type). Counts show on Fields always, others when folded. */
+	const palSection = (id: PalSection, title: string, note: string | null, body: ReactNode) => {
+		const open = !folded.has(id);
+		const shown = id === "fields" || !open ? note : null;
+		return (
+			<div className={`oe-ld-pal-section${open ? "" : " is-folded"}`} data-section={id}>
+				<button type="button" className="oe-ld-pal-title" aria-expanded={open} onClick={() => toggleSection(id)}>
+					<Icon name="chevron-right" className="oe-ld-pal-chevron" />
+					<span className="oe-ld-pal-name">{title}</span>
+					{shown && <span className="oe-tm-muted">{shown}</span>}
+				</button>
+				{open && body}
+			</div>
+		);
+	};
 
 	// ---- settings of the selection
 	const props = (): ReactNode => {
@@ -1389,30 +1437,41 @@ export function LayoutTab() {
 						<Icon name="trash-2" /> Drop here to remove
 					</div>
 				)}
-				<div className="oe-ld-pal-title">
-					Fields <span className="oe-tm-muted">{notPlaced.filter((k) => fieldOf(k)).length ? `${notPlaced.filter((k) => fieldOf(k)).length} not placed yet` : "all placed"}</span>
-				</div>
-				{type.fields.length ? type.fields.map((f) => paletteField(f.key)) : <div className="oe-tm-muted oe-ld-note">No fields yet.</div>}
-				<div className="oe-ld-pal-title">Properties</div>
-				{builtinKeys.map(paletteField)}
-				<div className="oe-ld-pal-title">Read-only</div>
-				{READ_ONLY_ITEMS.map(paletteField)}
-				<p className="oe-tm-muted oe-ld-note">Not placed, the name is the note's title, status, type and subtitle are in the form's top line, and the others are at the end.</p>
-				<div className="oe-ld-pal-title">Layout</div>
-				{COMPONENTS.map((c) => (
-					<button
-						key={c.kind}
-						type="button"
-						className="oe-ld-pal-item is-component"
-						data-component={c.kind}
-						title={`${c.desc}. Drag onto the layout, or click to add it.`}
-						onPointerDown={(e) => startPointer(e, { from: "palette", node: blankNode(c.kind) })}
-						onClick={() => !justDragged.current && add(blankNode(c.kind))}
-					>
-						<Icon name={c.icon} />
-						<span className="oe-ld-pal-label">{c.label}</span>
-					</button>
-				))}
+				{palSection(
+					"fields",
+					"Fields",
+					fieldsLeft ? `${fieldsLeft} not placed yet` : "all placed",
+					type.fields.length ? type.fields.map((f) => paletteField(f.key)) : <div className="oe-tm-muted oe-ld-note">No fields yet.</div>,
+				)}
+				{palSection("properties", "Properties", placedOf(builtinKeys), builtinKeys.map(paletteField))}
+				{palSection(
+					"readonly",
+					"Read-only",
+					placedOf(READ_ONLY_ITEMS),
+					<>
+						{READ_ONLY_ITEMS.map(paletteField)}
+						<p className="oe-tm-muted oe-ld-note">Not placed, the name is the note's title, status, type and subtitle are in the form's top line, and the others are at the end.</p>
+					</>,
+				)}
+				{palSection(
+					"layout",
+					"Layout",
+					folded.has("layout") ? `${COMPONENTS.length} items` : null,
+					COMPONENTS.map((c) => (
+						<button
+							key={c.kind}
+							type="button"
+							className="oe-ld-pal-item is-component"
+							data-component={c.kind}
+							title={`${c.desc}. Drag onto the layout, or click to add it.`}
+							onPointerDown={(e) => startPointer(e, { from: "palette", node: blankNode(c.kind) })}
+							onClick={() => !justDragged.current && add(blankNode(c.kind))}
+						>
+							<Icon name={c.icon} />
+							<span className="oe-ld-pal-label">{c.label}</span>
+						</button>
+					)),
+				)}
 			</aside>
 
 			<div className="oe-ld-main">

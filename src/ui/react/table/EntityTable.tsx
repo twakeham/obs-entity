@@ -672,7 +672,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 				.setIcon("waypoints")
 				.onClick(async () => {
 					await app.workspace.openLinkText(entity.path, "", false);
-					await plugin.activateConnectionsView();
+					await plugin.activateSidePanel();
 				}),
 		);
 		m.addItem((i) =>

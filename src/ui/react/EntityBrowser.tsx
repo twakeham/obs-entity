@@ -453,7 +453,7 @@ function TreeRow({
 				.setIcon("waypoints")
 				.onClick(async () => {
 					await app.workspace.openLinkText(e.path, "", false);
-					await plugin.activateConnectionsView();
+					await plugin.activateSidePanel();
 				}),
 		);
 		app.workspace.trigger("file-menu", m, e.file as TFile, "obs-entities-browser");

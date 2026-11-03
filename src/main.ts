@@ -18,7 +18,7 @@ import { CreateEntityModal } from "./ui/modals/createEntityModal";
 import { EntitySwitcherModal } from "./ui/modals/entitySwitcherModal";
 import { ImportPackModal } from "./ui/modals/importPackModal";
 import { HOVER_SOURCE } from "./ui/react/EntityChip";
-import { CONNECTIONS_VIEW, ConnectionsView } from "./ui/views/ConnectionsView";
+import { SIDE_PANEL_VIEW, SidePanelView } from "./ui/views/SidePanelView";
 import { BROWSER_VIEW, BrowserView } from "./ui/views/BrowserView";
 import type { EntityRecord } from "./services/entityIndex";
 import { TYPES_VIEW, TypesView } from "./ui/views/TypesView";
@@ -89,7 +89,7 @@ export default class EntitiesPlugin extends Plugin {
 		this.registerEvent(this.app.vault.on("delete", (file) => this.formHistory.clear(file.path)));
 		this.app.workspace.onLayoutReady(() => this.syncPropertyTypes());
 
-		this.registerView(CONNECTIONS_VIEW, (leaf) => new ConnectionsView(leaf, this));
+		this.registerView(SIDE_PANEL_VIEW, (leaf) => new SidePanelView(leaf, this));
 		this.registerView(TYPES_VIEW, (leaf) => new TypesView(leaf, this));
 		this.registerView(BROWSER_VIEW, (leaf) => new BrowserView(leaf, this));
 		this.registerView(ENTITY_VIEW, (leaf) => new EntityViewView(leaf, this));
@@ -103,7 +103,7 @@ export default class EntitiesPlugin extends Plugin {
 		this.addSettingTab(new EntitiesSettingTab(this.app, this));
 		this.addRibbonIcon("book-plus", "Entities: create entity", () => this.openCreateModal(null));
 		this.addRibbonIcon("library", "Entities: entity browser", () => void this.activateBrowser());
-		this.addRibbonIcon("waypoints", "Entities: connections", () => void this.activateConnectionsView());
+		this.addRibbonIcon("waypoints", "Entities: side panel (connections, preview)", () => void this.activateSidePanel());
 		this.addRibbonIcon("shapes", "Entities: entity types", () => void this.activateTypes());
 
 		this.addCommand({
@@ -118,8 +118,8 @@ export default class EntitiesPlugin extends Plugin {
 		});
 		this.addCommand({
 			id: "open-connections",
-			name: "Open connections panel",
-			callback: () => void this.activateConnectionsView(),
+			name: "Open side panel (connections, preview)",
+			callback: () => void this.activateSidePanel(),
 		});
 		this.addCommand({
 			id: "open-browser",
@@ -250,14 +250,14 @@ export default class EntitiesPlugin extends Plugin {
 		}
 	}
 
-	/** Show the Connections panel in the right sidebar (reusing an existing one). */
-	async activateConnectionsView(): Promise<void> {
+	/** Show the side panel (connections, type preview) in the right sidebar, reusing the existing one. */
+	async activateSidePanel(): Promise<void> {
 		const { workspace } = this.app;
-		let leaf = workspace.getLeavesOfType(CONNECTIONS_VIEW)[0];
+		let leaf = workspace.getLeavesOfType(SIDE_PANEL_VIEW)[0];
 		if (!leaf) {
 			const right = workspace.getRightLeaf(false);
 			if (!right) return;
-			await right.setViewState({ type: CONNECTIONS_VIEW, active: true });
+			await right.setViewState({ type: SIDE_PANEL_VIEW, active: true });
 			leaf = right;
 		}
 		await loadIfDeferred(leaf);

@@ -10,38 +10,34 @@ import { useEditor } from "./editor";
 
 export type PreviewMode = "dialog" | "picker" | "form";
 
-export function PreviewPanel({ open, setOpen, mode, setMode }: { open: boolean; setOpen: (v: boolean) => void; mode: PreviewMode; setMode: (m: PreviewMode) => void }) {
-	const { sample } = useEditor();
+/** The type editor's preview, shown in the side panel while the editor is the active tab. */
+export function PreviewPane({ mode, setMode }: { mode: PreviewMode; setMode: (m: PreviewMode) => void }) {
+	const { draft, sample } = useEditor();
+	const t = draft.type;
 	return (
-		<div className={`oe-tm-preview${open ? " is-open" : ""}`}>
-			<div className="oe-tm-preview-head">
-				<button className="oe-tm-preview-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
-					<Icon name={open ? "chevron-down" : "chevron-up"} />
-					Preview
-				</button>
-				{open && (
-					<>
-						<Segmented
-							label="Preview"
-							value={mode}
-							onChange={setMode}
-							options={[
-								{ value: "dialog", label: "Create dialog", icon: "square-pen" },
-								{ value: "picker", label: "Picker row", icon: "search" },
-								{ value: "form", label: "Properties form", icon: "panel-top" },
-							]}
-						/>
-						<span className="oe-tm-muted oe-tm-preview-source">{sample.fromNote ? <>Using “{sample.name}”</> : "Using made-up values"}</span>
-					</>
-				)}
-			</div>
-			{open && (
-				<div className="oe-tm-preview-body">
-					{mode === "dialog" && <DialogPreview />}
-					{mode === "picker" && <PickerPreview />}
-					{mode === "form" && <FormPreviewPane />}
+		<div className="oe-panel oe-preview-pane">
+			<div className="oe-panel-header" style={{ "--oe-type-color": t.color } as CSSProperties}>
+				<Icon name={t.icon} className="oe-type-icon oe-type-icon-lg" />
+				<div className="oe-panel-title">
+					<div className="oe-panel-name">{t.name || "New type"}</div>
+					<div className="oe-panel-meta">Preview{sample.fromNote ? <> · using “{sample.name}”</> : " · made-up values"}</div>
 				</div>
-			)}
+			</div>
+			<Segmented
+				label="Preview"
+				value={mode}
+				onChange={setMode}
+				options={[
+					{ value: "dialog", label: "Dialog", icon: "square-pen" },
+					{ value: "picker", label: "Picker", icon: "search" },
+					{ value: "form", label: "Form", icon: "panel-top" },
+				]}
+			/>
+			<div className="oe-preview-body" data-mode={mode}>
+				{mode === "dialog" && <DialogPreview />}
+				{mode === "picker" && <PickerPreview />}
+				{mode === "form" && <FormPreviewPane />}
+			</div>
 		</div>
 	);
 }

@@ -27,7 +27,7 @@ It is distilled from **Story Forge**, a worldbuilding / tabletop campaign plugin
    2. [Create Entity dialog](#82-create-entity-dialog)
    3. [Entity Browser](#83-entity-browser)
    4. [Entity properties form](#84-entity-properties-form)
-   5. [Connections panel](#85-connections-panel)
+   5. [Side panel and Connections](#85-side-panel-and-connections)
    6. [Find entity (switcher)](#86-find-entity-switcher)
    7. [Convert, commands, menus, ribbon](#87-convert-commands-menus-ribbon)
    8. [Settings tab](#88-settings-tab)
@@ -370,7 +370,7 @@ Notes that link to this note in their body (from `metadataCache.resolvedLinks`) 
 ┌──────────────────────────────────────────────────────────────────────┐
 │ UI (React 19 inside Obsidian ItemViews / Modals / injected elements) │
 │  EntityTypesView · CreateEntityModal · BrowserView · EntityForm ·      │
-│  ConnectionsView · SwitcherModal · SettingTab                        │
+│  SidePanelView · SwitcherModal · SettingTab                          │
 ├──────────────────────────────────────────────────────────────────────┤
 │ Services (talk to Obsidian)                                          │
 │  EntityIndex · RelationIndex · EntityFactory · TemplateStore ·       │
@@ -413,7 +413,7 @@ src/
     react/types/                Entity Types view: TypeManager, tabs, controls, preview
     modals/                     CreateEntityModal, EntitySwitcherModal, AddRelationModal, ConfirmModal
     components/                 EntitySuggest (inline picker), TypePickerModal, EntityPickModal
-    views/                      TypesView, BrowserView, ConnectionsView (+ GraphView optional)
+    views/                      TypesView, BrowserView, SidePanelView (+ GraphView optional)
     header/                     InfoCardManager (Live Preview + Reading view injection)
 tests/                          vitest unit tests for model/*
 styles.css                      all styles, `oe-` prefixed
@@ -519,10 +519,10 @@ A main-area tab, opened from:
 │              │ ──────────────────────────────────────────────────── │
 │              │ ● Unsaved changes   [x] Also update 12 notes …       │
 │              │                                  [Discard] [Save]    │
-│              │ ▾ Preview  [Dialog][Picker][Form]  Using "Ada"   │
-│              │   …preview…                                          │
 └──────────────┴──────────────────────────────────────────────────────┘
 ```
+
+The header also has a **Preview** button: the preview is in the side panel (§8.5), not in this view.
 
 #### Type list (left)
 
@@ -616,6 +616,7 @@ New in Obsidian Entities.
 
 The form layout designer (§8.4 Custom layouts), `LayoutTab.tsx`. Three panes; under about 820px the settings pane moves below the layout.
 - **Palette:** the type's fields in field order, then the built-in properties (status, related, tags, aliases, order with parent fields, and the note's name), then **Read-only** (type, subtitle, type + subtitle, created, modified), then the components (Frame, 2/3/4 columns, Tabs, Heading, Text). Placed properties are greyed with a tick; clicking one selects its slot. Dragging an unplaced one, or a component, onto the layout places it; clicking it adds it where the selection is (`insertionPoint`: into a selected frame, the open tab of a selected tab group (or the selected tab), or the shortest column of selected columns that can hold it; else after the selection in the nearest list that can hold it; else at the end).
+  - **Sections** (Fields, Properties, Read-only, Layout) fold away from their headings (a chevron button with `aria-expanded`). Fields always shows "N not placed yet" / "all placed"; a folded section shows "N of M placed" (or "M items"). Folded sections are kept per saved type in the vault's local storage (`obs-entities-layout-palette`: type key → section ids); an unsaved type's start open and aren't stored.
 - **Layout:** drawn like the form, with placeholder controls (the field kind), required stars, a frame's caption and "not in the create dialog" badge, and the "Other fields" that aren't placed. Slots for keys the type doesn't have, or repeats, are flagged (`slotProblems`). Empty frames, columns and tabs say what can be dropped there. A tab group shows its tab strip (with **+** to add a tab) and the open tab's contents; clicking a tab opens and selects it. Without a layout it offers **Start from fields** and **Start with an empty frame**; dropping anything starts one.
 - **Dragging** uses pointer events (mouse, pen; touch after a long press), with a ghost of the item, a drop line between rows (or a highlighted empty list), auto-scroll near the edges, and Esc to cancel. The target is the nearest list under the pointer that can hold the item (by the nesting rules, and not inside itself). Dropping on a tab header puts the item in that tab, and hovering over one for half a second opens it. Dragging a tab header moves the tab along its strip or to another group's strip. Dropping a node on the palette removes it.
 - **Settings pane:** frame (caption, can be collapsed, starts collapsed, show in the create dialog, icon, accent colour swatches (none, the type's, the palette), style Box / Plain / Filled, header Plain / Soft / Solid, **Show only when**, "Remove frame, keep contents", "Remove with contents"); columns (2/3/4, with what's in dropped columns moving to the last one; relative widths 1–12, **Equal**); tab group (its tabs, click to select one, ↑/↓ to reorder, **Add tab**, "Remove tabs, keep contents", "Remove with contents"); tab (caption, icon or **No icon**, show in the create dialog, **Show only when**, "Remove tab, keep contents" (they go to the top level after the group), "Remove with contents"); field (label Above / Beside / Hidden, custom label, placeholder (where the control has one), help text None / Description / Custom with a box, height Auto / Short / Medium / Tall for long text, read-only on this form, **Show only when**, **Edit field** opens it on the Fields tab, remove). The canvas shows the custom label, placeholder, help text, a lock for read-only, a struck-through hidden label, a frame's icon, accent and style (plain frames get a dashed outline so they can still be seen), and an eye badge with a summary of any "show only when" (orange when a condition uses a field that's gone). The **Show only when** editor is the view filter panel without nested groups: Field ▾ Operator ▾ Value rows, all / any, × to remove; with no conditions the thing is always shown; heading and text. With nothing selected: **Hide fields that aren't placed** and a count of unplaced fields.
@@ -650,9 +651,9 @@ The form layout designer (§8.4 Custom layouts), `LayoutTab.tsx`. Three panes; u
 - Deleted keys are removed only when that option is ticked and no current field uses the key.
 - Return whether anything changed. Only write notes that actually hold the affected keys.
 
-#### Preview panel
+#### Preview
 
-A collapsible panel at the bottom, with its state saved in the view. Modes, in order:
+Shown in the **side panel** (§8.5) while the types view is the active main-area tab; the header's **Preview** button reveals it. The panel shows the selected type's icon and name, where the values come from ("using “Ada”" or "made-up values"), and a **Dialog / Picker / Form** switch (saved in the panel's view state). It updates on every edit, before saving: after each render `TypeManager` hands its `EditorApi` (or null, and whether a group is selected) to its `TypesView`, which tells the side panel; the panel renders the preview inside that `EditorContext`. Modes:
 - **Create dialog:** which fields show (create-dialog, required and subtitle fields), and how many are under "Show more fields". Required fields get an asterisk.
 - **Picker row:** how a note of this type looks in link pickers and the switcher (icon, name, subtitle and type).
 - **Properties form:** the form as it shows on a note of this type (read-only), with the sample's values and real chips.
@@ -973,10 +974,17 @@ It doesn't move the file. If the folder pattern puts the new type somewhere else
 - [x] Ctrl/Cmd+Z undoes form edits (including chip removals) without touching the note body.
 - [x] Change type keeps values, moves unused fields to Other properties and offers to move the file.
 
-### 8.5 Connections panel
+### 8.5 Side panel and Connections
 
-A right-sidebar view (ribbon `waypoints`) that **follows the active note**: on `file-open`, ignoring non-Markdown files, and handling renames and deletes.
+The plugin has **one right-sidebar view** (ribbon `waypoints`; view id `obs-entities-connections`, kept from the old Connections panel so a saved Connections tab opens as this panel). It **follows the last active main-area tab**: `active-leaf-change` for leaves outside the left and right sidebars (sidebar leaves are ignored), `file-open` for a new note in the same tab, and `layout-change` when the followed tab closes (it then takes `getMostRecentLeaf()`). Renames and deletes re-read the tab. What it shows, with the tab's name and icon to match (`updateHeader`):
 
+| Active tab | Panel |
+|---|---|
+| A Markdown note (or an empty tab) | **Connections** for the note (below) |
+| The Entity types view | **Preview** of the selected type as edited (§8.1 Preview); "Select a type to preview it" when none is, or a group is |
+| Anything else (entity views, images, PDFs, other plugins) | "Nothing to show here" |
+
+**Connections:**
 - **Header:** type icon, name (click to open) and type name only. The panel shows **connections only**: no status, subtitle or field values (those are in the properties form).
 - **Filter box:** "Filter N connections…" (matches names and group titles), and **+ Link**, which opens the Add Link dialog:
   1. Choose a field, among this type's relation fields plus `related`.
@@ -1005,7 +1013,7 @@ The command **Find entity** opens a `SuggestModal` over entities only.
 | Create <type> | One command per type (§11) |
 | Find entity | Switcher |
 | Open entity browser | Left sidebar |
-| Open connections panel | Right sidebar |
+| Open side panel (connections, preview) | Right sidebar (§8.5); id `open-connections` |
 | Check entities | Lists entities whose values don't fit their type (§8.4) |
 | New entity view (table or board) | Name + source + layout → a view note in the views folder (§8.10) |
 | Open entity view… | Picker of view notes |
