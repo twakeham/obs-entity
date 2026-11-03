@@ -511,7 +511,7 @@ A main-area tab, opened from:
 ```
 ┌──────────────┬──────────────────────────────────────────────────────┐
 │ [Search…][+] │  (icon) Person      ● Unsaved changes [Discard]      │
-│ PEOPLE       │  People · 42 notes · custom · person     [Save] [👁] │
+│ PEOPLE       │  People · 42 notes · custom · person          [Save] │
 │  ● Person 42 │  [General] [Fields 9] [Relationships 4] [Display]    │
 │    Team   6  │ ──────────────────────────────────────────────────── │
 │ PLACES       │   … tab content (scrolls) …                          │
@@ -519,7 +519,7 @@ A main-area tab, opened from:
 └──────────────┴──────────────────────────────────────────────────────┘
 ```
 
-The header's top right holds the save controls (while there are unsaved changes) and the **eye** (preview) toggle: the preview is in the side panel (§8.5), not in this view.
+The header's top right holds the save controls while there are unsaved changes. The preview is in the side panel (§8.5), not in this view.
 
 #### Type list (left)
 
@@ -628,7 +628,7 @@ The form layout designer (§8.4 Custom layouts), `LayoutTab.tsx`. Three panes; u
   - Each type being edited has a draft: a working copy, the saved original, and a parallel list of `{uid, origKey}` for each field.
   - Drafts survive switching types and closing the view for the rest of the session (keep them on the plugin instance).
   - A draft counts as dirty when `JSON.stringify(type) !== JSON.stringify(original)`.
-- **Save controls** sit in the header's top right, left of the eye (preview) toggle, while the type is dirty: an orange dot with "Unsaved changes" (or "New type, not saved yet"), the "N problems to fix" link after a Save attempt, **Discard** and **Save**. The group editor has the same controls in its header. When **Save** would affect existing notes (and there's nothing to fix), it opens a confirm dialog first with these options (Save is focused; Esc or Cancel goes back); otherwise it saves straight away:
+- **Save controls** sit in the header's top right while the type is dirty: an orange dot with "Unsaved changes" (or "New type, not saved yet"), the "N problems to fix" link after a Save attempt, **Discard** and **Save**. The group editor has the same controls in its header. When **Save** would affect existing notes (and there's nothing to fix), it opens a confirm dialog first with these options (Save is focused; Esc or Cancel goes back); otherwise it saves straight away:
   - **Renamed field keys:** `☑ Also update N notes: old → new`, ticked by default, with an expandable list of the affected notes.
   - **Deleted fields:** `☐ Remove the values of deleted fields (…) from N notes`, unticked by default.
 - **Validation:**
@@ -650,7 +650,7 @@ The form layout designer (§8.4 Custom layouts), `LayoutTab.tsx`. Three panes; u
 
 #### Preview
 
-Shown in the **side panel** (§8.5) while the types view is the active main-area tab. The header's **eye** button (icon only; its tooltip says Show / Hide the preview) is a toggle: it looks pressed in (darker, with an inset shadow; `aria-pressed`) while the panel is on screen; clicking it then collapses the panel's sidebar, and otherwise reveals the panel (`toggleSidePanel` / `sidePanelShown`, re-checked on layout changes and resizes). The panel shows the selected type's icon and name, where the values come from ("using “Ada”" or "made-up values"), and a **Dialog / Picker / Form** switch (saved in the panel's view state). It updates on every edit, before saving: after each render `TypeManager` hands its `EditorApi` (or null, and whether a group is selected) to its `TypesView`, which tells the side panel; the panel renders the preview inside that `EditorContext`. Modes:
+Shown in the **side panel** (§8.5) while the types view is the active main-area tab. It's opened and closed through Obsidian's sidebar (or the ribbon icon / **Open side panel** command); the editor has no button for it. The panel shows the selected type's icon and name, where the values come from ("using “Ada”" or "made-up values"), and a **Dialog / Picker / Form** switch (saved in the panel's view state). It updates on every edit, before saving: after each render `TypeManager` hands its `EditorApi` (or null, and whether a group is selected) to its `TypesView`, which tells the side panel; the panel renders the preview inside that `EditorContext`. Modes:
 - **Create dialog:** which fields show (create-dialog, required and subtitle fields), and how many are under "Show more fields". Required fields get an asterisk.
 - **Picker row:** how a note of this type looks in link pickers and the switcher (icon, name, subtitle and type).
 - **Properties form:** the form as it shows on a note of this type (read-only), with the sample's values and real chips.

@@ -1,4 +1,4 @@
-import { Keymap, MarkdownView, Notice, Plugin, TFile, WorkspaceLeaf, moment, normalizePath, stringifyYaml, type PaneType, type ViewState, type WorkspaceSidedock } from "obsidian";
+import { Keymap, MarkdownView, Notice, Plugin, TFile, WorkspaceLeaf, moment, normalizePath, stringifyYaml, type PaneType, type ViewState } from "obsidian";
 import type { MomentLike } from "./model/formats";
 import { isoDateAdapter, type DateAdapter } from "./model/dates";
 import type { EntityFormValues, FieldValue } from "./model/frontmatter";
@@ -248,26 +248,6 @@ export default class EntitiesPlugin extends Plugin {
 		for (const [key, type] of Object.entries(propertyTypes(this.settings.types).types)) {
 			if (mtm.getAssignedWidget?.(key) !== type) mtm.setType(key, type);
 		}
-	}
-
-	/** Whether the side panel is on screen (its sidebar is open and it's the sidebar's current tab). */
-	sidePanelShown(): boolean {
-		const { workspace } = this.app;
-		const leaf = workspace.getLeavesOfType(SIDE_PANEL_VIEW)[0];
-		if (!leaf) return false;
-		const root = leaf.getRoot();
-		if ((root === workspace.rightSplit || root === workspace.leftSplit) && (root as WorkspaceSidedock).collapsed) return false;
-		return leaf.view.containerEl.isShown();
-	}
-
-	/** Show the side panel, or hide it (collapsing its sidebar) when it's showing. */
-	async toggleSidePanel(): Promise<void> {
-		if (!this.sidePanelShown()) return this.activateSidePanel();
-		const { workspace } = this.app;
-		const leaf = workspace.getLeavesOfType(SIDE_PANEL_VIEW)[0];
-		const root = leaf.getRoot();
-		if (root === workspace.rightSplit || root === workspace.leftSplit) (root as WorkspaceSidedock).collapse();
-		else leaf.detach();
 	}
 
 	/** Show the side panel (connections, type preview) in the right sidebar, reusing the existing one. */

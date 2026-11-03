@@ -117,14 +117,6 @@ export function TypeManager({
 	const [dragGroup, setDragGroup] = useState<string | null>(null);
 	/** the Save confirm dialog (notes would be affected) is open */
 	const [confirming, setConfirming] = useState(false);
-	/** the side panel (the preview, while this view is active) is showing */
-	const [previewShown, setPreviewShown] = useState(() => plugin.sidePanelShown());
-	useEffect(() => {
-		const ws = plugin.app.workspace;
-		const check = () => setPreviewShown(plugin.sidePanelShown());
-		const refs = [ws.on("layout-change", check), ws.on("resize", check), ws.on("active-leaf-change", check)];
-		return () => refs.forEach((r) => ws.offref(r));
-	}, [plugin]);
 	const [, setTick] = useState(0);
 	/** field to select once a newly opened type is shown */
 	const pendingField = useRef<string | null>(null);
@@ -597,8 +589,8 @@ export function TypeManager({
 										)}
 									</div>
 								</div>
-								<div className="oe-tm-headactions">
-									{dirty && (
+								{dirty && (
+									<div className="oe-tm-headactions">
 										<SaveActions
 											label={draft.original ? "Unsaved changes" : "New type, not saved yet"}
 											problems={issues.length > 0 && attempted.has(selectedId!) ? issues.length : 0}
@@ -606,17 +598,8 @@ export function TypeManager({
 											onDiscard={discard}
 											onSave={requestSave}
 										/>
-									)}
-									<button
-										type="button"
-										className={`oe-tm-previewbtn${previewShown ? " is-active" : ""}`}
-										aria-label={previewShown ? "Hide the preview" : "Show the preview"}
-										aria-pressed={previewShown}
-										onClick={() => void plugin.toggleSidePanel().then(() => setPreviewShown(plugin.sidePanelShown()))}
-									>
-										<Icon name="eye" />
-									</button>
-								</div>
+									</div>
+								)}
 							</div>
 							<nav className="oe-tm-tabs" role="tablist">
 								{TABS.map((tab) => {
