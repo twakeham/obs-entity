@@ -37,9 +37,23 @@ export class EntityIndex extends Events {
 		);
 		this.plugin.registerEvent(
 			app.vault.on("rename", (file, oldPath) => {
+				const old = this.byPath.get(oldPath);
 				const had = this.byPath.delete(oldPath);
-				if (file instanceof TFile && this.update(file)) this.notify();
-				else if (had) this.notify();
+				if (file instanceof TFile) {
+					if (this.update(file)) return this.notify();
+					// The metadata cache may not have the new path yet: keep the entity (a rename doesn't change its
+					// frontmatter) under its new path, and read it again shortly.
+					if (old && file.extension === "md") {
+						this.byPath.set(file.path, { ...old, file, path: file.path, name: file.basename });
+						this.notify();
+						window.setTimeout(() => {
+							const meta = app.metadataCache.getFileCache(file);
+							if (meta && this.update(file, meta)) this.notify();
+						}, 500);
+						return;
+					}
+				}
+				if (had) this.notify();
 			}),
 		);
 		app.workspace.onLayoutReady(() => this.rebuild());

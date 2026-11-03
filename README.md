@@ -56,6 +56,7 @@ On entity notes, a form built from the note's type replaces Obsidian's Propertie
   - Columns at the top level or in a tab can hold frames, to put frames side by side. Columns stack in narrow places such as the sidebar.
   - A form can have several tab groups. The last tab you opened is remembered for each type, a tab with a problem shows a dot, and "N problems" opens the right tab.
   - Status, Related, Tags and Aliases can be placed too. Fields that aren't placed appear under **Other fields** at the end.
+  - **The note itself:** its **Name** (shown large; editing it renames the note) and, read-only, its **Type** (click to change type), **Subtitle**, **Type + subtitle**, **Created** and **Modified** (date and time; hover for how long ago). Their labels are hidden unless you turn them on. Placed, the type and subtitle leave the form's top line. In the create dialog, a placed Name moves the Name box there.
   - **Per slot**, for this form only: a custom label, or no label; placeholder text; help text under the value (the field's description, or your own); a fixed height for long text; and **read-only** (shown with a lock, not editable on notes, though the create dialog, views and bulk edits can still set it).
   - **Frames** can have an icon, an accent colour (the type's or one from the palette), a style (Box, Plain with no border, or Filled) and a coloured **header** bar behind the caption: Soft (a tint) or Solid (the full colour, with white or dark text to suit). The header uses the accent colour, or the type's if there isn't one.
   - **Show only when…:** a frame, tab or field can show only when the note's own values match, e.g. a "Risk details" frame when Likelihood is High. Conditions work like view filters (all or any of them). They update as you edit, in the create dialog too. Values in hidden fields are kept.
@@ -130,7 +131,7 @@ Opened from:
 - **Relationships:** a diagram, links from and to this type (click to jump to the field), and a guided **Add relationship** dialog with a plain-English summary.
 - **Display:** parent fields (for the hierarchy), subtitle fields, and the properties form's **Hide empty fields** option.
 - **Layout:** design the properties form and create dialog by drag and drop.
-  - **Palette** (left): the type's fields and the built-in properties (placed ones are greyed; click one to find it), and the components: Frame, 2/3/4 columns, Tabs, Heading, Text. Drag one onto the layout, or click it to add it next to what's selected.
+  - **Palette** (left): the type's fields, the built-in properties (with the note's Name) and the read-only items (Type, Subtitle, Type + subtitle, Created, Modified); placed ones are greyed (click one to find it); and the components: Frame, 2/3/4 columns, Tabs, Heading, Text. Drag one onto the layout, or click it to add it next to what's selected.
   - **Layout** (middle): looks like the form. Drag things to move them; a line shows where they'll land. Drag one back to the palette, or press Delete, to remove it (fields go back to the palette).
     - Drag frames into columns to put them side by side.
     - **Tabs:** click a tab to edit what's in it, **+** adds one, drag a tab along the strip to reorder it, and hover over a tab while dragging to open it (or drop on the tab itself).

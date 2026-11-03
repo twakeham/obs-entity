@@ -105,6 +105,24 @@ export type LayoutPlace = "root" | "tab" | "frame" | "outer-column" | "inner-col
 
 /** Built-in properties a layout can place. Unplaced, they stay where the form always shows them. */
 export const LAYOUT_BUILTINS = [COMMON_KEYS.status, COMMON_KEYS.related, COMMON_KEYS.tags, COMMON_KEYS.aliases, COMMON_KEYS.order] as const;
+
+/**
+ * Things about the note itself a layout can place ("@" keys can't clash with field keys): its name (editable: it renames
+ * the note), and read-only items. Unplaced, the name is Obsidian's title and the type and subtitle are in the form's
+ * top line.
+ */
+export const NOTE_ITEMS = {
+	name: "@name",
+	type: "@type",
+	subtitle: "@subtitle",
+	typeSubtitle: "@type-subtitle",
+	created: "@created",
+	modified: "@modified",
+} as const;
+export const READ_ONLY_ITEMS: readonly string[] = [NOTE_ITEMS.type, NOTE_ITEMS.subtitle, NOTE_ITEMS.typeSubtitle, NOTE_ITEMS.created, NOTE_ITEMS.modified];
+export const isNoteItem = (key: string) => key.startsWith("@");
+/** Where a slot's label goes: as set, else above (hidden for the note items, which speak for themselves). */
+export const slotLabel = (slot: LayoutField): LabelPosition => slot.label ?? (isNoteItem(slot.key) ? "hidden" : "above");
 export const MIN_COLUMNS = 2;
 export const MAX_COLUMNS = 4;
 
@@ -151,7 +169,8 @@ function readField(raw: unknown): LayoutField | null {
 	const key = typeof raw === "string" ? raw : isObj(raw) && typeof raw.key === "string" ? raw.key : "";
 	if (!key.trim()) return null;
 	if (!isObj(raw)) return { kind: "field", key: key.trim() };
-	const label = raw.label === "beside" || raw.label === "hidden" ? raw.label : undefined;
+	// "above" is the default (so not kept), except for the note items, whose default is hidden.
+	const label = raw.label === "beside" || (raw.label === "hidden" && !isNoteItem(key.trim())) || (raw.label === "above" && isNoteItem(key.trim())) ? raw.label : undefined;
 	const caption = text(raw.caption).trim();
 	const placeholder = text(raw.placeholder).trim();
 	const help = raw.help === "description" ? "description" : isObj(raw.help) && text(raw.help.text).trim() ? { text: text(raw.help.text).trim() } : undefined;
@@ -302,7 +321,7 @@ export function slotHelp(slot: LayoutField | undefined, description: string | un
 /** Keys a type can place: its fields, status, related, tags, aliases, and order when it has parent fields. */
 export function placeableKeys(type: EntityTypeDef): string[] {
 	const builtins = LAYOUT_BUILTINS.filter((k) => k !== COMMON_KEYS.order || !!type.parentFields?.length);
-	return [...type.fields.map((f) => f.key), ...builtins];
+	return [...type.fields.map((f) => f.key), ...builtins, ...Object.values(NOTE_ITEMS)];
 }
 
 /** The layout with every field slot mapped (to none, one or several slots), containers kept. */
@@ -332,6 +351,9 @@ export interface ResolvedLayout {
 	unplacedBuiltins: string[];
 	/** whether status is placed (then it's not in the form's header) */
 	placesStatus: boolean;
+	/** whether the type, and the subtitle, are placed (on their own or as "type + subtitle"; then they leave the top line) */
+	placesType: boolean;
+	placesSubtitle: boolean;
 }
 
 /** The layout as the form shows it for a type. */
@@ -348,6 +370,8 @@ export function resolveLayout(layout: FormLayout, type: EntityTypeDef): Resolved
 		unplaced: type.fields.map((f) => f.key).filter((k) => !seen.has(k)),
 		unplacedBuiltins: [...allowed].filter((k) => !seen.has(k) && !type.fields.some((f) => f.key === k)),
 		placesStatus: seen.has(COMMON_KEYS.status),
+		placesType: seen.has(NOTE_ITEMS.type) || seen.has(NOTE_ITEMS.typeSubtitle),
+		placesSubtitle: seen.has(NOTE_ITEMS.subtitle) || seen.has(NOTE_ITEMS.typeSubtitle),
 	};
 }
 

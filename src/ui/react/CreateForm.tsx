@@ -1,7 +1,7 @@
 import { Notice } from "obsidian";
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { evalWhen, hiddenFields, todayDays, type WhenContext } from "../../model/formConditions";
-import { normaliseLayout, resolveLayout, type LayoutField, type LayoutNode } from "../../model/formLayout";
+import { isNoteItem, normaliseLayout, NOTE_ITEMS, resolveLayout, slotLabel, type LayoutField, type LayoutNode } from "../../model/formLayout";
 import { fromFormFields, isEmptyValue, toFormFields, type EntityFormValues } from "../../model/frontmatter";
 import { COMMON_KEYS, statusesFor, type EntityTypeDef } from "../../model/types";
 import { emptyFormValues } from "../../services/entityFactory";
@@ -123,12 +123,40 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 
 	// ---- rows: the properties form's rows, all editable, descriptions shown
 	const shownKeys = new Set<string>();
+	/** the Name box (at the top, or where the layout places the note's name) */
+	const nameInput = (placeholder?: string) => (
+		<input
+			type="text"
+			className="oe-prop-input oe-create-name"
+			placeholder={placeholder || `${type.name} name`}
+			aria-label="Name"
+			value={state.name}
+			autoFocus={!preview}
+			onChange={(e) => set({ name: e.target.value })}
+			onKeyDown={(e) => {
+				if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+					e.preventDefault();
+					void submit();
+				}
+			}}
+		/>
+	);
 	/**
 	 * A property's row (null for properties the dialog doesn't set: related, aliases, order, and status, which is at the
 	 * top). `slot`: its place in the layout (custom label, placeholder, help text; read-only slots can still be set here).
 	 */
 	const propFor = (key: string, slot?: LayoutField): ReactNode | null => {
-		const labelPos = slot ? (slot.label ?? "above") : undefined;
+		const labelPos = slot ? slotLabel(slot) : undefined;
+		// The note's name, when the layout places it: the dialog's Name box goes there. (Type, subtitle and dates aren't set here.)
+		if (key === NOTE_ITEMS.name) {
+			shownKeys.add(key);
+			return (
+				<PropRow key={key} k="name" label={slot?.caption || "Name"} icon="text-cursor-input" help={typeof slot?.help === "object" ? slot.help.text : undefined} problems={[]} empty={!state.name} editable onFix={() => {}} labelPos={labelPos}>
+					<span className="oe-form-name">{nameInput(slot?.placeholder)}</span>
+				</PropRow>
+			);
+		}
+		if (isNoteItem(key)) return null;
 		const f = type.fields.find((x) => x.key === key);
 		if (f) {
 			shownKeys.add(key);
@@ -218,23 +246,11 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 				)}
 			</div>
 			<div className="oe-form-rows oe-create-top">
-				<PropRow k="name" label="Name" icon="text-cursor-input" problems={[]} empty={!state.name} editable onFix={() => {}}>
-					<input
-						type="text"
-						className="oe-prop-input oe-create-name"
-						placeholder={`${type.name} name`}
-						aria-label="Name"
-						value={state.name}
-						autoFocus={!preview}
-						onChange={(e) => set({ name: e.target.value })}
-						onKeyDown={(e) => {
-							if (e.key === "Enter" && !e.nativeEvent.isComposing) {
-								e.preventDefault();
-								void submit();
-							}
-						}}
-					/>
-				</PropRow>
+				{!shownKeys.has(NOTE_ITEMS.name) && (
+					<PropRow k="name" label="Name" icon="text-cursor-input" problems={[]} empty={!state.name} editable onFix={() => {}}>
+						{nameInput()}
+					</PropRow>
+				)}
 				<PropRow k="status" label="Status" icon="circle-dot" problems={[]} empty={false} editable onFix={() => {}}>
 					<StatusControl type={type} value={status} editable problem={undefined} onCommit={(v) => set({ status: String(v ?? "") })} />
 				</PropRow>

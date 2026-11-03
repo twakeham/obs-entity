@@ -29,6 +29,10 @@ import {
 	sameList,
 	setColumnCount,
 	slotHelp,
+	slotLabel,
+	isNoteItem,
+	NOTE_ITEMS,
+	READ_ONLY_ITEMS,
 	slotProblems,
 	tabsOnPath,
 	ungroupFrame,
@@ -62,6 +66,12 @@ const BUILTINS: Record<string, { label: string; icon: string; kind: string; desc
 	[COMMON_KEYS.tags]: { label: "Tags", icon: "tags", kind: "Tags" },
 	[COMMON_KEYS.aliases]: { label: "Aliases", icon: "forward", kind: "Other names" },
 	[COMMON_KEYS.order]: { label: "Order", icon: "arrow-down-01", kind: "Number", desc: "Sorts this note among its siblings in the browser." },
+	[NOTE_ITEMS.name]: { label: "Name", icon: "text-cursor-input", kind: "The note's name (renames it)" },
+	[NOTE_ITEMS.type]: { label: "Type", icon: "shapes", kind: "Type" },
+	[NOTE_ITEMS.subtitle]: { label: "Subtitle", icon: "text", kind: "Subtitle" },
+	[NOTE_ITEMS.typeSubtitle]: { label: "Type + subtitle", icon: "heading", kind: "Type · subtitle" },
+	[NOTE_ITEMS.created]: { label: "Created", icon: "calendar-plus", kind: "Date and time" },
+	[NOTE_ITEMS.modified]: { label: "Modified", icon: "calendar-clock", kind: "Date and time" },
 };
 
 const TABS_ICON = "panels-top-left";
@@ -290,7 +300,7 @@ export function LayoutTab() {
 	/** whether a property's control can show a placeholder (not checkboxes, dates, multiple choice or status) */
 	const takesPlaceholder = (k: string) => {
 		const f = fieldOf(k);
-		return f ? !["boolean", "date", "multiselect"].includes(f.kind) : k !== COMMON_KEYS.status;
+		return f ? !["boolean", "date", "multiselect"].includes(f.kind) : isNoteItem(k) ? k === NOTE_ITEMS.name : k !== COMMON_KEYS.status;
 	};
 	const iconOf = (k: string) => {
 		const f = fieldOf(k);
@@ -835,7 +845,8 @@ export function LayoutTab() {
 				const def = fieldOf(n.key);
 				const problem = problems.get(key);
 				const label = labelOf(n.key);
-				const p = nodeProps(path, n, `oe-ld-field${n.label === "beside" ? " is-beside" : n.label === "hidden" ? " is-label-hidden" : ""}${problem ? " has-problem" : ""}`, list, i, count);
+				const pos = slotLabel(n);
+				const p = nodeProps(path, n, `oe-ld-field${pos === "beside" ? " is-beside" : pos === "hidden" ? " is-label-hidden" : ""}${problem ? " has-problem" : ""}`, list, i, count);
 				const kind = def ? KIND_INFO[def.kind].label : (BUILTINS[n.key]?.kind ?? "");
 				const help = slotHelp(n, descOf(n.key));
 				return (
@@ -1009,7 +1020,7 @@ export function LayoutTab() {
 			</button>
 		);
 	};
-	const builtinKeys = placeable.filter((k) => !fieldOf(k));
+	const builtinKeys = placeable.filter((k) => !fieldOf(k) && !READ_ONLY_ITEMS.includes(k));
 
 	// ---- settings of the selection
 	const props = (): ReactNode => {
@@ -1265,20 +1276,20 @@ export function LayoutTab() {
 						<Icon name={iconOf(f.key)} /> {labelOf(f.key)}
 					</div>
 					<p className="oe-tm-muted oe-ld-note">
-						{def ? `${KIND_INFO[def.kind].label} field` : BUILTINS[f.key] ? "Built-in property" : "Not a field of this type"} · <code>{f.key}</code>
+						{def ? `${KIND_INFO[def.kind].label} field` : isNoteItem(f.key) ? (READ_ONLY_ITEMS.includes(f.key) ? "About the note (read-only)" : "The note's name: editing it renames the note") : BUILTINS[f.key] ? "Built-in property" : "Not a field of this type"} · <code>{f.key}</code>
 					</p>
 					{problem && <Issues issues={[{ at: "form:layout", message: problem }]} />}
 					<div className="oe-ld-prop-col">
 						<span>Label</span>
 						<Segmented
 							label="Label position"
-							value={f.label ?? "above"}
+							value={slotLabel(f)}
 							options={[
 								{ value: "above", label: "Above", icon: "arrow-up-to-line" },
 								{ value: "beside", label: "Beside", icon: "arrow-left-to-line" },
 								{ value: "hidden", label: "Hidden", icon: "eye-off" },
 							]}
-							onChange={(v) => setSlot({ label: v === "above" ? undefined : (v as LabelPosition) })}
+							onChange={(v) => setSlot({ label: v === (isNoteItem(f.key) ? "hidden" : "above") ? undefined : (v as LabelPosition) })}
 						/>
 					</div>
 					<label className="oe-ld-prop-col">
@@ -1323,10 +1334,12 @@ export function LayoutTab() {
 							/>
 						</div>
 					)}
-					<div className="oe-ld-prop-row">
-						<span>Read-only on this form</span>
-						<Toggle label="Read-only on this form" value={!!f.readOnly} onChange={(v) => setSlot({ readOnly: v ? true : undefined })} />
-					</div>
+					{!READ_ONLY_ITEMS.includes(f.key) && (
+						<div className="oe-ld-prop-row">
+							<span>Read-only on this form</span>
+							<Toggle label="Read-only on this form" value={!!f.readOnly} onChange={(v) => setSlot({ readOnly: v ? true : undefined })} />
+						</div>
+					)}
 					{f.readOnly && <p className="oe-tm-muted oe-ld-note">Shown but not editable on notes. The create dialog, views and bulk edits can still set it.</p>}
 					{whenEditor(f.when, (w, tag) => setSlot({ when: w }, tag), `when:${pk(sel)}`)}
 					<div className="oe-ld-prop-buttons">
@@ -1382,7 +1395,9 @@ export function LayoutTab() {
 				{type.fields.length ? type.fields.map((f) => paletteField(f.key)) : <div className="oe-tm-muted oe-ld-note">No fields yet.</div>}
 				<div className="oe-ld-pal-title">Properties</div>
 				{builtinKeys.map(paletteField)}
-				<p className="oe-tm-muted oe-ld-note">Not placed, status shows in the form's header and the others at the end.</p>
+				<div className="oe-ld-pal-title">Read-only</div>
+				{READ_ONLY_ITEMS.map(paletteField)}
+				<p className="oe-tm-muted oe-ld-note">Not placed, the name is the note's title, status, type and subtitle are in the form's top line, and the others are at the end.</p>
 				<div className="oe-ld-pal-title">Layout</div>
 				{COMPONENTS.map((c) => (
 					<button

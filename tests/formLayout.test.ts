@@ -28,13 +28,18 @@ import {
 	renameLayoutKey,
 	resolveLayout,
 	setColumnCount,
+	isNoteItem,
+	NOTE_ITEMS,
+	READ_ONLY_ITEMS,
 	slotHelp,
+	slotLabel,
 	slotProblems,
 	tabsOnPath,
 	ungroupFrame,
 	updateNode,
 	updateTab,
 	type FormLayout,
+	type LayoutField,
 	type LayoutList,
 	type LayoutNode,
 } from "../src/model/formLayout";
@@ -97,7 +102,7 @@ describe("form layouts", () => {
 
 	it("list every placed slot and what a type can place", () => {
 		expect(layoutFields(LAYOUT).map((f) => f.key)).toEqual(["client", "status", "owner", "description", "start", "due", "team"]);
-		expect(placeableKeys(project())).toEqual(["description", "owner", "team", "client", "start", "due", "parent_project", "status", "related", "tags", "aliases", "order"]);
+		expect(placeableKeys(project())).toEqual(["description", "owner", "team", "client", "start", "due", "parent_project", "status", "related", "tags", "aliases", "order", "@name", "@type", "@subtitle", "@type-subtitle", "@created", "@modified"]);
 		// no parent fields: no order
 		expect(placeableKeys(person())).not.toContain("order");
 	});
@@ -106,8 +111,9 @@ describe("form layouts", () => {
 		const r = resolveLayout({ items: [...LAYOUT.items, { kind: "field", key: "gone" }, { kind: "field", key: "owner" }] }, project());
 		expect(layoutFields({ items: r.items }).map((f) => f.key)).toEqual(["client", "status", "owner", "description", "start", "due", "team"]);
 		expect(r.unplaced).toEqual(["parent_project"]);
-		expect(r.unplacedBuiltins).toEqual(["related", "tags", "aliases", "order"]);
+		expect(r.unplacedBuiltins).toEqual(["related", "tags", "aliases", "order", "@name", "@type", "@subtitle", "@type-subtitle", "@created", "@modified"]);
 		expect(r.placesStatus).toBe(true);
+		expect(r.placesType || r.placesSubtitle).toBe(false);
 		expect(resolveLayout({ items: [] }, person()).placesStatus).toBe(false);
 	});
 
@@ -304,6 +310,32 @@ describe("slot options and frame styling", () => {
 		expect(readableOn("#8bc34a")).toBe("#1e1e1e");
 		expect(readableOn("#fff")).toBe("#1e1e1e");
 		expect(readableOn("var(--x)")).toBe("#ffffff");
+	});
+
+	it("places the note's name, type, subtitle and dates", () => {
+		const l = normaliseLayout({
+			items: [
+				{ kind: "field", key: "@name", label: "hidden" },
+				{ kind: "field", key: "@type-subtitle", label: "above" },
+				{ kind: "field", key: "@created" },
+				{ kind: "field", key: "owner", label: "above" },
+			],
+		})!;
+		// the note items' default label is hidden (so "above" is kept and "hidden" isn't)
+		expect(l.items).toEqual([
+			{ kind: "field", key: "@name" },
+			{ kind: "field", key: "@type-subtitle", label: "above" },
+			{ kind: "field", key: "@created" },
+			{ kind: "field", key: "owner" },
+		]);
+		expect(l.items.map((n) => slotLabel(n as LayoutField))).toEqual(["hidden", "above", "hidden", "above"]);
+		const r = resolveLayout(l, project());
+		expect([r.placesType, r.placesSubtitle]).toEqual([true, true]);
+		expect(r.unplacedBuiltins).toEqual(["status", "related", "tags", "aliases", "order", "@type", "@subtitle", "@modified"]);
+		expect(resolveLayout({ items: [{ kind: "field", key: "@subtitle" }] }, project())).toMatchObject({ placesType: false, placesSubtitle: true });
+		expect(layoutIssues(l, project())).toEqual([]);
+		expect([NOTE_ITEMS.name, ...READ_ONLY_ITEMS].every(isNoteItem)).toBe(true);
+		expect(isNoteItem("owner")).toBe(false);
 	});
 
 	it("gives a slot's help text", () => {

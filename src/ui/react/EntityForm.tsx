@@ -1,4 +1,4 @@
-import { Menu, Modal, Notice, Setting, type App, type TFile } from "obsidian";
+import { Menu, Modal, moment, Notice, Setting, type App, type TFile } from "obsidian";
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { subtitleOf, urlHref } from "../../model/card";
 import { entityProblems, otherKeys, otherKind, parseInput, usesOrder, type FieldProblem, type OtherKind } from "../../model/form";
@@ -6,7 +6,7 @@ import { isEmptyValue } from "../../model/frontmatter";
 import { asArray, parseLabelledEntry, parseLink } from "../../model/links";
 import { addLink, type Edge, type RelationItem } from "../../model/relations";
 import { COMMON_KEYS, isListValued, statusesFor, type EntityTypeDef, type FieldDef, type FieldKind, type RelationTarget } from "../../model/types";
-import { fieldSlots, nodeKeys, normaliseLayout, readableOn, resolveLayout, slotHelp, tabsOnPath, walkLayout, type LabelPosition, type LayoutField, type LayoutFrame, type LayoutNode, type LayoutTab, type LayoutWhen } from "../../model/formLayout";
+import { fieldSlots, isNoteItem, NOTE_ITEMS, nodeKeys, normaliseLayout, readableOn, resolveLayout, slotHelp, slotLabel, tabsOnPath, walkLayout, type LabelPosition, type LayoutField, type LayoutFrame, type LayoutNode, type LayoutTab, type LayoutWhen } from "../../model/formLayout";
 import { evalWhen, todayDays, whenText, type WhenContext } from "../../model/formConditions";
 import type { EntityRecord } from "../../services/entityIndex";
 import { openNativePicker } from "../components/datePicker";
@@ -19,6 +19,16 @@ import { KIND_INFO } from "./types/editor";
 
 /** live: Live Preview (editable); reading: Reading view (read-only until the pencil); preview: the type editor's preview */
 export type FormMode = "live" | "reading" | "preview";
+
+/** Labels and icons of the note items a layout can place. */
+export const NOTE_ITEM_INFO: Record<string, { label: string; icon: string }> = {
+	[NOTE_ITEMS.name]: { label: "Name", icon: "text-cursor-input" },
+	[NOTE_ITEMS.type]: { label: "Type", icon: "shapes" },
+	[NOTE_ITEMS.subtitle]: { label: "Subtitle", icon: "text" },
+	[NOTE_ITEMS.typeSubtitle]: { label: "Type and subtitle", icon: "heading" },
+	[NOTE_ITEMS.created]: { label: "Created", icon: "calendar-plus" },
+	[NOTE_ITEMS.modified]: { label: "Modified", icon: "calendar-clock" },
+};
 
 /** "Other properties" open or closed, shared by all notes for the session. */
 let othersOpenDefault = false;
@@ -344,6 +354,8 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 	});
 	/** after "N problems": show what conditions hide, so a problem in it can be fixed */
 	const [reveal, setReveal] = useState(false);
+	/** bumped when a rename is refused, so the name box shows the real name again */
+	const [nameKey, setNameKey] = useState(0);
 	/** each tab group's open tab, remembered per type (not in the type editor's preview) */
 	const [openTabs, setOpenTabs] = useState<Record<string, number>>(() => (mode === "preview" ? {} : rememberedTabs(plugin.app, type.key)));
 	const setTab = (group: string, tab: number) => {
@@ -419,22 +431,15 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 		void plugin.saveData(plugin.settings);
 	};
 
+	const changeType = () => {
+		if (!file) return;
+		new TypePickerModal(plugin, (t) => void plugin.factory.convertToEntity(file, t), plugin.settings.types.filter((t) => t.key !== type.key), `Change "${file.basename}" from ${type.name.toLowerCase()} to…`).open();
+	};
+
 	const headerMenu = (evt: MouseEvent) => {
 		if (!file) return;
 		const m = new Menu();
-		m.addItem((i) =>
-			i
-				.setTitle("Change type…")
-				.setIcon("repeat")
-				.onClick(() =>
-					new TypePickerModal(
-						plugin,
-						(t) => void plugin.factory.convertToEntity(file, t),
-						plugin.settings.types.filter((t) => t.key !== type.key),
-						`Change "${file.basename}" from ${type.name.toLowerCase()} to…`,
-					).open(),
-				),
-		);
+		m.addItem((i) => i.setTitle("Change type…").setIcon("repeat").onClick(changeType));
 		m.addItem((i) =>
 			i
 				.setTitle("Add other property…")
@@ -484,7 +489,7 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 				empty={blank}
 				editable={rowEditable}
 				onFix={fix}
-				labelPos={slot ? (slot.label ?? "above") : undefined}
+				labelPos={slot ? slotLabel(slot) : undefined}
 				help={slotHelp(slot, opts.desc)}
 				locked={!!slot?.readOnly}
 			>
@@ -494,6 +499,7 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 	};
 	/** The row for a field or a built-in property (status, order, related, tags, aliases); null when hidden. */
 	const propFor = (key: string, slot?: LayoutField): ReactNode | null => {
+		if (isNoteItem(key)) return noteRow(key, slot);
 		const ed = editable && !slot?.readOnly;
 		const ph = slot?.placeholder;
 		const f = type.fields.find((x) => x.key === key);
@@ -548,7 +554,112 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 				return rowFor(COMMON_KEYS.aliases, "list", <ListControl value={get(COMMON_KEYS.aliases)} editable={ed} label="Aliases" placeholder={ph} onCommit={(v) => write(COMMON_KEYS.aliases, v)} />, { label: "Aliases", icon: "forward" }, slot, ed);
 		}
 		return null;
-	};	/** Built-in properties in the order the form has always listed them after the fields. */
+	};	// ---- the note itself: its name (renames it), type, subtitle, created and modified
+	const noteName = file?.basename ?? basename(path);
+	const rename = async (to: string) => {
+		const name = to.trim();
+		if (!file || !name || name === file.basename) return;
+		const refuse = (msg: string) => {
+			new Notice(msg);
+			setNameKey((n) => n + 1);
+		};
+		if (/[\\/:*?"<>|#^[\]]/.test(name)) return refuse(`A note's name can't contain \\ / : * ? " < > | # ^ [ or ].`);
+		const dir = file.parent && file.parent.path !== "/" ? `${file.parent.path}/` : "";
+		const dest = `${dir}${name}.${file.extension}`;
+		if (plugin.app.vault.getAbstractFileByPath(dest)) return refuse(`There's already a note called “${name}” here.`);
+		try {
+			await plugin.app.fileManager.renameFile(file, dest);
+		} catch (e) {
+			refuse(`Couldn't rename: ${(e as Error).message}`);
+		}
+	};
+	const typeChip = (
+		<span className="oe-form-type">
+			<Icon name={type.icon} className="oe-chip-icon" />
+			{type.name}
+		</span>
+	);
+	const typeControl =
+		file && mode !== "preview" ? (
+			<button type="button" className="oe-form-type is-button" aria-label={`${type.name}: change type`} onClick={changeType}>
+				<Icon name={type.icon} className="oe-chip-icon" />
+				{type.name}
+			</button>
+		) : (
+			typeChip
+		);
+	const stamp = (ms: number | undefined) => {
+		if (!ms) return null;
+		const d = new Date(ms);
+		const days = Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86_400_000);
+		return (
+			<span className="oe-prop-text" title={(moment as unknown as (t: number) => { fromNow(): string })(ms).fromNow()}>
+				{plugin.dates.format(days, "long")}, {d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+			</span>
+		);
+	};
+	/** A note item's row (null when it's hidden: an empty subtitle or date with "hide empty fields" on). */
+	const noteRow = (key: string, slot?: LayoutField): ReactNode | null => {
+		const sub = subtitleOf(type, values, plugin.dates);
+		let node: ReactNode;
+		let blank = false;
+		switch (key) {
+			case NOTE_ITEMS.name:
+				node = (
+					<span className="oe-form-name">
+						<TextControl key={`${noteName}:${nameKey}`} kind="text" value={noteName} editable={editable && !slot?.readOnly && !!file} label="Name" placeholder={slot?.placeholder} onCommit={(v) => void rename(String(v ?? ""))} />
+					</span>
+				);
+				break;
+			case NOTE_ITEMS.type:
+				node = typeControl;
+				break;
+			case NOTE_ITEMS.subtitle:
+				blank = !sub;
+				node = sub ? <span className="oe-form-subtitle is-placed">{sub}</span> : <Empty />;
+				break;
+			case NOTE_ITEMS.typeSubtitle:
+				node = (
+					<span className="oe-form-typeline">
+						{typeControl}
+						{sub && <span className="oe-form-subtitle is-placed">{sub}</span>}
+					</span>
+				);
+				break;
+			case NOTE_ITEMS.created:
+			case NOTE_ITEMS.modified: {
+				const ms = key === NOTE_ITEMS.created ? file?.stat.ctime : file?.stat.mtime;
+				blank = !ms;
+				node = stamp(ms) ?? <Empty />;
+				break;
+			}
+			default:
+				return null;
+		}
+		if (hideEmpty && blank) {
+			hidden++;
+			return null;
+		}
+		const info = NOTE_ITEM_INFO[key];
+		return (
+			<PropRow
+				key={key}
+				k={key}
+				label={slot?.caption || info.label}
+				icon={info.icon}
+				problems={[]}
+				empty={blank}
+				editable={editable}
+				onFix={() => {}}
+				labelPos={slot ? slotLabel(slot) : undefined}
+				help={typeof slot?.help === "object" ? slot.help.text : undefined}
+			>
+				{node}
+			</PropRow>
+		);
+	};
+
+	/** Built-in properties in the order the form has always listed them after the fields. */
 	const TAIL = [COMMON_KEYS.order, COMMON_KEYS.related, COMMON_KEYS.tags, COMMON_KEYS.aliases];
 
 	const layout = type.form?.layout ? normaliseLayout(type.form.layout) : null;
@@ -603,14 +714,15 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 			onKeyDown={onKeyDown}
 		>
 			<div className="oe-form-top">
-				<span className="oe-form-type">
-					<Icon name={type.icon} className="oe-chip-icon" />
-					{type.name}
-				</span>
+				{!resolved?.placesType && typeChip}
 				{!resolved?.placesStatus && <StatusControl type={type} value={get(COMMON_KEYS.status)} editable={editable} problem={statusProblem} onCommit={(v) => write(COMMON_KEYS.status, v)} />}
-				<span className="oe-form-subtitle" title={subtitle ?? undefined}>
-					{subtitle}
-				</span>
+				{resolved?.placesSubtitle ? (
+					<span className="oe-spacer" />
+				) : (
+					<span className="oe-form-subtitle" title={subtitle ?? undefined}>
+						{subtitle}
+					</span>
+				)}
 				{problems.length > 0 && (
 					<button type="button" className="oe-form-problems" aria-label="Go to the first problem" onClick={jumpToProblem}>
 						<Icon name="alert-circle" />
