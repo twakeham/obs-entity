@@ -36,7 +36,7 @@ tags: []
 
 - **Fixed properties:** `entity`, `status`, `tags`, `aliases`, `related`, `order`. Everything else comes from the type's fields.
 - **Relations** are wikilinks, so backlinks, the graph and renames keep working. Labelled relations put the label in the alias: `"[[Grace Hopper|mentor]]"`.
-- **Dates** are ISO (`YYYY-MM-DD`). In the create dialog and the type editor, date fields have a **calendar button** that opens a date picker. You can still type a date.
+- **Dates** are ISO (`YYYY-MM-DD`). In the properties form, the create dialog and the type editor, clicking a date field opens a **calendar** under it while you can still type a date; the calendar follows what you type. Click a day to pick it; **Today** and **Clear** are at the bottom, and clicking the month title switches to a month / year view. **Alt+↓** opens the calendar from the keyboard; **Esc** closes it (a second Esc cancels your typing).
 - **Property types:** the plugin tells Obsidian which editor to use in its Properties block (used when the properties form is off, and in hover previews and the File properties sidebar):
   - date fields get Obsidian's date picker
   - number fields get a number editor, and checkboxes a checkbox
@@ -418,7 +418,7 @@ src/
     entityFactory.ts         create/convert/retype notes, add/remove links (with Undo), folders, move
     bulkActions.ts           apply changes to many notes: progress, failures, one undo step; type, move, duplicate, delete, open, copy
   settings/settingTab.ts
-  ui/components/             entity picker, native date picker
+  ui/components/             entity picker
   ui/modals/                 create (hosts CreateForm), switcher, import types, add link, check entities, views (new / open / name / roll-up), formula editor (CodeMirror), bulk actions (set field, links, tags, folder picker)
   ui/header/formManager.tsx  puts the properties form into Live Preview and Reading view, hiding Obsidian's Properties
   ui/react/                  EntityForm (properties form, layouts, shared rows and controls), CreateForm (create dialog), ConnectionsPanel, EntityChip, EntityBits (status tones, relation groups), EntityBrowser

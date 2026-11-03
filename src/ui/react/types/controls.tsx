@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import { createPortal } from "react-dom";
 import type { DateAdapter } from "../../../model/dates";
 import { targetName } from "../../../model/typeEditing";
-import { openNativePicker } from "../../components/datePicker";
+import { CalendarPopover } from "../Calendar";
 import type { TypeIssue } from "../../../model/validation";
 import type { EntityTypeDef, GroupDef, RelationTarget } from "../../../model/types";
 import { Icon } from "../Icon";
@@ -482,20 +482,55 @@ export function OrderedPicker({
 	);
 }
 
-/** Text box for a date plus a calendar button that opens the browser's date picker (when the date adapter has one). */
+/** Text box for a date, with a calendar under it while it has focus (when the date adapter can convert to YYYY-MM-DD). */
 export function DateInput({ value, onChange, label, dates, invalid }: { value: string; onChange: (v: string) => void; label: string; dates: DateAdapter; invalid?: boolean }) {
-	const ref = useRef<HTMLInputElement>(null);
+	const [el, setEl] = useState<HTMLInputElement | null>(null);
+	const [open, setOpen] = useState(false);
 	const { toPicker, fromPicker } = dates;
+	const calendar = !!toPicker && !!fromPicker;
 	return (
-		<div className="oe-tm-inline oe-date-control">
-			<TextInput label={label} value={value} placeholder={dates.placeholder} invalid={invalid} onChange={onChange} />
-			{toPicker && fromPicker && (
-				<span className="oe-datepick">
-					<button className="clickable-icon oe-datepick-btn" aria-label="Pick a date" onClick={() => ref.current && openNativePicker(ref.current, toPicker.call(dates, value))}>
-						<Icon name="calendar" />
-					</button>
-					<input ref={ref} type="date" className="oe-datepick-native" tabIndex={-1} aria-hidden="true" onChange={(e) => e.target.value && onChange(fromPicker.call(dates, e.target.value))} />
-				</span>
+		<div
+			className="oe-tm-inline oe-date-control"
+			// React events bubble out of the portalled calendar too; only clicks on the box itself open it.
+			onClick={(e) => calendar && el && e.currentTarget.contains(e.target as Node) && setOpen(true)}
+			onBlur={() => setOpen(false)}
+			onKeyDown={(e) => {
+				if (!calendar) return;
+				if (e.altKey && e.key === "ArrowDown") {
+					e.preventDefault();
+					setOpen(true);
+				} else if (e.key === "Escape" && open) {
+					e.preventDefault();
+					e.stopPropagation();
+					setOpen(false);
+				}
+			}}
+		>
+			<TextInput
+				label={label}
+				value={value}
+				placeholder={dates.placeholder}
+				invalid={invalid}
+				onChange={onChange}
+				onFocus={(input) => {
+					setEl(input);
+					if (calendar) setOpen(true);
+				}}
+			/>
+			{open && el && (
+				<CalendarPopover
+					anchor={el}
+					value={toPicker!.call(dates, value)}
+					onPick={(iso) => {
+						onChange(fromPicker!.call(dates, iso));
+						setOpen(false);
+					}}
+					onClear={() => {
+						onChange("");
+						setOpen(false);
+					}}
+					onClose={() => setOpen(false)}
+				/>
 			)}
 		</div>
 	);

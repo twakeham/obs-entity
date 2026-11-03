@@ -252,14 +252,20 @@ interface DateAdapter {
   parse(raw: unknown): { ok: true; value: Comparable; display: string } | { ok: false; error: string } | null;
   format(value: Comparable, style: "short" | "long"): string;
   placeholder: string;               // e.g. "2026-10-27"
-  toPicker?(raw: unknown): string | null;   // value as YYYY-MM-DD for the browser's date picker; omit for no picker
+  toPicker?(raw: unknown): string | null;   // value as YYYY-MM-DD for the calendar; omit for no calendar
   fromPicker?(iso: string): string;         // a picked YYYY-MM-DD in the adapter's format
 }
 ```
 
-The default adapter is ISO dates (pure code, no `moment`). Its picker hooks pass dates straight through and return null for years the browser's picker can't show (before 0001 or after 9999). Story Forge's calendar is a working example of a custom adapter; a custom calendar would omit the picker hooks, so date fields show only the text box.
+The default adapter is ISO dates (pure code, no `moment`). Its picker hooks pass dates straight through and return null for years the calendar can't show (before 0001 or after 9999). Story Forge's calendar is a working example of a custom adapter; a custom calendar would omit the picker hooks, so date fields show only the text box.
 
-**Date pickers:** date fields in the create dialog and the type editor's Default have a text box plus a **calendar button**. The button opens the browser's native date picker, anchored to a hidden `<input type="date">` and starting at the current value; the picked date is written back via `fromPicker`. Typing still works.
+**Calendar:** date fields in the properties form, the create dialog and the type editor's Default are a plain text box. Focusing or clicking it opens the plugin's own calendar popover (`ui/react/Calendar.tsx`, date maths in `model/calendar.ts`) under the box, or above it when there's no room; the box keeps focus, so typing still works and the calendar follows the typed date (via `toPicker`). The calendar works only in ISO `YYYY-MM-DD`: a picked day goes through `fromPicker` before it's written, so the field's own text format (and later display formats) stays separate from the calendar.
+
+- **Days view:** a 6-week grid starting on the locale's first day of the week (month and weekday names from `moment.localeData()`); today is outlined and the current value filled. ‹ › change month.
+- **Month / year view:** clicking the title shows the 12 months; ‹ › change year; picking a month goes back to days.
+- **Footer:** **Today**, and **Clear** when the field can be emptied.
+- **Keys:** Alt+↓ opens it; Esc closes only the calendar (a second Esc cancels the typing); leaving the box closes it. Picking, Today and Clear save at once and close it. While it's open the calendar pushes an Obsidian keymap `Scope` for Esc, because Obsidian's keymap sees keys before React and a modal (the create dialog) would otherwise close.
+- It's portalled to the document body with fixed positioning on the menu layer, so frames, tabs and modals don't clip or cover it, and mouse-downs inside it don't take focus from the box.
 
 ### 4.4.1 Obsidian property types
 
@@ -710,7 +716,7 @@ Opened from:
 - From context: "New child here" prefills the parent field (§8.3). A double-click elsewhere can prefill any field.
 - From field `default` values.
 
-**Date fields** have a calendar button (§4.4); a date that can't be read isn't taken (a notice says why), as in the properties form.
+**Date fields** open the calendar when clicked (§4.4); a date that can't be read isn't taken (a notice says why), as in the properties form.
 
 **AC:**
 - [ ] Every field is written to frontmatter, with empty values for unset ones.
@@ -884,7 +890,7 @@ interface LayoutTabs { kind: "tabs"; tabs: { caption: string; icon?: string; cre
 | text, url | text box (url adds an open-link button) | on blur or Enter; Esc cancels |
 | textarea | auto-height text area | on blur or Ctrl/Cmd+Enter |
 | number | text box that only accepts numbers | on blur or Enter |
-| date | text box + calendar button (§4.4); only valid dates are accepted | on blur, Enter or picking |
+| date | text box; the calendar opens on click or focus (§4.4); only valid dates are accepted | on blur, Enter or picking |
 | boolean | checkbox | immediately |
 | select | dropdown of the options (plus "—") | immediately |
 | multiselect | option pills | immediately |
@@ -1691,6 +1697,7 @@ These cover all of `model/`, with no Obsidian dependency:
 - **validation:** every row of §9, with the right `at`.
 - **card:** subtitle composition (several fields, empty values skipped, first line of a textarea); renaming or deleting a field updates `card.subtitle` and `parentFields` in the draft.
 - **formConditions:** reading conditions on frames, tabs and slots; the view operators on the note's own values (choices, numbers, status, tags, relative dates, links, checkboxes); unusable conditions ignored; which fields a layout hides; a hidden required field isn't required (other problems still count); renames and deleted fields; conditions in words.
+- **calendar:** ISO dates to and from parts (including years before 100), month stepping clamped to years 1–9999, the 6-week grid for any first day of the week, weekday order.
 - **formLayout:** tidying layouts (nested frames lifted, 2–4 columns, widths, defaults dropped), listing slots and placeable keys (order only with parent fields; the note items), resolving against a type (unknown and repeated slots dropped, unplaced fields and built-ins, whether status, type and subtitle are placed), the note items' hidden-by-default labels, renames and deletions through `renameFieldRefs`, "start from fields", problems in type validation, and the designer's edits (paths, lists and what they hold, insert / remove / move with drop positions, keyboard moves, column counts and widths, ungrouping frames, where "add" goes, flagged slots), slot options and frame styling (read with defaults and bad values dropped; help text; coloured headers and readable text on them), and tabs and frames in columns (reading and lifting what can't nest, walking, finding a field's tab, what each place holds, moving frames in and out of columns and tabs, adding into the open tab, adding / renaming / moving / removing tabs).
 - **form:**
   - `checkField` / `entityProblems` for every row of the §8.4 table, with fixes

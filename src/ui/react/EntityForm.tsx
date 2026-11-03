@@ -9,7 +9,7 @@ import { COMMON_KEYS, isListValued, statusesFor, type EntityTypeDef, type FieldD
 import { fieldSlots, isNoteItem, NOTE_ITEMS, nodeKeys, normaliseLayout, readableOn, resolveLayout, slotHelp, slotLabel, tabsOnPath, walkLayout, type LabelPosition, type LayoutField, type LayoutFrame, type LayoutNode, type LayoutTab, type LayoutWhen } from "../../model/formLayout";
 import { evalWhen, todayDays, whenText, type WhenContext } from "../../model/formConditions";
 import type { EntityRecord } from "../../services/entityIndex";
-import { openNativePicker } from "../components/datePicker";
+import { CalendarPopover } from "./Calendar";
 import { EntitySuggest, TypePickerModal } from "../components/entityPicker";
 import { usePlugin, useRelationsVersion } from "./context";
 import { statusTone } from "./EntityBits";
@@ -926,7 +926,9 @@ export function TextControl({
 	const [text, setText] = useState(display);
 	const focused = useRef(false);
 	const cancelled = useRef(false);
-	const pickerRef = useRef<HTMLInputElement>(null);
+	const inputRef = useRef<HTMLInputElement>(null);
+	/** dates: the calendar under the box is open (while it has focus, until a day is picked or Esc) */
+	const [calOpen, setCalOpen] = useState(false);
 	const shown = useRef(display);
 	// Follow outside changes (sync, undo); while focused only if the box has no typing of its own.
 	useEffect(() => {
@@ -964,7 +966,21 @@ export function TextControl({
 		}
 		onCommit(r.value);
 	};
+	// Dates with a calendar (the adapter can convert to and from YYYY-MM-DD).
+	const calendar = kind === "date" && !!dates.toPicker && !!dates.fromPicker;
 	const onKeyDown = (e: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+		if (calendar && e.altKey && e.key === "ArrowDown") {
+			e.preventDefault();
+			setCalOpen(true);
+			return;
+		}
+		// The first Esc closes the calendar; the next cancels the typing.
+		if (e.key === "Escape" && calOpen) {
+			e.preventDefault();
+			e.stopPropagation();
+			setCalOpen(false);
+			return;
+		}
 		if (e.key === "Escape") {
 			e.preventDefault();
 			cancelled.current = true;
@@ -983,9 +999,14 @@ export function TextControl({
 		onChange: (e: { target: { value: string } }) => setText(e.target.value),
 		onFocus: () => {
 			focused.current = true;
+			if (calendar) setCalOpen(true);
+		},
+		onClick: () => {
+			if (calendar) setCalOpen(true);
 		},
 		onBlur: () => {
 			focused.current = false;
+			setCalOpen(false);
 			if (cancelled.current) {
 				cancelled.current = false;
 				setText(display);
@@ -996,31 +1017,19 @@ export function TextControl({
 		onKeyDown,
 	};
 	if (kind === "textarea") return <textarea {...props} rows={rows ?? Math.min(8, Math.max(1, text.split("\n").length))} />;
-	const input = <input type="text" inputMode={kind === "number" ? "decimal" : kind === "url" ? "url" : undefined} {...props} />;
-	if (kind === "date" && dates.toPicker && dates.fromPicker) {
+	const input = <input ref={inputRef} type="text" inputMode={kind === "number" ? "decimal" : kind === "url" ? "url" : undefined} {...props} />;
+	if (calendar) {
 		const { toPicker, fromPicker } = dates;
+		const set = (v: string) => {
+			setText(v);
+			commit(v);
+			setCalOpen(false);
+		};
 		return (
-			<span className="oe-prop-inline">
+			<>
 				{input}
-				<span className="oe-datepick">
-					<button type="button" className="clickable-icon oe-datepick-btn" aria-label="Pick a date" onClick={() => pickerRef.current && openNativePicker(pickerRef.current, toPicker.call(dates, text))}>
-						<Icon name="calendar" />
-					</button>
-					<input
-						ref={pickerRef}
-						type="date"
-						className="oe-datepick-native"
-						tabIndex={-1}
-						aria-hidden="true"
-						onChange={(e) => {
-							if (!e.target.value) return;
-							const v = fromPicker.call(dates, e.target.value);
-							setText(v);
-							commit(v);
-						}}
-					/>
-				</span>
-			</span>
+				{calOpen && inputRef.current && <CalendarPopover anchor={inputRef.current} value={toPicker!.call(dates, text)} onPick={(iso) => set(fromPicker!.call(dates, iso))} onClear={() => set("")} onClose={() => setCalOpen(false)} />}
+			</>
 		);
 	}
 	if (kind === "url") {
