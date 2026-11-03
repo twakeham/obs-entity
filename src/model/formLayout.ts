@@ -14,15 +14,28 @@ export interface FormLayout {
 	hideUnplaced?: true;
 }
 
-export type LabelPosition = "above" | "beside";
+export type LabelPosition = "above" | "beside" | "hidden";
 
 /** A field slot: one of the type's fields, or a built-in property (status, tags, aliases, related, order). */
 export interface LayoutField {
 	kind: "field";
 	key: string;
-	/** where the label goes (default above) */
+	/** where the label goes (default above; hidden: the value only) */
 	label?: LabelPosition;
+	/** a label for this form only (default: the field's) */
+	caption?: string;
+	/** grey text in the empty control */
+	placeholder?: string;
+	/** text under the value: the field's description, or this form's own */
+	help?: "description" | { text: string };
+	/** long text: the box's height in lines (default: grows with the text) */
+	rows?: number;
+	/** shown but not editable on the properties form (the create dialog can still set it) */
+	readOnly?: true;
 }
+
+/** Heights offered for long text, in lines. */
+export const TEXT_ROWS = [3, 6, 12] as const;
 
 export interface LayoutColumns {
 	kind: "columns";
@@ -43,6 +56,12 @@ export interface LayoutFrame {
 	collapsed?: true;
 	/** false: left out of the create dialog (required fields are still asked for there) */
 	create?: false;
+	/** an icon before the caption */
+	icon?: string;
+	/** an accent (caption tint and a stripe down the left): "type" for the type's colour, or a CSS colour */
+	color?: string;
+	/** plain: no border; filled: a light tint instead of a border (default: a bordered box) */
+	style?: "plain" | "filled";
 	items: LayoutNode[];
 }
 
@@ -97,8 +116,22 @@ export function allowedIn(place: LayoutPlace, node: LayoutNode): boolean {
 function readField(raw: unknown): LayoutField | null {
 	const key = typeof raw === "string" ? raw : isObj(raw) && typeof raw.key === "string" ? raw.key : "";
 	if (!key.trim()) return null;
-	const label = isObj(raw) && (raw.label === "above" || raw.label === "beside") ? raw.label : undefined;
-	return { kind: "field", key: key.trim(), ...(label && label !== "above" ? { label } : {}) };
+	if (!isObj(raw)) return { kind: "field", key: key.trim() };
+	const label = raw.label === "beside" || raw.label === "hidden" ? raw.label : undefined;
+	const caption = text(raw.caption).trim();
+	const placeholder = text(raw.placeholder).trim();
+	const help = raw.help === "description" ? "description" : isObj(raw.help) && text(raw.help.text).trim() ? { text: text(raw.help.text).trim() } : undefined;
+	const rows = typeof raw.rows === "number" && (TEXT_ROWS as readonly number[]).includes(raw.rows) ? raw.rows : undefined;
+	return {
+		kind: "field",
+		key: key.trim(),
+		...(label ? { label } : {}),
+		...(caption ? { caption } : {}),
+		...(placeholder ? { placeholder } : {}),
+		...(help ? { help } : {}),
+		...(rows ? { rows } : {}),
+		...(raw.readOnly === true ? { readOnly: true as const } : {}),
+	};
 }
 
 /** A node read for a place: what can't go there is lifted out (a nested frame's rows, a column's entries) or dropped. */
@@ -126,6 +159,9 @@ function readNode(raw: unknown, place: LayoutPlace): LayoutNode[] {
 				...(raw.collapsible === true ? { collapsible: true as const } : {}),
 				...(raw.collapsible === true && raw.collapsed === true ? { collapsed: true as const } : {}),
 				...(raw.create === false ? { create: false as const } : {}),
+				...(text(raw.icon).trim() ? { icon: text(raw.icon).trim() } : {}),
+				...(text(raw.color).trim() ? { color: text(raw.color).trim() } : {}),
+				...(raw.style === "plain" || raw.style === "filled" ? { style: raw.style } : {}),
 				items: many(arr(raw.items), "frame"),
 			};
 			return [frame];
@@ -202,6 +238,12 @@ export function layoutFields(layout: FormLayout): LayoutField[] {
 /** Keys of the fields in some nodes (frames, columns and tabs included). */
 export function nodeKeys(nodes: LayoutNode[]): string[] {
 	return layoutFields({ items: nodes }).map((f) => f.key);
+}
+
+/** The text a slot shows under its value on the properties form (none by default). */
+export function slotHelp(slot: LayoutField | undefined, description: string | undefined): string | undefined {
+	if (!slot?.help) return undefined;
+	return slot.help === "description" ? description?.trim() || undefined : slot.help.text;
 }
 
 /** Keys a type can place: its fields, status, related, tags, aliases, and order when it has parent fields. */

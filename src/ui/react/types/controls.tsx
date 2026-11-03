@@ -296,7 +296,8 @@ export function ColorPicker({ value, onChange }: { value: string; onChange: (v: 
 const ICON_LIMIT = 168;
 
 /** Icon button that opens a searchable grid of Lucide icons. */
-export function IconPicker({ value, color, onChange }: { value: string; color: string; onChange: (v: string) => void }) {
+/** `empty`: what to show when no icon is chosen (default: the "file" icon, which types fall back to) */
+export function IconPicker({ value, color, onChange, empty }: { value: string; color: string; onChange: (v: string) => void; empty?: string }) {
 	const [open, setOpen] = useState(false);
 	const [q, setQ] = useState("");
 	const ref = useRef<HTMLDivElement>(null);
@@ -323,10 +324,8 @@ export function IconPicker({ value, color, onChange }: { value: string; color: s
 	return (
 		<div className="oe-tm-iconpicker" ref={ref}>
 			<button className="oe-tm-iconbtn" aria-label="Choose icon" aria-expanded={open} onClick={() => setOpen(!open)} style={{ "--oe-type-color": color } as CSSProperties}>
-				<span className="oe-type-icon">
-					<Icon name={value} />
-				</span>
-				<span className="oe-tm-iconname">{value || "file"}</span>
+				<span className="oe-type-icon">{value || !empty ? <Icon name={value} /> : null}</span>
+				<span className="oe-tm-iconname">{value || empty || "file"}</span>
 				<Icon name="chevron-down" />
 			</button>
 			{open && (

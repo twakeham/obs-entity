@@ -1,6 +1,6 @@
 import { Notice } from "obsidian";
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { normaliseLayout, resolveLayout, type LabelPosition, type LayoutNode } from "../../model/formLayout";
+import { normaliseLayout, resolveLayout, type LayoutField, type LayoutNode } from "../../model/formLayout";
 import { fromFormFields, isEmptyValue, toFormFields, type EntityFormValues } from "../../model/frontmatter";
 import { COMMON_KEYS, statusesFor, type EntityTypeDef } from "../../model/types";
 import { emptyFormValues } from "../../services/entityFactory";
@@ -107,22 +107,39 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 
 	// ---- rows: the properties form's rows, all editable, descriptions shown
 	const shownKeys = new Set<string>();
-	/** a property's row (null for properties the dialog doesn't set: related, aliases, order, and status, which is at the top) */
-	const propFor = (key: string, labelPos?: LabelPosition): ReactNode | null => {
+	/**
+	 * A property's row (null for properties the dialog doesn't set: related, aliases, order, and status, which is at the
+	 * top). `slot`: its place in the layout (custom label, placeholder, help text; read-only slots can still be set here).
+	 */
+	const propFor = (key: string, slot?: LayoutField): ReactNode | null => {
+		const labelPos = slot ? (slot.label ?? "above") : undefined;
 		const f = type.fields.find((x) => x.key === key);
 		if (f) {
 			shownKeys.add(key);
 			return (
-				<PropRow key={key} k={key} label={f.label || f.key} icon={KIND_INFO[f.kind].icon} required={f.required} desc={f.description} showDesc problems={[]} empty={!hasValue(state.fields[key])} editable onFix={() => {}} labelPos={labelPos}>
-					{fieldControl(f, { value: state.fields[key], editable: true, path: "", type, live: false, problems: [], onCommit: (v) => setField(key, v) })}
+				<PropRow
+					key={key}
+					k={key}
+					label={slot?.caption || f.label || f.key}
+					icon={KIND_INFO[f.kind].icon}
+					required={f.required}
+					desc={f.description}
+					help={(typeof slot?.help === "object" ? slot.help.text : undefined) || f.description?.trim() || undefined}
+					problems={[]}
+					empty={!hasValue(state.fields[key])}
+					editable
+					onFix={() => {}}
+					labelPos={labelPos}
+				>
+					{fieldControl(f, { value: state.fields[key], editable: true, path: "", type, live: false, problems: [], onCommit: (v) => setField(key, v), placeholder: slot?.placeholder, rows: slot?.rows })}
 				</PropRow>
 			);
 		}
 		if (key === COMMON_KEYS.tags) {
 			shownKeys.add(key);
 			return (
-				<PropRow key={key} k={key} label="Tags" icon="tags" problems={[]} empty={!state.tags.length} editable onFix={() => {}} labelPos={labelPos}>
-					<ListControl value={state.tags} editable label="Tags" tag onCommit={(v) => set({ tags: (Array.isArray(v) ? v : []).map((x) => String(x).replace(/^#/, "")) })} />
+				<PropRow key={key} k={key} label={slot?.caption || "Tags"} icon="tags" help={typeof slot?.help === "object" ? slot.help.text : undefined} problems={[]} empty={!state.tags.length} editable onFix={() => {}} labelPos={labelPos}>
+					<ListControl value={state.tags} editable label="Tags" tag placeholder={slot?.placeholder} onCommit={(v) => set({ tags: (Array.isArray(v) ? v : []).map((x) => String(x).replace(/^#/, "")) })} />
 				</PropRow>
 			);
 		}

@@ -6,7 +6,7 @@ import { isEmptyValue } from "../../model/frontmatter";
 import { asArray, parseLabelledEntry, parseLink } from "../../model/links";
 import { addLink, type Edge, type RelationItem } from "../../model/relations";
 import { COMMON_KEYS, isListValued, statusesFor, type EntityTypeDef, type FieldDef, type FieldKind, type RelationTarget } from "../../model/types";
-import { fieldSlots, nodeKeys, normaliseLayout, resolveLayout, tabsOnPath, walkLayout, type LabelPosition, type LayoutFrame, type LayoutNode, type LayoutTab } from "../../model/formLayout";
+import { fieldSlots, nodeKeys, normaliseLayout, resolveLayout, slotHelp, tabsOnPath, walkLayout, type LabelPosition, type LayoutField, type LayoutFrame, type LayoutNode, type LayoutTab } from "../../model/formLayout";
 import type { EntityRecord } from "../../services/entityIndex";
 import { openNativePicker } from "../components/datePicker";
 import { EntitySuggest, TypePickerModal } from "../components/entityPicker";
@@ -78,7 +78,7 @@ const json = (v: unknown) => JSON.stringify(v);
 /** The control for one of a type's fields (the properties form's, also used by the create dialog). */
 export function fieldControl(
 	f: FieldDef,
-	o: { value: unknown; editable: boolean; path: string; type: EntityTypeDef; live: boolean; problems: FieldProblem[]; onCommit: (v: unknown) => void },
+	o: { value: unknown; editable: boolean; path: string; type: EntityTypeDef; live: boolean; problems: FieldProblem[]; onCommit: (v: unknown) => void; placeholder?: string; rows?: number },
 ): ReactNode {
 	const label = f.label || f.key;
 	switch (f.kind) {
@@ -97,19 +97,20 @@ export function fieldControl(
 					type={o.type}
 					live={o.live}
 					problems={o.problems}
+					placeholder={o.placeholder}
 					onCommit={o.onCommit}
 				/>
 			);
 		case "boolean":
 			return <CheckControl value={o.value} editable={o.editable} label={label} onCommit={o.onCommit} />;
 		case "select":
-			return <SelectControl options={f.options ?? []} value={o.value} editable={o.editable} label={label} onCommit={o.onCommit} />;
+			return <SelectControl options={f.options ?? []} value={o.value} editable={o.editable} label={label} placeholder={o.placeholder} onCommit={o.onCommit} />;
 		case "multiselect":
 			return <MultiControl options={f.options ?? []} value={o.value} editable={o.editable} label={label} onCommit={o.onCommit} />;
 		case "list":
-			return <ListControl value={o.value} editable={o.editable} label={label} onCommit={o.onCommit} />;
+			return <ListControl value={o.value} editable={o.editable} label={label} placeholder={o.placeholder} onCommit={o.onCommit} />;
 		default:
-			return <TextControl kind={f.kind} value={o.value} editable={o.editable} label={label} onCommit={o.onCommit} />;
+			return <TextControl kind={f.kind} value={o.value} editable={o.editable} label={label} placeholder={o.placeholder} rows={o.rows} onCommit={o.onCommit} />;
 	}
 }
 
@@ -154,7 +155,7 @@ const anyShown = (rs: Rendered[]) => (rs.some((r) => r.fields) ? rs.some((r) => 
  * columns and tabs with nothing shown are left out). Call it while rendering (not as a component), so hidden-row
  * counts add up. Every tab's rows are rendered (others hidden), so counts and lookups include them.
  */
-export function layoutNodes(items: LayoutNode[], propFor: (key: string, labelPos?: LabelPosition) => ReactNode | null, frames: FrameControls): ReactNode[] {
+export function layoutNodes(items: LayoutNode[], propFor: (key: string, slot?: LayoutField) => ReactNode | null, frames: FrameControls): ReactNode[] {
 	let tabGroups = 0;
 	const many = (nodes: LayoutNode[], prefix: number[]): Rendered[] => nodes.map((n, i) => one(n, [...prefix, i]));
 	const one = (n: LayoutNode, path: number[]): Rendered => {
@@ -164,7 +165,7 @@ export function layoutNodes(items: LayoutNode[], propFor: (key: string, labelPos
 			case "text":
 				return { node: <div key={key} className={n.kind === "heading" ? "oe-form-heading" : "oe-form-note"}>{n.text}</div>, fields: false, shown: true };
 			case "field": {
-				const r = propFor(n.key, n.label ?? "above");
+				const r = propFor(n.key, n);
 				return { node: r, fields: true, shown: r !== null };
 			}
 			case "columns": {
@@ -192,20 +193,31 @@ export function layoutNodes(items: LayoutNode[], propFor: (key: string, labelPos
 				if (rs.some((r) => r.fields) && !rs.some((r) => r.fields && r.shown)) return { node: null, fields: true, shown: false };
 				const open = !n.collapsible || !frames.closed.has(key);
 				const flagged = frames.flagged(nodeKeys(n.items));
+				const icon = n.icon ? <Icon name={n.icon} className="oe-form-frame-icon" /> : null;
 				const caption = n.caption ? (
 					n.collapsible ? (
 						<button type="button" className="oe-form-frame-caption is-toggle" aria-expanded={open} onClick={() => frames.toggle(key)}>
 							<Icon name={open ? "chevron-down" : "chevron-right"} />
+							{icon}
 							<span>{n.caption}</span>
 							{flagged && !open && <span className="oe-form-frame-dot" aria-label="A field in here has a problem" />}
 						</button>
 					) : (
-						<div className="oe-form-frame-caption">{n.caption}</div>
+						<div className="oe-form-frame-caption">
+							{icon}
+							<span>{n.caption}</span>
+						</div>
 					)
 				) : null;
+				const accent = n.color ? (n.color === "type" ? "var(--oe-type-color)" : n.color) : undefined;
 				return {
 					node: (
-						<section key={key} className={`oe-form-frame${open ? "" : " is-closed"}`} data-frame={key}>
+						<section
+							key={key}
+							className={`oe-form-frame${open ? "" : " is-closed"}${n.style ? ` is-${n.style}` : ""}${accent ? " has-accent" : ""}`}
+							style={accent ? ({ "--oe-frame-accent": accent } as CSSProperties) : undefined}
+							data-frame={key}
+						>
 							{caption}
 							{open && <div className="oe-form-rows">{rs.filter((r) => r.shown).map((r) => r.node)}</div>}
 						</section>
@@ -393,14 +405,12 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 		else new Notice("Nothing to undo in the properties form.");
 	};
 
-	const controlFor = (f: FieldDef): ReactNode =>
-		fieldControl(f, { value: get(f.key), editable, path, type, live: mode !== "preview", problems: problemsAt(f.key), onCommit: (v) => write(f.key, v) });
 
 	const isBlank = (kind: FieldKind | "order", raw: unknown) => isEmptyValue(raw) || (kind === "boolean" && raw !== true);
 	const hideEmpty = !!type.form?.hideEmpty && !showEmpty;
 	let hidden = 0;
-	/** A property's row, or null when it's hidden (empty, with "hide empty fields" on). */
-	const rowFor = (key: string, kind: FieldKind | "order", node: ReactNode, opts: { label: string; icon: string; required?: boolean; desc?: string }, labelPos?: LabelPosition): ReactNode | null => {
+	/** A property's row, or null when it's hidden (empty, with "hide empty fields" on). `slot`: its place in a layout. */
+	const rowFor = (key: string, kind: FieldKind | "order", node: ReactNode, opts: { label: string; icon: string; required?: boolean; desc?: string }, slot: LayoutField | undefined, rowEditable: boolean): ReactNode | null => {
 		const ps = problemsAt(key);
 		const blank = isBlank(kind, get(key));
 		if (hideEmpty && blank && ps.length === 0) {
@@ -408,25 +418,50 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 			return null;
 		}
 		return (
-			<PropRow key={key} k={key} {...opts} problems={ps} empty={blank} editable={editable} onFix={fix} labelPos={labelPos}>
+			<PropRow
+				key={key}
+				k={key}
+				{...opts}
+				label={slot?.caption || opts.label}
+				problems={ps}
+				empty={blank}
+				editable={rowEditable}
+				onFix={fix}
+				labelPos={slot ? (slot.label ?? "above") : undefined}
+				help={slotHelp(slot, opts.desc)}
+				locked={!!slot?.readOnly}
+			>
 				{node}
 			</PropRow>
 		);
 	};
 	/** The row for a field or a built-in property (status, order, related, tags, aliases); null when hidden. */
-	const propFor = (key: string, labelPos?: LabelPosition): ReactNode | null => {
+	const propFor = (key: string, slot?: LayoutField): ReactNode | null => {
+		const ed = editable && !slot?.readOnly;
+		const ph = slot?.placeholder;
 		const f = type.fields.find((x) => x.key === key);
-		if (f) return rowFor(f.key, f.kind, controlFor(f), { label: f.label || f.key, icon: KIND_INFO[f.kind].icon, required: f.required, desc: f.description }, labelPos);
+		if (f)
+			return rowFor(
+				f.key,
+				f.kind,
+				fieldControl(f, { value: get(f.key), editable: ed, path, type, live: mode !== "preview", problems: problemsAt(f.key), onCommit: (v) => write(f.key, v), placeholder: ph, rows: slot?.rows }),
+				{ label: f.label || f.key, icon: KIND_INFO[f.kind].icon, required: f.required, desc: f.description },
+				slot,
+				ed,
+			);
 		switch (key) {
 			case COMMON_KEYS.status:
-				return rowFor(COMMON_KEYS.status, "select", <StatusControl type={type} value={get(COMMON_KEYS.status)} editable={editable} problem={problemsAt(COMMON_KEYS.status)[0]} onCommit={(v) => write(COMMON_KEYS.status, v)} />, { label: "Status", icon: "circle-dot" }, labelPos);
+				return rowFor(COMMON_KEYS.status, "select", <StatusControl type={type} value={get(COMMON_KEYS.status)} editable={ed} problem={problemsAt(COMMON_KEYS.status)[0]} onCommit={(v) => write(COMMON_KEYS.status, v)} />, { label: "Status", icon: "circle-dot" }, slot, ed);
 			case COMMON_KEYS.order:
 				if (!usesOrder(type)) return null;
-				return rowFor(COMMON_KEYS.order, "order", <TextControl kind="number" value={get(COMMON_KEYS.order)} editable={editable} label="Order" onCommit={(v) => write(COMMON_KEYS.order, v)} />, {
-					label: "Order",
-					icon: "arrow-down-01",
-					desc: "Sorts this note among its siblings in the browser.",
-				}, labelPos);
+				return rowFor(
+					COMMON_KEYS.order,
+					"order",
+					<TextControl kind="number" value={get(COMMON_KEYS.order)} editable={ed} label="Order" placeholder={ph} onCommit={(v) => write(COMMON_KEYS.order, v)} />,
+					{ label: "Order", icon: "arrow-down-01", desc: "Sorts this note among its siblings in the browser." },
+					slot,
+					ed,
+				);
 			case COMMON_KEYS.related:
 				return rowFor(
 					COMMON_KEYS.related,
@@ -438,24 +473,25 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 						labelled={false}
 						symmetric
 						value={get(COMMON_KEYS.related)}
-						editable={editable}
+						editable={ed}
 						path={path}
 						type={type}
 						live={mode !== "preview"}
 						problems={problemsAt(COMMON_KEYS.related)}
+						placeholder={ph}
 						onCommit={(v) => write(COMMON_KEYS.related, v)}
 					/>,
 					{ label: "Related", icon: "link-2", desc: "Links to any entity, shown on both notes." },
-					labelPos,
+					slot,
+					ed,
 				);
 			case COMMON_KEYS.tags:
-				return rowFor(COMMON_KEYS.tags, "list", <ListControl value={get(COMMON_KEYS.tags)} editable={editable} label="Tags" tag onCommit={(v) => write(COMMON_KEYS.tags, v)} />, { label: "Tags", icon: "tags" }, labelPos);
+				return rowFor(COMMON_KEYS.tags, "list", <ListControl value={get(COMMON_KEYS.tags)} editable={ed} label="Tags" tag placeholder={ph} onCommit={(v) => write(COMMON_KEYS.tags, v)} />, { label: "Tags", icon: "tags" }, slot, ed);
 			case COMMON_KEYS.aliases:
-				return rowFor(COMMON_KEYS.aliases, "list", <ListControl value={get(COMMON_KEYS.aliases)} editable={editable} label="Aliases" onCommit={(v) => write(COMMON_KEYS.aliases, v)} />, { label: "Aliases", icon: "forward" }, labelPos);
+				return rowFor(COMMON_KEYS.aliases, "list", <ListControl value={get(COMMON_KEYS.aliases)} editable={ed} label="Aliases" placeholder={ph} onCommit={(v) => write(COMMON_KEYS.aliases, v)} />, { label: "Aliases", icon: "forward" }, slot, ed);
 		}
 		return null;
-	};
-	/** Built-in properties in the order the form has always listed them after the fields. */
+	};	/** Built-in properties in the order the form has always listed them after the fields. */
 	const TAIL = [COMMON_KEYS.order, COMMON_KEYS.related, COMMON_KEYS.tags, COMMON_KEYS.aliases];
 
 	const layout = type.form?.layout ? normaliseLayout(type.form.layout) : null;
@@ -589,7 +625,8 @@ export function PropRow({
 	onFix,
 	menu,
 	labelPos,
-	showDesc,
+	help,
+	locked,
 	children,
 }: {
 	k: string;
@@ -602,16 +639,21 @@ export function PropRow({
 	editable: boolean;
 	onFix: (p: FieldProblem) => void;
 	menu?: (evt: MouseEvent) => void;
-	/** in a layout: the label above the value, or beside it (unset: the plain list's label | value row) */
+	/** in a layout: the label above the value, beside it, or hidden (unset: the plain list's label | value row) */
 	labelPos?: LabelPosition;
-	/** show the description under the value (the create dialog), not only as the label's tooltip */
-	showDesc?: boolean;
+	/** text under the value (a slot's help text; the create dialog's descriptions), else the description is the label's tooltip */
+	help?: string;
+	/** read-only on this form: a lock by the label */
+	locked?: boolean;
 	children: ReactNode;
 }) {
 	const worst = problems.find((p) => p.severity === "error") ?? problems[0];
 	return (
-		<div className={`oe-prop${worst ? ` has-problem is-${worst.severity}` : ""}${empty ? " is-empty" : ""}${labelPos === "above" ? " is-label-above" : ""}`} data-key={k}>
-			<div className="oe-prop-label" aria-label={showDesc ? undefined : desc}>
+		<div
+			className={`oe-prop${worst ? ` has-problem is-${worst.severity}` : ""}${empty ? " is-empty" : ""}${labelPos === "above" ? " is-label-above" : labelPos === "hidden" ? " is-label-hidden" : ""}${locked ? " is-locked" : ""}`}
+			data-key={k}
+		>
+			<div className="oe-prop-label" aria-label={help ? undefined : desc}>
 				<Icon name={icon} className="oe-prop-icon" />
 				<span className="oe-prop-name">{label}</span>
 				{required && (
@@ -619,10 +661,15 @@ export function PropRow({
 						*
 					</span>
 				)}
+				{locked && (
+					<span className="oe-prop-lock" aria-label="Read-only on this form">
+						<Icon name="lock" />
+					</span>
+				)}
 			</div>
 			<div className="oe-prop-value">
 				{children}
-				{showDesc && desc && <div className="oe-prop-desc">{desc}</div>}
+				{help && <div className="oe-prop-desc">{help}</div>}
 				{worst && (
 					<span className="oe-prop-problem">
 						<span className="oe-prop-problem-icon" aria-label={problems.map((p) => p.message).join("\n")}>
@@ -675,7 +722,25 @@ export function StatusControl({ type, value, editable, problem, onCommit }: { ty
 }
 
 /** Single-value text-like fields: saved on blur or Enter, Esc cancels. Invalid input isn't saved. */
-export function TextControl({ kind, value, editable, label, onCommit }: { kind: "text" | "textarea" | "url" | "number" | "date"; value: unknown; editable: boolean; label: string; onCommit: (v: unknown) => void }) {
+export function TextControl({
+	kind,
+	value,
+	editable,
+	label,
+	placeholder,
+	rows,
+	onCommit,
+}: {
+	kind: "text" | "textarea" | "url" | "number" | "date";
+	value: unknown;
+	editable: boolean;
+	label: string;
+	/** grey text when empty (default "Empty"; dates show their format) */
+	placeholder?: string;
+	/** long text: a fixed height in lines (default: grows with the text) */
+	rows?: number;
+	onCommit: (v: unknown) => void;
+}) {
 	const plugin = usePlugin();
 	const dates = plugin.dates;
 	const display = isEmptyValue(value) ? "" : Array.isArray(value) ? value.map(String).join(", ") : typeof value === "object" ? JSON.stringify(value) : String(value);
@@ -734,7 +799,7 @@ export function TextControl({ kind, value, editable, label, onCommit }: { kind: 
 		className: "oe-prop-input",
 		"aria-label": label,
 		value: text,
-		placeholder: kind === "date" ? dates.placeholder : "Empty",
+		placeholder: kind === "date" ? dates.placeholder : placeholder || "Empty",
 		"data-dirty": text !== display ? "1" : undefined,
 		onChange: (e: { target: { value: string } }) => setText(e.target.value),
 		onFocus: () => {
@@ -751,7 +816,7 @@ export function TextControl({ kind, value, editable, label, onCommit }: { kind: 
 		},
 		onKeyDown,
 	};
-	if (kind === "textarea") return <textarea {...props} rows={Math.min(8, Math.max(1, text.split("\n").length))} />;
+	if (kind === "textarea") return <textarea {...props} rows={rows ?? Math.min(8, Math.max(1, text.split("\n").length))} />;
 	const input = <input type="text" inputMode={kind === "number" ? "decimal" : kind === "url" ? "url" : undefined} {...props} />;
 	if (kind === "date" && dates.toPicker && dates.fromPicker) {
 		const { toPicker, fromPicker } = dates;
@@ -800,13 +865,13 @@ export function CheckControl({ value, editable, label, onCommit }: { value: unkn
 	return <input type="checkbox" className="oe-prop-check" aria-label={label} checked={value === true} onChange={(e) => onCommit(e.target.checked)} />;
 }
 
-export function SelectControl({ options, value, editable, label, onCommit }: { options: string[]; value: unknown; editable: boolean; label: string; onCommit: (v: unknown) => void }) {
+export function SelectControl({ options, value, editable, label, placeholder, onCommit }: { options: string[]; value: unknown; editable: boolean; label: string; placeholder?: string; onCommit: (v: unknown) => void }) {
 	const current = isEmptyValue(value) ? "" : Array.isArray(value) ? String(value[0] ?? "") : String(value);
 	if (!editable) return current ? <span className="oe-prop-text">{current}</span> : <Empty />;
 	const all = current && !options.includes(current) ? [current, ...options] : options;
 	return (
 		<select className="dropdown oe-prop-select" aria-label={label} value={current} onChange={(e) => onCommit(e.target.value || null)}>
-			<option value="">—</option>
+			<option value="">{placeholder || "—"}</option>
 			{all.map((o) => (
 				<option key={o} value={o}>
 					{options.includes(o) ? o : `${o} (not an option)`}
@@ -890,7 +955,7 @@ function chipKeys(remove: (chip: HTMLElement) => void) {
 }
 
 /** Free lists (list fields, tags, aliases): chips plus an add box (Enter or comma adds). */
-export function ListControl({ value, editable, label, tag, onCommit }: { value: unknown; editable: boolean; label: string; tag?: boolean; onCommit: (v: unknown) => void }) {
+export function ListControl({ value, editable, label, tag, placeholder, onCommit }: { value: unknown; editable: boolean; label: string; tag?: boolean; placeholder?: string; onCommit: (v: unknown) => void }) {
 	const items = asArray(value).map(String);
 	const [text, setText] = useState("");
 	const show = (t: string) => (tag ? `#${t.replace(/^#/, "")}` : t);
@@ -930,7 +995,7 @@ export function ListControl({ value, editable, label, tag, onCommit }: { value: 
 			<input
 				className="oe-prop-add"
 				value={text}
-				placeholder={items.length ? "Add…" : "Empty"}
+				placeholder={items.length ? "Add…" : placeholder || "Empty"}
 				aria-label={`Add to ${label}`}
 				data-dirty={text ? "1" : undefined}
 				onChange={(e) => setText(e.target.value)}
@@ -1025,6 +1090,7 @@ export function RelationControl({
 	type,
 	live,
 	problems,
+	placeholder,
 	onCommit,
 }: {
 	fieldKey: string;
@@ -1040,6 +1106,8 @@ export function RelationControl({
 	/** a real note (not the type editor preview): include links set on other notes */
 	live: boolean;
 	problems: FieldProblem[];
+	/** grey text in the picker when there are no links (default "Empty") */
+	placeholder?: string;
 	onCommit: (v: unknown) => void;
 }) {
 	const plugin = usePlugin();
@@ -1155,7 +1223,7 @@ export function RelationControl({
 					/>
 				</span>
 			))}
-			{editable && <input ref={inputRef} className="oe-prop-add" placeholder={items.length === 0 ? "Empty" : list ? "Add…" : "Change…"} aria-label={list ? `Add to ${label}` : `Choose ${label}`} />}
+			{editable && <input ref={inputRef} className="oe-prop-add" placeholder={items.length === 0 ? placeholder || "Empty" : list ? "Add…" : "Change…"} aria-label={list ? `Add to ${label}` : `Choose ${label}`} />}
 		</span>
 	);
 }

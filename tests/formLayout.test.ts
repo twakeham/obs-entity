@@ -27,6 +27,7 @@ import {
 	renameLayoutKey,
 	resolveLayout,
 	setColumnCount,
+	slotHelp,
 	slotProblems,
 	tabsOnPath,
 	ungroupFrame,
@@ -259,6 +260,46 @@ describe("tabs and frames in columns", () => {
 		// the last tab: the group goes (contents take its place when kept)
 		const one = removeTab(r, [1], 0, true);
 		expect(one.items.map((n) => n.kind)).toEqual(["field", "columns", "field"]);
+	});
+});
+
+describe("slot options and frame styling", () => {
+	it("reads slot options, dropping defaults and bad values", () => {
+		const l = normaliseLayout({
+			items: [
+				{ kind: "field", key: "description", label: "hidden", caption: " Summary ", placeholder: " What's it for? ", help: { text: " Keep it short " }, rows: 6, readOnly: true },
+				{ kind: "field", key: "owner", label: "above", caption: "  ", placeholder: "", help: "description", rows: 5, readOnly: "yes" },
+				{ kind: "field", key: "due", help: { text: "  " }, rows: 3 },
+			],
+		})!;
+		expect(l.items).toEqual([
+			{ kind: "field", key: "description", label: "hidden", caption: "Summary", placeholder: "What's it for?", help: { text: "Keep it short" }, rows: 6, readOnly: true },
+			{ kind: "field", key: "owner", help: "description" },
+			{ kind: "field", key: "due", rows: 3 },
+		]);
+	});
+
+	it("reads frame styling", () => {
+		const l = normaliseLayout({
+			items: [
+				{ kind: "frame", caption: "A", icon: " star ", color: "type", style: "filled", items: [] },
+				{ kind: "frame", caption: "B", icon: "", color: " ", style: "fancy", items: [] },
+				{ kind: "frame", caption: "C", color: "#e5484d", style: "plain", items: [] },
+			],
+		})!;
+		expect(l.items).toEqual([
+			{ kind: "frame", caption: "A", icon: "star", color: "type", style: "filled", items: [] },
+			{ kind: "frame", caption: "B", items: [] },
+			{ kind: "frame", caption: "C", color: "#e5484d", style: "plain", items: [] },
+		]);
+	});
+
+	it("gives a slot's help text", () => {
+		expect(slotHelp(undefined, "Desc")).toBeUndefined();
+		expect(slotHelp({ kind: "field", key: "a" }, "Desc")).toBeUndefined();
+		expect(slotHelp({ kind: "field", key: "a", help: "description" }, "Desc")).toBe("Desc");
+		expect(slotHelp({ kind: "field", key: "a", help: "description" }, " ")).toBeUndefined();
+		expect(slotHelp({ kind: "field", key: "a", help: { text: "Own" } }, "Desc")).toBe("Own");
 	});
 });
 

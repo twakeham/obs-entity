@@ -1,5 +1,5 @@
 import { FuzzySuggestModal, Menu, type App } from "obsidian";
-import { useEffect, useMemo, useRef, useState, type FocusEvent as RFocusEvent, type KeyboardEvent as RKeyboardEvent, type MouseEvent as RMouseEvent, type PointerEvent as RPointerEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent as RFocusEvent, type KeyboardEvent as RKeyboardEvent, type MouseEvent as RMouseEvent, type PointerEvent as RPointerEvent, type ReactNode } from "react";
 import {
 	addTab,
 	allLists,
@@ -27,6 +27,7 @@ import {
 	removeTab,
 	sameList,
 	setColumnCount,
+	slotHelp,
 	slotProblems,
 	tabsOnPath,
 	ungroupFrame,
@@ -35,6 +36,7 @@ import {
 	type FormLayout,
 	type LayoutColumns,
 	type LayoutComponent,
+	type LabelPosition,
 	type LayoutField,
 	type LayoutFrame,
 	type LayoutList,
@@ -46,15 +48,15 @@ import {
 import { COMMON_KEYS } from "../../../model/types";
 import { usePlugin } from "../context";
 import { Icon } from "../Icon";
-import { IconPicker, Issues, Segmented, Toggle } from "./controls";
+import { IconPicker, Issues, PALETTE, Segmented, Toggle } from "./controls";
 import { KIND_INFO, useEditor } from "./editor";
 
-const BUILTINS: Record<string, { label: string; icon: string; kind: string }> = {
+const BUILTINS: Record<string, { label: string; icon: string; kind: string; desc?: string }> = {
 	[COMMON_KEYS.status]: { label: "Status", icon: "circle-dot", kind: "Status" },
-	[COMMON_KEYS.related]: { label: "Related", icon: "link-2", kind: "Links to any entity" },
+	[COMMON_KEYS.related]: { label: "Related", icon: "link-2", kind: "Links to any entity", desc: "Links to any entity, shown on both notes." },
 	[COMMON_KEYS.tags]: { label: "Tags", icon: "tags", kind: "Tags" },
 	[COMMON_KEYS.aliases]: { label: "Aliases", icon: "forward", kind: "Other names" },
-	[COMMON_KEYS.order]: { label: "Order", icon: "arrow-down-01", kind: "Number" },
+	[COMMON_KEYS.order]: { label: "Order", icon: "arrow-down-01", kind: "Number", desc: "Sorts this note among its siblings in the browser." },
 };
 
 const TABS_ICON = "panels-top-left";
@@ -239,6 +241,14 @@ export function LayoutTab() {
 	const labelOf = (k: string) => {
 		const f = fieldOf(k);
 		return f ? f.label || f.key : (BUILTINS[k]?.label ?? k);
+	};
+	/** the label a property has without a custom one */
+	const baseLabel = labelOf;
+	const descOf = (k: string) => fieldOf(k)?.description?.trim() || BUILTINS[k]?.desc || "";
+	/** whether a property's control can show a placeholder (not checkboxes, dates, multiple choice or status) */
+	const takesPlaceholder = (k: string) => {
+		const f = fieldOf(k);
+		return f ? !["boolean", "date", "multiselect"].includes(f.kind) : k !== COMMON_KEYS.status;
 	};
 	const iconOf = (k: string) => {
 		const f = fieldOf(k);
@@ -783,16 +793,23 @@ export function LayoutTab() {
 				const def = fieldOf(n.key);
 				const problem = problems.get(key);
 				const label = labelOf(n.key);
-				const p = nodeProps(path, n, `oe-ld-field${n.label === "beside" ? " is-beside" : ""}${problem ? " has-problem" : ""}`, list, i, count);
+				const p = nodeProps(path, n, `oe-ld-field${n.label === "beside" ? " is-beside" : n.label === "hidden" ? " is-label-hidden" : ""}${problem ? " has-problem" : ""}`, list, i, count);
+				const kind = def ? KIND_INFO[def.kind].label : (BUILTINS[n.key]?.kind ?? "");
+				const help = slotHelp(n, descOf(n.key));
 				return (
 					<div key={key} {...p} onPointerDown={(e) => startPointer(e, { from: "canvas", path, node: n })} title={problem}>
 						<span className="oe-ld-label">
 							<Icon name={problem ? "alert-triangle" : iconOf(n.key)} />
-							<span className="oe-ld-label-text">{label}</span>
+							<span className="oe-ld-label-text">{n.caption || label}</span>
 							{def?.required && <span className="oe-prop-required">*</span>}
+							{n.label === "hidden" && <Icon name="eye-off" className="oe-ld-flag" />}
+							{n.readOnly && <Icon name="lock" className="oe-ld-flag" />}
 						</span>
-						<span className="oe-ld-control">{problem ?? (def ? KIND_INFO[def.kind].label : (BUILTINS[n.key]?.kind ?? ""))}</span>
-						{nodeMore(path, label)}
+						<span className={`oe-ld-control${n.placeholder && !problem ? " has-placeholder" : ""}`} style={n.rows ? { minHeight: `${Math.min(n.rows, 6) * 0.9 + 0.6}em` } : undefined}>
+							{problem ?? n.placeholder ?? (n.rows ? `${kind} · ${n.rows} lines` : kind)}
+						</span>
+						{help && <span className="oe-ld-help">{help}</span>}
+						{nodeMore(path, n.caption || label)}
 					</div>
 				);
 			}
@@ -825,12 +842,14 @@ export function LayoutTab() {
 				);
 			}
 			case "frame": {
-				const p = nodeProps(path, n, "oe-ld-frame", list, i, count);
+				const p = nodeProps(path, n, `oe-ld-frame${n.style ? ` is-${n.style}` : ""}${n.color ? " has-accent" : ""}`, list, i, count);
+				const accent = n.color ? (n.color === "type" ? "var(--oe-type-color)" : n.color) : undefined;
 				return (
-					<section key={key} {...p}>
+					<section key={key} {...p} style={accent ? ({ "--oe-frame-accent": accent } as CSSProperties) : undefined}>
 						<div className="oe-ld-head" onPointerDown={(e) => startPointer(e, { from: "canvas", path, node: n })}>
 							<Icon name="grip-vertical" className="oe-ld-grip" />
 							{n.collapsible && <Icon name={n.collapsed ? "chevron-right" : "chevron-down"} />}
+							{n.icon && <Icon name={n.icon} className="oe-ld-frame-icon" />}
 							<span className="oe-ld-caption">{n.caption || <span className="oe-ld-faint">No caption</span>}</span>
 							{n.create === false && (
 								<span className="oe-ld-badge" title="Not in the create dialog">
@@ -958,7 +977,7 @@ export function LayoutTab() {
 					<div className="oe-ld-prop-col">
 						<span>Icon</span>
 						<div className="oe-ld-iconrow">
-							<IconPicker value={def.icon ?? ""} color="var(--text-muted)" onChange={(v) => changeTab(t, (x) => ({ ...x, icon: v }))} />
+							<IconPicker value={def.icon ?? ""} color="var(--text-muted)" empty="No icon" onChange={(v) => changeTab(t, (x) => ({ ...x, icon: v }))} />
 							{def.icon && (
 								<button type="button" onClick={() => changeTab(t, (x) => ({ ...x, icon: undefined }))}>
 									No icon
@@ -1013,6 +1032,7 @@ export function LayoutTab() {
 		if (selected.kind === "frame") {
 			const fr = selected;
 			const kept = ungroupFrame(base, sel);
+			const setFrame = (patch: Partial<LayoutFrame>) => change(sel, (n) => ({ ...(n as LayoutFrame), ...patch }));
 			return (
 				<>
 					<div className="oe-ld-props-title">Frame</div>
@@ -1033,6 +1053,42 @@ export function LayoutTab() {
 						<Toggle label="Show in the create dialog" value={fr.create !== false} onChange={(v) => change(sel, (n) => ({ ...(n as LayoutFrame), create: v ? undefined : false }))} />
 					</div>
 					<p className="oe-tm-muted oe-ld-note">Required fields are always asked for when creating a note.</p>
+					<div className="oe-ld-prop-col">
+						<span>Icon</span>
+						<div className="oe-ld-iconrow">
+							<IconPicker value={fr.icon ?? ""} color="var(--text-muted)" empty="No icon" onChange={(v) => setFrame({ icon: v })} />
+							{fr.icon && (
+								<button type="button" onClick={() => setFrame({ icon: undefined })}>
+									No icon
+								</button>
+							)}
+						</div>
+					</div>
+					<div className="oe-ld-prop-col">
+						<span>Accent colour</span>
+						<div className="oe-ld-swatches" role="radiogroup" aria-label="Accent colour">
+							<button type="button" role="radio" aria-checked={!fr.color} aria-label="No accent" className={`oe-ld-swatch is-none${!fr.color ? " is-active" : ""}`} onClick={() => setFrame({ color: undefined })} />
+							<button type="button" role="radio" aria-checked={fr.color === "type"} aria-label="The type's colour" className={`oe-ld-swatch is-type${fr.color === "type" ? " is-active" : ""}`} style={{ backgroundColor: type.color }} onClick={() => setFrame({ color: "type" })}>
+								<Icon name={type.icon} />
+							</button>
+							{PALETTE.map((col) => (
+								<button key={col} type="button" role="radio" aria-checked={fr.color === col} aria-label={col} className={`oe-ld-swatch${fr.color === col ? " is-active" : ""}`} style={{ backgroundColor: col }} onClick={() => setFrame({ color: col })} />
+							))}
+						</div>
+					</div>
+					<div className="oe-ld-prop-col">
+						<span>Style</span>
+						<Segmented
+							label="Frame style"
+							value={fr.style ?? "box"}
+							options={[
+								{ value: "box", label: "Box" },
+								{ value: "plain", label: "Plain" },
+								{ value: "filled", label: "Filled" },
+							]}
+							onChange={(v) => setFrame({ style: v === "box" ? undefined : (v as "plain" | "filled") })}
+						/>
+					</div>
 					<div className="oe-ld-prop-buttons">
 						<button type="button" disabled={!kept} title={kept ? undefined : "Its columns can't go in a column"} onClick={() => kept && commit(kept, { select: fr.items.length ? sel : null })}>
 							<Icon name="ungroup" /> Remove frame, keep contents
@@ -1135,6 +1191,7 @@ export function LayoutTab() {
 			const f = selected;
 			const def = fieldOf(f.key);
 			const problem = problems.get(pk(sel));
+			const setSlot = (patch: Partial<LayoutField>, tag?: string) => change(sel, (n) => ({ ...(n as LayoutField), ...patch }), tag);
 			return (
 				<>
 					<div className="oe-ld-props-title">
@@ -1152,10 +1209,58 @@ export function LayoutTab() {
 							options={[
 								{ value: "above", label: "Above", icon: "arrow-up-to-line" },
 								{ value: "beside", label: "Beside", icon: "arrow-left-to-line" },
+								{ value: "hidden", label: "Hidden", icon: "eye-off" },
 							]}
-							onChange={(v) => change(sel, (n) => ({ ...(n as LayoutField), label: v === "beside" ? "beside" : undefined }))}
+							onChange={(v) => setSlot({ label: v === "above" ? undefined : (v as LabelPosition) })}
 						/>
 					</div>
+					<label className="oe-ld-prop-col">
+						<span>Custom label</span>
+						<LocalText value={f.caption ?? ""} placeholder={baseLabel(f.key)} label="Custom label" onChange={(v) => setSlot({ caption: v.trim() ? v : undefined }, `caption:${pk(sel)}`)} />
+					</label>
+					{takesPlaceholder(f.key) && (
+						<label className="oe-ld-prop-col">
+							<span>Placeholder</span>
+							<LocalText value={f.placeholder ?? ""} placeholder="Empty" label="Placeholder" onChange={(v) => setSlot({ placeholder: v.trim() ? v : undefined }, `placeholder:${pk(sel)}`)} />
+						</label>
+					)}
+					<div className="oe-ld-prop-col">
+						<span>Help text</span>
+						<Segmented
+							label="Help text"
+							value={!f.help ? "none" : f.help === "description" ? "description" : "custom"}
+							options={[
+								{ value: "none", label: "None" },
+								{ value: "description", label: "Description" },
+								{ value: "custom", label: "Custom" },
+							]}
+							onChange={(v) => setSlot({ help: v === "none" ? undefined : v === "description" ? "description" : { text: typeof f.help === "object" ? f.help.text : descOf(f.key) || "Help text" } })}
+						/>
+						{f.help === "description" && <span className="oe-tm-muted oe-ld-note">{descOf(f.key) || "This field has no description yet (set it on the Fields tab)."}</span>}
+						{typeof f.help === "object" && <LocalText multiline value={f.help.text} label="Custom help text" onChange={(v) => setSlot({ help: v.trim() ? { text: v } : "description" }, `help:${pk(sel)}`)} />}
+						{!f.help && <span className="oe-tm-muted oe-ld-note">The description shows when you hover over the label.</span>}
+					</div>
+					{def?.kind === "textarea" && (
+						<div className="oe-ld-prop-col">
+							<span>Height</span>
+							<Segmented
+								label="Height"
+								value={String(f.rows ?? "auto")}
+								options={[
+									{ value: "auto", label: "Auto" },
+									{ value: "3", label: "Short" },
+									{ value: "6", label: "Medium" },
+									{ value: "12", label: "Tall" },
+								]}
+								onChange={(v) => setSlot({ rows: v === "auto" ? undefined : Number(v) })}
+							/>
+						</div>
+					)}
+					<div className="oe-ld-prop-row">
+						<span>Read-only on this form</span>
+						<Toggle label="Read-only on this form" value={!!f.readOnly} onChange={(v) => setSlot({ readOnly: v ? true : undefined })} />
+					</div>
+					{f.readOnly && <p className="oe-tm-muted oe-ld-note">Shown but not editable on notes. The create dialog, views and bulk edits can still set it.</p>}
 					<div className="oe-ld-prop-buttons">
 						{def && (
 							<button
