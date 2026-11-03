@@ -6,7 +6,7 @@ import { isEmptyValue } from "../../model/frontmatter";
 import { asArray, parseLabelledEntry, parseLink } from "../../model/links";
 import { addLink, type Edge, type RelationItem } from "../../model/relations";
 import { COMMON_KEYS, isListValued, statusesFor, type EntityTypeDef, type FieldDef, type FieldKind, type RelationTarget } from "../../model/types";
-import { fieldSlots, nodeKeys, normaliseLayout, resolveLayout, slotHelp, tabsOnPath, walkLayout, type LabelPosition, type LayoutField, type LayoutFrame, type LayoutNode, type LayoutTab, type LayoutWhen } from "../../model/formLayout";
+import { fieldSlots, nodeKeys, normaliseLayout, readableOn, resolveLayout, slotHelp, tabsOnPath, walkLayout, type LabelPosition, type LayoutField, type LayoutFrame, type LayoutNode, type LayoutTab, type LayoutWhen } from "../../model/formLayout";
 import { evalWhen, todayDays, whenText, type WhenContext } from "../../model/formConditions";
 import type { EntityRecord } from "../../services/entityIndex";
 import { openNativePicker } from "../components/datePicker";
@@ -131,6 +131,8 @@ export interface FrameControls {
 	shows?: (w: LayoutWhen) => boolean;
 	/** show what conditions hide (to fix a problem in it), with why it's normally hidden */
 	reveal?: (w: LayoutWhen) => string;
+	/** the type's colour (a solid header in it picks readable text) */
+	typeColor?: string;
 }
 
 /** The note on something shown only to fix a problem. */
@@ -238,13 +240,16 @@ export function layoutNodes(items: LayoutNode[], propFor: (key: string, slot?: L
 						</div>
 					)
 				) : null;
-				const accent = n.color ? (n.color === "type" ? "var(--oe-type-color)" : n.color) : undefined;
+				// A coloured header uses the accent, else the type's colour, and replaces the accent stripe.
+				const colour = n.color ?? (n.header ? "type" : undefined);
+				const accent = colour ? (colour === "type" ? "var(--oe-type-color)" : colour) : undefined;
+				const on = n.header === "solid" && colour ? readableOn(colour === "type" ? (frames.typeColor ?? "") : colour) : undefined;
 				return {
 					node: (
 						<section
 							key={key}
-							className={`oe-form-frame${open ? "" : " is-closed"}${n.style ? ` is-${n.style}` : ""}${accent ? " has-accent" : ""}`}
-							style={accent ? ({ "--oe-frame-accent": accent } as CSSProperties) : undefined}
+							className={`oe-form-frame${open ? "" : " is-closed"}${n.style ? ` is-${n.style}` : ""}${accent && !n.header ? " has-accent" : ""}${n.header && n.caption ? ` has-header is-header-${n.header}` : ""}`}
+							style={accent ? ({ "--oe-frame-accent": accent, ...(on ? { "--oe-frame-on": on } : {}) } as CSSProperties) : undefined}
 							data-frame={key}
 						>
 							{caption}
@@ -553,6 +558,7 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 			flagged: (keys) => keys.some((k) => problemsAt(k).length > 0),
 			tab: (g) => openTabs[g] ?? 0,
 			setTab,
+			typeColor: type.color,
 			shows: (w) => evalWhen(w, type, values, whenCtx),
 			...(reveal && problems.length ? { reveal: (w: LayoutWhen) => whenText(w, type, whenCtx) } : {}),
 		});

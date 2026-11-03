@@ -23,6 +23,7 @@ import {
 	parseListKey,
 	placeableKeys,
 	placeOf,
+	readableOn,
 	removeNode,
 	removeTab,
 	sameList,
@@ -884,10 +885,12 @@ export function LayoutTab() {
 				);
 			}
 			case "frame": {
-				const p = nodeProps(path, n, `oe-ld-frame${n.style ? ` is-${n.style}` : ""}${n.color ? " has-accent" : ""}`, list, i, count);
-				const accent = n.color ? (n.color === "type" ? "var(--oe-type-color)" : n.color) : undefined;
+				const colour = n.color ?? (n.header ? "type" : undefined);
+				const accent = colour ? (colour === "type" ? "var(--oe-type-color)" : colour) : undefined;
+				const on = n.header === "solid" && colour ? readableOn(colour === "type" ? type.color : colour) : undefined;
+				const p = nodeProps(path, n, `oe-ld-frame${n.style ? ` is-${n.style}` : ""}${n.color && !n.header ? " has-accent" : ""}${n.header ? ` has-header is-header-${n.header}` : ""}`, list, i, count);
 				return (
-					<section key={key} {...p} style={accent ? ({ "--oe-frame-accent": accent } as CSSProperties) : undefined}>
+					<section key={key} {...p} style={accent ? ({ "--oe-frame-accent": accent, ...(on ? { "--oe-frame-on": on } : {}) } as CSSProperties) : undefined}>
 						<div className="oe-ld-head" onPointerDown={(e) => startPointer(e, { from: "canvas", path, node: n })}>
 							<Icon name="grip-vertical" className="oe-ld-grip" />
 							{n.collapsible && <Icon name={n.collapsed ? "chevron-right" : "chevron-down"} />}
@@ -1137,6 +1140,20 @@ export function LayoutTab() {
 							]}
 							onChange={(v) => setFrame({ style: v === "box" ? undefined : (v as "plain" | "filled") })}
 						/>
+					</div>
+					<div className="oe-ld-prop-col">
+						<span>Header</span>
+						<Segmented
+							label="Frame header"
+							value={fr.header ?? "plain"}
+							options={[
+								{ value: "plain", label: "Plain" },
+								{ value: "soft", label: "Soft" },
+								{ value: "solid", label: "Solid" },
+							]}
+							onChange={(v) => setFrame({ header: v === "plain" ? undefined : (v as "soft" | "solid") })}
+						/>
+						{fr.header && <span className="oe-tm-muted oe-ld-note">{fr.caption ? `In the accent colour${fr.color ? "" : " (none set: the type's colour)"}.` : "Give the frame a caption to show its header."}</span>}
 					</div>
 					{whenEditor(fr.when, (w, tag) => change(sel, (n) => ({ ...(n as LayoutFrame), when: w }), tag), `when:${pk(sel)}`)}
 					<div className="oe-ld-prop-buttons">

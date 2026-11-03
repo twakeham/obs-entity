@@ -183,6 +183,7 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 			shows: (w) => evalWhen(w, type, condValues(state), whenCtx),
 			tab: (g) => openTabs[g] ?? 0,
 			setTab: (g, t) => setOpenTabs((o) => ({ ...o, [g]: t })),
+			typeColor: type.color,
 		});
 		renderedKeys.current = new Set(shownKeys);
 		// Required fields, and ones already filled in, that aren't on show yet: asked for in a frame of their own.

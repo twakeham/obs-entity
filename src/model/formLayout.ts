@@ -75,6 +75,8 @@ export interface LayoutFrame {
 	color?: string;
 	/** plain: no border; filled: a light tint instead of a border (default: a bordered box) */
 	style?: "plain" | "filled";
+	/** a coloured header bar behind the caption (the accent colour, else the type's): a light tint, or the full colour */
+	header?: "soft" | "solid";
 	/** shown only when this holds */
 	when?: LayoutWhen;
 	items: LayoutNode[];
@@ -200,6 +202,7 @@ function readNode(raw: unknown, place: LayoutPlace): LayoutNode[] {
 				...(text(raw.icon).trim() ? { icon: text(raw.icon).trim() } : {}),
 				...(text(raw.color).trim() ? { color: text(raw.color).trim() } : {}),
 				...(raw.style === "plain" || raw.style === "filled" ? { style: raw.style } : {}),
+				...(raw.header === "soft" || raw.header === "solid" ? { header: raw.header } : {}),
 				...withWhen(raw.when),
 				items: many(arr(raw.items), "frame"),
 			};
@@ -273,6 +276,16 @@ export function fieldSlots(layout: FormLayout): { path: LayoutPath; field: Layou
 /** Every field slot in the layout, in order. */
 export function layoutFields(layout: FormLayout): LayoutField[] {
 	return fieldSlots(layout).map((s) => s.field);
+}
+
+/** Text colour that reads best on a background colour ("#rrggbb" or "#rgb"): white or near-black (white when unknown). */
+export function readableOn(bg: string): string {
+	const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(bg.trim());
+	if (!m) return "#ffffff";
+	const hex = m[1].length === 3 ? [...m[1]].map((ch) => ch + ch).join("") : m[1];
+	const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+	// Perceived brightness (YIQ): dark text on light colours (ambers, light greens), white on the rest.
+	return (r * 299 + g * 587 + b * 114) / 1000 >= 150 ? "#1e1e1e" : "#ffffff";
 }
 
 /** Keys of the fields in some nodes (frames, columns and tabs included). */

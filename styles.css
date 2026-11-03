@@ -5096,6 +5096,54 @@ td.is-wrap .oe-bar-value {
 	color: color-mix(in srgb, var(--oe-frame-accent) 75%, var(--text-normal));
 }
 
+/* Coloured header bar: soft (a tint of the colour) or solid (the colour, with readable text); edge to edge */
+.oe-form-frame.has-header {
+	padding-top: 0;
+}
+
+.oe-form .oe-form-frame.has-header > .oe-form-frame-caption {
+	box-sizing: border-box;
+	width: calc(100% + 2 * var(--size-4-2));
+	margin: 0 calc(-1 * var(--size-4-2)) var(--size-4-1);
+	padding: 5px var(--size-4-2);
+	border-radius: calc(var(--radius-m) - 1px) calc(var(--radius-m) - 1px) 0 0;
+}
+
+.oe-form .oe-form-frame.is-header-soft > .oe-form-frame-caption {
+	background-color: color-mix(in srgb, var(--oe-frame-accent) 16%, transparent);
+	color: color-mix(in srgb, var(--oe-frame-accent) 75%, var(--text-normal));
+}
+
+.oe-form .oe-form-frame.is-header-solid > .oe-form-frame-caption {
+	background-color: var(--oe-frame-accent);
+	color: var(--oe-frame-on, #fff);
+}
+
+.oe-form .oe-form-frame.has-header > button.oe-form-frame-caption.is-toggle:hover {
+	color: inherit;
+	filter: brightness(0.96);
+}
+
+.oe-form .oe-form-frame.is-header-solid > button.oe-form-frame-caption.is-toggle:hover {
+	color: var(--oe-frame-on, #fff);
+}
+
+.oe-form-frame.has-header.is-closed {
+	padding-bottom: 0;
+}
+
+.oe-form .oe-form-frame.has-header.is-closed > .oe-form-frame-caption {
+	margin-bottom: 0;
+	border-radius: calc(var(--radius-m) - 1px);
+}
+
+.oe-form .oe-form-frame.is-plain.has-header > .oe-form-frame-caption {
+	width: 100%;
+	margin-right: 0;
+	margin-left: 0;
+	border-radius: var(--radius-s);
+}
+
 /* Hidden label: the value takes the row (the label stays for screen readers) */
 .oe-prop.is-label-hidden {
 	grid-template-columns: minmax(0, 1fr) auto;
@@ -5836,6 +5884,43 @@ td.is-wrap .oe-bar-value {
 .oe-ld-frame.has-accent > .oe-ld-head .oe-ld-caption,
 .oe-ld-frame.has-accent > .oe-ld-head .oe-ld-frame-icon {
 	color: color-mix(in srgb, var(--oe-frame-accent) 75%, var(--text-normal));
+}
+
+/* coloured frame headers on the canvas */
+.oe-ld-frame.has-header {
+	padding-top: 0;
+}
+
+.oe-ld-frame.has-header > .oe-ld-head {
+	margin: 0 calc(-1 * var(--size-4-2)) 4px;
+	padding: 0 var(--size-4-2);
+	border-radius: calc(var(--radius-m) - 1px) calc(var(--radius-m) - 1px) 0 0;
+}
+
+.oe-ld-frame.is-plain.has-header > .oe-ld-head {
+	margin-top: 2px;
+	border-radius: var(--radius-s);
+}
+
+.oe-ld-frame.is-header-soft > .oe-ld-head {
+	background-color: color-mix(in srgb, var(--oe-frame-accent) 16%, transparent);
+}
+
+.oe-ld-frame.is-header-soft > .oe-ld-head .oe-ld-caption,
+.oe-ld-frame.is-header-soft > .oe-ld-head .oe-ld-frame-icon {
+	color: color-mix(in srgb, var(--oe-frame-accent) 75%, var(--text-normal));
+}
+
+.oe-ld-frame.is-header-solid > .oe-ld-head {
+	background-color: var(--oe-frame-accent);
+}
+
+.oe-ld-frame.is-header-solid > .oe-ld-head,
+.oe-ld-frame.is-header-solid > .oe-ld-head .oe-ld-caption,
+.oe-ld-frame.is-header-solid > .oe-ld-head .oe-ld-grip,
+.oe-ld-frame.is-header-solid > .oe-ld-head .oe-ld-frame-icon,
+.oe-tm .oe-ld-frame.is-header-solid > .oe-ld-head .oe-ld-more {
+	color: var(--oe-frame-on, #fff);
 }
 
 .oe-ld-swatches {

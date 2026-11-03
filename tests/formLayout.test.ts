@@ -22,6 +22,7 @@ import {
 	parseListKey,
 	placeableKeys,
 	placeOf,
+	readableOn,
 	removeNode,
 	removeTab,
 	renameLayoutKey,
@@ -292,6 +293,17 @@ describe("slot options and frame styling", () => {
 			{ kind: "frame", caption: "B", items: [] },
 			{ kind: "frame", caption: "C", color: "#e5484d", style: "plain", items: [] },
 		]);
+	});
+
+	it("reads coloured headers, and picks readable text for them", () => {
+		const l = normaliseLayout({ items: [{ kind: "frame", caption: "A", header: "solid", items: [] }, { kind: "frame", caption: "B", header: "soft", items: [] }, { kind: "frame", caption: "C", header: "loud", items: [] }] })!;
+		expect(l.items.map((n) => (n as { header?: string }).header)).toEqual(["solid", "soft", undefined]);
+		expect(readableOn("#f44336")).toBe("#ffffff");
+		expect(readableOn("#3f51b5")).toBe("#ffffff");
+		expect(readableOn("#ffc107")).toBe("#1e1e1e");
+		expect(readableOn("#8bc34a")).toBe("#1e1e1e");
+		expect(readableOn("#fff")).toBe("#1e1e1e");
+		expect(readableOn("var(--x)")).toBe("#ffffff");
 	});
 
 	it("gives a slot's help text", () => {
