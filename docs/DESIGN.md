@@ -893,7 +893,7 @@ interface LayoutTabs { kind: "tabs"; tabs: { caption: string; icon?: string; cre
 
 - **Relations:**
   - Each linked entity is a coloured chip with its **×** inside it (while editing).
-  - A single-link field shows "Change…", and **picking replaces** the link.
+  - A single-link field with a link set has **no picker**: removing the link (× or Delete, with Undo) brings the picker back and focuses it. Picking when empty sets the link.
   - A labelled field asks for an optional label after picking.
   - Fields that read both ways (symmetric fields, and Related) also show links set on the other note, with a dotted border. Removing one edits that note.
 - **Rejected input:** typed text that isn't valid (in a number field, or a bad date) isn't saved. A notice says why, and the box goes back to the saved value.
@@ -2008,7 +2008,7 @@ The deal's properties form (Live Preview):
 ```
 [Deal] [open ▾]  Three-year renewal with an upsell to the enterprise tier.      ⇄ ⋯ ˄
 Description   Three-year renewal with an upsell to the enterprise tier.
-Company *     [Acme Ltd]  Change…
+Company *     [Acme Ltd ×]
 Value         120000
 Close date    2027-03-31  📅
 Contacts      [Ada Lovelace · economic buyer] [Grace Hopper · technical lead]  Add…

@@ -72,7 +72,7 @@ On entity notes, a form built from the note's type replaces Obsidian's Propertie
 - **Only valid values go in.** Text, numbers and dates save when you leave the box or press Enter, and Esc cancels. A number that isn't a number, or a date that doesn't exist, isn't saved; a notice says why.
 - **Other fields save immediately:** checkboxes, dropdowns, multiple-choice pills, chip lists, and links.
 - **Link fields** show each entity as a coloured chip with a **×** inside to remove it. They only offer entities of the allowed types, with **Create "X"**.
-  - In a single-link field, picking replaces the link.
+  - A single-link field with a link set shows just the link. Remove it with its × (or Delete on the focused link) and the picker appears, ready to type in.
   - Labelled fields ask for the label.
   - Fields that read both ways also show links set on the other note (dotted border).
 - **Undo:** **Ctrl/Cmd+Z** in the form undoes the last form edit on that note, up to 20 steps. Removing a link or property also shows a notice with **Undo**.

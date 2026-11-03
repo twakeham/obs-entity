@@ -1254,7 +1254,7 @@ function undoNotice(message: string, undo: () => void): void {
 
 /**
  * Relation fields (and Related): chips for this note's links, chips for links set on other notes when the field
- * reads both ways, and a picker limited to the allowed types. Picking in a single-link field replaces the link.
+ * reads both ways, and a picker limited to the allowed types. A single-link field shows its picker only when it's empty.
  */
 export function RelationControl({
 	fieldKey,
@@ -1338,8 +1338,11 @@ export function RelationControl({
 	// The picker lives as long as the input; it reads the field's current settings (they change when the type is edited or the note changes type).
 	const current = useRef({ pick, list, labelled, targets, related });
 	current.current = { pick, list, labelled, targets, related };
+	// A single link has no picker while it's set: remove it (×) first, then the picker appears, ready to type in.
+	const showPicker = editable && (list || items.length === 0);
+	const focusPicker = useRef(false);
 	useEffect(() => {
-		if (!editable || !inputRef.current) return;
+		if (!showPicker || !inputRef.current) return;
 		const suggest = new EntitySuggest(app, inputRef.current, plugin, {
 			get targets() {
 				return current.current.related ? undefined : current.current.targets;
@@ -1358,11 +1361,17 @@ export function RelationControl({
 		});
 		return () => suggest.close();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [editable]);
+	}, [showPicker]);
+	useEffect(() => {
+		if (!focusPicker.current || !inputRef.current) return;
+		focusPicker.current = false;
+		inputRef.current.focus();
+	});
 
 	const removeAt = (index: number, name: string) => {
 		const before = latest.current;
 		const next = Array.isArray(before) ? before.filter((_, j) => j !== index) : list ? [] : null;
+		if (!list) focusPicker.current = true;
 		onCommit(next);
 		undoNotice(`Removed ${name} from ${label}.`, () => onCommit(before));
 	};
@@ -1402,7 +1411,7 @@ export function RelationControl({
 					/>
 				</span>
 			))}
-			{editable && <input ref={inputRef} className="oe-prop-add" placeholder={items.length === 0 ? placeholder || "Empty" : list ? "Add…" : "Change…"} aria-label={list ? `Add to ${label}` : `Choose ${label}`} />}
+			{showPicker && <input ref={inputRef} className="oe-prop-add" placeholder={items.length === 0 ? placeholder || "Empty" : "Add…"} aria-label={list ? `Add to ${label}` : `Choose ${label}`} />}
 		</span>
 	);
 }
