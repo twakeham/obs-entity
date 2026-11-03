@@ -1,18 +1,48 @@
-import { Menu } from "obsidian";
-import { useState, type CSSProperties, type DragEvent, type MouseEvent } from "react";
+import { Menu, Notice } from "obsidian";
+import { useMemo, useState, type CSSProperties, type DragEvent, type MouseEvent, type ReactNode } from "react";
 import { newUid, renameFieldRefs, targetName } from "../../../model/typeEditing";
-import { toKey, type EntityTypeDef, type FieldDef, type FieldKind } from "../../../model/types";
+import { isCalculated, toKey, type EntityTypeDef, type FieldDef, type FieldKind, type GroupDef } from "../../../model/types";
+import { toDisplay } from "../../../model/formula";
+import { AGG_FIELD_KINDS, calcCell, calcInfo, fieldColumn, formatCell, formulaRefColumns, resolveColumn, rollupSources, ROLLUP_AGGS, typeViewDef, type RollupAgg, type RollupDef } from "../../../model/views";
+import { FormulaModal } from "../../modals/formulaModal";
 import { BOOLEAN_FORMATS, datePresetLabels, FIELD_DATE_PRESETS, FIELD_NUMBER_PRESETS, formattedKind, formatValue, urlText } from "../../../model/fieldFormats";
 import { usePlugin } from "../context";
 import { Icon } from "../Icon";
 import { ChipsInput, DateInput, Issues, Row, Segmented, TargetPicker, TextInput, Toggle } from "./controls";
 import { KIND_INFO, KIND_ORDER, useEditor } from "./editor";
 
+/** A new (or newly re-kinded) calculated field's starting set-up: a count of the first linked notes, or an empty formula. */
+function startCalc(f: FieldDef, t: EntityTypeDef, allTypes: EntityTypeDef[], groups: GroupDef[]): void {
+	if (!isCalculated(f)) {
+		delete f.rollup;
+		delete f.formula;
+		delete f.formulaType;
+		return;
+	}
+	delete f.inModal;
+	delete f.required;
+	delete f.default;
+	delete f.options;
+	delete f.targets;
+	delete f.multiple;
+	if (f.kind === "rollup") {
+		delete f.formula;
+		delete f.formulaType;
+		const first = rollupSources(typeViewDef(t), { types: [...allTypes.filter((x) => x.key !== t.key), t], groups })[0];
+		f.rollup ??= { via: first?.via ?? "", agg: "count" };
+	} else {
+		delete f.rollup;
+		f.formula ??= "";
+	}
+}
+
 /** Menu of field kinds for "+ Add field". */
 export function addFieldMenu(evt: MouseEvent, add: (kind: FieldKind) => void, addRelationship?: () => void) {
 	const menu = new Menu();
 	for (const kind of KIND_ORDER) {
 		if (kind === "relation" && addRelationship) continue;
+		// Calculated kinds get their own section.
+		if (kind === "rollup") menu.addSeparator();
 		menu.addItem((i) => i.setTitle(`${KIND_INFO[kind].label} — ${KIND_INFO[kind].desc}`).setIcon(KIND_INFO[kind].icon).onClick(() => add(kind)));
 	}
 	if (addRelationship) {
@@ -23,7 +53,7 @@ export function addFieldMenu(evt: MouseEvent, add: (kind: FieldKind) => void, ad
 }
 
 export function useAddField() {
-	const { update, setFieldUid } = useEditor();
+	const { update, setFieldUid, allTypes, groups } = useEditor();
 	return (kind: FieldKind) => {
 		const uid = newUid();
 		update((t, meta) => {
@@ -31,6 +61,7 @@ export function useAddField() {
 			if (kind === "list") f.multiple = true;
 			if (kind === "select" || kind === "multiselect") f.options = [];
 			if (kind === "relation") f.targets = ["*"];
+			startCalc(f, t, allTypes, groups);
 			t.fields.push(f);
 			meta.push({ uid, origKey: null });
 		});
@@ -223,7 +254,7 @@ function FieldDetails({ index }: { index: number }) {
 				</button>
 			</div>
 
-			<Row label="Label" desc="Shown in the create dialog and the properties form.">
+			<Row label="Label" desc={isCalculated(f) ? "Shown in the properties form, views and formulas." : "Shown in the create dialog and the properties form."}>
 				<TextInput
 					label="Field label"
 					value={f.label}
@@ -244,7 +275,7 @@ function FieldDetails({ index }: { index: number }) {
 							Was <code>{meta.origKey}</code>. You can update existing notes when you save.
 						</>
 					) : (
-						"The property name in each note's frontmatter."
+						isCalculated(f) ? "Used by views and formulas. Calculated fields aren't stored in notes." : "The property name in each note's frontmatter."
 					)
 				}
 				issues={issuesAt(`field:${index}:key`)}
@@ -266,6 +297,7 @@ function FieldDetails({ index }: { index: number }) {
 							if (x.kind === "list") x.multiple = true;
 							if (x.kind === "relation" && !x.targets) x.targets = ["*"];
 							if ((x.kind === "select" || x.kind === "multiselect") && !x.options) x.options = [];
+							startCalc(x, t, allTypes, groups);
 							// Relation fields can't be part of the subtitle.
 							if (x.kind === "relation" && t.card?.subtitle) t.card.subtitle = t.card.subtitle.filter((k) => k !== x.key);
 						})
@@ -278,7 +310,7 @@ function FieldDetails({ index }: { index: number }) {
 					))}
 				</select>
 			</Row>
-			<Row label="Description" desc="Help text shown under the field in the create dialog.">
+			<Row label="Description" desc={isCalculated(f) ? "Help text, shown where a form layout asks for it." : "Help text shown under the field in the create dialog."}>
 				<TextInput label="Description" value={f.description ?? ""} placeholder="Optional" onChange={(v) => set((x) => (v.trim() ? (x.description = v) : delete x.description))} />
 			</Row>
 
@@ -328,14 +360,20 @@ function FieldDetails({ index }: { index: number }) {
 				</>
 			)}
 
-			{f.kind !== "relation" && <DefaultRow field={f} index={index} />}
+			{isCalculated(f) && <CalcRows key={`${index}:${f.kind}`} field={f} index={index} />}
 
-			<Row label="Show in the create dialog" desc="Otherwise it's under “Show more fields”.">
-				<Toggle label="Show in the create dialog" value={!!f.inModal} onChange={(v) => set((x) => (x.inModal = v))} />
-			</Row>
-			<Row label="Required" desc="Must be filled in when creating a note. Notes where it's empty show a warning.">
-				<Toggle label="Required" value={!!f.required} onChange={(v) => set((x) => (x.required = v || undefined))} />
-			</Row>
+			{f.kind !== "relation" && !isCalculated(f) && <DefaultRow field={f} index={index} />}
+
+			{!isCalculated(f) && (
+				<>
+					<Row label="Show in the create dialog" desc="Otherwise it's under “Show more fields”.">
+						<Toggle label="Show in the create dialog" value={!!f.inModal} onChange={(v) => set((x) => (x.inModal = v))} />
+					</Row>
+					<Row label="Required" desc="Must be filled in when creating a note. Notes where it's empty show a warning.">
+						<Toggle label="Required" value={!!f.required} onChange={(v) => set((x) => (x.required = v || undefined))} />
+					</Row>
+				</>
+			)}
 			{issuesAt(`field:${index}:other`).length > 0 && <Issues issues={issuesAt(`field:${index}:other`)} />}
 		</div>
 	);
@@ -418,15 +456,17 @@ function exampleValue(f: FieldDef, sampled: unknown): unknown {
  * Display format for number, date, checkbox and URL fields: presets with an example from the sample note, and a
  * custom pattern (dates, numbers) or text (URLs) with a preview. The stored value never changes.
  */
-function FormatRow({ field: f, index }: { field: FieldDef; index: number }) {
+function FormatRow({ field: f, index, as, sampled }: { field: FieldDef; index: number; as?: FieldKind; sampled?: unknown }) {
 	const plugin = usePlugin();
 	const { update, issuesAt, sample } = useEditor();
 	const env = plugin.formatEnv();
-	const kind = formattedKind(f.kind)!;
-	const value = exampleValue(f, sample.frontmatter[f.key]);
+	// Calculated fields are formatted by what they give (`as`), with their worked-out value (`sampled`).
+	const fkind = as ?? f.kind;
+	const kind = formattedKind(fkind)!;
+	const value = exampleValue({ ...f, kind: fkind }, sampled !== undefined ? sampled : sample.frontmatter[f.key]);
 	const show = (format: string | undefined) => {
 		try {
-			return formatValue({ kind: f.kind, format }, value, env) || "—";
+			return formatValue({ kind: fkind, format }, value, env) || "—";
 		} catch {
 			return "—";
 		}
@@ -526,5 +566,165 @@ function FormatRow({ field: f, index }: { field: FieldDef; index: number }) {
 				{(choice === "custom" || choice === "currency") && !issues.length && <div className="oe-tm-muted oe-tm-format-preview">Preview: {show(fmt)}</div>}
 			</div>
 		</Row>
+	);
+}
+
+const RESULT_TEXT: Record<string, string> = { number: "a number", date: "a date", bool: "true / false", multi: "a list", links: "links", text: "text", choice: "text", folder: "text" };
+const AGG_TEXT: Record<RollupAgg, string> = {
+	count: "Count",
+	list: "Names",
+	unique: "Unique values of a field",
+	sum: "Sum of a field",
+	avg: "Average of a field",
+	min: "Smallest value of a field",
+	max: "Largest value of a field",
+	earliest: "Earliest date of a field",
+	latest: "Latest date of a field",
+	"percent-done": "% done (by status)",
+	"count-by-status": "Count by status",
+};
+
+/** A worked-out day (days since 1970-01-01) as YYYY-MM-DD, for format examples. */
+const isoDay = (days: number) => new Date(days * 86_400_000).toISOString().slice(0, 10);
+
+/**
+ * Roll-up and formula fields: what they work out (From / Calculate / Of field, or the formula), what they give, a
+ * preview for the sample note, the display format for that result, and notes that store a property of the same name.
+ */
+function CalcRows({ field: f, index }: { field: FieldDef; index: number }) {
+	const plugin = usePlugin();
+	const { draft, update, issuesAt, allTypes, groups, sample } = useEditor();
+	const t = draft.type;
+	const types = useMemo(() => [...allTypes.filter((x) => x.key !== t.key), t], [allTypes, t]);
+	const lookup = { types, groups };
+	const set = (fn: (x: FieldDef) => void) => update((tt) => fn(tt.fields[index]));
+	const issues = issuesAt(`field:${index}:calc`);
+	const info = f.key ? calcInfo(t, f, lookup) : null;
+
+	// The value for the sample note (a real note: roll-ups need its links).
+	const preview = useMemo(() => {
+		if (!f.key || !sample.fromNote || !sample.path) return null;
+		const data = plugin.viewData();
+		const ctx = { ...data.ctx, types };
+		const base = data.rows.find((r) => r.path === sample.path);
+		if (!base) return null;
+		const row = { ...base, type: t, frontmatter: sample.frontmatter };
+		const cell = calcCell(row, f, ctx);
+		const col = resolveColumn(fieldColumn(f.key), typeViewDef(t), ctx);
+		return { cell, text: formatCell(cell, col, undefined, ctx).text };
+	}, [plugin, f, t, types, sample]);
+
+	let rows: ReactNode;
+	if (f.kind === "rollup") {
+		const sources = rollupSources(typeViewDef(t), lookup);
+		const r = f.rollup ?? { via: sources[0]?.via ?? "", agg: "count" as RollupAgg };
+		const source = sources.find((s) => s.via === r.via);
+		const need = AGG_FIELD_KINDS[r.agg];
+		const fields: { key: string; label: string }[] = [];
+		for (const lt of source?.linked ?? [])
+			for (const lf of lt.fields) {
+				const kind = isCalculated(lf) ? calcInfo(lt, lf, lookup).kind : lf.kind;
+				if ((need === "any" || (need && need.includes(kind))) && !fields.some((x) => x.key === lf.key)) fields.push({ key: lf.key, label: `${lf.label || lf.key}${(source?.linked.length ?? 0) > 1 ? ` (${lt.name})` : ""}` });
+			}
+		const setRollup = (next: Partial<RollupDef>) => set((x) => (x.rollup = { ...r, ...next }));
+		rows = !sources.length ? (
+			<Row label="From">
+				<div className="oe-tm-muted">This type has no relationships to roll up. Add a relation field here, or one on another type that links to {t.plural || "this type"}.</div>
+			</Row>
+		) : (
+			<>
+				<Row label="From" desc="Which linked notes: this type's relation fields, or notes of other types that link here." issues={issues}>
+					<select className="dropdown" aria-label="Roll up from" value={source ? r.via : ""} onChange={(e) => setRollup({ via: e.target.value, field: undefined })}>
+						{!source && <option value="">Choose…</option>}
+						{sources.map((s) => (
+							<option key={s.via} value={s.via}>
+								{s.via.startsWith("in:") ? `${s.label} (linking here)` : s.label}
+							</option>
+						))}
+					</select>
+				</Row>
+				<Row label="Calculate">
+					<select className="dropdown" aria-label="Calculate" value={r.agg} onChange={(e) => setRollup({ agg: e.target.value as RollupAgg, field: undefined })}>
+						{ROLLUP_AGGS.map((a) => (
+							<option key={a} value={a}>
+								{AGG_TEXT[a]}
+							</option>
+						))}
+					</select>
+				</Row>
+				{need && (
+					<Row label="Of field" desc={fields.length ? undefined : `The linked notes have no ${need === "any" ? "" : `${need.join(" or ")} `}fields.`}>
+						<select className="dropdown" aria-label="Of field" value={r.field ?? ""} onChange={(e) => setRollup({ field: e.target.value || undefined })}>
+							<option value="">Choose…</option>
+							{fields.map((x) => (
+								<option key={x.key} value={x.key}>
+									{x.label}
+								</option>
+							))}
+						</select>
+					</Row>
+				)}
+			</>
+		);
+	} else {
+		const refCols = formulaRefColumns(typeViewDef(t), lookup);
+		const shown = f.formula ? toDisplay(f.formula, refCols) : "";
+		const edit = () => {
+			if (!f.key) {
+				new Notice("Give the field a label first.");
+				return;
+			}
+			const col = { kind: "formula" as const, id: fieldColumn(f.key).id, formula: f.formula ?? "", label: f.label, ...(f.formulaType ? { type: f.formulaType } : {}) };
+			new FormulaModal(
+				plugin,
+				typeViewDef(t),
+				col,
+				(c) =>
+					set((x) => {
+						x.formula = c.formula;
+						if (c.type) x.formulaType = c.type;
+						else delete x.formulaType;
+					}),
+				{ types, label: f.label },
+			).open();
+		};
+		rows = (
+			<Row label="Formula" desc="Uses this type's fields (by their labels in [ ]), built-ins and other calculated fields." issues={issues} stacked>
+				<div className="oe-tm-formula">
+					<code className={`oe-tm-formula-text${shown ? "" : " is-empty"}`}>{shown || "No formula yet"}</code>
+					<button type="button" onClick={edit}>
+						<Icon name="function-square" /> Edit formula…
+					</button>
+				</div>
+			</Row>
+		);
+	}
+
+	const kind = info && !info.invalid ? info.kind : null;
+	const as: FieldKind | undefined = kind === "number" ? "number" : kind === "date" ? "date" : kind === "bool" ? "boolean" : undefined;
+	const sampled = preview && !preview.cell.error ? (as === "date" && typeof preview.cell.value === "number" ? isoDay(preview.cell.value) : preview.cell.value) : undefined;
+	const clash = f.key && draft.original ? plugin.index.ofType(draft.original.key).filter((e) => e.frontmatter[f.key] !== undefined).length : 0;
+	return (
+		<>
+			{rows}
+			{kind && (
+				<Row label="Gives">
+					<span className="oe-tm-muted oe-tm-calc-gives">{RESULT_TEXT[kind] ?? kind}</span>
+				</Row>
+			)}
+			{preview && (
+				<Row label="Preview" desc={`For “${sample.name}”.`}>
+					<span className={`oe-tm-calc-preview${preview.cell.error ? " is-error" : ""}`} title={preview.cell.error}>
+						{preview.cell.error ? `— ${preview.cell.error}` : preview.text || "(empty)"}
+					</span>
+				</Row>
+			)}
+			{as && <FormatRow key={`${index}:${as}`} field={f} index={index} as={as} sampled={sampled} />}
+			{clash > 0 && (
+				<div className="oe-tm-issue is-warning">
+					<Icon name="info" /> {clash === 1 ? "1 note has" : `${clash} notes have`} its own “{f.key}” property. Calculated fields aren't stored, so that value is ignored; the worked-out one is shown.
+				</div>
+			)}
+		</>
 	);
 }

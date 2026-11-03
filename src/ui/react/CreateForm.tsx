@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { evalWhen, hiddenFields, todayDays, type WhenContext } from "../../model/formConditions";
 import { isNoteItem, normaliseLayout, NOTE_ITEMS, resolveLayout, slotLabel, type LayoutField, type LayoutNode } from "../../model/formLayout";
 import { fromFormFields, isEmptyValue, toFormFields, type EntityFormValues } from "../../model/frontmatter";
-import { COMMON_KEYS, statusesFor, type EntityTypeDef } from "../../model/types";
+import { COMMON_KEYS, statusesFor, storedFields, type EntityTypeDef } from "../../model/types";
 import { emptyFormValues } from "../../services/entityFactory";
 import { usePlugin } from "./context";
 import { extraFrame, fieldControl, layoutNodes, ListControl, PropRow, StatusControl, tabOfKey } from "./EntityForm";
@@ -60,6 +60,8 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 	const shownItems = useRef<LayoutNode[]>([]);
 	/** fields rendered in the layout's frames and tabs (not the Required frame) at the last render */
 	const renderedKeys = useRef<Set<string>>(new Set());
+	/** the fields the dialog can set (calculated ones are worked out once the note exists) */
+	const stored = storedFields(type);
 
 	const whenCtx: WhenContext = {
 		types: plugin.settings.types,
@@ -90,7 +92,7 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 		}
 		// Required fields a condition hides aren't required just now.
 		const off = condHidden(s);
-		const missing = type.fields.filter((f) => f.required && !hasValue(s.fields[f.key]) && !off.has(f.key));
+		const missing = stored.filter((f) => f.required && !hasValue(s.fields[f.key]) && !off.has(f.key));
 		setMissingKeys(missing.map((f) => f.key));
 		if (missing.length) {
 			new Notice(`Required: ${missing.map((f) => f.label).join(", ")}`);
@@ -157,7 +159,7 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 			);
 		}
 		if (isNoteItem(key)) return null;
-		const f = type.fields.find((x) => x.key === key);
+		const f = stored.find((x) => x.key === key);
 		if (f) {
 			shownKeys.add(key);
 			return (
@@ -197,8 +199,8 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 	if (!resolved) {
 		// No layout: the fields set to show in the dialog, required ones, subtitle fields and any with a value.
 		const subtitle = new Set(type.card?.subtitle ?? []);
-		const visible = type.fields.filter((f) => showAll || f.inModal || f.required || subtitle.has(f.key) || hasValue(state.fields[f.key]));
-		hidden = type.fields.length - visible.length;
+		const visible = stored.filter((f) => showAll || f.inModal || f.required || subtitle.has(f.key) || hasValue(state.fields[f.key]));
+		hidden = stored.length - visible.length;
 		body = <div className="oe-form-rows">{visible.map((f) => propFor(f.key))}</div>;
 	} else {
 		// The layout's frames and tabs marked "Show in create dialog" (all of them with "Show more fields").
@@ -217,7 +219,7 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 		// Required fields, and ones already filled in, that aren't on show yet: asked for in a frame of their own.
 		// (Not ones a condition hides.)
 		const off = condHidden(state);
-		const outside = type.fields.filter((f) => !shownKeys.has(f.key) && !off.has(f.key));
+		const outside = stored.filter((f) => !shownKeys.has(f.key) && !off.has(f.key));
 		const needed = showAll ? [] : outside.filter((f) => f.required || hasValue(state.fields[f.key]));
 		if (needed.length) nodes.push(extraFrame("required", needed.every((f) => f.required) ? "Required" : "Required and filled in", needed.map((f) => propFor(f.key)), "is-required"));
 		// Fields that aren't placed, with "Show more fields".
@@ -225,7 +227,7 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 			const others = resolved.unplaced.filter((k) => !shownKeys.has(k)).map((k) => propFor(k));
 			if (others.length) nodes.push(extraFrame("other", "Other fields", others));
 		}
-		hidden = type.fields.filter((f) => !shownKeys.has(f.key) && !off.has(f.key)).length;
+		hidden = stored.filter((f) => !shownKeys.has(f.key) && !off.has(f.key)).length;
 		body = <div className="oe-form-layout">{nodes}</div>;
 	}
 

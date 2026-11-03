@@ -17,6 +17,9 @@ export interface WhenContext {
 	today: number;
 	/** resolve a link path to a note path (for "links to") */
 	resolve?: (linkpath: string) => string | null;
+	/** the views' context and the note's path: conditions on calculated fields (roll-ups need the other notes) */
+	view?: ViewContext;
+	path?: string;
 }
 
 /** Today as a day number (days since 1970-01-01), like views use. */
@@ -24,21 +27,22 @@ export function todayDays(now = new Date()): number {
 	return Math.floor(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / 86_400_000);
 }
 
-/** The columns a condition can test: the type's fields, status and tags. */
-export function whenColumns(type: EntityTypeDef, ctx: Pick<WhenContext, "groups">): ResolvedColumn[] {
+/** The columns a condition can test: the type's fields (calculated ones too), status and tags. */
+export function whenColumns(type: EntityTypeDef, ctx: Pick<WhenContext, "groups"> & Partial<Pick<WhenContext, "types">>): ResolvedColumn[] {
 	const def = emptyView([type.key]);
-	const c = { types: [type], groups: ctx.groups };
+	// Other types matter for roll-ups through them; this type as given (it may be a draft).
+	const c = { types: ctx.types?.length ? [...ctx.types.filter((t) => t.key !== type.key), type] : [type], groups: ctx.groups };
 	return [...type.fields.map((f) => resolveColumn(fieldColumn(f.key), def, c)), resolveColumn(columnFromId(COMMON_KEYS.status), def, c), resolveColumn(columnFromId(COMMON_KEYS.tags), def, c)];
 }
 
 function viewContext(ctx: WhenContext): ViewContext {
-	return { types: ctx.types, groups: ctx.groups, dates: ctx.dates, today: ctx.today, resolve: (lp) => ctx.resolve?.(lp) ?? null, row: () => undefined, incoming: () => [] };
+	return ctx.view ?? { types: ctx.types, groups: ctx.groups, dates: ctx.dates, today: ctx.today, resolve: (lp) => ctx.resolve?.(lp) ?? null, row: () => undefined, incoming: () => [] };
 }
 
-function rowOf(type: EntityTypeDef, values: Record<string, unknown>): ViewRow {
+function rowOf(type: EntityTypeDef, values: Record<string, unknown>, path = ""): ViewRow {
 	const status = values[COMMON_KEYS.status];
 	return {
-		path: "",
+		path,
 		name: "",
 		type,
 		status: typeof status === "string" && status ? status : null,
@@ -59,7 +63,7 @@ export function evalWhen(w: LayoutWhen, type: EntityTypeDef, values: Record<stri
 	const { mode, items } = whenParts(w);
 	const usable = items.filter((c) => !conditionIssue(c, cols, vctx));
 	if (!usable.length) return true;
-	const row = rowOf(type, values);
+	const row = rowOf(type, values, ctx.path);
 	const test = (c: LayoutCondition) => {
 		const col = cols.get(c.field)!;
 		return matches(cellOf(row, col, vctx), col.kind, c, vctx);

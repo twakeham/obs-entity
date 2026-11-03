@@ -208,6 +208,8 @@ Appendix A has the full interfaces; this section explains them.
 | `boolean` | boolean | toggle | an empty value is written as `false` |
 | `url` | string | text input + open button | new in Obsidian Entities |
 | `relation` | wikilink or wikilink[] | relation picker (§8.2) | see below |
+| `rollup` | (none: worked out) | read-only value | calculated, §4.7 |
+| `formula` | (none: worked out) | read-only value | calculated, §4.7 |
 
 Options common to all kinds:
 
@@ -319,6 +321,26 @@ A field's `format` changes how its value is **shown**, never what's stored (`mod
 - **Where:** `formatValue(field, raw, env)` is used by the properties form (read-only values, and number / date / URL boxes until they're clicked), Reading view, the subtitle (`valueDisplay`, so pickers, Find entity, chips and the browser), view cells and summaries (as the column default, §8.10), board cards and the type editor's preview. Created and Modified use the setting. Text-only places show a checkbox as "Yes" / blank unless the format says otherwise.
 - **Environment:** `plugin.formatEnv()` gives the date adapter, moment, the number locale, the Default currency, today and the setting. Date patterns need moment and an adapter with picker hooks (real calendar dates); a custom calendar keeps its own display.
 - **Editing:** clicking a number box shows the plain number; typed text is read by `parseNumberText` (currency symbols and codes, the locale's separators, `%`, units like "32 h", negatives in `-` or brackets; K / M / B only with the compact format). Clicking a date box shows the date in its pattern when `isTypeablePattern` (a 4-digit year, a month and a day of the month, ignoring `[literal]` text), otherwise YYYY-MM-DD. `parseTyped` accepts ISO first, then the edit pattern strictly, and stores ISO. The calendar converts between the edit text and ISO days.
+
+### 4.7 Calculated fields
+
+`rollup` and `formula` fields are worked out whenever they're shown (`calcCell` in `model/views.ts`) and **never stored**: `storedFields(type)` leaves them out of new notes' frontmatter, retyping, defaults, problem checks (`checkField`), Obsidian property types, note migrations on rename / delete (`fieldChanges`), and the create dialog. A note's own YAML property with the same key is ignored (the Fields tab says how many notes have one).
+
+```ts
+// on FieldDef
+rollup?: RollupDef;      // { via: "field:<key>" | "in:<type>.<field>", agg, field? }: the same as a view roll-up column
+formula?: string;        // stored with column ids, e.g. "[budget] / [task_count]" (shown with labels)
+formulaType?: FType;     // the result type, when set by hand (otherwise inferred)
+```
+
+- **Roll-ups** reuse the view roll-up engine (`rollupCell`). The "of field" of the linked notes can itself be calculated (`fieldValue` works it out), so a project can sum its tasks' formula field.
+- **Formulas** are compiled against the type as if it were a one-type view (`typeViewDef(type)`, `typeFormula`), so references are the type's fields, built-ins, incoming links and other calculated fields. Formula fields resolve lazily as references (`formulaRefColumns`), and a stack of `type.field` ids catches loops ("Circular reference: A → B → A."). Compiled formulas are cached per type list and type object.
+- **Notes that reach back to themselves** (a roll-up of a calculated field that rolls back up) stop with "Circular reference between notes." (`computing` set of path + key).
+- **Results:** `calcInfo(type, field, ctx)` gives the value kind (roll-ups by aggregation: counts, sums… are numbers, earliest / latest are dates, names / unique values are lists, count by status is text; formulas by result type) and why it can't be worked out. That kind drives filters, sorting, grouping and display formats (number, date and true / false formats; `defaultFormat` applies a calculated field's format by its result kind). A true / false result uses the checkbox formats.
+- **As columns:** a field column for a calculated field resolves to that kind, not editable; `cellOf` works it out per row (with the row's own type's definition). Views keep their own roll-up and formula columns.
+- **Validation:** with every type (as edited) in the validation context, `typeIssues` reports a roll-up's missing relationship or field and a formula's errors or loops at `field:<i>:calc`.
+- **Renames:** `renameFieldRefs` follows a renamed key in the type's formulas (`rewriteRefs`) and roll-ups through that relation field (`via`).
+- **Where they show:** the properties form (read-only, "—" with the reason on hover; conditions on them get the real view context: `WhenContext.view` / `path`), Reading view, layouts, the subtitle (the index leaves calculated parts out, then `refreshCalcSubtitles` fills them in, debounced after index updates; the form passes its own values), tables and boards.
 
 ---
 
@@ -598,6 +620,9 @@ Big icon, name, a "group · N notes · starter/custom · `key`" line, and the ta
     - reads both ways (symmetric)
     - each link labelled
   - **Number, date, checkbox, URL:** **Display format** (§4.6), a dropdown of presets each with an example from the sample note (dates: "Default (05/12/2026)", "5 Dec 2026", "Relative (in 3 days)"…; numbers: "Currency ($1,240.50)"…), and **Custom…** with a pattern box (or a text box for URLs), token help and a preview. Currency adds a code box (blank: the Default currency setting).
+  - **Roll-up** (§4.7): **From** (`rollupSources` of the type: its relation fields, and "<Type> (linking here)" for incoming ones), **Calculate** (the aggregations in words: "Sum of a field", "% done (by status)"…), **Of field** (the linked types' fields of a suitable kind, calculated ones by result). New roll-ups start as a count of the first source.
+  - **Formula** (§4.7): the formula shown with labels, and **Edit formula…**, which opens the view formula editor in field mode (no name box; references and the preview use every type as edited, with the draft in place of its saved version).
+  - **Calculated, both:** **Gives** (a number, a date, true / false, a list…), **Preview** for the sample note (or the reason it can't be worked out), **Display format** for numbers, dates and true / false (examples from the preview's value), and a note when notes store a property with the same key. No default, create-dialog or required options. "+ Add field" lists them in a section of their own.
   - **Date:** the default uses a date box with the calendar; values stay ISO.
   - **Common:** show in create dialog and required. Plus move up/down and delete. Deleting is just a draft change, so there's no confirmation.
 - **+ Add field** opens a menu of kinds (with a one-line description of each), plus **Relationship…**, which opens the guided dialog below. The new field is selected and its label input focused.
@@ -918,6 +943,7 @@ interface LayoutTabs { kind: "tabs"; tabs: { caption: string; icon?: string; cre
 | multiselect | option pills | immediately |
 | list, tags, aliases | chips + an add box (Enter or comma adds; `#` is stripped from tags) | immediately |
 | relation, related | chips (click opens, Ctrl+hover previews, right-click menu) + a picker limited to the allowed types, with "Create X" | immediately |
+| rollup, formula | the worked-out value, read-only, in its display format ("—" with the reason on hover when it can't be worked out) | never (not stored) |
 
 - **Relations:**
   - Each linked entity is a coloured chip with its **×** inside it (while editing).
@@ -1213,7 +1239,7 @@ columns:
 
 #### Roll-ups
 
-`via` is `field:<key>` (an outgoing relation field) or `in:<type>.<field>` (an incoming one).
+`via` is `field:<key>` (an outgoing relation field) or `in:<type>.<field>` (an incoming one). A type's own roll-up and formula fields (§4.7) are also available as ordinary field columns; a view's roll-up and formula columns are for what's specific to the view. The "of field" can be a calculated field of the linked notes (offered by its result kind).
 
 | `agg` | Needs `field` | Result |
 |---|---|---|
@@ -1734,6 +1760,7 @@ These cover all of `model/`, with no Obsidian dependency:
 - **calendar:** ISO dates to and from parts (including years before 100), month stepping clamped to years 1–9999, the 6-week grid for any first day of the week, weekday order.
 - **fieldFormats:** dates in a field's format or the setting (and the adapter's display without moment); numbers, checkboxes and URLs (domain, custom text); which date patterns can be typed back; edit text; reading typed dates (the edit pattern or ISO) and numbers (currency, separators, %, units, de-DE, K/M/B only for compact); format problems on the type; the setting's default; field formats as view column defaults with the view's format winning.
 - **layoutClipboard:** copying a node or tab with its field definitions and reading it back (other text and broken items ignored); matching fields by key then label; missing and already-placed fields; renames (including swaps) with conditions following; leaving fields out vs adding / moving them while keeping the structure; placing a node or tab and moving old slots out with the right path; keys a type can't place; summaries; saved components in settings.
+- **calcFields:** roll-ups (counts, sums, over the linked notes' own formula fields); formulas using fields and other calculated fields (numbers, dates, true / false with Yes / No); errors on cells, not crashes; calculated fields as view columns (kinds, formats, sorting, filtering); loops, missing relationships and empty formulas flagged (and checked only with every type); not written, not checked and no migrations; renames followed in formulas and roll-ups.
 - **formLayout:** tidying layouts (nested frames lifted, 2–4 columns, widths, defaults dropped), listing slots and placeable keys (order only with parent fields; the note items), resolving against a type (unknown and repeated slots dropped, unplaced fields and built-ins, whether status, type and subtitle are placed), the note items' hidden-by-default labels, renames and deletions through `renameFieldRefs`, "start from fields", problems in type validation, and the designer's edits (paths, lists and what they hold, insert / remove / move with drop positions, keyboard moves, column counts and widths, ungrouping frames, where "add" goes, flagged slots), slot options and frame styling (read with defaults and bad values dropped; help text; coloured headers and readable text on them), and tabs and frames in columns (reading and lifting what can't nest, walking, finding a field's tab, what each place holds, moving frames in and out of columns and tabs, adding into the open tab, adding / renaming / moving / removing tabs).
 - **form:**
   - `checkField` / `entityProblems` for every row of the §8.4 table, with fixes

@@ -1,11 +1,12 @@
-import { Keymap, MarkdownView, Notice, Plugin, TFile, WorkspaceLeaf, moment, normalizePath, stringifyYaml, type PaneType, type ViewState } from "obsidian";
+import { debounce, Keymap, MarkdownView, Notice, Plugin, TFile, WorkspaceLeaf, moment, normalizePath, stringifyYaml, type PaneType, type ViewState } from "obsidian";
 import type { MomentLike } from "./model/formats";
 import type { FormatEnv } from "./model/fieldFormats";
 import { isoDateAdapter, type DateAdapter } from "./model/dates";
 import type { EntityFormValues, FieldValue } from "./model/frontmatter";
 import { mergeSettings, type EntitiesSettings } from "./model/settings";
 import { propertyTypes } from "./model/propertyTypes";
-import { isListValued, typeExplicitlyTargeted, type EntityTypeDef, type FieldDef, type RelationTarget } from "./model/types";
+import { subtitleOf } from "./model/card";
+import { isCalculated, isListValued, typeExplicitlyTargeted, type EntityTypeDef, type FieldDef, type RelationTarget } from "./model/types";
 import { EditHistory, entityProblems, fieldKindFor, writeKey, type CheckContext, type FieldProblem, type FormEdit } from "./model/form";
 import { EntityFactory } from "./services/entityFactory";
 import { BulkActions } from "./services/bulkActions";
@@ -24,7 +25,7 @@ import { BROWSER_VIEW, BrowserView } from "./ui/views/BrowserView";
 import type { EntityRecord } from "./services/entityIndex";
 import { TYPES_VIEW, TypesView } from "./ui/views/TypesView";
 import type { GroupDraft, TypeDraft } from "./model/typeEditing";
-import { emptyBoard, emptyView, fieldColumn, serializeView, sourceTypes, type ViewContext, type ViewDef, type ViewKind, type ViewRow, columnFromId } from "./model/views";
+import { calcCell, emptyBoard, emptyView, fieldColumn, formatCell, resolveColumn, serializeView, sourceTypes, typeViewDef, type ViewContext, type ViewDef, type ViewKind, type ViewRow, columnFromId } from "./model/views";
 import { defaultBuckets } from "./model/board";
 import { VIEW_BLOCK, ViewIndex } from "./services/viewIndex";
 import { NewViewModal, OpenViewModal } from "./ui/modals/viewModals";
@@ -83,6 +84,9 @@ export default class EntitiesPlugin extends Plugin {
 		this.views = new ViewIndex(this);
 		this.relations.load();
 		this.index.load();
+		// Subtitles with calculated fields need every note indexed; fill them in once the index settles.
+		const calcSubtitles = debounce(() => this.refreshCalcSubtitles(), 300, true);
+		this.registerEvent(this.index.on("updated", calcSubtitles));
 		this.form.load();
 		this.views.load();
 		this.registerMarkdownCodeBlockProcessor(VIEW_BLOCK, (source, el, ctx) => ctx.addChild(new ViewBlock(this, source, el, ctx)));
@@ -362,6 +366,20 @@ export default class EntitiesPlugin extends Plugin {
 		await this.activateTypes();
 		const leaf = this.app.workspace.getLeavesOfType(TYPES_VIEW)[0];
 		if (leaf?.view instanceof TypesView) leaf.view.addField(typeKey, field);
+	}
+
+	/** Subtitles that use calculated fields (the index leaves those parts out): worked out with every note in view. */
+	refreshCalcSubtitles(): void {
+		const uses = (t: EntityTypeDef) => !!t.card?.subtitle?.some((k) => isCalculated(t.fields.find((f) => f.key === k)));
+		if (!this.settings.types.some(uses)) return;
+		const { rows, ctx } = this.viewData();
+		const env = this.formatEnv();
+		for (const r of rows) {
+			if (!uses(r.type)) continue;
+			const rec = this.index.get(r.path);
+			if (!rec) continue;
+			rec.subtitle = subtitleOf(r.type, r.frontmatter, env, (f) => formatCell(calcCell(r, f, ctx), resolveColumn(fieldColumn(f.key), typeViewDef(r.type), ctx), undefined, ctx).text);
+		}
 	}
 
 	/** How field values are shown and read: display formats, the Date display format setting, number locale. */

@@ -1,4 +1,4 @@
-import { COMMON_KEYS, isListValued, type EntityTypeDef, type FieldDef } from "./types";
+import { COMMON_KEYS, isCalculated, isListValued, type EntityTypeDef, type FieldDef } from "./types";
 
 /** Obsidian property types the plugin manages, so the Properties panel shows the right editor. */
 export type PropertyType = "date" | "number" | "checkbox" | "multitext";
@@ -34,7 +34,7 @@ export function propertyTypes(types: EntityTypeDef[]): { types: Record<string, P
 	]);
 	for (const t of types) {
 		for (const f of t.fields) {
-			if (!f.key) continue;
+			if (!f.key || isCalculated(f)) continue;
 			const set = wanted.get(f.key) ?? new Set<PropertyType | null>();
 			set.add(propertyTypeFor(f));
 			wanted.set(f.key, set);

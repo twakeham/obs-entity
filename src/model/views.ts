@@ -5,7 +5,7 @@ import { asArray, parseLabelledEntry, parseLink } from "./links";
 import { formatDate, formatNumber, RELATIVE, type MomentLike } from "./formats";
 import { fieldFormatIssue, formatValue, type FormatEnv } from "./fieldFormats";
 import { compile, DateVal, evaluate, FormulaError, FTYPES, isLink, toText, truthy, type Compiled, type EvalEnv, type FType, type FValue, type RefColumn } from "./formula";
-import { COMMON_KEYS, statusesFor, toKey, typeMatchesTarget, type EntityTypeDef, type FieldDef, type GroupDef } from "./types";
+import { COMMON_KEYS, isCalculated, statusesFor, toKey, typeMatchesTarget, type EntityTypeDef, type FieldDef, type GroupDef } from "./types";
 
 // ---------------------------------------------------------------- definition
 
@@ -800,6 +800,11 @@ export function resolveColumn(col: ColumnDef, def: ViewDef, ctx: Pick<ViewContex
 		case "field": {
 			const field = fieldOf(col.key, sources);
 			if (!field) return { ...base, label: col.label ?? col.key, kind: "text", editable: false, invalid: `No source type has a "${col.key}" field.` };
+			if (isCalculated(field)) {
+				const type = sources.find((t) => t.fields.includes(field))!;
+				const calc = calcInfo(type, field, ctx, stack);
+				return { ...base, label: col.label ?? field.label, kind: calc.kind, field, editable: false, ...(calc.invalid ? { invalid: calc.invalid } : {}) };
+			}
 			return { ...base, label: col.label ?? field.label, kind: FIELD_VALUE_KIND[field.kind] ?? "text", field, editable: true, ...(field.options ? { options: field.options } : {}) };
 		}
 		case "incoming": {
@@ -812,13 +817,112 @@ export function resolveColumn(col: ColumnDef, def: ViewDef, ctx: Pick<ViewContex
 			const r = col.rollup;
 			const label = col.label ?? rollupLabel(r, sources, ctx.types);
 			const v = viaField(r.via, sources, ctx.types);
-			const kind: ValueKind = ["count", "sum", "avg", "min", "max", "percent-done"].includes(r.agg) ? "number" : r.agg === "earliest" || r.agg === "latest" ? "date" : r.agg === "list" || r.agg === "unique" ? "multi" : "text";
+			const kind = rollupValueKind(r.agg);
 			const invalid = !v.field || v.field.kind !== "relation" ? `The roll-up's relationship "${r.via}" doesn't exist.` : undefined;
 			return { ...base, label, kind, editable: false, ...(invalid ? { invalid } : {}) };
 		}
 		case "formula":
 			return resolveFormula(col, def, ctx, stack);
 	}
+}
+
+/** The value kind of a roll-up's results. */
+export const rollupValueKind = (agg: RollupAgg): ValueKind =>
+	["count", "sum", "avg", "min", "max", "percent-done"].includes(agg) ? "number" : agg === "earliest" || agg === "latest" ? "date" : agg === "list" || agg === "unique" ? "multi" : "text";
+
+// ---- calculated fields (roll-up and formula fields of a type)
+
+/** A view of one type, for resolving a type's formula fields against its own fields. */
+const typeDefs = new WeakMap<EntityTypeDef, ViewDef>();
+export function typeViewDef(type: EntityTypeDef): ViewDef {
+	let d = typeDefs.get(type);
+	if (!d) typeDefs.set(type, (d = { ...emptyView([type.key]), columns: [] }));
+	return d;
+}
+
+type TypeFormula = { formula?: { compiled: Compiled; refs: Map<string, ResolvedColumn>; type: FType }; invalid?: string };
+const typeFormulaCache = new WeakMap<object, Map<string, { owner: EntityTypeDef; text: string; type?: FType; out: TypeFormula }>>();
+
+/** A type's formula field, compiled against the type's fields (other calculated fields included; loops are problems). */
+export function typeFormula(type: EntityTypeDef, field: FieldDef, ctx: Pick<ViewContext, "types" | "groups">, stack: string[] = []): TypeFormula {
+	const id = `${type.key}.${field.key}`;
+	if (stack.includes(id)) {
+		const names = [...stack.slice(stack.indexOf(id)), id].map((s) => ctx.types.find((t) => t.key === s.split(".")[0])?.fields.find((f) => f.key === s.split(".")[1])?.label ?? s);
+		return { invalid: `Circular reference: ${names.join(" → ")}.` };
+	}
+	const text = field.formula ?? "";
+	const top = stack.length === 0;
+	let byTypes = typeFormulaCache.get(ctx.types);
+	const hit = top ? byTypes?.get(id) : undefined;
+	if (hit && hit.owner === type && hit.text === text && hit.type === field.formulaType) return hit.out;
+	let out: TypeFormula;
+	if (!text.trim()) out = { invalid: "The formula is empty." };
+	else {
+		const def = typeViewDef(type);
+		const inner = [...stack, id];
+		try {
+			const compiled = compile(text, formulaRefColumns(def, ctx, inner).filter((c) => c.id !== fieldColumn(field.key).id));
+			const refs = new Map<string, ResolvedColumn>();
+			for (const rid of compiled.refs) {
+				const r = resolveColumn(columnFromId(rid), def, ctx, inner);
+				if (r.invalid && r.field && isCalculated(r.field)) throw new FormulaError(r.invalid.startsWith("Circular") ? r.invalid : `[${r.label}] has a problem: ${r.invalid}`);
+				refs.set(rid, r);
+			}
+			out = { formula: { compiled, refs, type: field.formulaType ?? compiled.type } };
+		} catch (e) {
+			out = { invalid: e instanceof FormulaError ? e.message : String(e) };
+		}
+	}
+	if (top) {
+		if (!byTypes) typeFormulaCache.set(ctx.types, (byTypes = new Map()));
+		byTypes.set(id, { owner: type, text, type: field.formulaType, out });
+	}
+	return out;
+}
+
+/** What a calculated field gives (value kind), and why it can't be worked out. */
+export function calcInfo(type: EntityTypeDef, field: FieldDef, ctx: Pick<ViewContext, "types" | "groups">, stack: string[] = []): { kind: ValueKind; invalid?: string } {
+	if (field.kind === "rollup") {
+		const r = field.rollup;
+		if (!r) return { kind: "text", invalid: "Choose what to roll up." };
+		const v = viaField(r.via, [type], ctx.types);
+		const invalid = !v.field || v.field.kind !== "relation" ? `The roll-up's relationship "${r.via}" doesn't exist.` : AGG_FIELD_KINDS[r.agg] && !r.field ? "Choose the field to roll up." : undefined;
+		return { kind: rollupValueKind(r.agg), ...(invalid ? { invalid } : {}) };
+	}
+	const f = typeFormula(type, field, ctx, stack);
+	return f.formula ? { kind: ftypeToKind(f.formula.type) } : { kind: ftypeToKind(field.formulaType ?? "text"), invalid: f.invalid };
+}
+
+/** Notes being worked out (path and field), so roll-ups that reach back to themselves stop. */
+const computing = new Set<string>();
+
+/** A calculated field's value for a note. */
+export function calcCell(row: ViewRow, field: FieldDef, ctx: ViewContext): Cell {
+	const id = `${row.path}\u0000${field.key}`;
+	if (computing.has(id)) return { ...EMPTY, error: "Circular reference between notes." };
+	computing.add(id);
+	try {
+		let cell: Cell;
+		if (field.kind === "rollup") cell = field.rollup ? rollupCell(row, field.rollup, ctx) : EMPTY;
+		else {
+			const f = typeFormula(row.type, field, ctx);
+			cell = f.formula ? evalFormula(row, f.formula, ctx) : { ...EMPTY, error: f.invalid };
+		}
+		if (typeof cell.value === "boolean" && field.format) cell = { ...cell, text: formatValue({ kind: "boolean", format: field.format }, cell.value, formatEnvOfView(ctx)) };
+		return cell;
+	} finally {
+		computing.delete(id);
+	}
+}
+
+/** A field's value on a linked note, calculated fields worked out (for roll-ups). */
+function fieldValue(row: ViewRow, key: string, ctx: ViewContext): { raw: unknown; cell?: Cell } {
+	const f = row.type.fields.find((x) => x.key === key);
+	if (f && isCalculated(f)) {
+		const cell = calcCell(row, f, ctx);
+		return { raw: cell.value, cell };
+	}
+	return { raw: row.frontmatter[key] };
 }
 
 /** The formula type a column's values have. */
@@ -840,17 +944,23 @@ export function formulaUniverse(def: ViewDef, ctx: Pick<ViewContext, "types" | "
 
 /** The universe as formula reference columns (labels and types), for compiling and the editor. Formula types resolve lazily. */
 export function formulaRefColumns(def: ViewDef, ctx: Pick<ViewContext, "types" | "groups">, stack: string[] = []): RefColumn[] {
+	const sources = sourceTypes(def, ctx.types);
 	return formulaUniverse(def, ctx).map((c) => {
-		if (c.kind !== "formula") {
+		// Formula columns and formula fields resolve lazily (they may refer back: loops are found when resolving).
+		const lazy = c.kind === "formula" || (c.kind === "field" && fieldOf(c.key, sources)?.kind === "formula");
+		if (!lazy) {
 			const r = resolveColumn(c, def, ctx);
 			return { id: c.id, label: r.label, type: kindToFType(r.kind) };
 		}
 		let type: FType | undefined;
+		const label = c.kind === "formula" ? (c.label ?? "Formula") : (c.label ?? fieldOf((c as { key: string }).key, sources)?.label ?? c.id);
 		return {
 			id: c.id,
-			label: c.label ?? "Formula",
+			label,
 			get type() {
-				type ??= c.type ?? resolveColumn(c, def, ctx, stack).formula?.type ?? "any";
+				if (type) return type;
+				const r = resolveColumn(c, def, ctx, stack);
+				type = c.kind === "formula" ? (c.type ?? r.formula?.type ?? "any") : r.invalid ? "any" : kindToFType(r.kind);
 				return type;
 			},
 		};
@@ -1007,7 +1117,7 @@ function linkedRows(row: ViewRow, via: string, ctx: ViewContext): { rows: ViewRo
 
 function rollupCell(row: ViewRow, r: RollupDef, ctx: ViewContext): Cell {
 	const { rows, count } = linkedRows(row, r.via, ctx);
-	const numbers = () => rows.map((x) => toNumber(x.frontmatter[r.field ?? ""])).filter((n): n is number => n !== null);
+	const numbers = () => rows.map((x) => toNumber(fieldValue(x, r.field ?? "", ctx).raw)).filter((n): n is number => n !== null);
 	const num = (n: number | null): Cell => (n === null ? EMPTY : { value: n, text: String(Math.round(n * 100) / 100), sort: n });
 	switch (r.agg) {
 		case "count":
@@ -1017,9 +1127,11 @@ function rollupCell(row: ViewRow, r: RollupDef, ctx: ViewContext): Cell {
 		case "unique": {
 			const vals = new Set<string>();
 			for (const x of rows) {
-				const raw = x.frontmatter[r.field ?? ""];
+				const { raw, cell } = fieldValue(x, r.field ?? "", ctx);
 				const f = x.type.fields.find((ff) => ff.key === r.field);
-				if (f?.kind === "relation") for (const l of links(raw, x.path, ctx, !!f.labelled)) vals.add(l.name);
+				if (cell) {
+					for (const v of Array.isArray(cell.value) ? cell.value.map((v) => (typeof v === "object" && v && "name" in v ? String((v as LinkValue).name) : String(v))) : cell.text ? [cell.text] : []) vals.add(v);
+				} else if (f?.kind === "relation") for (const l of links(raw, x.path, ctx, !!f.labelled)) vals.add(l.name);
 				else for (const v of asArray(raw)) if (!isEmptyValue(v)) vals.add(String(v));
 			}
 			return multiCell([...vals].sort(natural));
@@ -1042,7 +1154,14 @@ function rollupCell(row: ViewRow, r: RollupDef, ctx: ViewContext): Cell {
 		}
 		case "earliest":
 		case "latest": {
-			const ds = rows.map((x) => ctx.dates.parse(x.frontmatter[r.field ?? ""])).filter((p): p is { ok: true; value: number; display: string } => !!p && p.ok).map((p) => p.value);
+			const ds = rows
+				.map((x) => {
+					const { raw, cell } = fieldValue(x, r.field ?? "", ctx);
+					if (cell) return typeof cell.value === "number" ? cell.value : null;
+					const p = ctx.dates.parse(raw);
+					return p?.ok ? p.value : null;
+				})
+				.filter((d): d is number => d !== null);
 			if (!ds.length) return EMPTY;
 			return dateCell(r.agg === "earliest" ? Math.min(...ds) : Math.max(...ds), ctx);
 		}
@@ -1107,6 +1226,7 @@ export function cellOf(row: ViewRow, col: ResolvedColumn, ctx: ViewContext): Cel
 			// A type that doesn't have the field shows blank.
 			const field = row.type.fields.find((f) => f.key === d.key);
 			if (!field) return EMPTY;
+			if (isCalculated(field)) return calcCell(row, field, ctx);
 			const raw = row.frontmatter[d.key];
 			switch (field.kind) {
 				case "relation":
@@ -1228,6 +1348,11 @@ function formulaValueCell(v: FValue, type: FType, ctx: ViewContext): Cell {
 function formulaCell(row: ViewRow, col: ResolvedColumn, ctx: ViewContext): Cell {
 	const f = col.formula;
 	if (!f) return EMPTY;
+	return evalFormula(row, f, ctx);
+}
+
+/** A compiled formula's value for a row. */
+function evalFormula(row: ViewRow, f: { compiled: Compiled; refs: Map<string, ResolvedColumn>; type: FType }, ctx: ViewContext): Cell {
 	const env: EvalEnv = {
 		col: (id) => {
 			const c = f.refs.get(id);
@@ -1732,7 +1857,9 @@ export const formatEnvOfView = (ctx: Pick<ViewContext, "dates" | "moment" | "loc
 export function defaultFormat(col: ResolvedColumn, ctx: Pick<ViewContext, "dateFormat">): string | undefined {
 	const kind = formatKind(col);
 	if (!kind) return undefined;
-	const own = col.field?.kind === kind && col.field.format !== undefined && !fieldFormatIssue(kind, col.field.format) ? col.field.format : undefined;
+	// A calculated field's format applies to what it gives (a number or a date).
+	const fieldKind = col.field && isCalculated(col.field) ? kind : col.field?.kind;
+	const own = fieldKind === kind && col.field?.format !== undefined && !fieldFormatIssue(kind, col.field.format) ? col.field.format : undefined;
 	return own ?? (kind === "date" ? ctx.dateFormat : undefined);
 }
 

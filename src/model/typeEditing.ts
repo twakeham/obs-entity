@@ -1,7 +1,9 @@
 import { isEmptyValue } from "./frontmatter";
 import { renameLayoutKey } from "./formLayout";
 import { installPack, parsePack, type TypePack } from "./packs";
-import { cloneGroup, cloneType, isValidKey, toKey, type EntityTypeDef, type FieldDef, type GroupDef, type RelationTarget } from "./types";
+import { rewriteRefs } from "./formula";
+import { fieldColumn } from "./views";
+import { cloneGroup, cloneType, isCalculated, isValidKey, toKey, type EntityTypeDef, type FieldDef, type GroupDef, type RelationTarget } from "./types";
 
 // ---------------------------------------------------------------- type drafts
 
@@ -64,6 +66,15 @@ export function renameFieldRefs(t: EntityTypeDef, from: string, to: string | nul
 	t.parentFields = swap(t.parentFields);
 	if (t.card) t.card.subtitle = swap(t.card.subtitle);
 	if (t.form?.layout) t.form.layout = renameLayoutKey(t.form.layout, from, to);
+	// Calculated fields that use it: formula references and roll-ups through it.
+	if (to)
+		for (const f of t.fields) {
+			if (f.kind === "formula" && f.formula) {
+				const [a, b] = [fieldColumn(from).id, fieldColumn(to).id];
+				f.formula = rewriteRefs(f.formula, (n) => (n === a ? b : undefined));
+			}
+			if (f.kind === "rollup" && f.rollup?.via === `field:${from}`) f.rollup = { ...f.rollup, via: `field:${to}` };
+		}
 }
 
 export interface FieldChanges {
@@ -76,13 +87,15 @@ export function fieldChanges(d: TypeDraft): FieldChanges {
 	const out: FieldChanges = { renames: [], deleted: [] };
 	if (!d.original) return out;
 	const current = new Set(d.type.fields.map((f) => f.key));
+	// Calculated fields aren't in notes, so renaming or deleting them changes no notes.
 	d.type.fields.forEach((f, i) => {
 		const from = d.meta[i]?.origKey;
-		if (from && from !== f.key && isValidKey(f.key)) out.renames.push({ from, to: f.key, label: f.label });
+		const was = d.original?.fields.find((o) => o.key === from);
+		if (from && from !== f.key && isValidKey(f.key) && !isCalculated(f) && !isCalculated(was)) out.renames.push({ from, to: f.key, label: f.label });
 	});
 	const kept = new Set(d.meta.map((m) => m.origKey).filter((k): k is string => !!k));
 	for (const f of d.original.fields) {
-		if (!kept.has(f.key) && !current.has(f.key)) out.deleted.push({ key: f.key, label: f.label });
+		if (!kept.has(f.key) && !current.has(f.key) && !isCalculated(f)) out.deleted.push({ key: f.key, label: f.label });
 	}
 	return out;
 }

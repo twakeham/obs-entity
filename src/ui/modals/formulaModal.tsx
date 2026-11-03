@@ -9,12 +9,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type EntitiesPlugin from "../../main";
 import { compile, findColumn, FormulaError, FTYPE_LABEL, FTYPES, FUNCTIONS, functionDef, toDisplay, toStored, type FnCategory, type FnDef, type FType, type RefColumn } from "../../model/formula";
-import { toKey } from "../../model/types";
+import { toKey, type EntityTypeDef } from "../../model/types";
 import { cellOf, formulaRefColumns, resolveColumn, runView, type ColumnDef, type ViewDef, type ViewRow } from "../../model/views";
 import { PluginContext } from "../react/context";
 import { Icon } from "../react/Icon";
 
 type FormulaCol = Extract<ColumnDef, { kind: "formula" }>;
+
+/** For a type's formula field: every type as edited (the draft in place of its saved version), and the field's label. */
+export interface FormulaFieldOpts {
+	types: EntityTypeDef[];
+	label: string;
+}
 
 const KEYWORDS = ["and", "or", "not", "true", "false", "item"];
 const CATEGORIES: FnCategory[] = ["Logic", "Maths", "Text", "Dates", "Lists", "Links"];
@@ -52,8 +58,23 @@ function fnInfo(f: FnDef): HTMLElement {
 }
 
 /** The formula editor: name, a CodeMirror editor with completion, hover help and live checks, a preview, and a function reference. */
-function FormulaEditor({ plugin, def, existing, onSave, onCancel }: { plugin: EntitiesPlugin; def: ViewDef; existing: FormulaCol | null; onSave: (c: FormulaCol) => void; onCancel: () => void }) {
-	const lookup = useMemo(() => ({ types: plugin.settings.types, groups: plugin.settings.groups }), [plugin]);
+function FormulaEditor({
+	plugin,
+	def,
+	existing,
+	onSave,
+	onCancel,
+	field,
+}: {
+	plugin: EntitiesPlugin;
+	def: ViewDef;
+	existing: FormulaCol | null;
+	onSave: (c: FormulaCol) => void;
+	onCancel: () => void;
+	/** a type's formula field (not a view column): the types as edited, and the field's label (no name box) */
+	field?: FormulaFieldOpts;
+}) {
+	const lookup = useMemo(() => ({ types: field?.types ?? plugin.settings.types, groups: plugin.settings.groups }), [plugin, field]);
 	const id = useMemo(() => {
 		if (existing) return existing.id;
 		const taken = new Set(def.columns.map((c) => c.id));
@@ -70,8 +91,13 @@ function FormulaEditor({ plugin, def, existing, onSave, onCancel }: { plugin: En
 	const view = useRef<EditorView | null>(null);
 	const latest = useRef({ text, type: type as FType | "", name, save: () => {} });
 
-	// The view's data once, and its first rows for the preview.
-	const data = useMemo(() => plugin.viewData(), [plugin]);
+	// The view's data once, and its first rows for the preview (a draft type stands in for its saved version).
+	const data = useMemo(() => {
+		const d = plugin.viewData();
+		if (!field) return d;
+		const byKey = new Map(field.types.map((t) => [t.key, t]));
+		return { rows: d.rows.map((r) => (byKey.has(r.type.key) && byKey.get(r.type.key) !== r.type ? { ...r, type: byKey.get(r.type.key)! } : r)), ctx: { ...d.ctx, types: field.types } };
+	}, [plugin, field]);
 	const sample: ViewRow[] = useMemo(() => runView(def, data.rows, data.ctx).rows.slice(0, 5).map((r) => r.row), [data, def]);
 
 	/** The column as it would be saved, and the definition with it in place. */
@@ -270,10 +296,12 @@ function FormulaEditor({ plugin, def, existing, onSave, onCancel }: { plugin: En
 	return (
 		<div className="oe-fx">
 			<div className="oe-fx-main">
-				<label className="oe-fx-field">
-					<span>Name</span>
-					<input type="text" value={name} placeholder="e.g. Days left" onChange={(e) => setName(e.target.value)} aria-label="Column name" />
-				</label>
+				{!field && (
+					<label className="oe-fx-field">
+						<span>Name</span>
+						<input type="text" value={name} placeholder="e.g. Days left" onChange={(e) => setName(e.target.value)} aria-label="Column name" />
+					</label>
+				)}
 				<div className="oe-fx-field">
 					<span>Formula</span>
 					<div ref={host} className={`oe-fx-editor${status.error && text ? " has-error" : ""}`} />
@@ -379,6 +407,7 @@ export class FormulaModal extends Modal {
 		private def: ViewDef,
 		private existing: FormulaCol | null,
 		private done: (col: FormulaCol) => void,
+		private field?: FormulaFieldOpts,
 	) {
 		super(plugin.app);
 	}
@@ -397,7 +426,7 @@ export class FormulaModal extends Modal {
 	}
 
 	onOpen(): void {
-		this.titleEl.setText(this.existing ? "Edit formula" : "New formula column");
+		this.titleEl.setText(this.field ? `Formula: ${this.field.label || "new field"}` : this.existing ? "Edit formula" : "New formula column");
 		this.modalEl.addClass("oe-fx-modal");
 		// Capture runs before the editor closes the list (and before Obsidian's Esc handling).
 		this.modalEl.addEventListener(
@@ -418,6 +447,7 @@ export class FormulaModal extends Modal {
 					plugin={this.plugin}
 					def={this.def}
 					existing={this.existing}
+					field={this.field}
 					onCancel={() => this.close()}
 					onSave={(c) => {
 						this.close();

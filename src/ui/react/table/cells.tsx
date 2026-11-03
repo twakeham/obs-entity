@@ -159,6 +159,11 @@ export function CellEditor({ col, entity, problems, onWrite }: { col: ResolvedCo
 			case "list":
 				control = <ListControl value={value} editable label={label} onCommit={commit} />;
 				break;
+			case "rollup":
+			case "formula":
+				// Calculated: not editable (their columns aren't editable, so this isn't reached).
+				control = null;
+				break;
 			default:
 				control = <TextControl kind={f.kind} value={value} editable label={label} onCommit={commit} />;
 		}

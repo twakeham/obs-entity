@@ -1,4 +1,6 @@
 import type { FormLayout } from "./formLayout";
+import type { FType } from "./formula";
+import type { RollupDef } from "./views";
 
 export type FieldKind =
 	| "text"
@@ -10,9 +12,17 @@ export type FieldKind =
 	| "list"
 	| "boolean"
 	| "url"
-	| "relation";
+	| "relation"
+	| "rollup"
+	| "formula";
 
-export const FIELD_KINDS: FieldKind[] = ["text", "textarea", "number", "date", "select", "multiselect", "list", "boolean", "url", "relation"];
+export const FIELD_KINDS: FieldKind[] = ["text", "textarea", "number", "date", "select", "multiselect", "list", "boolean", "url", "relation", "rollup", "formula"];
+
+/** Calculated fields: worked out when shown (from linked notes, or a formula), never stored in the note. */
+export const isCalculated = (f: Pick<FieldDef, "kind"> | undefined | null): boolean => f?.kind === "rollup" || f?.kind === "formula";
+
+/** The fields a note stores (calculated ones left out). */
+export const storedFields = (t: Pick<EntityTypeDef, "fields">): FieldDef[] => t.fields.filter((f) => !isCalculated(f));
 
 /** Relation targets: entity type keys, "*" for any entity, or "@<groupKey>" for any type in a group. */
 export type RelationTarget = string;
@@ -46,6 +56,12 @@ export interface FieldDef {
 	 * format setting). Checkbox: "checkbox" | "yesno" | "check". URL: "full" | "domain" | "text:<label>".
 	 */
 	format?: string;
+	/** roll-up field: what to work out from linked notes */
+	rollup?: RollupDef;
+	/** formula field: the formula (stored form, with column ids) */
+	formula?: string;
+	/** formula field: the result type, when set by hand (otherwise inferred) */
+	formulaType?: FType;
 }
 
 export type FolderMode = "type" | "parent" | "own";

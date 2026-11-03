@@ -2,7 +2,7 @@ import type { DateAdapter } from "./dates";
 import { defaultFieldValue, isEmptyValue, mergeFrontmatter, toYamlValue } from "./frontmatter";
 import { asArray, parseLabelledEntry, parseLink, toWikilink } from "./links";
 import { todayDays, typeHiddenFields } from "./formConditions";
-import { COMMON_KEYS, isListValued, statusesFor, typeMatchesTarget, type EntityTypeDef, type FieldDef, type FieldKind, type GroupDef } from "./types";
+import { COMMON_KEYS, isCalculated, isListValued, statusesFor, storedFields, typeMatchesTarget, type EntityTypeDef, type FieldDef, type FieldKind, type GroupDef } from "./types";
 
 /** A one-click repair: write `value` to the problem's key (undefined removes the key). */
 export interface FormFix {
@@ -102,6 +102,8 @@ export function checkField(field: FieldDef, raw: unknown, ctx: CheckContext): Fi
 	const label = field.label || key;
 	const out: FieldProblem[] = [];
 	const err = (message: string, fix?: FormFix) => out.push({ key, severity: "error", message, ...(fix ? { fix } : {}) });
+	// Calculated fields aren't stored, so there's nothing to check.
+	if (isCalculated(field)) return out;
 
 	if (isEmptyValue(raw) || (field.kind === "boolean" && raw === false)) {
 		if (field.required && !(field.kind === "boolean")) out.push({ key, severity: "warning", message: `${label} is required.`, missing: true });
@@ -268,7 +270,7 @@ export function retype(fm: Record<string, unknown>, to: EntityTypeDef, groups: G
 	const statuses = statusesFor(to, groups);
 	const generated: Record<string, unknown> = { [COMMON_KEYS.type]: to.key, [COMMON_KEYS.status]: statuses[0] };
 	if (usesOrder(to)) generated[COMMON_KEYS.order] = null;
-	for (const f of to.fields) generated[f.key] = toYamlValue(f, defaultFieldValue(f));
+	for (const f of storedFields(to)) generated[f.key] = toYamlValue(f, defaultFieldValue(f));
 	generated[COMMON_KEYS.related] = [];
 	generated[COMMON_KEYS.tags] = [];
 	const hadStatus = !isEmptyValue(fm[COMMON_KEYS.status]);

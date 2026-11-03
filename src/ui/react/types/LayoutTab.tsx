@@ -267,7 +267,7 @@ function saveFolded(app: App, typeKey: string | undefined, folded: Set<PalSectio
  */
 export function LayoutTab() {
 	const plugin = usePlugin();
-	const { draft, update, issuesAt, setTab, setFieldUid, groups } = useEditor();
+	const { draft, update, issuesAt, setTab, setFieldUid, groups, allTypes } = useEditor();
 	const type = draft.type;
 	const raw = type.form?.layout;
 	const layout = useMemo(() => (raw ? normaliseLayout(raw) : null), [raw]);
@@ -407,7 +407,7 @@ export function LayoutTab() {
 	const baseLabel = labelOf;
 	const descOf = (k: string) => fieldOf(k)?.description?.trim() || BUILTINS[k]?.desc || "";
 	// ---- "show only when"
-	const whenCtx: WhenContext = { types: [type], groups, dates: plugin.dates, today: todayDays() };
+	const whenCtx: WhenContext = { types: allTypes, groups, dates: plugin.dates, today: todayDays() };
 	const whenSummary = (w: LayoutWhen) => whenText(w, type, whenCtx);
 	const whenBroken = (w: LayoutWhen) => conditionProblems(w, type, whenCtx).some((p) => !p.incomplete);
 	const choices: ColumnChoice[] = whenColumns(type, whenCtx).map((col) => ({ col, group: col.def.kind === "field" ? "Fields" : "Properties" }));
@@ -439,7 +439,7 @@ export function LayoutTab() {
 	/** whether a property's control can show a placeholder (not checkboxes, dates, multiple choice or status) */
 	const takesPlaceholder = (k: string) => {
 		const f = fieldOf(k);
-		return f ? !["boolean", "date", "multiselect"].includes(f.kind) : isNoteItem(k) ? k === NOTE_ITEMS.name : k !== COMMON_KEYS.status;
+		return f ? !["boolean", "date", "multiselect", "rollup", "formula"].includes(f.kind) : isNoteItem(k) ? k === NOTE_ITEMS.name : k !== COMMON_KEYS.status;
 	};
 	const iconOf = (k: string) => {
 		const f = fieldOf(k);

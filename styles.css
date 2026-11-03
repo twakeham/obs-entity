@@ -1965,6 +1965,60 @@ select.oe-status {
 .oe-hidden {
 	display: none !important;
 }
+/* Fields tab: calculated fields (roll-up set-up, formula, preview) */
+.oe-tm-formula {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+.oe-tm-formula-text {
+	flex: 1 1 260px;
+	min-width: 0;
+	padding: 4px 8px;
+	border-radius: var(--radius-s);
+	background-color: var(--background-secondary);
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-small);
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.oe-tm-formula-text.is-empty {
+	color: var(--text-faint);
+	font-family: var(--font-interface);
+}
+
+.oe-tm-formula button {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.oe-tm-calc-preview {
+	font-weight: var(--font-semibold);
+	font-variant-numeric: tabular-nums;
+}
+
+.oe-tm-calc-preview.is-error {
+	color: var(--text-error);
+	font-weight: var(--font-normal);
+}
+
+.oe-tm-issue.is-warning {
+	color: var(--text-muted);
+}
+
+/* Properties form: calculated values (read-only) */
+.oe-prop-calc {
+	font-variant-numeric: tabular-nums;
+}
+
+.oe-prop-calc.is-error {
+	color: var(--text-faint);
+	cursor: help;
+}
 /* Header actions: unsaved state, Discard, Save and the Preview toggle (top right of the editor) */
 .oe-tm-title {
 	flex-wrap: wrap;

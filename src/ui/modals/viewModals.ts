@@ -1,6 +1,6 @@
 import { FuzzySuggestModal, Modal, Notice, Setting, type App, type FuzzyMatch, type TFile } from "obsidian";
-import { AGG_FIELD_KINDS, AGG_LABELS, ROLLUP_AGGS, rollupLabel, rollupSources, SHARE_AGGS, SHOW_LABELS, sourceTypes, type ColumnDef, type RollupAgg, type RollupShow, type ViewDef, type ViewKind } from "../../model/views";
-import { toKey } from "../../model/types";
+import { AGG_FIELD_KINDS, AGG_LABELS, calcInfo, ROLLUP_AGGS, rollupLabel, rollupSources, SHARE_AGGS, SHOW_LABELS, sourceTypes, type ColumnDef, type RollupAgg, type RollupShow, type ViewDef, type ViewKind } from "../../model/views";
+import { isCalculated, toKey } from "../../model/types";
 import type EntitiesPlugin from "../../main";
 
 /** Ask for a name (Save as…, Rename, New view). */
@@ -203,7 +203,11 @@ export class RollupModal extends Modal {
 		const need = AGG_FIELD_KINDS[this.agg];
 		const fields: { key: string; label: string }[] = [];
 		for (const t of source.linked)
-			for (const f of t.fields) if ((need === "any" || (need && need.includes(f.kind))) && !fields.some((x) => x.key === f.key)) fields.push({ key: f.key, label: `${f.label} (${t.name})` });
+			for (const f of t.fields) {
+				// Calculated fields count by what they give.
+				const kind = isCalculated(f) ? calcInfo(t, f, ctx).kind : f.kind;
+				if ((need === "any" || (need && need.includes(kind))) && !fields.some((x) => x.key === f.key)) fields.push({ key: f.key, label: `${f.label} (${t.name})` });
+			}
 		if (need && !fields.some((f) => f.key === this.field)) this.field = fields[0]?.key ?? "";
 
 		new Setting(contentEl)

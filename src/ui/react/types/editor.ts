@@ -53,6 +53,8 @@ export const KIND_INFO: Record<FieldKind, { label: string; icon: string; desc: s
 	boolean: { label: "Checkbox", icon: "check-square", desc: "Yes or no" },
 	url: { label: "Link (URL)", icon: "globe", desc: "A web address or email" },
 	relation: { label: "Relation", icon: "link", desc: "Links to other entities" },
+	rollup: { label: "Roll-up", icon: "sigma", desc: "Worked out from linked notes: a count, total, latest date…" },
+	formula: { label: "Formula", icon: "function-square", desc: "Worked out from this note's fields, e.g. days until due" },
 };
 
-export const KIND_ORDER: FieldKind[] = ["text", "textarea", "number", "date", "select", "multiselect", "list", "boolean", "url", "relation"];
+export const KIND_ORDER: FieldKind[] = ["text", "textarea", "number", "date", "select", "multiselect", "list", "boolean", "url", "relation", "rollup", "formula"];

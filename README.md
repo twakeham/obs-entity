@@ -132,7 +132,12 @@ Opened from:
 **Type editor tabs:**
 - **General:** name, plural, key (fixed once saved), icon, colour, group, statuses (the group's or custom), folder (the entity folder pattern or the type's own exception), folder rule (in the folder / own folder each / inside its parent, with a path preview), template, search shortcuts. Also Duplicate, Copy as JSON, Reset to starter, and Delete type.
 - **Fields:** a field list (drag to reorder) and a details panel with label, key, kind, description, **display format** (numbers, dates, checkboxes, URLs; each preset shows an example from your notes), choices, default, create-dialog / required toggles, and relation options.
-  - Kinds: text, long text, number, date, choice, multiple choice, list, checkbox, link (URL), relation.
+  - Kinds: text, long text, number, date, choice, multiple choice, list, checkbox, link (URL), relation, and two **calculated** kinds (below).
+  - **Calculated fields** are worked out whenever they're shown and never written to the note:
+    - **Roll-up:** from linked notes. **From** (this type's relation fields, or notes of another type that link here, e.g. "Tasks (linking here)"), **Calculate** (count, names, unique values, sum, average, smallest, largest, earliest, latest, % done, count by status) and **Of field**, which can be a calculated field of the linked notes too. E.g. Project → "Estimate total" = sum of the tasks' Estimate.
+    - **Formula:** from this note's fields, built-ins and other calculated fields, in the same formula language as view formula columns (**Edit formula…** opens the same editor, with autocomplete and a live result). E.g. "Days left" = `[Due] - today()`, or "Budget per task" = `[Budget] / [Task count]`.
+    - The details panel shows what the field **gives** (a number, a date, true / false…), a **preview** for the sample note, and a **Display format** for numbers, dates and true / false. Loops (A uses B, B uses A) and missing relationships are flagged.
+    - They're read-only in the properties form and Reading view (placeable in layouts like any field; a value that can't be worked out shows "—" with the reason on hover), can be in the subtitle, and are ordinary **columns** in tables and boards (sort, filter, group, highlight, summarise, format). Views keep their own roll-up and formula columns too. They're left out of the create dialog. If notes have their own property with the same name, it's ignored (the details panel says how many do).
 - **Relationships:** a diagram, links from and to this type (click to jump to the field), and a guided **Add relationship** dialog with a plain-English summary.
 - **Display:** parent fields (for the hierarchy), subtitle fields, and the properties form's **Hide empty fields** option.
 - **Layout:** design the properties form and create dialog by drag and drop.
@@ -271,7 +276,7 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
 - **Colour scales** shade each cell between two or three colours. Presets include red → yellow → green and green → yellow → red. For example, Days left can go from red (overdue) to green.
 - **Ranges:** each end is automatic (from the rows shown), a fixed number or date (`today`, `+30d`), or a percentile (`p90`). An optional condition limits which rows get the bar or colour.
 
-**Roll-ups** summarise the notes linked to each row, through an outgoing field or an incoming link: count, names, unique values of a field, sum / average / min / max of a number, earliest / latest date, % done, or count by status. E.g. "Notes: count" on projects, or "Deals: sum of value" on companies.
+**Roll-ups** summarise the notes linked to each row, through an outgoing field or an incoming link: count, names, unique values of a field, sum / average / min / max of a number, earliest / latest date, % done, or count by status. E.g. "Notes: count" on projects, or "Deals: sum of value" on companies. A type's own roll-up and formula fields are ready-made columns, so a view only needs its own for something specific to it.
 - Counts and sums can be **shown as a share**: **% of total** (each row's share of the column's total, e.g. "this person has 18% of the hours") or **% of group total** (of its group, or swimlane on a board). Set it with **Show as** in the roll-up dialog, or right-click the header → **Show as % of total**. Shares sort, filter, highlight and take data bars like any number; formulas still see the count or sum itself.
 
 **Editing:**

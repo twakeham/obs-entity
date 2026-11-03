@@ -391,7 +391,7 @@ export function compile(src: string, columns: RefColumn[]): Compiled {
 }
 
 /** Rewrite references with `pick` (used to switch between ids and labels), keeping everything else as written. */
-function rewriteRefs(src: string, pick: (name: string) => string | undefined): string {
+export function rewriteRefs(src: string, pick: (name: string) => string | undefined): string {
 	let toks: Token[];
 	try {
 		toks = tokenize(src);

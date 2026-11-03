@@ -6,7 +6,8 @@ import { editPattern, editText, formatValue, parseTyped, showDate } from "../../
 import { isEmptyValue } from "../../model/frontmatter";
 import { asArray, parseLabelledEntry, parseLink } from "../../model/links";
 import { addLink, type Edge, type RelationItem } from "../../model/relations";
-import { COMMON_KEYS, isListValued, statusesFor, type EntityTypeDef, type FieldDef, type FieldKind, type RelationTarget } from "../../model/types";
+import { calcCell, fieldColumn, formatCell, resolveColumn, typeViewDef, type ViewContext, type ViewRow } from "../../model/views";
+import { COMMON_KEYS, isCalculated, isListValued, statusesFor, type EntityTypeDef, type FieldDef, type FieldKind, type RelationTarget } from "../../model/types";
 import { fieldSlots, isNoteItem, NOTE_ITEMS, nodeKeys, normaliseLayout, readableOn, resolveLayout, slotHelp, slotLabel, tabsOnPath, walkLayout, type LabelPosition, type LayoutField, type LayoutFrame, type LayoutNode, type LayoutTab, type LayoutWhen } from "../../model/formLayout";
 import { evalWhen, todayDays, whenText, type WhenContext } from "../../model/formConditions";
 import type { EntityRecord } from "../../services/entityIndex";
@@ -50,6 +51,24 @@ function rememberTab(app: App, typeKey: string, group: string, tab: number): voi
 
 const basename = (path: string) => (path.split("/").pop() ?? path).replace(/\.md$/, "");
 const Empty = () => <span className="oe-prop-empty">Empty</span>;
+
+/** A calculated field's value as the form shows it. */
+interface CalcShown {
+	text: string;
+	error?: string;
+}
+
+/** A calculated field's value: read-only; "—" with the reason on hover when it can't be worked out. */
+function CalcValue({ shown }: { shown?: CalcShown }) {
+	if (shown?.error)
+		return (
+			<span className="oe-prop-text oe-prop-calc is-error" aria-label={shown.error} title={shown.error}>
+				—
+			</span>
+		);
+	if (!shown?.text) return <Empty />;
+	return <span className="oe-prop-text oe-prop-calc">{shown.text}</span>;
+}
 
 type Write = (key: string, value: unknown) => void;
 
@@ -115,6 +134,10 @@ export function fieldControl(
 			);
 		case "boolean":
 			return <CheckControl value={o.value} editable={o.editable} label={label} format={f.format} onCommit={o.onCommit} />;
+		case "rollup":
+		case "formula":
+			// Worked out by the properties form (FormView); elsewhere (the create dialog) there's nothing to show yet.
+			return <Empty />;
 		case "select":
 			return <SelectControl options={f.options ?? []} value={o.value} editable={o.editable} label={label} placeholder={o.placeholder} onCommit={o.onCommit} />;
 		case "multiselect":
@@ -471,11 +494,34 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 
 	const isBlank = (kind: FieldKind | "order", raw: unknown) => isEmptyValue(raw) || (kind === "boolean" && raw !== true);
 	const hideEmpty = !!type.form?.hideEmpty && !showEmpty;
+
+	// ---- calculated fields: worked out from the index, with this note's values as shown
+	const calcFields = type.fields.filter((f) => isCalculated(f));
+	let viewCtx: ViewContext | undefined;
+	const calc = new Map<string, CalcShown>();
+	if (calcFields.length) {
+		const data = plugin.viewData();
+		// The type editor's preview edits a draft: use it in place of the saved type.
+		const types = data.ctx.types.includes(type) ? data.ctx.types : [...data.ctx.types.filter((t) => t.key !== type.key), type];
+		viewCtx = { ...data.ctx, types };
+		const base = data.rows.find((r) => r.path === path);
+		const status = values[COMMON_KEYS.status];
+		const row: ViewRow = { ...(base ?? { path, name: basename(path), subtitle: null, tags: [], aliases: [], folder: "", mtime: 0, order: null }), type, status: typeof status === "string" && status ? status : null, frontmatter: values };
+		for (const f of calcFields) {
+			const cell = calcCell(row, f, viewCtx);
+			const col = resolveColumn(fieldColumn(f.key), typeViewDef(type), viewCtx);
+			calc.set(f.key, { text: formatCell(cell, col, undefined, viewCtx).text, ...(cell.error || col.invalid ? { error: cell.error ?? col.invalid } : {}) });
+		}
+	}
+	const calcBlank = (key: string) => {
+		const c = calc.get(key);
+		return !c || (!c.text && !c.error);
+	};
 	let hidden = 0;
 	/** A property's row, or null when it's hidden (empty, with "hide empty fields" on). `slot`: its place in a layout. */
 	const rowFor = (key: string, kind: FieldKind | "order", node: ReactNode, opts: { label: string; icon: string; required?: boolean; desc?: string }, slot: LayoutField | undefined, rowEditable: boolean): ReactNode | null => {
 		const ps = problemsAt(key);
-		const blank = isBlank(kind, get(key));
+		const blank = kind === "rollup" || kind === "formula" ? calcBlank(key) : isBlank(kind, get(key));
 		if (hideEmpty && blank && ps.length === 0) {
 			hidden++;
 			return null;
@@ -504,6 +550,7 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 		const ed = editable && !slot?.readOnly;
 		const ph = slot?.placeholder;
 		const f = type.fields.find((x) => x.key === key);
+		if (f && isCalculated(f)) return rowFor(f.key, f.kind, <CalcValue shown={calc.get(f.key)} />, { label: f.label || f.key, icon: KIND_INFO[f.kind].icon, desc: f.description }, slot, false);
 		if (f)
 			return rowFor(
 				f.key,
@@ -601,7 +648,7 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 	};
 	/** A note item's row (null when it's hidden: an empty subtitle or date with "hide empty fields" on). */
 	const noteRow = (key: string, slot?: LayoutField): ReactNode | null => {
-		const sub = subtitleOf(type, values, plugin.formatEnv());
+		const sub = subtitleOf(type, values, plugin.formatEnv(), (f) => calc.get(f.key)?.text ?? "");
 		let node: ReactNode;
 		let blank = false;
 		switch (key) {
@@ -676,6 +723,8 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 			dates: plugin.dates,
 			today: todayDays(),
 			resolve: (lp) => plugin.app.metadataCache.getFirstLinkpathDest(lp, path)?.path ?? null,
+			// Conditions on calculated fields need the other notes.
+			...(viewCtx ? { view: viewCtx, path } : {}),
 		};
 		const nodes = layoutNodes(resolved.items, propFor, {
 			closed: closedFrames,
@@ -703,7 +752,7 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 	}
 
 	const others = mode === "preview" ? [] : otherKeys(type, values);
-	const subtitle = subtitleOf(type, values, plugin.formatEnv());
+	const subtitle = subtitleOf(type, values, plugin.formatEnv(), (f) => calc.get(f.key)?.text ?? "");
 	const statusProblem = problemsAt(COMMON_KEYS.status)[0];
 
 	return (

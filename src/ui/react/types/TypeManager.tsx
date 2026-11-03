@@ -189,7 +189,7 @@ export function TypeManager({
 		if (!draft) return [];
 		const t = draft.type;
 		const others = allTypes.filter((x) => x !== t).map((x) => x.key);
-		const list = typeIssues(t, { typeKeys: [...new Set([...others, ...settings.types.filter((x) => x.key !== draft.original?.key).map((x) => x.key)])], groupKeys: settings.groups.map((g) => g.key), isNew: !draft.original });
+		const list = typeIssues(t, { typeKeys: [...new Set([...others, ...settings.types.filter((x) => x.key !== draft.original?.key).map((x) => x.key)])], groupKeys: settings.groups.map((g) => g.key), isNew: !draft.original, types: allTypes, groups: allGroups });
 		if (allGroups.some((g) => g.key === t.group) && !settings.groups.some((g) => g.key === t.group)) {
 			const i = list.findIndex((x) => x.at === "group");
 			if (i >= 0) list[i] = { at: "group", message: "Save the new group first." };

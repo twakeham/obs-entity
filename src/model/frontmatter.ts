@@ -1,5 +1,5 @@
 import { parseLabelledEntry, toLabelledWikilink, toWikilink } from "./links";
-import { COMMON_KEYS, isListValued, type EntityTypeDef, type FieldDef } from "./types";
+import { COMMON_KEYS, isCalculated, isListValued, type EntityTypeDef, type FieldDef } from "./types";
 
 export interface LabelledValue {
 	target: string;
@@ -78,7 +78,7 @@ export function buildFrontmatter(type: EntityTypeDef, values: EntityFormValues):
 		[COMMON_KEYS.status]: values.status || null,
 	};
 	if (type.parentFields && type.parentFields.length > 0) fm[COMMON_KEYS.order] = null;
-	for (const field of type.fields) fm[field.key] = toYamlValue(field, values.fields[field.key]);
+	for (const field of type.fields) if (!isCalculated(field)) fm[field.key] = toYamlValue(field, values.fields[field.key]);
 	fm[COMMON_KEYS.related] = [];
 	fm[COMMON_KEYS.tags] = values.tags;
 	return fm;

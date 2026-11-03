@@ -5,7 +5,7 @@ import { effectiveFolderPattern, expandFolderPattern, joinPath, resolveEntityFol
 import { defaultTemplate, renderTemplate } from "../model/templates";
 import { retype } from "../model/form";
 import { addLink, removeLink, type Edge } from "../model/relations";
-import { COMMON_KEYS, groupOf, isListValued, statusesFor, type EntityTypeDef, type GroupDef } from "../model/types";
+import { COMMON_KEYS, groupOf, isListValued, statusesFor, storedFields, type EntityTypeDef, type GroupDef } from "../model/types";
 import type EntitiesPlugin from "../main";
 
 export interface CreateOptions {
@@ -17,7 +17,7 @@ export interface CreateOptions {
 /** Blank form values for a type: first status, field defaults. */
 export function emptyFormValues(type: EntityTypeDef, groups: GroupDef[], name = ""): EntityFormValues {
 	const fields: Record<string, FieldValue> = {};
-	for (const f of type.fields) {
+	for (const f of storedFields(type)) {
 		const d = defaultFieldValue(f);
 		if (d !== undefined) fields[f.key] = d;
 	}

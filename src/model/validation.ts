@@ -2,13 +2,14 @@ import { unknownPlaceholders } from "./paths";
 import { fieldFormatIssue } from "./fieldFormats";
 import { whenIssues } from "./formConditions";
 import { layoutIssues, normaliseLayout } from "./formLayout";
-import { RESERVED_KEYS, isValidKey, type EntityTypeDef } from "./types";
+import { RESERVED_KEYS, isCalculated, isValidKey, type EntityTypeDef, type GroupDef } from "./types";
+import { calcInfo } from "./views";
 
 /** A problem with a type definition, tied to the control it belongs to. */
 export interface TypeIssue {
 	/**
 	 * Where: "key", "name", "group", "statuses", "folderPattern", "parentFields", "card:subtitle", "card:fields", "form:layout",
-	 * "field:<i>:key", "field:<i>:options", "field:<i>:targets", "field:<i>:default".
+	 * "field:<i>:key", "field:<i>:options", "field:<i>:targets", "field:<i>:default", "field:<i>:format", "field:<i>:calc".
 	 */
 	at: string;
 	message: string;
@@ -21,6 +22,9 @@ export interface ValidationContext {
 	groupKeys: string[];
 	/** true when the type isn't saved yet, so its key must not be taken */
 	isNew?: boolean;
+	/** every type and group (as edited), to check calculated fields; without them they aren't checked */
+	types?: EntityTypeDef[];
+	groups?: GroupDef[];
 }
 
 /** Validate a type definition, locating each problem. */
@@ -59,10 +63,16 @@ export function typeIssues(t: EntityTypeDef, ctx: ValidationContext): TypeIssue[
 		if ((f.kind === "select" || f.kind === "multiselect") && (!f.options || f.options.length === 0)) {
 			add(`field:${i}:options`, `Choice field "${f.key}" needs at least one option.`);
 		}
-		const defaultProblem = checkDefault(f.kind, f.default, f.options);
+		const defaultProblem = isCalculated(f) ? null : checkDefault(f.kind, f.default, f.options);
 		if (defaultProblem) add(`field:${i}:default`, defaultProblem);
-		const formatProblem = fieldFormatIssue(f.kind, f.format);
+		const formatProblem = isCalculated(f) ? null : fieldFormatIssue(f.kind, f.format);
 		if (formatProblem) add(`field:${i}:format`, formatProblem);
+		// Calculated fields: checked against every type (as edited), when the caller has them.
+		if (isCalculated(f) && ctx.types && f.key) {
+			const types = [...ctx.types.filter((x) => x.key !== t.key), t];
+			const calc = calcInfo(t, f, { types, groups: ctx.groups ?? [] });
+			if (calc.invalid) add(`field:${i}:calc`, `${f.label || f.key}: ${calc.invalid}`);
+		}
 	});
 
 	const byKey = new Map(t.fields.map((f) => [f.key, f]));

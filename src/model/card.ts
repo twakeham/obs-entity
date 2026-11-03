@@ -2,7 +2,7 @@ import type { DateAdapter } from "./dates";
 import { DEFAULT_DATE_FORMAT, formatValue, type FormatEnv } from "./fieldFormats";
 import { isEmptyValue } from "./frontmatter";
 import { parseLink } from "./links";
-import type { EntityTypeDef, FieldDef } from "./types";
+import { isCalculated, type EntityTypeDef, type FieldDef } from "./types";
 
 /** A format environment; a bare date adapter gives unformatted values (dates in the adapter's long form). */
 export const formatEnvOf = (x: FormatEnv | DateAdapter): FormatEnv => ("dates" in x ? x : { dates: x, locale: "en", currency: "AUD", today: 0, dateFormat: DEFAULT_DATE_FORMAT });
@@ -34,14 +34,17 @@ export function valueDisplay(field: FieldDef, raw: unknown, fmt: FormatEnv | Dat
 	}
 }
 
-/** The one-line description of an entity: its type's subtitle fields, joined with " · ". */
-export function subtitleOf(type: EntityTypeDef, fm: Record<string, unknown>, fmt: FormatEnv | DateAdapter): string | null {
+/**
+ * The one-line description of an entity: its type's subtitle fields, joined with " · ". Calculated fields need
+ * `calc` (their text for this note); without it they're left out.
+ */
+export function subtitleOf(type: EntityTypeDef, fm: Record<string, unknown>, fmt: FormatEnv | DateAdapter, calc?: (field: FieldDef) => string): string | null {
 	const keys = type.card?.subtitle ?? [];
 	const parts: string[] = [];
 	for (const key of keys) {
 		const field = type.fields.find((f) => f.key === key);
 		if (!field || field.kind === "relation") continue;
-		const text = valueDisplay(field, fm[key], fmt);
+		const text = isCalculated(field) ? (calc?.(field) ?? "") : valueDisplay(field, fm[key], fmt);
 		if (text) parts.push(text);
 	}
 	return parts.length ? parts.join(" · ") : null;
