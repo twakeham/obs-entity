@@ -1941,7 +1941,12 @@ select.oe-status {
 .oe-tm-savebar {
 	border-top: 1px solid var(--background-modifier-border);
 	background-color: color-mix(in srgb, var(--color-orange) 7%, var(--background-secondary));
-	padding: var(--size-4-2) var(--size-4-6);
+	/* clear of Obsidian's status bar where it overlaps the view (measured by TypesView) */
+	padding: var(--size-4-2) var(--size-4-6) calc(var(--size-4-2) + var(--oe-statusbar-clear, 0px));
+}
+
+.oe-tm-main:not(:has(> .oe-tm-savebar)) > .oe-tm-body.is-layout {
+	padding-bottom: var(--oe-statusbar-clear, 0px);
 }
 
 .oe-tm-savebar-main {

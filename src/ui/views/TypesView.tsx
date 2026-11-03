@@ -35,6 +35,34 @@ export class TypesView extends ItemView {
 		this.contentEl.addClass("oe-types-view");
 		this.root = createRoot(this.contentEl);
 		this.render();
+		// Obsidian's status bar floats over the bottom-right of the window; keep the save bar's buttons clear of it.
+		const clear = () => this.clearStatusBar();
+		const { workspace } = this.app;
+		this.registerEvent(workspace.on("resize", clear));
+		this.registerEvent(workspace.on("layout-change", clear));
+		this.registerEvent(workspace.on("active-leaf-change", clear));
+		const bar = this.contentEl.ownerDocument.querySelector<HTMLElement>(".status-bar");
+		if (bar) {
+			const ro = new ResizeObserver(clear);
+			ro.observe(bar);
+			ro.observe(this.contentEl);
+			this.register(() => ro.disconnect());
+		}
+		workspace.onLayoutReady(clear);
+	}
+
+	onResize(): void {
+		this.clearStatusBar();
+	}
+
+	/** Set `--oe-statusbar-clear` to how far the status bar reaches up into this view (0 when it doesn't overlap). */
+	private clearStatusBar(): void {
+		const el = this.contentEl;
+		const bar = el.ownerDocument.querySelector<HTMLElement>(".status-bar");
+		const b = bar?.getBoundingClientRect();
+		const v = el.getBoundingClientRect();
+		const overlap = b && b.width > 0 && b.height > 0 && b.left < v.right && b.right > v.left && b.top < v.bottom && b.bottom > v.top ? Math.ceil(v.bottom - b.top) : 0;
+		el.style.setProperty("--oe-statusbar-clear", `${overlap}px`);
 	}
 
 	async onClose(): Promise<void> {
