@@ -1,5 +1,6 @@
 import { getIconIds } from "obsidian";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import type { DateAdapter } from "../../../model/dates";
 import { targetName } from "../../../model/typeEditing";
 import { openNativePicker } from "../../components/datePicker";
@@ -301,6 +302,10 @@ export function IconPicker({ value, color, onChange, empty }: { value: string; c
 	const [open, setOpen] = useState(false);
 	const [q, setQ] = useState("");
 	const ref = useRef<HTMLDivElement>(null);
+	const btnRef = useRef<HTMLButtonElement>(null);
+	const popRef = useRef<HTMLDivElement>(null);
+	/** where the popover sits (fixed, in the window), once measured */
+	const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
 	const all = useMemo(() => Array.from(new Set(getIconIds().map((id) => id.replace(/^lucide-/, "")))).sort(), []);
 	const matches = useMemo(() => {
 		const s = q.trim().toLowerCase().replace(/\s+/g, "-");
@@ -311,11 +316,44 @@ export function IconPicker({ value, color, onChange, empty }: { value: string; c
 	useEffect(() => {
 		if (!open) return;
 		const close = (e: MouseEvent) => {
-			if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+			const t = e.target as Node;
+			if (!ref.current?.contains(t) && !popRef.current?.contains(t)) setOpen(false);
 		};
 		document.addEventListener("mousedown", close);
 		return () => document.removeEventListener("mousedown", close);
 	}, [open]);
+	// The popover lives on the document body (so scrolling panes don't clip it), placed by the button: below it (above
+	// when there's no room), left-aligned (right-aligned when that fits better), and always inside the window.
+	useLayoutEffect(() => {
+		if (!open) {
+			setPos(null);
+			return;
+		}
+		const place = () => {
+			const b = btnRef.current?.getBoundingClientRect();
+			const p = popRef.current;
+			if (!b || !p) return;
+			const win = p.ownerDocument.defaultView ?? window;
+			const m = 8;
+			const w = p.offsetWidth;
+			const h = p.offsetHeight;
+			let left = b.left + w <= win.innerWidth - m ? b.left : b.right - w;
+			left = Math.max(m, Math.min(left, win.innerWidth - w - m));
+			let top = b.bottom + 4;
+			if (top + h > win.innerHeight - m) top = b.top - 4 - h >= m ? b.top - 4 - h : Math.max(m, win.innerHeight - h - m);
+			setPos((cur) => (cur && cur.left === left && cur.top === top ? cur : { left, top }));
+		};
+		place();
+		const input = popRef.current?.querySelector("input");
+		if (input && popRef.current?.ownerDocument.activeElement !== input) input.focus();
+		const win = btnRef.current?.ownerDocument.defaultView ?? window;
+		win.addEventListener("resize", place);
+		win.document.addEventListener("scroll", place, true);
+		return () => {
+			win.removeEventListener("resize", place);
+			win.document.removeEventListener("scroll", place, true);
+		};
+	}, [open, matches.length]);
 	const pick = (id: string) => {
 		onChange(id);
 		setOpen(false);
@@ -323,35 +361,44 @@ export function IconPicker({ value, color, onChange, empty }: { value: string; c
 	};
 	return (
 		<div className="oe-tm-iconpicker" ref={ref}>
-			<button className="oe-tm-iconbtn" aria-label="Choose icon" aria-expanded={open} onClick={() => setOpen(!open)} style={{ "--oe-type-color": color } as CSSProperties}>
+			<button ref={btnRef} className="oe-tm-iconbtn" aria-label="Choose icon" aria-expanded={open} onClick={() => setOpen(!open)} style={{ "--oe-type-color": color } as CSSProperties}>
 				<span className="oe-type-icon">{value || !empty ? <Icon name={value} /> : null}</span>
 				<span className="oe-tm-iconname">{value || empty || "file"}</span>
 				<Icon name="chevron-down" />
 			</button>
-			{open && (
-				<div className="oe-tm-popover" role="dialog" aria-label="Icons">
-					<input
-						type="search"
-						autoFocus
-						placeholder="Search icons: ship, sword, crown…"
-						value={q}
-						onChange={(e) => setQ(e.target.value)}
+			{open &&
+				createPortal(
+					<div ref={popRef} className="oe-tm-popover" role="dialog" aria-label="Icons" style={pos ? { left: pos.left, top: pos.top } : { left: -10000, top: 0 }}
 						onKeyDown={(e) => {
-							if (e.key === "Escape") setOpen(false);
-							if (e.key === "Enter" && matches[0]) pick(matches[0]);
+							if (e.key !== "Escape") return;
+							e.preventDefault();
+							e.stopPropagation();
+							setOpen(false);
+							btnRef.current?.focus();
 						}}
-					/>
-					<div className="oe-tm-icongrid" style={{ "--oe-type-color": color } as CSSProperties}>
-						{matches.slice(0, ICON_LIMIT).map((id) => (
-							<button key={id} className={`oe-tm-iconcell${id === value ? " is-active" : ""}`} title={id} aria-label={id} onClick={() => pick(id)}>
-								<Icon name={id} />
-							</button>
-						))}
-					</div>
-					<div className="oe-tm-muted oe-tm-iconcount">
-						{matches.length > ICON_LIMIT ? `Showing ${ICON_LIMIT} of ${matches.length} — type to narrow down` : `${matches.length} icon${matches.length === 1 ? "" : "s"}`}
-					</div>
-				</div>
+					>
+						<input
+							type="search"
+							autoFocus
+							placeholder="Search icons: ship, sword, crown…"
+							value={q}
+							onChange={(e) => setQ(e.target.value)}
+							onKeyDown={(e) => {
+								if (e.key === "Enter" && matches[0]) pick(matches[0]);
+							}}
+						/>
+						<div className="oe-tm-icongrid" style={{ "--oe-type-color": color } as CSSProperties}>
+							{matches.slice(0, ICON_LIMIT).map((id) => (
+								<button key={id} className={`oe-tm-iconcell${id === value ? " is-active" : ""}`} title={id} aria-label={id} onClick={() => pick(id)}>
+									<Icon name={id} />
+								</button>
+							))}
+						</div>
+						<div className="oe-tm-muted oe-tm-iconcount">
+							{matches.length > ICON_LIMIT ? `Showing ${ICON_LIMIT} of ${matches.length} — type to narrow down` : `${matches.length} icon${matches.length === 1 ? "" : "s"}`}
+						</div>
+					</div>,
+				(btnRef.current?.ownerDocument ?? document).body,
 			)}
 		</div>
 	);
