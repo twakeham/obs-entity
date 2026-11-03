@@ -412,6 +412,14 @@ select.oe-status {
 	align-items: center;
 	gap: var(--size-4-2);
 	min-height: var(--oe-row-height);
+	/* the same indent as row labels, so the type lines up with them */
+	padding-left: 2px;
+}
+
+/* the type's icon the size of row icons, so its name lines up with the labels below */
+.oe-form-top > .oe-form-type .oe-chip-icon svg {
+	width: 14px;
+	height: 14px;
 }
 
 .oe-form-type {
