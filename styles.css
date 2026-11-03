@@ -1583,10 +1583,10 @@ select.oe-status {
 	font-size: var(--font-ui-smaller);
 }
 
-/* The icon picker's popover: on the document body, placed next to its button (fixed) */
+/* The icon picker's popover: on the document body, placed next to its button (fixed); above modals (Save as component) */
 .oe-tm-popover {
 	position: fixed;
-	z-index: var(--layer-popover);
+	z-index: var(--layer-menu);
 	width: 344px;
 	padding: var(--size-4-2);
 	border: 1px solid var(--background-modifier-border);

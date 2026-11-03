@@ -566,7 +566,7 @@ Big icon, name, a "group · N notes · starter/custom · `key`" line, and the ta
 - **Name.** For a new type, the key follows the name until it's edited by hand.
 - **Plural**, with the placeholder `<name>s`.
 - **Key.** Read-only once saved, with the explanation "Written as `entity: person` in each note. To rename the type, change its name and plural; the key stays." Changing a key would mean rewriting every note, so there's no "change key" action.
-- **Icon.** A searchable grid of Lucide icons: prefix matches first, the first 168 shown, Enter picks the first match.
+- **Icon.** A searchable grid of Lucide icons: prefix matches first, the first 168 shown, Enter picks the first match. The grid is a popover on the document body, placed by its button (above it when there's no room) on the menu layer, so it shows over scrolling panes and dialogs (Save as component). While it's open it takes Esc through an Obsidian keymap scope, so Esc closes only the grid, not a dialog it's in.
 - **Colour.** A swatch palette (including the starter and CRM pack colours) plus a custom colour picker.
 - **Group**, with a pencil button to edit that group. Any type, starter ones included, can move to another group.
 - **Statuses:** "Group's" (shows the group's list) or "Custom". Custom starts with a copy of the group's statuses, edited as chips.

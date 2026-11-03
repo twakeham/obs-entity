@@ -1,11 +1,12 @@
-import { getIconIds } from "obsidian";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { getIconIds, Scope } from "obsidian";
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { DateAdapter } from "../../../model/dates";
 import { targetName } from "../../../model/typeEditing";
 import { CalendarPopover } from "../Calendar";
 import type { TypeIssue } from "../../../model/validation";
 import type { EntityTypeDef, GroupDef, RelationTarget } from "../../../model/types";
+import { PluginContext } from "../context";
 import { Icon } from "../Icon";
 
 /** A labelled setting row: label + description on the left, control on the right, issues underneath. */
@@ -359,6 +360,20 @@ export function IconPicker({ value, color, onChange, empty }: { value: string; c
 		setOpen(false);
 		setQ("");
 	};
+	// Obsidian's keymap sees Esc before React does (a dialog it's in would close), so the open popover takes Esc.
+	const app = useContext(PluginContext)?.app;
+	useEffect(() => {
+		if (!open) setQ("");
+		if (!open || !app) return;
+		const scope = new Scope(app.scope);
+		scope.register([], "Escape", () => {
+			setOpen(false);
+			btnRef.current?.focus();
+			return false;
+		});
+		app.keymap.pushScope(scope);
+		return () => app.keymap.popScope(scope);
+	}, [open, app]);
 	return (
 		<div className="oe-tm-iconpicker" ref={ref}>
 			<button ref={btnRef} className="oe-tm-iconbtn" aria-label="Choose icon" aria-expanded={open} onClick={() => setOpen(!open)} style={{ "--oe-type-color": color } as CSSProperties}>
