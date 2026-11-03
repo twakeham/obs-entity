@@ -46,7 +46,10 @@ export function CellView({ col, cell, row, onToggle }: { col: ResolvedColumn; ce
 	}
 	if (col.kind === "bool") {
 		if (d.kind === "formula") return <input type="checkbox" className="oe-cell-check" checked={v === true} disabled aria-label={col.label} />;
-		if (!row.type.fields.some((f) => d.kind === "field" && f.key === d.key)) return null;
+		const field = d.kind === "field" ? row.type.fields.find((f) => f.key === d.key) : undefined;
+		if (!field) return null;
+		// "Yes / No" and "✓" formats show as text; the checkbox format (the default) stays a checkbox.
+		if (field.format === "yesno" || field.format === "check") return <span className="oe-cell-text">{cell.text}</span>;
 		return <input type="checkbox" className="oe-cell-check" checked={v === true} disabled={!onToggle} aria-label={col.label} onChange={(e) => onToggle?.(e.target.checked)} onClick={(e) => e.stopPropagation()} />;
 	}
 	if (d.kind === "builtin" && d.key === "status") return cell.text ? <span className={`oe-status-pill oe-tone-${statusTone(cell.text)}`}>{cell.text}</span> : null;
@@ -82,10 +85,12 @@ export function CellView({ col, cell, row, onToggle }: { col: ResolvedColumn; ce
 		);
 	}
 	if (col.field?.kind === "url" && cell.text) {
-		const href = urlHref(cell.text);
+		// The value is the address; the text is its display format (domain, custom text).
+		const address = typeof v === "string" ? v : cell.text;
+		const href = urlHref(address);
 		if (href)
 			return (
-				<a className="external-link" href={href} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()}>
+				<a className="external-link" href={href} target="_blank" rel="noopener" title={address !== cell.text ? address : undefined} onClick={(e) => e.stopPropagation()}>
 					{cell.text}
 				</a>
 			);

@@ -40,6 +40,12 @@ export interface FieldDef {
 	symmetric?: boolean;
 	/** relation: each link has its own label, stored as the wikilink alias */
 	labelled?: boolean;
+	/**
+	 * Display format (number, date, checkbox and URL fields; the stored value never changes). Number: the view
+	 * column formats ("currency:AUD", "#,##0 h"…). Date: a moment.js pattern or "relative" (unset: the Date display
+	 * format setting). Checkbox: "checkbox" | "yesno" | "check". URL: "full" | "domain" | "text:<label>".
+	 */
+	format?: string;
 }
 
 export type FolderMode = "type" | "parent" | "own";

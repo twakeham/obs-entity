@@ -218,6 +218,7 @@ Options common to all kinds:
 | `inModal` | Show in the create dialog; otherwise the field sits under "Show N more fields". |
 | `required` | Must be filled in when creating. When it's empty on a note, the properties form shows a warning (this never blocks saving). |
 | `default` | Prefilled value in the create dialog. |
+| `format` | Display format (number, date, checkbox and URL fields only; §4.6). The stored value never changes. |
 
 Relation options:
 
@@ -259,7 +260,7 @@ interface DateAdapter {
 
 The default adapter is ISO dates (pure code, no `moment`). Its picker hooks pass dates straight through and return null for years the calendar can't show (before 0001 or after 9999). Story Forge's calendar is a working example of a custom adapter; a custom calendar would omit the picker hooks, so date fields show only the text box.
 
-**Calendar:** date fields in the properties form, the create dialog and the type editor's Default are a plain text box. Focusing or clicking it opens the plugin's own calendar popover (`ui/react/Calendar.tsx`, date maths in `model/calendar.ts`) under the box, or above it when there's no room; the box keeps focus, so typing still works and the calendar follows the typed date (via `toPicker`). The calendar works only in ISO `YYYY-MM-DD`: a picked day goes through `fromPicker` before it's written, so the field's own text format (and later display formats) stays separate from the calendar.
+**Calendar:** date fields in the properties form, the create dialog and the type editor's Default are a plain text box. Focusing or clicking it opens the plugin's own calendar popover (`ui/react/Calendar.tsx`, date maths in `model/calendar.ts`) under the box, or above it when there's no room; the box keeps focus, so typing still works and the calendar follows the typed date (via `toPicker`). The calendar works only in ISO `YYYY-MM-DD`: a picked day goes through `fromPicker` before it's written, and the box shows it in the field's edit format (§4.6), so display formats stay separate from the calendar.
 
 - **Days view:** a 6-week grid starting on the locale's first day of the week (month and weekday names from `moment.localeData()`); today is outlined and the current value filled. ‹ › change month.
 - **Month / year view:** clicking the title shows the 12 months; ‹ › change year; picking a month goes back to days.
@@ -303,6 +304,21 @@ interface FormConfig {
 - **Renames:** the type editor keeps `subtitle`, `parentFields` and the form layout in step when a field key is renamed or deleted in a draft.
 
 **History:** before the properties form, `card` also configured an optional info card (`show`, `fields`, `incoming`, `showEmpty`, `maxChips`). Those keys are dropped when settings or packs are loaded; only `subtitle` remains.
+
+### 4.6 Display formats
+
+A field's `format` changes how its value is **shown**, never what's stored (`model/fieldFormats.ts`). It's set on the Fields tab (**Display format**: a dropdown of presets, each with an example from the sample note, plus **Custom…** with a pattern or text box, token help and a preview). Changing a field's kind clears it; an unusable format is a type problem (`field:N:format`) and is ignored when shown.
+
+| Kind | Formats | Unset |
+|---|---|---|
+| number | the view column formats (§8.10 Formats): `number`, `integer`, `decimal:N`, `currency` / `currency:CODE`, `percent`, `compact`, or a pattern such as `#,##0 h` | the number as stored |
+| date | `YYYY-MM-DD`, `D MMM YYYY`, `D MMMM YYYY`, `ddd D MMM`, `dddd, D MMMM YYYY`, `DD/MM/YYYY`, `MM/DD/YYYY`, `MMMM YYYY`, `relative`, or any moment.js pattern | the **Date display format** setting (`dateFormat`, default `DD/MM/YYYY`) |
+| boolean | `checkbox`, `yesno` (Yes / No), `check` (✓ / blank) | checkbox |
+| url | `full`, `domain` (`github.com`), `text:<label>` (fixed text; the link still opens the address) | full |
+
+- **Where:** `formatValue(field, raw, env)` is used by the properties form (read-only values, and number / date / URL boxes until they're clicked), Reading view, the subtitle (`valueDisplay`, so pickers, Find entity, chips and the browser), view cells and summaries (as the column default, §8.10), board cards and the type editor's preview. Created and Modified use the setting. Text-only places show a checkbox as "Yes" / blank unless the format says otherwise.
+- **Environment:** `plugin.formatEnv()` gives the date adapter, moment, the number locale, the Default currency, today and the setting. Date patterns need moment and an adapter with picker hooks (real calendar dates); a custom calendar keeps its own display.
+- **Editing:** clicking a number box shows the plain number; typed text is read by `parseNumberText` (currency symbols and codes, the locale's separators, `%`, units like "32 h", negatives in `-` or brackets; K / M / B only with the compact format). Clicking a date box shows the date in its pattern when `isTypeablePattern` (a 4-digit year, a month and a day of the month, ignoring `[literal]` text), otherwise YYYY-MM-DD. `parseTyped` accepts ISO first, then the edit pattern strictly, and stores ISO. The calendar converts between the edit text and ISO days.
 
 ---
 
@@ -581,7 +597,8 @@ Big icon, name, a "group · N notes · starter/custom · `key`" line, and the ta
     - one / many
     - reads both ways (symmetric)
     - each link labelled
-  - **Date:** none in the core (the adapter decides).
+  - **Number, date, checkbox, URL:** **Display format** (§4.6), a dropdown of presets each with an example from the sample note (dates: "Default (05/12/2026)", "5 Dec 2026", "Relative (in 3 days)"…; numbers: "Currency ($1,240.50)"…), and **Custom…** with a pattern box (or a text box for URLs), token help and a preview. Currency adds a code box (blank: the Default currency setting).
+  - **Date:** the default uses a date box with the calendar; values stay ISO.
   - **Common:** show in create dialog and required. Plus move up/down and delete. Deleting is just a draft change, so there's no confirmation.
 - **+ Add field** opens a menu of kinds (with a one-line description of each), plus **Relationship…**, which opens the guided dialog below. The new field is selected and its label input focused.
 
@@ -887,9 +904,9 @@ interface LayoutTabs { kind: "tabs"; tabs: { caption: string; icon?: string; cre
 |---|---|---|
 | text, url | text box (url adds an open-link button) | on blur or Enter; Esc cancels |
 | textarea | auto-height text area | on blur or Ctrl/Cmd+Enter |
-| number | text box that only accepts numbers | on blur or Enter |
-| date | text box; the calendar opens on click or focus (§4.4); only valid dates are accepted | on blur, Enter or picking |
-| boolean | checkbox | immediately |
+| number | text box; shows the display format until clicked, then the plain number (symbols, separators, `%` and units are tidied up when typed) | on blur or Enter |
+| date | text box; shows the display format until clicked, then the date in its format if it can be typed back, else YYYY-MM-DD (ISO always accepted); the calendar opens on click or focus (§4.4); only valid dates are accepted | on blur, Enter or picking |
+| boolean | checkbox (read-only: a ticked box, Yes / No or ✓ by its format) | immediately |
 | select | dropdown of the options (plus "—") | immediately |
 | multiselect | option pills | immediately |
 | list, tags, aliases | chips + an add box (Enter or comma adds; `#` is stripped from tags) | immediately |
@@ -1033,7 +1050,7 @@ The command **Find entity** opens a `SuggestModal` over entities only.
   - A live preview of where each type's notes go (including the parent and own-folder rules), marking types with an exception. Unknown placeholders are flagged.
   - Templates folder, with a **Generate templates** button.
   - Views folder (§8.10), default `Entities/Views`.
-- **Views:** open view notes as entity views (`openViewsAsTabs`); **Default currency** (`defaultCurrency`, a 3-letter code, default AUD) for currency formats.
+- **Views:** open view notes as entity views (`openViewsAsTabs`); **Default currency** (`defaultCurrency`, a 3-letter code, default AUD) for currency formats; **Date display format** (`dateFormat`, a moment.js pattern or `relative`, default `DD/MM/YYYY`): a dropdown of presets shown for today plus **Custom…** with a pattern box. It's how dates without a format of their own are shown everywhere (§4.6).
 - **Behaviour:**
   - open new entities in a new tab
   - prefill relations from the active note
@@ -1262,9 +1279,11 @@ columns:
 
 Number and date columns (fields, `created` / `modified`, and number or date roll-ups) can have a display format. Right-click a header → **Format…** opens a panel with presets (each showing an example from the column), a custom pattern box with help, and a live preview or error. Formats are saved in `formats` and dropped when their column is removed.
 
+**Defaults** (`defaultFormat`): a column without a view format uses its field's display format (§4.6), and a date column without either uses the **Date display format** setting (`ctx.dateFormat`; without it, dates stay YYYY-MM-DD). The panel's **Default** example shows that format. Checkbox and URL field cells use their field's format too (a "Yes / No" or "✓" checkbox column shows text instead of a toggle; a URL cell links to the address and shows the formatted text). Summaries use the same format.
+
 | Kind | Presets | Custom |
 |---|---|---|
-| date | `YYYY-MM-DD`, `D MMM YYYY`, `ddd D MMM`, `DD/MM/YYYY`, `MM/DD/YYYY`, `MMMM YYYY`, `relative` ("in 3 days", "2 weeks ago") | any moment.js pattern |
+| date | `YYYY-MM-DD`, `D MMM YYYY`, `D MMMM YYYY`, `ddd D MMM`, `dddd, D MMMM YYYY`, `DD/MM/YYYY`, `MM/DD/YYYY`, `MMMM YYYY`, `relative` ("in 3 days", "2 weeks ago") | any moment.js pattern |
 | number | `number` (grouping), `integer`, `decimal:N`, `currency` / `currency:CODE`, `compact` (12K), `percent` (value 0–100) | a spreadsheet-style pattern: optional prefix, `#,##0` with optional `.00`, optional suffix, e.g. `$#,##0.00`, `#,##0 h`, `0.0%` |
 
 - **Display only:** sorting, filtering and editing use the raw value. Group labels use the format.
@@ -1610,6 +1629,8 @@ interface Settings {
   prefillFromActive: boolean;
   useForm: boolean;               // default true: the properties form replaces Obsidian's Properties block
   formCollapsed: boolean;         // the form's collapse state, shared by all notes
+  defaultCurrency: string;        // "AUD": currency formats without a code
+  dateFormat: string;             // "DD/MM/YYYY": dates without a format of their own (§4.6); a blank or missing value is reset to it
   groups: GroupDef[];
   types: EntityTypeDef[];
   modules: { graph: boolean; dashboard: boolean; /* … */ };
@@ -1703,6 +1724,7 @@ These cover all of `model/`, with no Obsidian dependency:
 - **card:** subtitle composition (several fields, empty values skipped, first line of a textarea); renaming or deleting a field updates `card.subtitle` and `parentFields` in the draft.
 - **formConditions:** reading conditions on frames, tabs and slots; the view operators on the note's own values (choices, numbers, status, tags, relative dates, links, checkboxes); unusable conditions ignored; which fields a layout hides; a hidden required field isn't required (other problems still count); renames and deleted fields; conditions in words.
 - **calendar:** ISO dates to and from parts (including years before 100), month stepping clamped to years 1–9999, the 6-week grid for any first day of the week, weekday order.
+- **fieldFormats:** dates in a field's format or the setting (and the adapter's display without moment); numbers, checkboxes and URLs (domain, custom text); which date patterns can be typed back; edit text; reading typed dates (the edit pattern or ISO) and numbers (currency, separators, %, units, de-DE, K/M/B only for compact); format problems on the type; the setting's default; field formats as view column defaults with the view's format winning.
 - **formLayout:** tidying layouts (nested frames lifted, 2–4 columns, widths, defaults dropped), listing slots and placeable keys (order only with parent fields; the note items), resolving against a type (unknown and repeated slots dropped, unplaced fields and built-ins, whether status, type and subtitle are placed), the note items' hidden-by-default labels, renames and deletions through `renameFieldRefs`, "start from fields", problems in type validation, and the designer's edits (paths, lists and what they hold, insert / remove / move with drop positions, keyboard moves, column counts and widths, ungrouping frames, where "add" goes, flagged slots), slot options and frame styling (read with defaults and bad values dropped; help text; coloured headers and readable text on them), and tabs and frames in columns (reading and lifting what can't nest, walking, finding a field's tab, what each place holds, moving frames in and out of columns and tabs, adding into the open tab, adding / renaming / moving / removing tabs).
 - **form:**
   - `checkField` / `entityProblems` for every row of the §8.4 table, with fixes
@@ -1816,6 +1838,7 @@ export interface FieldDef {
   inverse?: string;               // label on the target note
   symmetric?: boolean;            // reads both ways
   labelled?: boolean;             // each link has a label (stored as the alias)
+  format?: string;                // display format: number/date patterns, "yesno"/"check", "domain"/"text:…" (§4.6)
 }
 
 export type FolderMode = "type" | "parent" | "own";

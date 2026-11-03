@@ -1,5 +1,6 @@
 import { Notice, PluginSettingTab, Setting, type App } from "obsidian";
 import type EntitiesPlugin from "../main";
+import { datePresetLabels, FIELD_DATE_PRESETS, showDate } from "../model/fieldFormats";
 import { DEFAULT_FOLDER_PATTERN, unknownPlaceholders } from "../model/paths";
 import { ImportPackModal } from "../ui/modals/importPackModal";
 
@@ -181,6 +182,7 @@ export class EntitiesSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					}),
 			);
+		this.dateFormatSetting(containerEl);
 
 		new Setting(containerEl).setName("Behaviour").setHeading();
 		new Setting(containerEl).setName("Open new entities in a new tab").addToggle((t) =>
@@ -235,5 +237,42 @@ export class EntitiesSettingTab extends PluginSettingTab {
 						void this.plugin.activateTypes();
 					}),
 			);
+	}
+
+	/** Date display format: presets (shown for today) or a custom moment.js pattern. */
+	private dateFormatSetting(containerEl: HTMLElement): void {
+		const s = this.plugin.settings;
+		const env = this.plugin.formatEnv();
+		const example = (p: string) => showDate(env.today, p, env);
+		const isPreset = FIELD_DATE_PRESETS.includes(s.dateFormat);
+		let custom = isPreset ? "ddd D MMM YYYY" : s.dateFormat;
+		const setting = new Setting(containerEl).setName("Date display format");
+		const describe = () => setting.setDesc(`How dates are shown when a field (or view column) doesn't set its own format. Today: ${example(s.dateFormat)}. Notes always store YYYY-MM-DD.`);
+		describe();
+		let box: HTMLInputElement | null = null;
+		setting.addDropdown((d) => {
+			for (const p of datePresetLabels(example)) d.addOption(p.pattern, p.label);
+			d.addOption("custom", "Custom…");
+			d.setValue(isPreset ? s.dateFormat : "custom").onChange(async (v) => {
+				s.dateFormat = v === "custom" ? custom : v;
+				if (box) box.toggleClass("oe-hidden", v !== "custom");
+				describe();
+				await this.plugin.saveSettings();
+			});
+		});
+		setting.addText((t) => {
+			box = t.inputEl;
+			t.inputEl.toggleClass("oe-hidden", isPreset);
+			t.inputEl.setAttr("aria-label", "Custom date format");
+			t.setPlaceholder("ddd D MMM YYYY")
+				.setValue(custom)
+				.onChange(async (v) => {
+					if (!v.trim()) return;
+					custom = v;
+					s.dateFormat = v;
+					describe();
+					await this.plugin.saveSettings();
+				});
+		});
 	}
 }

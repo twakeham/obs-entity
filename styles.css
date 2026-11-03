@@ -1937,6 +1937,34 @@ select.oe-status {
 	margin-bottom: var(--size-4-2);
 }
 
+/* Fields tab: Display format (dropdown with examples; custom pattern / text, preview) */
+.oe-tm-format {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+.oe-tm-format .dropdown {
+	max-width: 100%;
+}
+
+.oe-tm-format .oe-tm-format-code {
+	width: 6em;
+}
+
+.oe-tm-format-hint,
+.oe-tm-format-preview {
+	flex-basis: 100%;
+}
+
+.oe-tm-format-hint code {
+	font-size: 0.95em;
+}
+
+.oe-hidden {
+	display: none !important;
+}
 /* Header actions: unsaved state, Discard, Save and the Preview toggle (top right of the editor) */
 .oe-tm-title {
 	flex-wrap: wrap;

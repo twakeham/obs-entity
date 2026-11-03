@@ -1,5 +1,6 @@
 import { Keymap, MarkdownView, Notice, Plugin, TFile, WorkspaceLeaf, moment, normalizePath, stringifyYaml, type PaneType, type ViewState } from "obsidian";
 import type { MomentLike } from "./model/formats";
+import type { FormatEnv } from "./model/fieldFormats";
 import { isoDateAdapter, type DateAdapter } from "./model/dates";
 import type { EntityFormValues, FieldValue } from "./model/frontmatter";
 import { mergeSettings, type EntitiesSettings } from "./model/settings";
@@ -363,6 +364,19 @@ export default class EntitiesPlugin extends Plugin {
 		if (leaf?.view instanceof TypesView) leaf.view.addField(typeKey, field);
 	}
 
+	/** How field values are shown and read: display formats, the Date display format setting, number locale. */
+	formatEnv(): FormatEnv {
+		const now = new Date();
+		return {
+			dates: this.dates,
+			moment: moment as unknown as MomentLike,
+			locale: numberLocale(),
+			currency: this.settings.defaultCurrency,
+			today: Math.floor(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / 86_400_000),
+			dateFormat: this.settings.dateFormat,
+		};
+	}
+
 	/** Rows and context for entity views, built from the current index. */
 	viewData(): { rows: ViewRow[]; ctx: ViewContext } {
 		const rows: ViewRow[] = this.index.all().map((e) => ({ ...e, folder: e.file.parent && e.file.parent.path !== "/" ? e.file.parent.path : "" }));
@@ -379,6 +393,7 @@ export default class EntitiesPlugin extends Plugin {
 			moment: moment as unknown as MomentLike,
 			locale: numberLocale(),
 			currency: this.settings.defaultCurrency,
+			dateFormat: this.settings.dateFormat,
 		};
 		return { rows, ctx };
 	}

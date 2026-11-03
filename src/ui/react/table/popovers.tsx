@@ -466,6 +466,7 @@ export function FormatPanel({
 	label,
 	kind,
 	format,
+	fallback,
 	sample,
 	ctx,
 	onChange,
@@ -473,6 +474,8 @@ export function FormatPanel({
 	label: string;
 	kind: "number" | "date";
 	format: string | undefined;
+	/** the format "Default" stands for (the field's, or the Date display format setting) */
+	fallback?: string;
 	/** a real value from the column (a number, or a date in days), for the examples */
 	sample: number;
 	ctx: ViewContext;
@@ -499,7 +502,7 @@ export function FormatPanel({
 	};
 	const current = choice === "custom" ? custom : choice === "currency" ? `currency:${code.toUpperCase()}` : choice;
 	const issue = choice ? formatIssue(kind, current) : null;
-	const raw = kind === "date" ? ctx.dates.format(sample, "short") : String(sample);
+	const raw = fallback ? show(fallback) : kind === "date" ? ctx.dates.format(sample, "short") : String(sample);
 	return (
 		<div className="oe-formatpanel">
 			<div className="oe-pop-heading">Format {label}</div>

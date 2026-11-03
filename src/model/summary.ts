@@ -1,5 +1,5 @@
 import { formatNumber } from "./formats";
-import { formatCell, type Cell, type LinkValue, type ResolvedColumn, type ResultRow, type ViewContext } from "./views";
+import { defaultFormat, formatCell, type Cell, type LinkValue, type ResolvedColumn, type ResultRow, type ViewContext } from "./views";
 
 /** A summary for one column over some rows: a short label ("Sum") and the value text ("$1,240.00"). */
 export interface SummaryResult {
@@ -91,7 +91,7 @@ export function summarize(
 	rows: ResultRow[],
 	col: ResolvedColumn,
 	agg: string,
-	ctx: Pick<ViewContext, "dates" | "today" | "moment" | "locale" | "currency">,
+	ctx: Pick<ViewContext, "dates" | "today" | "moment" | "locale" | "currency" | "dateFormat">,
 	format?: string,
 ): SummaryResult | null {
 	if (col.invalid || !summaryApplies(col, agg)) return null;
@@ -101,11 +101,13 @@ export function summarize(
 	const total = rows.length;
 	const plain = (n: number) => formatNumber(n, "number", ctx.locale ?? "en");
 	const isPercentRollup = col.def.kind === "rollup" && (col.def.rollup.agg === "percent-done" || !!col.def.rollup.show);
+	// The column's format (the view's, else the field's / the Date display format setting).
+	const fmt = format ?? defaultFormat(col, ctx);
 	const num = (n: number) => {
-		if (format) return formatCell({ value: n, text: String(n), sort: n }, col, format, ctx).text;
+		if (fmt) return formatCell({ value: n, text: String(n), sort: n }, col, fmt, ctx).text;
 		return isPercentRollup ? `${Math.round(n)}%` : plain(n);
 	};
-	const date = (d: number) => (format ? formatCell({ value: d, text: "", sort: d }, col, format, ctx).text : ctx.dates.format(d, "short"));
+	const date = (d: number) => (fmt ? formatCell({ value: d, text: "", sort: d }, col, fmt, ctx).text : ctx.dates.format(d, "short"));
 	const numbers = values.filter((v): v is number => typeof v === "number" && Number.isFinite(v));
 	const sorted = [...numbers].sort((a, b) => a - b);
 

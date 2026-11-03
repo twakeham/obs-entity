@@ -10,6 +10,7 @@ import {
 	cellOf,
 	cycleSort,
 	fillWidths,
+	defaultFormat,
 	formatKind,
 	filterFields,
 	conditionText,
@@ -1760,6 +1761,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 							label={formatCol.label}
 							kind={formatKind(formatCol)!}
 							format={def.formats[formatCol.id]}
+							fallback={defaultFormat(formatCol, ctx)}
 							sample={sampleOf(formatCol)}
 							ctx={ctx}
 							onChange={(f) => {

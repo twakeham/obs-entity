@@ -2,6 +2,7 @@ import { Menu, Modal, moment, Notice, Setting, type App, type TFile } from "obsi
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { subtitleOf, urlHref } from "../../model/card";
 import { entityProblems, otherKeys, otherKind, parseInput, usesOrder, type FieldProblem, type OtherKind } from "../../model/form";
+import { editPattern, editText, formatValue, parseTyped, showDate } from "../../model/fieldFormats";
 import { isEmptyValue } from "../../model/frontmatter";
 import { asArray, parseLabelledEntry, parseLink } from "../../model/links";
 import { addLink, type Edge, type RelationItem } from "../../model/relations";
@@ -113,7 +114,7 @@ export function fieldControl(
 				/>
 			);
 		case "boolean":
-			return <CheckControl value={o.value} editable={o.editable} label={label} onCommit={o.onCommit} />;
+			return <CheckControl value={o.value} editable={o.editable} label={label} format={f.format} onCommit={o.onCommit} />;
 		case "select":
 			return <SelectControl options={f.options ?? []} value={o.value} editable={o.editable} label={label} placeholder={o.placeholder} onCommit={o.onCommit} />;
 		case "multiselect":
@@ -121,7 +122,7 @@ export function fieldControl(
 		case "list":
 			return <ListControl value={o.value} editable={o.editable} label={label} placeholder={o.placeholder} onCommit={o.onCommit} />;
 		default:
-			return <TextControl kind={f.kind} value={o.value} editable={o.editable} label={label} placeholder={o.placeholder} rows={o.rows} onCommit={o.onCommit} />;
+			return <TextControl kind={f.kind} field={f} value={o.value} editable={o.editable} label={label} placeholder={o.placeholder} rows={o.rows} onCommit={o.onCommit} />;
 	}
 }
 
@@ -594,13 +595,13 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 		const days = Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86_400_000);
 		return (
 			<span className="oe-prop-text" title={(moment as unknown as (t: number) => { fromNow(): string })(ms).fromNow()}>
-				{plugin.dates.format(days, "long")}, {d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+				{showDate(days, plugin.settings.dateFormat, plugin.formatEnv())}, {d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
 			</span>
 		);
 	};
 	/** A note item's row (null when it's hidden: an empty subtitle or date with "hide empty fields" on). */
 	const noteRow = (key: string, slot?: LayoutField): ReactNode | null => {
-		const sub = subtitleOf(type, values, plugin.dates);
+		const sub = subtitleOf(type, values, plugin.formatEnv());
 		let node: ReactNode;
 		let blank = false;
 		switch (key) {
@@ -702,7 +703,7 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 	}
 
 	const others = mode === "preview" ? [] : otherKeys(type, values);
-	const subtitle = subtitleOf(type, values, plugin.dates);
+	const subtitle = subtitleOf(type, values, plugin.formatEnv());
 	const statusProblem = problemsAt(COMMON_KEYS.status)[0];
 
 	return (
@@ -900,9 +901,14 @@ export function StatusControl({ type, value, editable, problem, onCommit }: { ty
 	);
 }
 
-/** Single-value text-like fields: saved on blur or Enter, Esc cancels. Invalid input isn't saved. */
+/**
+ * Single-value text-like fields: saved on blur or Enter, Esc cancels. Invalid input isn't saved. Numbers, dates and
+ * URLs show in their field's display format until you click in; then dates are typed in their format (or ISO) and
+ * numbers as plain numbers (symbols and separators are tidied up).
+ */
 export function TextControl({
 	kind,
+	field,
 	value,
 	editable,
 	label,
@@ -911,6 +917,8 @@ export function TextControl({
 	onCommit,
 }: {
 	kind: "text" | "textarea" | "url" | "number" | "date";
+	/** the type's field, for its display format (unset: other properties and built-ins) */
+	field?: FieldDef;
 	value: unknown;
 	editable: boolean;
 	label: string;
@@ -922,46 +930,51 @@ export function TextControl({
 }) {
 	const plugin = usePlugin();
 	const dates = plugin.dates;
+	const env = plugin.formatEnv();
+	const fmt = { kind, format: field?.format } as const;
+	const formatted = kind === "number" || kind === "date" || kind === "url";
 	const display = isEmptyValue(value) ? "" : Array.isArray(value) ? value.map(String).join(", ") : typeof value === "object" ? JSON.stringify(value) : String(value);
-	const [text, setText] = useState(display);
+	/** what the box starts with when you click in */
+	const start = formatted && kind !== "url" ? editText(fmt, value, env) : display;
+	/** what it shows otherwise */
+	const shownValue = formatted ? formatValue(fmt, value, env) : display;
+	const [text, setText] = useState(start);
+	const [hasFocus, setHasFocus] = useState(false);
 	const focused = useRef(false);
 	const cancelled = useRef(false);
 	const inputRef = useRef<HTMLInputElement>(null);
 	/** dates: the calendar under the box is open (while it has focus, until a day is picked or Esc) */
 	const [calOpen, setCalOpen] = useState(false);
-	const shown = useRef(display);
+	const shown = useRef(start);
 	// Follow outside changes (sync, undo); while focused only if the box has no typing of its own.
 	useEffect(() => {
-		if (!focused.current || text === shown.current) setText(display);
-		shown.current = display;
+		if (!focused.current || text === shown.current) setText(start);
+		shown.current = start;
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [display]);
+	}, [start]);
 
 	if (!editable) {
 		if (!display) return <Empty />;
 		if (kind === "url") {
 			const href = urlHref(display);
 			return href ? (
-				<a className="external-link oe-prop-text" href={href} target="_blank" rel="noopener">
-					{display}
+				<a className="external-link oe-prop-text" href={href} target="_blank" rel="noopener" title={shownValue !== display ? display : undefined}>
+					{shownValue}
 				</a>
 			) : (
 				<span className="oe-prop-text">{display}</span>
 			);
 		}
-		if (kind === "date") {
-			const r = dates.parse(value);
-			return <span className="oe-prop-text">{r?.ok ? r.display : display}</span>;
-		}
-		return <span className={`oe-prop-text${kind === "textarea" ? " is-multiline" : ""}`}>{display}</span>;
+		return <span className={`oe-prop-text${kind === "textarea" ? " is-multiline" : ""}`}>{shownValue}</span>;
 	}
 
+	const read = (t: string) => (kind === "number" || kind === "date" ? parseTyped(fmt, t, env) : parseInput(kind, t, dates));
 	const commit = (t: string) => {
-		if (t === display) return;
-		const r = parseInput(kind, t, dates);
+		if (t === start) return;
+		const r = read(t);
 		if (!r.ok) {
 			new Notice(`Not saved: ${r.error}`);
-			setText(display);
+			setText(start);
 			return;
 		}
 		onCommit(r.value);
@@ -993,12 +1006,13 @@ export function TextControl({
 	const props = {
 		className: "oe-prop-input",
 		"aria-label": label,
-		value: text,
-		placeholder: kind === "date" ? dates.placeholder : placeholder || "Empty",
-		"data-dirty": text !== display ? "1" : undefined,
+		value: hasFocus || !formatted ? text : shownValue,
+		placeholder: kind === "date" ? editPattern(fmt, env) : placeholder || "Empty",
+		"data-dirty": text !== start ? "1" : undefined,
 		onChange: (e: { target: { value: string } }) => setText(e.target.value),
 		onFocus: () => {
 			focused.current = true;
+			setHasFocus(true);
 			if (calendar) setCalOpen(true);
 		},
 		onClick: () => {
@@ -1006,10 +1020,11 @@ export function TextControl({
 		},
 		onBlur: () => {
 			focused.current = false;
+			setHasFocus(false);
 			setCalOpen(false);
 			if (cancelled.current) {
 				cancelled.current = false;
-				setText(display);
+				setText(start);
 				return;
 			}
 			commit(text);
@@ -1025,10 +1040,15 @@ export function TextControl({
 			commit(v);
 			setCalOpen(false);
 		};
+		// The calendar works in ISO days; the box in the field's edit format.
+		const typed = read(text);
+		const iso = typed.ok && typeof typed.value === "string" ? toPicker!.call(dates, typed.value) : null;
 		return (
 			<>
 				{input}
-				{calOpen && inputRef.current && <CalendarPopover anchor={inputRef.current} value={toPicker!.call(dates, text)} onPick={(iso) => set(fromPicker!.call(dates, iso))} onClear={() => set("")} onClose={() => setCalOpen(false)} />}
+				{calOpen && inputRef.current && (
+					<CalendarPopover anchor={inputRef.current} value={iso} onPick={(d) => set(editText(fmt, fromPicker!.call(dates, d), env))} onClear={() => set("")} onClose={() => setCalOpen(false)} />
+				)}
 			</>
 		);
 	}
@@ -1048,11 +1068,16 @@ export function TextControl({
 	return input;
 }
 
-export function CheckControl({ value, editable, label, onCommit }: { value: unknown; editable: boolean; label: string; onCommit: (v: unknown) => void }) {
-	if (!editable) return value === true ? <span className="oe-prop-text">Yes</span> : value === false ? <span className="oe-prop-text">No</span> : <Empty />;
+/** A checkbox; read-only, it shows in the field's format (a ticked box, Yes / No, or ✓). */
+export function CheckControl({ value, editable, label, format, onCommit }: { value: unknown; editable: boolean; label: string; format?: string; onCommit: (v: unknown) => void }) {
+	if (!editable) {
+		if (value !== true && value !== false) return <Empty />;
+		if (format === "yesno") return <span className="oe-prop-text">{value ? "Yes" : "No"}</span>;
+		if (format === "check") return value ? <span className="oe-prop-text">✓</span> : <Empty />;
+		return <input type="checkbox" className="oe-prop-check" aria-label={label} checked={value === true} disabled />;
+	}
 	return <input type="checkbox" className="oe-prop-check" aria-label={label} checked={value === true} onChange={(e) => onCommit(e.target.checked)} />;
 }
-
 export function SelectControl({ options, value, editable, label, placeholder, onCommit }: { options: string[]; value: unknown; editable: boolean; label: string; placeholder?: string; onCommit: (v: unknown) => void }) {
 	const current = isEmptyValue(value) ? "" : Array.isArray(value) ? String(value[0] ?? "") : String(value);
 	if (!editable) return current ? <span className="oe-prop-text">{current}</span> : <Empty />;

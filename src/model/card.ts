@@ -1,21 +1,24 @@
 import type { DateAdapter } from "./dates";
+import { DEFAULT_DATE_FORMAT, formatValue, type FormatEnv } from "./fieldFormats";
 import { isEmptyValue } from "./frontmatter";
 import { parseLink } from "./links";
 import type { EntityTypeDef, FieldDef } from "./types";
 
+/** A format environment; a bare date adapter gives unformatted values (dates in the adapter's long form). */
+export const formatEnvOf = (x: FormatEnv | DateAdapter): FormatEnv => ("dates" in x ? x : { dates: x, locale: "en", currency: "AUD", today: 0, dateFormat: DEFAULT_DATE_FORMAT });
+
 /**
- * Display string for a non-relation frontmatter value.
- * Textareas contribute their first line; lists are comma-joined; dates use the adapter's long form.
+ * Display string for a non-relation frontmatter value, in the field's display format (numbers, dates, checkboxes
+ * and URLs). Textareas contribute their first line; lists are comma-joined.
  */
-export function valueDisplay(field: FieldDef, raw: unknown, dates: DateAdapter): string {
+export function valueDisplay(field: FieldDef, raw: unknown, fmt: FormatEnv | DateAdapter): string {
 	if (isEmptyValue(raw)) return "";
 	switch (field.kind) {
 		case "boolean":
-			return raw === true || raw === "true" ? "Yes" : "";
-		case "date": {
-			const parsed = dates.parse(raw);
-			return parsed?.ok ? parsed.display : String(raw);
-		}
+		case "number":
+		case "url":
+		case "date":
+			return formatValue(field, raw, formatEnvOf(fmt));
 		case "textarea":
 			return String(raw).trim().split(/\r?\n/)[0].trim();
 		case "list":
@@ -32,13 +35,13 @@ export function valueDisplay(field: FieldDef, raw: unknown, dates: DateAdapter):
 }
 
 /** The one-line description of an entity: its type's subtitle fields, joined with " · ". */
-export function subtitleOf(type: EntityTypeDef, fm: Record<string, unknown>, dates: DateAdapter): string | null {
+export function subtitleOf(type: EntityTypeDef, fm: Record<string, unknown>, fmt: FormatEnv | DateAdapter): string | null {
 	const keys = type.card?.subtitle ?? [];
 	const parts: string[] = [];
 	for (const key of keys) {
 		const field = type.fields.find((f) => f.key === key);
 		if (!field || field.kind === "relation") continue;
-		const text = valueDisplay(field, fm[key], dates);
+		const text = valueDisplay(field, fm[key], fmt);
 		if (text) parts.push(text);
 	}
 	return parts.length ? parts.join(" · ") : null;

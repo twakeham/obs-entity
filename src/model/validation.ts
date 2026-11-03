@@ -1,4 +1,5 @@
 import { unknownPlaceholders } from "./paths";
+import { fieldFormatIssue } from "./fieldFormats";
 import { whenIssues } from "./formConditions";
 import { layoutIssues, normaliseLayout } from "./formLayout";
 import { RESERVED_KEYS, isValidKey, type EntityTypeDef } from "./types";
@@ -60,6 +61,8 @@ export function typeIssues(t: EntityTypeDef, ctx: ValidationContext): TypeIssue[
 		}
 		const defaultProblem = checkDefault(f.kind, f.default, f.options);
 		if (defaultProblem) add(`field:${i}:default`, defaultProblem);
+		const formatProblem = fieldFormatIssue(f.kind, f.format);
+		if (formatProblem) add(`field:${i}:format`, formatProblem);
 	});
 
 	const byKey = new Map(t.fields.map((f) => [f.key, f]));

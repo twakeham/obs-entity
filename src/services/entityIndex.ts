@@ -85,7 +85,7 @@ export class EntityIndex extends Events {
 			name: file.basename,
 			type,
 			status: typeof status === "string" ? status : null,
-			subtitle: subtitleOf(type, fm, this.plugin.dates),
+			subtitle: subtitleOf(type, fm, this.plugin.formatEnv()),
 			aliases: toStringList(fm[COMMON_KEYS.aliases]),
 			tags: normaliseTags(meta ? (getAllTags(meta) ?? []) : []),
 			mtime: file.stat.mtime,

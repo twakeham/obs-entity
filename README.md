@@ -36,7 +36,12 @@ tags: []
 
 - **Fixed properties:** `entity`, `status`, `tags`, `aliases`, `related`, `order`. Everything else comes from the type's fields.
 - **Relations** are wikilinks, so backlinks, the graph and renames keep working. Labelled relations put the label in the alias: `"[[Grace Hopper|mentor]]"`.
-- **Dates** are ISO (`YYYY-MM-DD`). In the properties form, the create dialog and the type editor, clicking a date field opens a **calendar** under it while you can still type a date; the calendar follows what you type. Click a day to pick it; **Today** and **Clear** are at the bottom, and clicking the month title switches to a month / year view. **Alt+↓** opens the calendar from the keyboard; **Esc** closes it (a second Esc cancels your typing).
+- **Dates** are stored as ISO (`YYYY-MM-DD`) and shown in the field's **display format**, or the **Date display format** setting (DD/MM/YYYY to start with). In the properties form, the create dialog and the type editor, clicking a date field opens a **calendar** under it while you can still type a date; the calendar follows what you type. Click a day to pick it; **Today** and **Clear** are at the bottom, and clicking the month title switches to a month / year view. **Alt+↓** opens the calendar from the keyboard; **Esc** closes it (a second Esc cancels your typing).
+- **Display formats** (Fields tab → **Display format**) change how a value looks, never what's stored:
+  - **Dates:** presets such as 05/12/2026, 5 Dec 2026, Thursday, 5 December 2026, December 2026 or **Relative** ("in 3 days"), or a custom moment.js pattern. Clicking in shows the date in its format when it can be typed back (a day, month and 4-digit year), otherwise as YYYY-MM-DD; either way you can type ISO.
+  - **Numbers:** separators (1,240.5), whole number, 2 decimals, **Currency** ($1,240.50, the Default currency setting or a code), percent (45%), compact (1.2K), or a pattern such as `#,##0 h`. Clicking in shows the plain number; typing `$1,240.50` or `45%` is tidied up to the number.
+  - **Checkboxes:** a checkbox, Yes / No, or ✓ (read-only places; editing is always a checkbox). **URLs:** the full address, the domain only, or your own text (clicking still opens the address).
+  - Formats show in the properties form, Reading view, the subtitle (pickers, Find entity, chips), tables and boards (as the column's default; a view's **Format…** overrides it) and the type editor's preview.
 - **Property types:** the plugin tells Obsidian which editor to use in its Properties block (used when the properties form is off, and in hover previews and the File properties sidebar):
   - date fields get Obsidian's date picker
   - number fields get a number editor, and checkboxes a checkbox
@@ -126,7 +131,7 @@ Opened from:
 
 **Type editor tabs:**
 - **General:** name, plural, key (fixed once saved), icon, colour, group, statuses (the group's or custom), folder (the entity folder pattern or the type's own exception), folder rule (in the folder / own folder each / inside its parent, with a path preview), template, search shortcuts. Also Duplicate, Copy as JSON, Reset to starter, and Delete type.
-- **Fields:** a field list (drag to reorder) and a details panel with label, key, kind, description, choices, default, create-dialog / required toggles, and relation options.
+- **Fields:** a field list (drag to reorder) and a details panel with label, key, kind, description, **display format** (numbers, dates, checkboxes, URLs; each preset shows an example from your notes), choices, default, create-dialog / required toggles, and relation options.
   - Kinds: text, long text, number, date, choice, multiple choice, list, checkbox, link (URL), relation.
 - **Relationships:** a diagram, links from and to this type (click to jump to the field), and a guided **Add relationship** dialog with a plain-English summary.
 - **Display:** parent fields (for the hierarchy), subtitle fields, and the properties form's **Hide empty fields** option.
@@ -231,8 +236,8 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
   - **Compact rows**, **Normal rows**, **Comfortable rows:** the row height (26, 34 or 44px), to fit more rows on screen or give them more room.
   - **Wrapped text: up to N lines…:** how many lines a wrapped cell can show: 2, 3, 5, 10 or Unlimited.
 
-**Formats:** right-click a number or date column's header → **Format…** (on a board: **Card fields** → the # / calendar button next to the field).
-- **Dates:** presets (2026-12-15, 15 Dec 2026, Tue 15 Dec, 15/12/2026, December 2026…), **Relative** ("in 6 weeks"), or any moment.js pattern such as `D MMM YYYY`.
+**Formats:** a field's own display format (Fields tab) is the column's default; dates without one use the **Date display format** setting. Right-click a number or date column's header → **Format…** to override it for this view (on a board: **Card fields** → the # / calendar button next to the field); **Default** goes back to the field's.
+- **Dates:** presets (2026-12-15, 15 Dec 2026, 15 December 2026, Tue 15 Dec, Tuesday, 15 December 2026, 15/12/2026, December 2026…), **Relative** ("in 6 weeks"), or any moment.js pattern such as `D MMM YYYY`.
 - **Numbers:** Number (320,000), Integer, 2 decimals, **Currency** ($320,000.00, using the **Default currency** setting, or e.g. `currency:USD`), Compact (320K), Percent, or a pattern such as `$#,##0.00` or `#,##0 h`.
 - Formats only change what's shown: sorting, filtering and editing use the real value.
 
@@ -414,7 +419,8 @@ src/
     tree.ts                  browser forest: parent links, sections/type blocks, filtering with context, reveal paths
     views.ts                 entity views: definition parse/serialize, columns, cells, roll-ups, formula cells, filters, sort, group, runView
     formula.ts               formula language: lexer, parser, function registry, type inference, evaluator, label/id references
-    formats.ts               column display formats (dates, numbers)
+    formats.ts               display formats (dates, numbers) for view columns and fields
+    fieldFormats.ts          field display formats: showing values, edit text, reading typed dates and numbers
     summary.ts               column summaries (count, sum, earliest…)
     bulk.ts                  bulk actions: shared fields, applying set / link / tag changes, notice text
     board.ts                 boards: bucket fields, buckets in order, card fields, the run definition, manual card order

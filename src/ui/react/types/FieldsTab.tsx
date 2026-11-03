@@ -2,6 +2,7 @@ import { Menu } from "obsidian";
 import { useState, type CSSProperties, type DragEvent, type MouseEvent } from "react";
 import { newUid, renameFieldRefs, targetName } from "../../../model/typeEditing";
 import { toKey, type EntityTypeDef, type FieldDef, type FieldKind } from "../../../model/types";
+import { BOOLEAN_FORMATS, datePresetLabels, FIELD_DATE_PRESETS, FIELD_NUMBER_PRESETS, formattedKind, formatValue, urlText } from "../../../model/fieldFormats";
 import { usePlugin } from "../context";
 import { Icon } from "../Icon";
 import { ChipsInput, DateInput, Issues, Row, Segmented, TargetPicker, TextInput, Toggle } from "./controls";
@@ -260,6 +261,8 @@ function FieldDetails({ index }: { index: number }) {
 							const x = t.fields[index];
 							x.kind = e.target.value as FieldKind;
 							delete x.default;
+							// Formats belong to a kind (a date pattern means nothing to a number).
+							delete x.format;
 							if (x.kind === "list") x.multiple = true;
 							if (x.kind === "relation" && !x.targets) x.targets = ["*"];
 							if ((x.kind === "select" || x.kind === "multiselect") && !x.options) x.options = [];
@@ -278,6 +281,8 @@ function FieldDetails({ index }: { index: number }) {
 			<Row label="Description" desc="Help text shown under the field in the create dialog.">
 				<TextInput label="Description" value={f.description ?? ""} placeholder="Optional" onChange={(v) => set((x) => (v.trim() ? (x.description = v) : delete x.description))} />
 			</Row>
+
+			{formattedKind(f.kind) && <FormatRow key={`${index}:${f.kind}`} field={f} index={index} />}
 
 			{(f.kind === "select" || f.kind === "multiselect") && (
 				<Row label="Choices" desc="Type a choice and press Enter. Drag to reorder." issues={issuesAt(`field:${index}:options`)} stacked>
@@ -388,6 +393,138 @@ function DefaultRow({ field: f, index }: { field: FieldDef; index: number }) {
 	return (
 		<Row label="Default" desc="Prefilled when creating a note." issues={issues} stacked={f.kind === "multiselect" || f.kind === "list"}>
 			{control}
+		</Row>
+	);
+}
+
+/** A value to show the format examples with: the sample note's, else a made-up one. */
+function exampleValue(f: FieldDef, sampled: unknown): unknown {
+	const has = sampled !== undefined && sampled !== null && sampled !== "";
+	switch (f.kind) {
+		case "number":
+			return has && Number.isFinite(Number(sampled)) ? Number(sampled) : 1240.5;
+		case "date":
+			return has && typeof sampled === "string" && /^\d{4}-\d{2}-\d{2}$/.test(sampled) ? sampled : new Date().toISOString().slice(0, 10);
+		case "boolean":
+			return true;
+		case "url":
+			return has ? String(sampled) : "https://www.example.com/page";
+		default:
+			return sampled;
+	}
+}
+
+/**
+ * Display format for number, date, checkbox and URL fields: presets with an example from the sample note, and a
+ * custom pattern (dates, numbers) or text (URLs) with a preview. The stored value never changes.
+ */
+function FormatRow({ field: f, index }: { field: FieldDef; index: number }) {
+	const plugin = usePlugin();
+	const { update, issuesAt, sample } = useEditor();
+	const env = plugin.formatEnv();
+	const kind = formattedKind(f.kind)!;
+	const value = exampleValue(f, sample.frontmatter[f.key]);
+	const show = (format: string | undefined) => {
+		try {
+			return formatValue({ kind: f.kind, format }, value, env) || "—";
+		} catch {
+			return "—";
+		}
+	};
+	const set = (format: string | undefined) =>
+		update((t) => {
+			const x = t.fields[index];
+			if (format === undefined) delete x.format;
+			else x.format = format;
+		});
+	const issues = issuesAt(`field:${index}:format`);
+	const fmt = f.format;
+
+	// The options in the dropdown: [value, text]. "" is Default; "custom" opens the pattern / text box.
+	let options: [string, string][];
+	let choice: string;
+	switch (kind) {
+		case "date":
+			options = [["", `Default (${show(undefined)})`], ...datePresetLabels((p) => show(p)).map((p): [string, string] => [p.pattern, p.label]), ["custom", "Custom…"]];
+			choice = fmt === undefined ? "" : FIELD_DATE_PRESETS.includes(fmt) ? fmt : "custom";
+			break;
+		case "number":
+			options = [["", `Default (as typed: ${show(undefined)})`], ...FIELD_NUMBER_PRESETS.map((p): [string, string] => [p.format, `${p.label} (${show(p.format)})`]), ["custom", "Custom…"]];
+			choice = fmt === undefined ? "" : fmt.startsWith("currency") ? "currency" : FIELD_NUMBER_PRESETS.some((p) => p.format === fmt) ? fmt : "custom";
+			break;
+		case "boolean":
+			options = BOOLEAN_FORMATS.map((b): [string, string] => [b.format === "checkbox" ? "" : b.format, b.label]);
+			choice = fmt === undefined || fmt === "checkbox" ? "" : fmt;
+			break;
+		case "url":
+			options = [["", `Full address (${show(undefined)})`], ["domain", `Domain only (${show("domain")})`], ["custom", "Custom text…"]];
+			choice = fmt === undefined || fmt === "full" ? "" : fmt === "domain" ? "domain" : "custom";
+			break;
+	}
+	const [custom, setCustom] = useState(() => (choice === "custom" ? (kind === "url" ? (urlText(fmt) ?? "") : (fmt ?? "")) : kind === "date" ? "ddd D MMM YYYY" : kind === "url" ? "Website" : "#,##0.00"));
+	const customFormat = (text: string) => (kind === "url" ? `text:${text}` : text);
+	const code = fmt?.startsWith("currency:") ? fmt.slice(9) : "";
+
+	return (
+		<Row label="Display format" desc="How the value is shown. The note keeps the plain value." issues={issues} stacked={choice === "custom" || choice === "currency"}>
+			<div className="oe-tm-format">
+				<select
+					className="dropdown"
+					aria-label="Display format"
+					value={choice}
+					onChange={(e) => {
+						const v = e.target.value;
+						set(v === "" ? undefined : v === "custom" ? customFormat(custom) : v);
+					}}
+				>
+					{options.map(([v, text]) => (
+						<option key={v || "default"} value={v}>
+							{text}
+						</option>
+					))}
+				</select>
+				{choice === "currency" && (
+					<TextInput
+						label="Currency code"
+						className="oe-tm-mono oe-tm-format-code"
+						value={code}
+						placeholder={plugin.settings.defaultCurrency}
+						invalid={issues.length > 0}
+						onChange={(v) => set(v.trim() ? `currency:${v.trim().toUpperCase()}` : "currency")}
+					/>
+				)}
+				{choice === "custom" && (
+					<>
+						<TextInput
+							label={kind === "url" ? "Text to show" : "Custom format"}
+							className={kind === "url" ? undefined : "oe-tm-mono"}
+							value={custom}
+							invalid={issues.length > 0}
+							onChange={(v) => {
+								setCustom(v);
+								set(customFormat(v));
+							}}
+						/>
+						<div className="oe-tm-muted oe-tm-format-hint">
+							{kind === "date" ? (
+								<>
+									<code>D</code> day, <code>DD</code> 05, <code>ddd</code> Thu, <code>dddd</code> Thursday, <code>M</code> 12, <code>MMM</code> Dec, <code>MMMM</code> December, <code>YY</code> 26, <code>YYYY</code> 2026, <code>[text]</code> as written.{" "}
+									<a href="https://momentjs.com/docs/#/displaying/format/" target="_blank" rel="noopener">
+										All tokens
+									</a>
+								</>
+							) : kind === "number" ? (
+								<>
+									<code>#</code> and <code>0</code> are digits, <code>,</code> groups thousands, <code>.00</code> sets decimals; other text is kept, e.g. <code>$#,##0</code> or <code>#,##0 h</code>.
+								</>
+							) : (
+								"Clicking it still opens the full address."
+							)}
+						</div>
+					</>
+				)}
+				{(choice === "custom" || choice === "currency") && !issues.length && <div className="oe-tm-muted oe-tm-format-preview">Preview: {show(fmt)}</div>}
+			</div>
 		</Row>
 	);
 }

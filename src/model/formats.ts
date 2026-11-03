@@ -2,7 +2,8 @@
 
 /** The bit of moment.js the formats need (Obsidian's `moment`, or the npm package in tests). */
 export interface MomentLike {
-	utc(input: number): { format(pattern: string): string };
+	/** a time in ms; or text read strictly in a pattern (check `isValid`) */
+	utc(input: number | string, pattern?: string, strict?: boolean): { format(pattern: string): string; isValid?(): boolean };
 	locale(): string;
 }
 
@@ -11,7 +12,9 @@ export const RELATIVE = "relative";
 export const DATE_PRESETS: { format: string; label: string }[] = [
 	{ format: "YYYY-MM-DD", label: "ISO" },
 	{ format: "D MMM YYYY", label: "Day month year" },
+	{ format: "D MMMM YYYY", label: "Day month name year" },
 	{ format: "ddd D MMM", label: "Weekday" },
+	{ format: "dddd, D MMMM YYYY", label: "Long" },
 	{ format: "DD/MM/YYYY", label: "Day first" },
 	{ format: "MM/DD/YYYY", label: "Month first" },
 	{ format: "MMMM YYYY", label: "Month" },

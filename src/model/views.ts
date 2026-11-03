@@ -3,6 +3,7 @@ import type { EntityInfo } from "./entity";
 import { isEmptyValue } from "./frontmatter";
 import { asArray, parseLabelledEntry, parseLink } from "./links";
 import { formatDate, formatNumber, RELATIVE, type MomentLike } from "./formats";
+import { fieldFormatIssue, formatValue, type FormatEnv } from "./fieldFormats";
 import { compile, DateVal, evaluate, FormulaError, FTYPES, isLink, toText, truthy, type Compiled, type EvalEnv, type FType, type FValue, type RefColumn } from "./formula";
 import { COMMON_KEYS, statusesFor, toKey, typeMatchesTarget, type EntityTypeDef, type FieldDef, type GroupDef } from "./types";
 
@@ -681,6 +682,8 @@ export interface ViewContext {
 	moment?: MomentLike;
 	locale?: string;
 	currency?: string;
+	/** the Date display format setting: date columns without a format of their own (unset: YYYY-MM-DD) */
+	dateFormat?: string;
 }
 
 /** Types the view's `types` select. */
@@ -1118,7 +1121,13 @@ export function cellOf(row: ViewRow, col: ResolvedColumn, ctx: ViewContext): Cel
 					return p.ok ? dateCell(p.value, ctx, String(raw)) : { value: null, text: String(raw), sort: null };
 				}
 				case "boolean":
-					return { value: raw === true, text: raw === true ? "Yes" : "", sort: raw === true ? 0 : 1 };
+					return { value: raw === true, text: formatValue(field, raw, formatEnvOfView(ctx)), sort: raw === true ? 0 : 1 };
+				case "url": {
+					if (isEmptyValue(raw)) return EMPTY;
+					// The value stays the address (for the link); the text is the display format's.
+					const s = String(Array.isArray(raw) ? raw[0] : raw).trim();
+					return { value: s, text: formatValue(field, s, formatEnvOfView(ctx)), sort: s.toLowerCase() };
+				}
 				case "multiselect":
 				case "list":
 					return multiCell(asArray(raw).filter((v) => !isEmptyValue(v)).map(String));
@@ -1706,8 +1715,30 @@ function searchText(row: ViewRow): string {
 /** Columns a display format applies to. */
 export const formatKind = (col: ResolvedColumn): "number" | "date" | null => (col.invalid ? null : col.kind === "number" ? "number" : col.kind === "date" ? "date" : null);
 
+/** The view context as a field-format environment. */
+export const formatEnvOfView = (ctx: Pick<ViewContext, "dates" | "moment" | "locale" | "currency" | "today" | "dateFormat">): FormatEnv => ({
+	dates: ctx.dates,
+	moment: ctx.moment,
+	locale: ctx.locale ?? "en",
+	currency: ctx.currency ?? "AUD",
+	today: ctx.today,
+	dateFormat: ctx.dateFormat ?? "YYYY-MM-DD",
+});
+
+/**
+ * A column's format when the view sets none: a field column's display format, and for dates without one the Date
+ * display format setting.
+ */
+export function defaultFormat(col: ResolvedColumn, ctx: Pick<ViewContext, "dateFormat">): string | undefined {
+	const kind = formatKind(col);
+	if (!kind) return undefined;
+	const own = col.field?.kind === kind && col.field.format !== undefined && !fieldFormatIssue(kind, col.field.format) ? col.field.format : undefined;
+	return own ?? (kind === "date" ? ctx.dateFormat : undefined);
+}
+
 /** The cell with its text in the column's display format (values, sorting and filtering are unchanged). */
-export function formatCell(cell: Cell, col: ResolvedColumn, format: string | undefined, ctx: Pick<ViewContext, "moment" | "locale" | "currency" | "today">): Cell {
+export function formatCell(cell: Cell, col: ResolvedColumn, format: string | undefined, ctx: Pick<ViewContext, "moment" | "locale" | "currency" | "today" | "dateFormat">): Cell {
+	format ??= defaultFormat(col, ctx);
 	if (!format || typeof cell.value !== "number") return cell;
 	const kind = formatKind(col);
 	if (kind === "number") return { ...cell, text: formatNumber(cell.value, format, ctx.locale ?? "en", ctx.currency) };

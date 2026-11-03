@@ -46,7 +46,7 @@ export function PreviewPane({ mode, setMode }: { mode: PreviewMode; setMode: (m:
 function useSubtitle(): string | null {
 	const plugin = usePlugin();
 	const { draft, sample } = useEditor();
-	return subtitleOf(draft.type, sample.frontmatter, plugin.dates);
+	return subtitleOf(draft.type, sample.frontmatter, plugin.formatEnv());
 }
 
 /** How a note of this type looks in link pickers and Find entity. */
