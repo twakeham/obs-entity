@@ -2011,14 +2011,13 @@ select.oe-status {
 .oe-tm .oe-tm-previewbtn {
 	display: inline-flex;
 	align-items: center;
-	gap: 6px;
 }
 
-/* on: the preview is showing in the side panel */
-.oe-tm .oe-tm-previewbtn.is-active {
-	background-color: var(--background-modifier-active-hover);
-	color: var(--text-accent);
-	box-shadow: inset 0 0 0 1px var(--interactive-accent);
+/* on (the preview is showing): the same button, pressed in */
+.oe-tm .oe-tm-previewbtn.is-active,
+.oe-tm .oe-tm-previewbtn.is-active:hover {
+	background-color: color-mix(in srgb, var(--interactive-normal), black 14%);
+	box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 
 .oe-tm-previewbtn .oe-icon {

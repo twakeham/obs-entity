@@ -610,11 +610,11 @@ export function TypeManager({
 									<button
 										type="button"
 										className={`oe-tm-previewbtn${previewShown ? " is-active" : ""}`}
+										aria-label={previewShown ? "Hide the preview" : "Show the preview"}
 										aria-pressed={previewShown}
-										title={previewShown ? "Hide the preview" : "Show the preview in the side panel"}
 										onClick={() => void plugin.toggleSidePanel().then(() => setPreviewShown(plugin.sidePanelShown()))}
 									>
-										<Icon name="eye" /> Preview
+										<Icon name="eye" />
 									</button>
 								</div>
 							</div>

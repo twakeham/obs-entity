@@ -139,7 +139,7 @@ Opened from:
   - **Keyboard:** Tab or ↑/↓ to move between items, Alt+↑/↓ to move the selected one, Delete to remove it, the context-menu key or ⋯ for **Move to…** and **Add field here…**, Ctrl/Cmd+Z to undo and Ctrl/Cmd+Shift+Z to redo. On a tab: ←/→ switches tabs, Alt+←/→ moves the tab.
   - **Start from fields** puts every field in one frame. **Reset layout** goes back to the plain list. Changes are part of the type's draft, so Save or Discard them as usual.
 
-**Preview:** shown in the side panel (right sidebar) while the editor is the active tab. The **Preview** button at the top right of the editor shows and hides it (it's highlighted while the preview is showing). Switch between **Dialog** (the create dialog), **Picker** (the link-picker row) and **Form** (the properties form). It updates as you edit, before you save, and uses the existing note with the most values, or made-up values.
+**Preview:** shown in the side panel (right sidebar) while the editor is the active tab. The **eye** button at the top right of the editor shows and hides it (it looks pressed in while the preview is showing). Switch between **Dialog** (the create dialog), **Picker** (the link-picker row) and **Form** (the properties form). It updates as you edit, before you save, and uses the existing note with the most values, or made-up values.
 
 **Saving:**
 - Edits are drafts until you press **Save**. Drafts survive switching types.
