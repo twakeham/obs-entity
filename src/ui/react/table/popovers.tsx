@@ -116,6 +116,8 @@ interface FilterProps {
 	/** top-level heading and empty text (filters by default) */
 	heading?: string;
 	emptyText?: string;
+	/** conditions only, no nested groups (a form layout's "show only when") */
+	noGroups?: boolean;
 }
 
 export function FiltersPanel({ filters, onChange, ...rest }: FilterProps & { filters: FilterGroup; onChange: (g: FilterGroup) => void }) {
@@ -133,7 +135,7 @@ function firstCondition(choices: ColumnChoice[], field?: string): Condition {
 }
 
 function GroupEditor({ group, depth, onChange, onRemove, ...rest }: FilterProps & { group: FilterGroup; depth: number; onChange: (g: FilterGroup) => void; onRemove?: () => void }) {
-	const { choices, heading, emptyText } = rest;
+	const { choices, heading, emptyText, noGroups } = rest;
 	const set = (i: number, item: Condition | FilterGroup | null) => onChange({ ...group, items: item ? group.items.map((x, j) => (j === i ? item : x)) : group.items.filter((_, j) => j !== i) });
 	const newCondition = (): Condition => firstCondition(choices);
 	return (
@@ -164,7 +166,7 @@ function GroupEditor({ group, depth, onChange, onRemove, ...rest }: FilterProps 
 				<button className="oe-pop-link" onClick={() => onChange({ ...group, items: [...group.items, newCondition()] })}>
 					<Icon name="plus" /> Add condition
 				</button>
-				{depth === 0 && (
+				{depth === 0 && !noGroups && (
 					<button className="oe-pop-link" onClick={() => onChange({ ...group, items: [...group.items, { mode: "any", items: [newCondition()] }] })}>
 						<Icon name="plus" /> Add group
 					</button>

@@ -1,5 +1,6 @@
 import { Notice } from "obsidian";
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { evalWhen, hiddenFields, todayDays, type WhenContext } from "../../model/formConditions";
 import { normaliseLayout, resolveLayout, type LayoutField, type LayoutNode } from "../../model/formLayout";
 import { fromFormFields, isEmptyValue, toFormFields, type EntityFormValues } from "../../model/frontmatter";
 import { COMMON_KEYS, statusesFor, type EntityTypeDef } from "../../model/types";
@@ -60,6 +61,19 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 	/** fields rendered in the layout's frames and tabs (not the Required frame) at the last render */
 	const renderedKeys = useRef<Set<string>>(new Set());
 
+	const whenCtx: WhenContext = {
+		types: plugin.settings.types,
+		groups: plugin.settings.groups,
+		dates: plugin.dates,
+		today: todayDays(),
+		resolve: (lp) => plugin.app.metadataCache.getFirstLinkpathDest(lp, "")?.path ?? null,
+	};
+	/** the dialog's values as frontmatter, for "show only when" */
+	const condValues = (s: DialogState): Record<string, unknown> => ({ ...s.fields, status: s.status, tags: s.tags });
+	const layoutNow = type.form?.layout ? normaliseLayout(type.form.layout) : null;
+	/** fields the layout's conditions hide for these values */
+	const condHidden = (s: DialogState): Set<string> => (layoutNow ? hiddenFields(layoutNow, type, condValues(s), whenCtx) : new Set());
+
 	const statuses = statusesFor(type, plugin.settings.groups);
 	const status = statuses.includes(state.status) ? state.status : statuses[0];
 	const values = (s: DialogState = stateRef.current): EntityFormValues => ({ name: s.name, status: statuses.includes(s.status) ? s.status : statuses[0], tags: s.tags, fields: fromFormFields(type, s.fields) });
@@ -74,7 +88,9 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 			new Notice("Please enter a name.");
 			return;
 		}
-		const missing = type.fields.filter((f) => f.required && !hasValue(s.fields[f.key]));
+		// Required fields a condition hides aren't required just now.
+		const off = condHidden(s);
+		const missing = type.fields.filter((f) => f.required && !hasValue(s.fields[f.key]) && !off.has(f.key));
 		setMissingKeys(missing.map((f) => f.key));
 		if (missing.length) {
 			new Notice(`Required: ${missing.map((f) => f.label).join(", ")}`);
@@ -164,12 +180,15 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 			toggle: () => {},
 			flagged: (keys) => keys.some((k) => missingKeys.includes(k) && !hasValue(state.fields[k])),
 			include: (part) => showAll || part.create !== false,
+			shows: (w) => evalWhen(w, type, condValues(state), whenCtx),
 			tab: (g) => openTabs[g] ?? 0,
 			setTab: (g, t) => setOpenTabs((o) => ({ ...o, [g]: t })),
 		});
 		renderedKeys.current = new Set(shownKeys);
 		// Required fields, and ones already filled in, that aren't on show yet: asked for in a frame of their own.
-		const outside = type.fields.filter((f) => !shownKeys.has(f.key));
+		// (Not ones a condition hides.)
+		const off = condHidden(state);
+		const outside = type.fields.filter((f) => !shownKeys.has(f.key) && !off.has(f.key));
 		const needed = showAll ? [] : outside.filter((f) => f.required || hasValue(state.fields[f.key]));
 		if (needed.length) nodes.push(extraFrame("required", needed.every((f) => f.required) ? "Required" : "Required and filled in", needed.map((f) => propFor(f.key)), "is-required"));
 		// Fields that aren't placed, with "Show more fields".
@@ -177,7 +196,7 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 			const others = resolved.unplaced.filter((k) => !shownKeys.has(k)).map((k) => propFor(k));
 			if (others.length) nodes.push(extraFrame("other", "Other fields", others));
 		}
-		hidden = type.fields.filter((f) => !shownKeys.has(f.key)).length;
+		hidden = type.fields.filter((f) => !shownKeys.has(f.key) && !off.has(f.key)).length;
 		body = <div className="oe-form-layout">{nodes}</div>;
 	}
 

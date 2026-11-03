@@ -58,6 +58,9 @@ On entity notes, a form built from the note's type replaces Obsidian's Propertie
   - Status, Related, Tags and Aliases can be placed too. Fields that aren't placed appear under **Other fields** at the end.
   - **Per slot**, for this form only: a custom label, or no label; placeholder text; help text under the value (the field's description, or your own); a fixed height for long text; and **read-only** (shown with a lock, not editable on notes, though the create dialog, views and bulk edits can still set it).
   - **Frames** can have an icon, an accent colour (the type's or one from the palette) and a style: Box, Plain (no border) or Filled.
+  - **Show only when…:** a frame, tab or field can show only when the note's own values match, e.g. a "Risk details" frame when Likelihood is High. Conditions work like view filters (all or any of them). They update as you edit, in the create dialog too. Values in hidden fields are kept.
+    - A required field that's hidden isn't required until it shows again.
+    - If a hidden field has another problem, "N problems" shows it, marked "Normally hidden".
   - The create dialog uses the same layout: frames and tabs can be left out of it (they appear with "Show more fields"), and required fields are always asked for.
   - Layouts are designed by drag and drop on the type editor's **Layout** tab.
 - **Other properties:** a collapsed section for keys the type doesn't define, each edited by its Obsidian property type.
@@ -131,7 +134,7 @@ Opened from:
   - **Layout** (middle): looks like the form. Drag things to move them; a line shows where they'll land. Drag one back to the palette, or press Delete, to remove it (fields go back to the palette).
     - Drag frames into columns to put them side by side.
     - **Tabs:** click a tab to edit what's in it, **+** adds one, drag a tab along the strip to reorder it, and hover over a tab while dragging to open it (or drop on the tab itself).
-  - **Settings** (right) for what's selected: a frame's caption, "Can be collapsed", "Starts collapsed" and "Show in the create dialog"; the number of columns and their relative widths; a tab's caption, icon and "Show in the create dialog"; a tab group's tabs (reorder, add); a field's label (above, beside or hidden), custom label, placeholder, help text, height (long text) and read-only; a frame's icon, accent colour and style; heading and text. With nothing selected: **Hide fields that aren't placed**.
+  - **Settings** (right) for what's selected: a frame's caption, "Can be collapsed", "Starts collapsed" and "Show in the create dialog"; the number of columns and their relative widths; a tab's caption, icon and "Show in the create dialog"; a tab group's tabs (reorder, add); a field's label (above, beside or hidden), custom label, placeholder, help text, height (long text) and read-only; a frame's icon, accent colour and style; **Show only when** conditions for frames, tabs and fields (the canvas shows an eye badge with a summary); heading and text. With nothing selected: **Hide fields that aren't placed**.
   - **Keyboard:** Tab or ↑/↓ to move between items, Alt+↑/↓ to move the selected one, Delete to remove it, the context-menu key or ⋯ for **Move to…** and **Add field here…**, Ctrl/Cmd+Z to undo and Ctrl/Cmd+Shift+Z to redo. On a tab: ←/→ switches tabs, Alt+←/→ moves the tab.
   - **Start from fields** puts every field in one frame. **Reset layout** goes back to the plain list. Changes are part of the type's draft, so Save or Discard them as usual.
 

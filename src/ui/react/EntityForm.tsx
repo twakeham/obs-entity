@@ -6,7 +6,8 @@ import { isEmptyValue } from "../../model/frontmatter";
 import { asArray, parseLabelledEntry, parseLink } from "../../model/links";
 import { addLink, type Edge, type RelationItem } from "../../model/relations";
 import { COMMON_KEYS, isListValued, statusesFor, type EntityTypeDef, type FieldDef, type FieldKind, type RelationTarget } from "../../model/types";
-import { fieldSlots, nodeKeys, normaliseLayout, resolveLayout, slotHelp, tabsOnPath, walkLayout, type LabelPosition, type LayoutField, type LayoutFrame, type LayoutNode, type LayoutTab } from "../../model/formLayout";
+import { fieldSlots, nodeKeys, normaliseLayout, resolveLayout, slotHelp, tabsOnPath, walkLayout, type LabelPosition, type LayoutField, type LayoutFrame, type LayoutNode, type LayoutTab, type LayoutWhen } from "../../model/formLayout";
+import { evalWhen, todayDays, whenText, type WhenContext } from "../../model/formConditions";
 import type { EntityRecord } from "../../services/entityIndex";
 import { openNativePicker } from "../components/datePicker";
 import { EntitySuggest, TypePickerModal } from "../components/entityPicker";
@@ -126,7 +127,19 @@ export interface FrameControls {
 	/** a tab group's open tab */
 	tab: (group: string) => number;
 	setTab: (group: string, tab: number) => void;
+	/** whether a "show only when" holds (default: always) */
+	shows?: (w: LayoutWhen) => boolean;
+	/** show what conditions hide (to fix a problem in it), with why it's normally hidden */
+	reveal?: (w: LayoutWhen) => string;
 }
+
+/** The note on something shown only to fix a problem. */
+const revealNote = (text: string) => (
+	<div className="oe-form-revealed-note" role="note">
+		<Icon name="eye-off" />
+		<span>Normally hidden: shown only when {text}.</span>
+	</div>
+);
 
 /** Frames that start collapsed, by path (for FrameControls.closed). */
 export function startCollapsed(items: LayoutNode[]): Set<string> {
@@ -165,8 +178,22 @@ export function layoutNodes(items: LayoutNode[], propFor: (key: string, slot?: L
 			case "text":
 				return { node: <div key={key} className={n.kind === "heading" ? "oe-form-heading" : "oe-form-note"}>{n.text}</div>, fields: false, shown: true };
 			case "field": {
+				const off = !!n.when && !!frames.shows && !frames.shows(n.when);
+				if (off && !frames.reveal) return { node: null, fields: true, shown: false };
 				const r = propFor(n.key, n);
-				return { node: r, fields: true, shown: r !== null };
+				return {
+					node:
+						off && r ? (
+							<div key={key} className="oe-form-revealed">
+								{r}
+								{revealNote(frames.reveal!(n.when!))}
+							</div>
+						) : (
+							r
+						),
+					fields: true,
+					shown: r !== null,
+				};
 			}
 			case "columns": {
 				// Empty columns (nothing shown) are left out, and the rest share the row.
@@ -188,6 +215,8 @@ export function layoutNodes(items: LayoutNode[], propFor: (key: string, slot?: L
 			}
 			case "frame": {
 				if (frames.include && !frames.include(n)) return { node: null, fields: false, shown: false };
+				const off = !!n.when && !!frames.shows && !frames.shows(n.when);
+				if (off && !frames.reveal) return { node: null, fields: true, shown: false };
 				const rs = many(n.items, path);
 				// A frame shows when a field in it does (or it has no fields, only text).
 				if (rs.some((r) => r.fields) && !rs.some((r) => r.fields && r.shown)) return { node: null, fields: true, shown: false };
@@ -219,6 +248,7 @@ export function layoutNodes(items: LayoutNode[], propFor: (key: string, slot?: L
 							data-frame={key}
 						>
 							{caption}
+							{off && revealNote(frames.reveal!(n.when!))}
 							{open && <div className="oe-form-rows">{rs.filter((r) => r.shown).map((r) => r.node)}</div>}
 						</section>
 					),
@@ -228,7 +258,8 @@ export function layoutNodes(items: LayoutNode[], propFor: (key: string, slot?: L
 			}
 			case "tabs": {
 				const group = `t${tabGroups++}`;
-				const tabs = n.tabs.map((t, ti) => ({ t, ti, rs: !frames.include || frames.include(t) ? many(t.items, [...path, ti]) : null }));
+				const tabOff = (t: LayoutTab) => !!t.when && !!frames.shows && !frames.shows(t.when);
+				const tabs = n.tabs.map((t, ti) => ({ t, ti, rs: (!frames.include || frames.include(t)) && (!tabOff(t) || frames.reveal) ? many(t.items, [...path, ti]) : null }));
 				const avail = tabs.filter((x): x is typeof x & { rs: Rendered[] } => !!x.rs && anyShown(x.rs));
 				const fields = tabs.some((x) => x.rs?.some((r) => r.fields));
 				if (!avail.length) return { node: null, fields, shown: false };
@@ -265,6 +296,7 @@ export function layoutNodes(items: LayoutNode[], propFor: (key: string, slot?: L
 							</div>
 							{avail.map((x) => (
 								<div key={x.ti} role="tabpanel" className="oe-form-tabpanel" data-tab={x.ti} hidden={x.ti !== cur}>
+									{tabOff(x.t) && revealNote(frames.reveal!(x.t.when!))}
 									{x.rs.filter((r) => r.shown).map((r) => r.node)}
 								</div>
 							))}
@@ -303,6 +335,8 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 		const l = type.form?.layout ? normaliseLayout(type.form.layout) : null;
 		return l ? startCollapsed(resolveLayout(l, type).items) : new Set();
 	});
+	/** after "N problems": show what conditions hide, so a problem in it can be fixed */
+	const [reveal, setReveal] = useState(false);
 	/** each tab group's open tab, remembered per type (not in the type editor's preview) */
 	const [openTabs, setOpenTabs] = useState<Record<string, number>>(() => (mode === "preview" ? {} : rememberedTabs(plugin.app, type.key)));
 	const setTab = (group: string, tab: number) => {
@@ -344,10 +378,15 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 	const problems = mode === "preview" ? [] : entityProblems(type, values, plugin.checkContext(path));
 	const problemsAt = (key: string) => problems.filter((p) => p.key === key);
 	const fix = (p: FieldProblem) => p.fix && write(p.key, p.fix.value);
+	// Once the problems are fixed, what conditions hide goes back to hidden.
+	useEffect(() => {
+		if (!problems.length) setReveal(false);
+	}, [problems.length]);
 
 	const jumpToProblem = () => {
 		setCollapsed(false);
 		setShowEmpty(true);
+		setReveal(true);
 		// Open collapsed frames, and the tab with the first problem, so its field is on screen.
 		setClosedFrames(new Set());
 		const l = type.form?.layout ? normaliseLayout(type.form.layout) : null;
@@ -501,12 +540,21 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 		// No layout: one list, in field order, then the built-ins.
 		body = <div className="oe-form-rows">{[...type.fields.map((f) => propFor(f.key)), ...TAIL.map((k) => propFor(k))]}</div>;
 	} else {
+		const whenCtx: WhenContext = {
+			types: plugin.settings.types,
+			groups: plugin.settings.groups,
+			dates: plugin.dates,
+			today: todayDays(),
+			resolve: (lp) => plugin.app.metadataCache.getFirstLinkpathDest(lp, path)?.path ?? null,
+		};
 		const nodes = layoutNodes(resolved.items, propFor, {
 			closed: closedFrames,
 			toggle: (k) => setClosedFrames((s) => (s.has(k) ? new Set([...s].filter((x) => x !== k)) : new Set([...s, k]))),
 			flagged: (keys) => keys.some((k) => problemsAt(k).length > 0),
 			tab: (g) => openTabs[g] ?? 0,
 			setTab,
+			shows: (w) => evalWhen(w, type, values, whenCtx),
+			...(reveal && problems.length ? { reveal: (w: LayoutWhen) => whenText(w, type, whenCtx) } : {}),
 		});
 		// Fields that aren't placed: an "Other fields" section (only when something's in it).
 		const others = layout!.hideUnplaced ? [] : resolved.unplaced.map((k) => propFor(k)).filter((r) => r !== null);

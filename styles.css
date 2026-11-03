@@ -5111,6 +5111,29 @@ td.is-wrap .oe-bar-value {
 	white-space: nowrap;
 }
 
+/* Shown only to fix a problem ("N problems"), though a condition normally hides it */
+.oe-form-revealed {
+	min-width: 0;
+}
+
+.oe-form-revealed-note {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin: 2px 0 var(--size-4-1);
+	padding: 2px 8px;
+	border-radius: var(--radius-s);
+	background-color: color-mix(in srgb, var(--text-warning) 10%, transparent);
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-form-revealed-note svg {
+	flex-shrink: 0;
+	width: 13px;
+	height: 13px;
+}
+
 /* Read-only on this form */
 .oe-prop-lock {
 	display: inline-flex;
@@ -5698,11 +5721,76 @@ td.is-wrap .oe-bar-value {
 }
 
 .oe-ld-field {
-	grid-template-areas: "label more" "control more" "help more";
+	grid-template-areas: "label more" "control more" "help more" "when more";
 }
 
 .oe-ld-field.is-beside {
-	grid-template-areas: "label control more" ". help more";
+	grid-template-areas: "label control more" ". help more" ". when more";
+}
+
+.oe-ld-field-when {
+	grid-area: when;
+	min-width: 0;
+	display: flex;
+}
+
+/* "show only when" badges */
+.oe-ld-badge.is-when {
+	min-width: 0;
+	max-width: 60%;
+	overflow: hidden;
+}
+
+.oe-ld-field-when .oe-ld-badge.is-when {
+	max-width: 100%;
+}
+
+.oe-ld-when-text {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.oe-ld-badge.is-when.is-broken {
+	color: var(--text-warning);
+}
+
+.oe-ld-tab-when {
+	display: inline-flex;
+	color: var(--text-faint);
+}
+
+.oe-ld-tab-when svg {
+	width: 12px;
+	height: 12px;
+}
+
+/* the condition editor in the settings pane (the view filter panel, narrower) */
+.oe-ld-when-editor {
+	padding-top: var(--size-4-2);
+	border-top: 1px solid var(--background-modifier-border);
+	font-size: var(--font-ui-small);
+}
+
+.oe-ld-when-editor select.oe-pop-select {
+	max-width: 100%;
+	height: 26px;
+	font-size: var(--font-ui-small);
+}
+
+.oe-ld-when-editor input.oe-pop-input {
+	width: 10em;
+	max-width: 100%;
+	height: 26px;
+	font-size: var(--font-ui-small);
+}
+
+.oe-ld-when-editor input.oe-pop-input.is-number {
+	width: 6em;
+}
+
+.oe-ld-when-editor .oe-pop-pills,
+.oe-ld-when-editor .oe-pop-links {
+	max-width: 100%;
 }
 
 .oe-ld-field.is-label-hidden .oe-ld-label-text {

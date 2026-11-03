@@ -1,6 +1,7 @@
 import type { DateAdapter } from "./dates";
 import { defaultFieldValue, isEmptyValue, mergeFrontmatter, toYamlValue } from "./frontmatter";
 import { asArray, parseLabelledEntry, parseLink, toWikilink } from "./links";
+import { todayDays, typeHiddenFields } from "./formConditions";
 import { COMMON_KEYS, isListValued, statusesFor, typeMatchesTarget, type EntityTypeDef, type FieldDef, type FieldKind, type GroupDef } from "./types";
 
 /** A one-click repair: write `value` to the problem's key (undefined removes the key). */
@@ -18,6 +19,8 @@ export interface FieldProblem {
 	fix?: FormFix;
 	/** relation problems: the link path the problem is about, so its chip can be marked */
 	link?: string;
+	/** a required field with no value */
+	missing?: true;
 }
 
 /** A link resolved to a note: its path and, when it's an entity, its type. */
@@ -32,6 +35,8 @@ export interface CheckContext {
 	dates: DateAdapter;
 	/** resolve a link path to a note; null when no note exists */
 	resolve(linkpath: string): LinkInfo | null;
+	/** today as a day number, for "show only when" conditions on dates (default: the real today) */
+	today?: number;
 }
 
 const quote = (v: unknown) => `“${typeof v === "string" ? v : JSON.stringify(v)}”`;
@@ -99,7 +104,7 @@ export function checkField(field: FieldDef, raw: unknown, ctx: CheckContext): Fi
 	const err = (message: string, fix?: FormFix) => out.push({ key, severity: "error", message, ...(fix ? { fix } : {}) });
 
 	if (isEmptyValue(raw) || (field.kind === "boolean" && raw === false)) {
-		if (field.required && !(field.kind === "boolean")) out.push({ key, severity: "warning", message: `${label} is required.` });
+		if (field.required && !(field.kind === "boolean")) out.push({ key, severity: "warning", message: `${label} is required.`, missing: true });
 		return out;
 	}
 	switch (field.kind) {
@@ -169,6 +174,14 @@ export function entityProblems(type: EntityTypeDef, fm: Record<string, unknown>,
 		out.push({ key, severity: "error", message: `${key === COMMON_KEYS.tags ? "Tags" : "Aliases"} should be a list.`, fix: { label: "Make it a list", value: list } });
 	}
 	out.push(...checkLinks(COMMON_KEYS.related, "Related", fm[COMMON_KEYS.related], { list: true, labelled: false }, ctx));
+	// A required field the layout hides ("show only when…" doesn't hold) isn't required just now.
+	const hidden = out.some((p) => p.missing) ? typeHiddenFields(type, fm, { types: ctx.types, groups: ctx.groups, dates: ctx.dates, today: ctx.today ?? todayDays(), resolve: (lp) => ctx.resolve(lp)?.path ?? null }) : null;
+	if (hidden?.size) return out.filter((p) => !(p.missing && hidden.has(p.key))).concat(orderProblems(type, fm));
+	return out.concat(orderProblems(type, fm));
+}
+
+function orderProblems(type: EntityTypeDef, fm: Record<string, unknown>): FieldProblem[] {
+	const out: FieldProblem[] = [];
 	if (type.parentFields?.length && !isEmptyValue(fm[COMMON_KEYS.order])) {
 		const o = fm[COMMON_KEYS.order];
 		if (typeof o !== "number") {

@@ -1,4 +1,5 @@
 import { unknownPlaceholders } from "./paths";
+import { whenIssues } from "./formConditions";
 import { layoutIssues, normaliseLayout } from "./formLayout";
 import { RESERVED_KEYS, isValidKey, type EntityTypeDef } from "./types";
 
@@ -73,7 +74,7 @@ export function typeIssues(t: EntityTypeDef, ctx: ValidationContext): TypeIssue[
 		else if (f.kind === "relation") add("card:subtitle", `Relation fields can't be used in the subtitle ("${key}").`);
 	}
 	const layout = t.form?.layout ? normaliseLayout(t.form.layout) : null;
-	if (layout) for (const m of layoutIssues(layout, t)) add("form:layout", m);
+	if (layout) for (const m of [...layoutIssues(layout, t), ...whenIssues(layout, t, [])]) add("form:layout", m);
 	return problems;
 }
 

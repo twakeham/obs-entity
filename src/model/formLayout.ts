@@ -1,4 +1,5 @@
 import { COMMON_KEYS, type EntityTypeDef } from "./types";
+import { columnFromId, fieldColumn } from "./views";
 
 /**
  * A type's custom form layout: frames (captioned boxes), columns, tab groups, headings, text and field slots, used by
@@ -13,6 +14,16 @@ export interface FormLayout {
 	/** leave out the type's fields that aren't placed (otherwise they're listed under "Other fields") */
 	hideUnplaced?: true;
 }
+
+/** A condition on the note's own values, like a view filter's: a column id (field key, "f:<key>", status, tags), an operator and a value. */
+export interface LayoutCondition {
+	field: string;
+	op: string;
+	value?: unknown;
+}
+
+/** "Show only when…": all or any of these conditions hold (stored like view filters). */
+export type LayoutWhen = { all: LayoutCondition[] } | { any: LayoutCondition[] };
 
 export type LabelPosition = "above" | "beside" | "hidden";
 
@@ -32,6 +43,8 @@ export interface LayoutField {
 	rows?: number;
 	/** shown but not editable on the properties form (the create dialog can still set it) */
 	readOnly?: true;
+	/** shown only when this holds */
+	when?: LayoutWhen;
 }
 
 /** Heights offered for long text, in lines. */
@@ -62,6 +75,8 @@ export interface LayoutFrame {
 	color?: string;
 	/** plain: no border; filled: a light tint instead of a border (default: a bordered box) */
 	style?: "plain" | "filled";
+	/** shown only when this holds */
+	when?: LayoutWhen;
 	items: LayoutNode[];
 }
 
@@ -70,6 +85,8 @@ export interface LayoutTab {
 	icon?: string;
 	/** false: left out of the create dialog (required fields are still asked for there) */
 	create?: false;
+	/** shown only when this holds */
+	when?: LayoutWhen;
 	items: LayoutNode[];
 }
 
@@ -113,6 +130,21 @@ export function allowedIn(place: LayoutPlace, node: LayoutNode): boolean {
 
 // ---------------------------------------------------------------- reading layouts from settings
 
+/** A "show only when" from settings: { all: [...] } or { any: [...] } of { field, op, value }; none when it has no conditions. */
+export function readWhen(raw: unknown): LayoutWhen | undefined {
+	if (!isObj(raw)) return undefined;
+	const mode = Array.isArray(raw.all) ? "all" : Array.isArray(raw.any) ? "any" : null;
+	if (!mode) return undefined;
+	const items = (raw[mode] as unknown[]).filter(isObj).flatMap((c): LayoutCondition[] =>
+		typeof c.field === "string" && c.field.trim() && typeof c.op === "string" && c.op.trim() ? [{ field: c.field.trim(), op: c.op.trim(), ...(c.value !== undefined ? { value: c.value } : {}) }] : [],
+	);
+	if (!items.length) return undefined;
+	return mode === "all" ? { all: items } : { any: items };
+}
+
+/** A "show only when"'s mode and conditions. */
+export const whenParts = (w: LayoutWhen): { mode: "all" | "any"; items: LayoutCondition[] } => ("all" in w ? { mode: "all", items: w.all } : { mode: "any", items: w.any });
+
 function readField(raw: unknown): LayoutField | null {
 	const key = typeof raw === "string" ? raw : isObj(raw) && typeof raw.key === "string" ? raw.key : "";
 	if (!key.trim()) return null;
@@ -131,8 +163,14 @@ function readField(raw: unknown): LayoutField | null {
 		...(help ? { help } : {}),
 		...(rows ? { rows } : {}),
 		...(raw.readOnly === true ? { readOnly: true as const } : {}),
+		...withWhen(raw.when),
 	};
 }
+
+const withWhen = (raw: unknown): { when?: LayoutWhen } => {
+	const when = readWhen(raw);
+	return when ? { when } : {};
+};
 
 /** A node read for a place: what can't go there is lifted out (a nested frame's rows, a column's entries) or dropped. */
 function readNode(raw: unknown, place: LayoutPlace): LayoutNode[] {
@@ -162,6 +200,7 @@ function readNode(raw: unknown, place: LayoutPlace): LayoutNode[] {
 				...(text(raw.icon).trim() ? { icon: text(raw.icon).trim() } : {}),
 				...(text(raw.color).trim() ? { color: text(raw.color).trim() } : {}),
 				...(raw.style === "plain" || raw.style === "filled" ? { style: raw.style } : {}),
+				...withWhen(raw.when),
 				items: many(arr(raw.items), "frame"),
 			};
 			return [frame];
@@ -185,6 +224,7 @@ function readNode(raw: unknown, place: LayoutPlace): LayoutNode[] {
 					caption: text(t.caption).trim() || `Tab ${i + 1}`,
 					...(text(t.icon).trim() ? { icon: text(t.icon).trim() } : {}),
 					...(t.create === false ? { create: false as const } : {}),
+					...withWhen(t.when),
 					items: many(arr(t.items), "tab"),
 				}));
 			return tabs.length ? [{ kind: "tabs", tabs }] : [];
@@ -298,9 +338,50 @@ export function resolveLayout(layout: FormLayout, type: EntityTypeDef): Resolved
 	};
 }
 
-/** Keep a layout in step when a field's key changes (`to` null: the field was deleted, so its slot goes). */
+/**
+ * Keep a layout in step when a field's key changes (`to` null: the field was deleted, so its slot goes). Conditions on
+ * the field follow a rename; after a deletion they stay, and are reported (`whenIssues`) and ignored.
+ */
 export function renameLayoutKey(layout: FormLayout, from: string, to: string | null): FormLayout {
-	return { ...layout, items: mapFields(layout.items, (f) => (f.key !== from ? [f] : to ? [{ ...f, key: to }] : [])) };
+	const next = { ...layout, items: mapFields(layout.items, (f) => (f.key !== from ? [f] : to ? [{ ...f, key: to }] : [])) };
+	if (!to) return next;
+	const toId = fieldColumn(to).id;
+	const isFrom = (id: string) => {
+		const col = columnFromId(id);
+		return col.kind === "field" && col.key === from;
+	};
+	const fix = (w: LayoutWhen | undefined): LayoutWhen | undefined => {
+		if (!w) return w;
+		const { mode, items } = whenParts(w);
+		const out = items.map((c) => (isFrom(c.field) ? { ...c, field: toId } : c));
+		return mode === "all" ? { all: out } : { any: out };
+	};
+	const walk = (nodes: LayoutNode[]): LayoutNode[] =>
+		nodes.map((n) => {
+			switch (n.kind) {
+				case "field":
+					return n.when ? { ...n, when: fix(n.when) } : n;
+				case "frame":
+					return { ...n, ...(n.when ? { when: fix(n.when) } : {}), items: walk(n.items) };
+				case "columns":
+					return { ...n, columns: n.columns.map(walk) };
+				case "tabs":
+					return { ...n, tabs: n.tabs.map((t) => ({ ...t, ...(t.when ? { when: fix(t.when) } : {}), items: walk(t.items) })) };
+				default:
+					return n;
+			}
+		});
+	return { ...next, items: walk(next.items) };
+}
+
+/** Every "show only when" in a layout (frames, tabs and slots). */
+export function layoutWhens(layout: FormLayout): LayoutWhen[] {
+	const out: LayoutWhen[] = [];
+	walkLayout(layout, (n) => {
+		if ((n.kind === "field" || n.kind === "frame") && n.when) out.push(n.when);
+		if (n.kind === "tabs") for (const t of n.tabs) if (t.when) out.push(t.when);
+	});
+	return out;
 }
 
 /** A first layout for a type: one frame with every field, in field order. */

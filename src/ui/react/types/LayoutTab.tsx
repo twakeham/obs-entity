@@ -44,8 +44,12 @@ import {
 	type LayoutPath,
 	type LayoutTab as LayoutTabDef,
 	type LayoutTabs,
+	type LayoutWhen,
+	whenParts,
 } from "../../../model/formLayout";
+import { conditionProblems, todayDays, whenColumns, whenText, type WhenContext } from "../../../model/formConditions";
 import { COMMON_KEYS } from "../../../model/types";
+import { FiltersPanel, type ColumnChoice } from "../table/popovers";
 import { usePlugin } from "../context";
 import { Icon } from "../Icon";
 import { IconPicker, Issues, PALETTE, Segmented, Toggle } from "./controls";
@@ -81,9 +85,14 @@ interface History {
 	future: (FormLayout | null)[];
 	/** the layout the history ends at, to tell whether it still applies */
 	current: string;
-	/** text edits to the same box are one undo step */
+	/** edits to the same box in quick succession are one undo step */
 	tag?: string;
+	/** when the last tagged edit was made */
+	tagAt?: number;
 }
+
+/** Edits to the same box within this long of each other join one undo step. */
+const JOIN_MS = 1500;
 const histories = new Map<string, History>();
 
 type TabRef = { group: LayoutPath; tab: number };
@@ -119,7 +128,7 @@ class PlaceModal extends FuzzySuggestModal<string> {
  */
 export function LayoutTab() {
 	const plugin = usePlugin();
-	const { draft, update, issuesAt, setTab, setFieldUid } = useEditor();
+	const { draft, update, issuesAt, setTab, setFieldUid, groups } = useEditor();
 	const type = draft.type;
 	const raw = type.form?.layout;
 	const layout = useMemo(() => (raw ? normaliseLayout(raw) : null), [raw]);
@@ -194,9 +203,11 @@ export function LayoutTab() {
 		const h = hist();
 		const nextJson = JSON.stringify(next);
 		if (nextJson === h.current) return;
-		if (!opts.tag || h.tag !== opts.tag) h.past.push(layout);
+		const now = Date.now();
+		if (!opts.tag || h.tag !== opts.tag || now - (h.tagAt ?? 0) > JOIN_MS) h.past.push(layout);
 		h.future = [];
 		h.tag = opts.tag;
+		h.tagAt = now;
 		h.current = nextJson;
 		write(next);
 		if (opts.tab) {
@@ -245,6 +256,36 @@ export function LayoutTab() {
 	/** the label a property has without a custom one */
 	const baseLabel = labelOf;
 	const descOf = (k: string) => fieldOf(k)?.description?.trim() || BUILTINS[k]?.desc || "";
+	// ---- "show only when"
+	const whenCtx: WhenContext = { types: [type], groups, dates: plugin.dates, today: todayDays() };
+	const whenSummary = (w: LayoutWhen) => whenText(w, type, whenCtx);
+	const whenBroken = (w: LayoutWhen) => conditionProblems(w, type, whenCtx).some((p) => !p.incomplete);
+	const choices: ColumnChoice[] = whenColumns(type, whenCtx).map((col) => ({ col, group: col.def.kind === "field" ? "Fields" : "Properties" }));
+	const viewCtx = useMemo(() => plugin.viewData().ctx, [plugin]);
+	const valuesOf = (id: string) => (id === COMMON_KEYS.tags ? [...new Set(plugin.index.ofType(draft.original?.key ?? type.key).flatMap((e) => e.tags))].sort() : []);
+	const whenEditor = (w: LayoutWhen | undefined, set: (w: LayoutWhen | undefined, tag?: string) => void, tag: string) => (
+		<div className="oe-ld-when-editor">
+			<FiltersPanel
+				filters={w ? whenParts(w) : { mode: "all", items: [] }}
+				choices={choices}
+				ctx={viewCtx}
+				valuesOf={valuesOf}
+				noGroups
+				heading="Show only when"
+				emptyText="Always shown. Add a condition to show it only for some notes."
+				onChange={(g) => {
+					const items = g.items.filter((i): i is { field: string; op: string; value?: unknown } => !("items" in i));
+					set(items.length ? (g.mode === "all" ? { all: items } : { any: items }) : undefined, tag);
+				}}
+			/>
+		</div>
+	);
+	const whenBadge = (w: LayoutWhen | undefined) =>
+		w ? (
+			<span className={`oe-ld-badge is-when${whenBroken(w) ? " is-broken" : ""}`} title={`Shown only when ${whenSummary(w)}`}>
+				<Icon name="eye" /> <span className="oe-ld-when-text">{whenSummary(w)}</span>
+			</span>
+		) : null;
 	/** whether a property's control can show a placeholder (not checkboxes, dates, multiple choice or status) */
 	const takesPlaceholder = (k: string) => {
 		const f = fieldOf(k);
@@ -805,6 +846,7 @@ export function LayoutTab() {
 							{n.label === "hidden" && <Icon name="eye-off" className="oe-ld-flag" />}
 							{n.readOnly && <Icon name="lock" className="oe-ld-flag" />}
 						</span>
+						{n.when && <span className="oe-ld-field-when">{whenBadge(n.when)}</span>}
 						<span className={`oe-ld-control${n.placeholder && !problem ? " has-placeholder" : ""}`} style={n.rows ? { minHeight: `${Math.min(n.rows, 6) * 0.9 + 0.6}em` } : undefined}>
 							{problem ?? n.placeholder ?? (n.rows ? `${kind} · ${n.rows} lines` : kind)}
 						</span>
@@ -851,6 +893,7 @@ export function LayoutTab() {
 							{n.collapsible && <Icon name={n.collapsed ? "chevron-right" : "chevron-down"} />}
 							{n.icon && <Icon name={n.icon} className="oe-ld-frame-icon" />}
 							<span className="oe-ld-caption">{n.caption || <span className="oe-ld-faint">No caption</span>}</span>
+							{whenBadge(n.when)}
 							{n.create === false && (
 								<span className="oe-ld-badge" title="Not in the create dialog">
 									<Icon name="eye-off" /> Create dialog
@@ -906,6 +949,11 @@ export function LayoutTab() {
 										{t.icon && <Icon name={t.icon} />}
 										<span>{t.caption}</span>
 										{t.create === false && <Icon name="eye-off" className="oe-ld-tab-off" />}
+										{t.when && (
+											<span className="oe-ld-tab-when" title={`Shown only when ${whenSummary(t.when)}`}>
+												<Icon name="eye" />
+											</span>
+										)}
 									</button>
 								);
 							})}
@@ -990,6 +1038,7 @@ export function LayoutTab() {
 						<Toggle label="Show in the create dialog" value={def.create !== false} onChange={(v) => changeTab(t, (x) => ({ ...x, create: v ? undefined : false }))} />
 					</div>
 					<p className="oe-tm-muted oe-ld-note">Required fields are always asked for when creating a note.</p>
+					{whenEditor(def.when, (w, tag) => changeTab(t, (x) => ({ ...x, when: w }), tag), `when:tab:${pk(t.group)}:${t.tab}`)}
 					<div className="oe-ld-prop-buttons">
 						<button type="button" onClick={() => dropTab(t, true)}>
 							<Icon name="ungroup" /> Remove tab, keep contents
@@ -1089,6 +1138,7 @@ export function LayoutTab() {
 							onChange={(v) => setFrame({ style: v === "box" ? undefined : (v as "plain" | "filled") })}
 						/>
 					</div>
+					{whenEditor(fr.when, (w, tag) => change(sel, (n) => ({ ...(n as LayoutFrame), when: w }), tag), `when:${pk(sel)}`)}
 					<div className="oe-ld-prop-buttons">
 						<button type="button" disabled={!kept} title={kept ? undefined : "Its columns can't go in a column"} onClick={() => kept && commit(kept, { select: fr.items.length ? sel : null })}>
 							<Icon name="ungroup" /> Remove frame, keep contents
@@ -1261,6 +1311,7 @@ export function LayoutTab() {
 						<Toggle label="Read-only on this form" value={!!f.readOnly} onChange={(v) => setSlot({ readOnly: v ? true : undefined })} />
 					</div>
 					{f.readOnly && <p className="oe-tm-muted oe-ld-note">Shown but not editable on notes. The create dialog, views and bulk edits can still set it.</p>}
+					{whenEditor(f.when, (w, tag) => setSlot({ when: w }, tag), `when:${pk(sel)}`)}
 					<div className="oe-ld-prop-buttons">
 						{def && (
 							<button
