@@ -63,8 +63,8 @@ On entity notes, a form built from the note's type replaces Obsidian's Propertie
     - If a hidden field has another problem, "N problems" shows it, marked "Normally hidden".
   - The create dialog uses the same layout: frames and tabs can be left out of it (they appear with "Show more fields"), and required fields are always asked for.
   - Layouts are designed by drag and drop on the type editor's **Layout** tab.
-- **Other properties:** a collapsed section for keys the type doesn't define, each edited by its Obsidian property type.
-  - **+ Add property** adds a key.
+- **Other properties:** a collapsed section for keys the type doesn't define, each edited by its Obsidian property type. It's only shown when the note has some.
+  - **+ Add property** in the section, or **Add other property…** in the form's **⋯** menu, adds a key.
   - A key's **⋯** menu offers **Add to the *type* type**, which opens the type editor with a draft field, or **Remove**.
 
 **Entering values:**

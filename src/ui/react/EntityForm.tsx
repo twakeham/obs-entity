@@ -335,6 +335,8 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 	const [collapsed, setCollapsed] = useState(mode !== "preview" && plugin.settings.formCollapsed);
 	const [showEmpty, setShowEmpty] = useState(false);
 	const [othersOpen, setOthersOpen] = useState(othersOpenDefault);
+	/** adding a property the type doesn't define (from the ⋯ menu): shows "Other properties" even when it's empty */
+	const [addingOther, setAddingOther] = useState(false);
 	/** layout frames (by path) that are collapsed: those that start collapsed, until opened */
 	const [closedFrames, setClosedFrames] = useState<Set<string>>(() => {
 		const l = type.form?.layout ? normaliseLayout(type.form.layout) : null;
@@ -432,6 +434,17 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 						`Change "${file.basename}" from ${type.name.toLowerCase()} to…`,
 					).open(),
 				),
+		);
+		m.addItem((i) =>
+			i
+				.setTitle("Add other property…")
+				.setIcon("plus")
+				.onClick(() => {
+					if (!editable) setEditing?.(true);
+					setCollapsed(false);
+					setOthersOpen(true);
+					setAddingOther(true);
+				}),
 		);
 		m.addItem((i) => i.setTitle(`Configure the ${type.name} type`).setIcon("shapes").onClick(() => void plugin.activateTypes(type.key)));
 		m.showAtMouseEvent(evt.nativeEvent);
@@ -636,7 +649,7 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 							Hide empty fields
 						</button>
 					)}
-					{(others.length > 0 || editable) && (
+					{(others.length > 0 || (addingOther && editable)) && (
 						<div className={`oe-form-other${othersOpen ? " is-open" : ""}`}>
 							<button
 								type="button"
@@ -656,7 +669,7 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 									{others.map((k) => (
 										<OtherRow key={k} k={k} value={get(k)} editable={editable} type={type} write={write} />
 									))}
-									{editable && <AddProperty existing={Object.keys(values)} onAdd={(k) => write(k, null)} />}
+									{editable && <AddProperty key={addingOther ? "adding" : "idle"} existing={Object.keys(values)} onAdd={(k) => write(k, null)} startAdding={addingOther} onDone={() => setAddingOther(false)} />}
 								</div>
 							)}
 						</div>
@@ -1326,8 +1339,9 @@ function OtherRow({ k, value, editable, type, write }: { k: string; value: unkno
 	);
 }
 
-function AddProperty({ existing, onAdd }: { existing: string[]; onAdd: (key: string) => void }) {
-	const [adding, setAdding] = useState(false);
+/** "Add property" for a property the type doesn't define; `startAdding`: open with the name box ready. */
+function AddProperty({ existing, onAdd, startAdding, onDone }: { existing: string[]; onAdd: (key: string) => void; startAdding?: boolean; onDone?: () => void }) {
+	const [adding, setAdding] = useState(!!startAdding);
 	const [name, setName] = useState("");
 	if (!adding) {
 		return (
@@ -1346,6 +1360,7 @@ function AddProperty({ existing, onAdd }: { existing: string[]; onAdd: (key: str
 		if (k) onAdd(k);
 		setName("");
 		setAdding(false);
+		onDone?.();
 	};
 	return (
 		<input
@@ -1363,6 +1378,7 @@ function AddProperty({ existing, onAdd }: { existing: string[]; onAdd: (key: str
 				} else if (e.key === "Escape") {
 					setName("");
 					setAdding(false);
+					onDone?.();
 				}
 			}}
 			onBlur={submit}

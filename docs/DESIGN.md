@@ -797,7 +797,7 @@ On entity notes, a form built from the note's type **replaces Obsidian's Propert
   - The control is on the right. Empty values show a faint "Empty".
 - **`order`:** a number row when the type has parent fields. Otherwise it's hidden, or listed under Other properties if it has a value.
 - **Common rows** at the bottom: Related (links to any entity), Tags and Aliases. `entity` can't be edited here; use Change type.
-- **Other properties:** a collapsed section for keys the type doesn't define. Whether it's open is shared by all notes for the session.
+- **Other properties:** a collapsed section for keys the type doesn't define, shown only when the note has some. Whether it's open is shared by all notes for the session.
 - **Hide empty fields** (`form.hideEmpty`, on the Display tab, off by default) lists only filled fields, plus a "Show N empty fields" link. Fields with a problem are always shown.
 - **Phones:** the label sits above the value.
 
@@ -928,7 +928,7 @@ Values set anywhere else (Source mode, sync, other plugins, the File properties 
 #### Other properties
 
 - **Editors:** each extra key gets an editor from its **Obsidian property type** (`metadataTypeManager.getAssignedWidget`): text, number, checkbox, date or list. Without one, the editor is chosen from the value. Objects show as read-only JSON.
-- **+ Add property** adds a key with an empty value.
+- **+ Add property** adds a key with an empty value. With no other properties the section is hidden; **Add other property…** in the form's ⋯ menu (which turns on editing in Reading view) shows it with the name box ready, and it goes again if nothing is added.
 - The row's **⋯ menu**:
   - **Add to the <type> type** opens the Entity Types view on the Fields tab, with a draft field for the key. The kind is guessed from the value (wikilinks become a relation to any entity).
   - **Remove** deletes the key (with Undo).
@@ -2006,7 +2006,6 @@ Contacts      [Ada Lovelace · economic buyer] [Grace Hopper · technical lead] 
 Related       Empty
 Tags          #renewal  Add…
 Aliases       Empty
-› Other properties 0
 ```
 
 In link pickers and the switcher, the deal shows as **Acme renewal 2027**, with its description underneath as the subtitle.
