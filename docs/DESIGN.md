@@ -634,7 +634,6 @@ The form layout designer (§8.4 Custom layouts), `LayoutTab.tsx`. Three panes; u
 - **The save bar** appears when the type is dirty: "Unsaved changes" (or "New type, not saved yet"), **Discard** and **Save**. When existing notes would be affected:
   - **Renamed field keys:** `☑ Also update N notes: old → new`, ticked by default, with an expandable list of the affected notes.
   - **Deleted fields:** `☐ Remove the values of deleted fields (…) from N notes`, unticked by default.
-  - **Status bar:** Obsidian's status bar floats over the bottom-right of the window. `TypesView` measures how far it reaches into the view (on resize, layout changes and status-bar size changes; 0 when it doesn't overlap, is hidden, or in a popout window) as `--oe-statusbar-clear`, and the save bar (or, without one, the Layout tab) adds that much bottom padding so Save stays visible.
 - **Validation:**
   - Each problem is shown in red next to the control that caused it, flagged on the field's row and on its tab.
   - "Not filled in yet" problems (an empty name, an empty field label) are hidden until the first Save attempt.
