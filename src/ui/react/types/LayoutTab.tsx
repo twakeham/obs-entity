@@ -1,5 +1,10 @@
-import { FuzzySuggestModal, Menu, type App } from "obsidian";
+import { FuzzySuggestModal, Menu, Modal, Notice, Scope, Setting, type App } from "obsidian";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent as RFocusEvent, type KeyboardEvent as RKeyboardEvent, type MouseEvent as RMouseEvent, type PointerEvent as RPointerEvent, type ReactNode } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import type EntitiesPlugin from "../../../main";
+import { clipNodes, clipOfNode, clipOfTab, clipSummary, clipText, placeNode, placeTab, planPaste, preparePaste, readClip, type LayoutClip, type SavedComponent } from "../../../model/layoutClipboard";
+import { newUid } from "../../../model/typeEditing";
+import type { FieldDef } from "../../../model/types";
 import {
 	addTab,
 	allLists,
@@ -55,7 +60,7 @@ import {
 import { conditionProblems, todayDays, whenColumns, whenText, type WhenContext } from "../../../model/formConditions";
 import { COMMON_KEYS } from "../../../model/types";
 import { FiltersPanel, type ColumnChoice } from "../table/popovers";
-import { usePlugin } from "../context";
+import { PluginContext, usePlugin } from "../context";
 import { Icon } from "../Icon";
 import { IconPicker, Issues, PALETTE, Segmented, Toggle } from "./controls";
 import { KIND_INFO, useEditor } from "./editor";
@@ -107,7 +112,7 @@ const JOIN_MS = 1500;
 const histories = new Map<string, History>();
 
 type TabRef = { group: LayoutPath; tab: number };
-type DragSource = { from: "palette"; node: LayoutNode } | { from: "canvas"; path: LayoutPath; node: LayoutNode } | { from: "tab"; group: LayoutPath; tab: number };
+type DragSource = { from: "palette"; node: LayoutNode } | { from: "saved"; id: string; node: LayoutNode } | { from: "canvas"; path: LayoutPath; node: LayoutNode } | { from: "tab"; group: LayoutPath; tab: number };
 type DropTarget = { list: LayoutList; index: number } | { remove: true } | { strip: LayoutPath; index: number };
 
 /** Pick a property to place (Add field here…). */
@@ -132,9 +137,115 @@ class PlaceModal extends FuzzySuggestModal<string> {
 	}
 }
 
+/** A question with a row of buttons (Esc: none of them). */
+class AskModal extends Modal {
+	constructor(
+		app: App,
+		private heading: string,
+		private body: string,
+		private buttons: { text: string; cta?: boolean; warning?: boolean; run: () => void }[],
+	) {
+		super(app);
+	}
+	onOpen(): void {
+		this.setTitle(this.heading);
+		this.contentEl.createEl("p", { text: this.body });
+		const row = new Setting(this.contentEl);
+		for (const b of this.buttons)
+			row.addButton((btn) => {
+				btn.setButtonText(b.text).onClick(() => {
+					this.close();
+					b.run();
+				});
+				if (b.cta) btn.setCta();
+				if (b.warning) btn.setWarning();
+			});
+	}
+	onClose(): void {
+		this.contentEl.empty();
+	}
+}
+
+/** Name and icon for a saved component, with what's in it. */
+function ComponentForm({ init, summary, onSave, onCancel }: { init: { name: string; icon: string }; summary: string; onSave: (v: { name: string; icon: string }) => void; onCancel: () => void }) {
+	const [name, setName] = useState(init.name);
+	const [icon, setIcon] = useState(init.icon);
+	const save = () => name.trim() && onSave({ name: name.trim(), icon: icon || "package" });
+	return (
+		<div className="oe-ld-compform">
+			<label className="oe-ld-compfield">
+				<span>Name</span>
+				<input
+					type="text"
+					autoFocus
+					value={name}
+					placeholder="e.g. Contact details"
+					aria-label="Component name"
+					onChange={(e) => setName(e.target.value)}
+					onKeyDown={(e) => {
+						if (e.key === "Enter") {
+							e.preventDefault();
+							save();
+						}
+					}}
+				/>
+			</label>
+			<div className="oe-ld-compfield">
+				<span>Icon</span>
+				<IconPicker value={icon} color="var(--text-normal)" onChange={setIcon} />
+			</div>
+			<div className="oe-ld-compsummary">
+				<Icon name={icon || "package"} />
+				<span>{summary}</span>
+			</div>
+			<div className="modal-button-container">
+				<button onClick={onCancel}>Cancel</button>
+				<button className="mod-cta" disabled={!name.trim()} onClick={save}>
+					Save
+				</button>
+			</div>
+		</div>
+	);
+}
+
+class ComponentModal extends Modal {
+	private root: Root | null = null;
+	constructor(
+		private plugin: EntitiesPlugin,
+		private heading: string,
+		private init: { name: string; icon: string },
+		private summary: string,
+		private done: (v: { name: string; icon: string }) => void,
+	) {
+		super(plugin.app);
+	}
+	onOpen(): void {
+		this.setTitle(this.heading);
+		this.modalEl.addClass("oe-ld-compmodal");
+		this.root = createRoot(this.contentEl);
+		this.root.render(
+			<PluginContext.Provider value={this.plugin}>
+				<ComponentForm
+					init={this.init}
+					summary={this.summary}
+					onCancel={() => this.close()}
+					onSave={(v) => {
+						this.close();
+						this.done(v);
+					}}
+				/>
+			</PluginContext.Provider>,
+		);
+	}
+	onClose(): void {
+		this.root?.unmount();
+		this.root = null;
+	}
+}
+
 /** Palette sections that are folded away, per type, in the vault's local storage. */
 const PALETTE_STORAGE = "obs-entities-layout-palette";
-type PalSection = "fields" | "properties" | "readonly" | "layout";
+type PalSection = "fields" | "properties" | "readonly" | "saved" | "layout";
 function foldedSections(app: App, typeKey: string | undefined): Set<PalSection> {
 	const all: unknown = typeKey ? app.loadLocalStorage(PALETTE_STORAGE) : null;
 	const list = all && typeof all === "object" ? (all as Record<string, unknown>)[typeKey!] : null;
@@ -235,14 +346,15 @@ export function LayoutTab() {
 			else delete t.form;
 		});
 	/** Change the layout (one undo step; `tag`: repeated edits of the same text box join one step). */
-	const commit = (rawNext: FormLayout | null, opts: { select?: LayoutPath | null; tab?: TabRef; focus?: boolean; tag?: string } = {}) => {
+	const commit = (rawNext: FormLayout | null, opts: { select?: LayoutPath | null; tab?: TabRef; focus?: boolean; tag?: string; replace?: boolean } = {}) => {
 		// Store layouts tidied, so the history matches what the draft reads back.
 		const next = rawNext ? normaliseLayout(rawNext) : null;
 		const h = hist();
 		const nextJson = JSON.stringify(next);
 		if (nextJson === h.current) return;
 		const now = Date.now();
-		if (!opts.tag || h.tag !== opts.tag || now - (h.tagAt ?? 0) > JOIN_MS) h.past.push(layout);
+		// `replace`: this change stands in for the last step (e.g. a paste redone with its missing fields added).
+		if (!opts.replace && (!opts.tag || h.tag !== opts.tag || now - (h.tagAt ?? 0) > JOIN_MS)) h.past.push(layout);
 		h.future = [];
 		h.tag = opts.tag;
 		h.tagAt = now;
@@ -376,6 +488,239 @@ export function LayoutTab() {
 		if (r) commit(r.layout, { tab: { group: r.group, tab: r.tab }, focus: true });
 	};
 
+	// ---- copy, paste, duplicate, saved components
+	/** the latest render's commit and layout, for actions that finish later (a notice's button, a dialog) */
+	const live = useRef({ commit, base, update });
+	live.current = { commit, base, update };
+	const components: SavedComponent[] = plugin.settings.layoutComponents;
+	const listNames = (names: string[]) => (names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : (names[0] ?? ""));
+	const clipLabel = (clip: LayoutClip) => (k: string) => (fieldOf(k) || BUILTINS[k] ? labelOf(k) : clip.fields.find((f) => f.key === k)?.label || k);
+	/** what's at a node or tab, as a copy */
+	const clipAt = (path: LayoutPath | null, t: TabRef | null): LayoutClip | null => {
+		if (t) {
+			const g = nodeAt(base, t.group);
+			return g?.kind === "tabs" && g.tabs[t.tab] ? clipOfTab(g.tabs[t.tab], type) : null;
+		}
+		const n = path ? nodeAt(base, path) : null;
+		return n ? clipOfNode(n, type) : null;
+	};
+	const selectedClip = () => clipAt(selTab ? null : sel, selTab);
+	const copy = async (clip: LayoutClip | null, cut?: () => void) => {
+		if (!clip) return;
+		try {
+			await navigator.clipboard.writeText(clipText(clip));
+		} catch {
+			new Notice("Couldn't copy to the clipboard.");
+			return;
+		}
+		cut?.();
+		new Notice(`${cut ? "Cut" : "Copied"}: ${clipSummary(clip, clipLabel(clip))}`, 2500);
+	};
+	type Anchor = { path: LayoutPath | null; tab: TabRef | null };
+	/** Where a paste goes: a tab into a tab group (after the anchor's tab); anything else like a palette click. */
+	const pasteTarget = (clip: LayoutClip, at: { list: LayoutList; index: number } | undefined, anchor: Anchor): { group: LayoutPath; index: number } | { list: LayoutList; index: number } => {
+		if (clip.tab && !at) {
+			if (anchor.tab) return { group: anchor.tab.group, index: anchor.tab.tab + 1 };
+			const n = anchor.path ? nodeAt(base, anchor.path) : null;
+			if (n?.kind === "tabs") return { group: anchor.path!, index: n.tabs.length };
+			if (anchor.path && anchor.path.length >= 2 && nodeAt(base, [anchor.path[0]])?.kind === "tabs") return { group: [anchor.path[0]], index: anchor.path[1] + 1 };
+		}
+		if (at) return at;
+		const node = clipNodes(clip)[0];
+		return insertionPoint(base, anchor.tab ? anchor.tab.group : anchor.path, node, (g) => (anchor.tab && pk(anchor.tab.group) === pk(g) ? anchor.tab.tab : openTab(g)));
+	};
+	/** Add fields a paste brought (as new fields of the draft). */
+	const addFields = (fields: FieldDef[]) =>
+		live.current.update((t, meta) => {
+			for (const f of fields) {
+				if (t.fields.some((x) => x.key === f.key)) continue;
+				t.fields.push(JSON.parse(JSON.stringify(f)));
+				meta.push({ uid: newUid(), origKey: null });
+			}
+		});
+	const noticeWith = (text: string, action: string, run: () => void) => {
+		const n = new Notice(
+			createFragment((f) => {
+				f.appendText(`${text} `);
+				const a = f.createEl("a", { text: action, href: "#", cls: "oe-notice-action" });
+				a.addEventListener("click", (e) => {
+					e.preventDefault();
+					n.hide();
+					run();
+				});
+			}),
+			12000,
+		);
+	};
+	/**
+	 * Paste a copy: its fields matched to this type's; fields already placed are moved here (when the user says so) or
+	 * left out; fields this type doesn't have are left out, with "Add them" in a notice. One undo step.
+	 */
+	const paste = (clip: LayoutClip, opts: { at?: { list: LayoutList; index: number }; anchor?: Anchor; duplicate?: boolean } = {}) => {
+		const plan = planPaste(clip, type, base);
+		const target = pasteTarget(clip, opts.at, opts.anchor ?? { path: sel, tab: selTab });
+		const before = base;
+		const label = clipLabel(clip);
+		/** place it on the layout as it was before the paste; returns the result's JSON, or null */
+		const place = (move: boolean, add: boolean, replace: boolean): string | null => {
+			const ready = preparePaste(clip, plan, { add, move });
+			const moveKeys = move ? plan.placed : [];
+			const { commit: doCommit } = live.current;
+			if ("group" in target && ready.tab) {
+				const tab = opts.duplicate ? { ...ready.tab, caption: `${ready.tab.caption} copy` } : ready.tab;
+				const r = placeTab(before, target.group, target.index, tab, moveKeys);
+				if (!r) return null;
+				doCommit(r.layout, { tab: { group: r.group, tab: r.tab }, focus: true, replace });
+				return JSON.stringify(normaliseLayout(r.layout));
+			}
+			const node: LayoutNode | undefined = ready.node ?? (ready.tab ? { kind: "tabs", tabs: [ready.tab] } : undefined);
+			if (!node) {
+				new Notice(opts.duplicate ? "A field can only be placed once, so there's nothing to duplicate." : `Nothing to paste: ${listNames(plan.placed.map(label))} ${plan.placed.length === 1 ? "is" : "are"} already in the layout.`);
+				return null;
+			}
+			const at = "group" in target ? insertionPoint(before, null, node) : target;
+			const r = placeNode(before, at.list, at.index, node, moveKeys);
+			if (!r) {
+				new Notice("That can't go here.");
+				return null;
+			}
+			doCommit(r.layout, { select: r.path, focus: true, replace });
+			return JSON.stringify(normaliseLayout(r.layout));
+		};
+		const run = (move: boolean) => {
+			const after = place(move, false, false);
+			if (after === null || !plan.missing.length) return;
+			const names = plan.missing.map((f) => f.label || f.key);
+			noticeWith(`${names.length === 1 ? "1 field isn't" : `${names.length} fields aren't`} in ${type.name || "this type"}: ${listNames(names)}.`, "Add them", () => {
+				addFields(plan.missing);
+				// Redo the paste with them, unless the layout has changed since.
+				if (JSON.stringify(live.current.base) === after) place(move, true, true);
+				else new Notice(`Added ${listNames(names)}. Place ${names.length === 1 ? "it" : "them"} from the palette.`);
+			});
+		};
+		if (plan.placed.length && !opts.duplicate) {
+			const names = plan.placed.map(label);
+			const it = names.length === 1 ? "it" : "them";
+			new AskModal(plugin.app, "Already in the layout", `${listNames(names)} ${names.length === 1 ? "is" : "are"} already in the layout. Move ${it} here with the copied settings, or leave ${it} out of the paste?`, [
+				{ text: `Leave ${it} out`, run: () => run(false) },
+				{ text: "Move here", cta: true, run: () => run(true) },
+			]).open();
+		} else run(false);
+	};
+	const pasteFromClipboard = async (anchor: Anchor, explain: boolean) => {
+		let text = "";
+		try {
+			text = await navigator.clipboard.readText();
+		} catch {
+			// nothing readable
+		}
+		const clip = readClip(text);
+		if (clip) paste(clip, { anchor });
+		else if (explain) new Notice("The clipboard doesn't hold a copied layout item.");
+	};
+	/** A copy right after the item (fields already placed are left out). */
+	const duplicate = (path: LayoutPath | null, t: TabRef | null) => {
+		const clip = clipAt(path, t);
+		if (!clip) return;
+		if (t) paste(clip, { anchor: { path: null, tab: t }, duplicate: true });
+		else if (path) {
+			const { list, index } = parentList(base, path);
+			paste(clip, { at: { list, index: index + 1 }, duplicate: true });
+		}
+	};
+	const saveComponents = async (list: SavedComponent[]) => {
+		plugin.settings.layoutComponents = list;
+		await plugin.saveSettings();
+		setTick((n) => n + 1);
+	};
+	const saveAsComponent = (clip: LayoutClip | null) => {
+		if (!clip) return;
+		const n = clip.node;
+		const suggested = clip.tab?.caption ?? (n?.kind === "frame" ? n.caption : n?.kind === "heading" ? n.text : "") ?? "";
+		const icon = clip.tab?.icon ?? (n?.kind === "frame" ? n.icon : undefined) ?? "package";
+		new ComponentModal(plugin, "Save as component", { name: suggested, icon }, clipSummary(clip, clipLabel(clip)), (v) => {
+			void saveComponents([...plugin.settings.layoutComponents, { id: `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: v.name, icon: v.icon, clip }]);
+			new Notice(`Saved “${v.name}” to My components.`);
+		}).open();
+	};
+	const componentMenu = (c: SavedComponent, menu: Menu) => {
+		const cur = selectedClip();
+		menu.addItem((i) =>
+			i
+				.setTitle("Edit name and icon…")
+				.setIcon("pencil")
+				.onClick(() =>
+					new ComponentModal(plugin, "Edit component", { name: c.name, icon: c.icon }, clipSummary(c.clip), (v) =>
+						void saveComponents(plugin.settings.layoutComponents.map((x) => (x.id === c.id ? { ...x, ...v } : x))),
+					).open(),
+				),
+		);
+		menu.addItem((i) =>
+			i
+				.setTitle("Replace with selection")
+				.setIcon("replace")
+				.setDisabled(!cur)
+				.onClick(() => {
+					if (!cur) return;
+					void saveComponents(plugin.settings.layoutComponents.map((x) => (x.id === c.id ? { ...x, clip: cur } : x)));
+					new Notice(`“${c.name}” now holds: ${clipSummary(cur, clipLabel(cur))}`);
+				}),
+		);
+		menu.addItem((i) =>
+			i
+				.setTitle("Copy")
+				.setIcon("copy")
+				.onClick(() => void copy(c.clip)),
+		);
+		menu.addSeparator();
+		menu.addItem((i) =>
+			i
+				.setTitle("Delete")
+				.setIcon("trash-2")
+				.setWarning(true)
+				.onClick(() =>
+					new AskModal(plugin.app, `Delete “${c.name}”?`, "It's removed from My components for every type. Layouts that used it keep their copy.", [
+						{ text: "Cancel", run: () => {} },
+						{ text: "Delete", warning: true, run: () => void saveComponents(plugin.settings.layoutComponents.filter((x) => x.id !== c.id)) },
+					]).open(),
+				),
+		);
+	};
+	/** Copy, Cut, Paste, Duplicate and Save as component for a node or tab menu. */
+	const clipboardItems = (menu: Menu, path: LayoutPath | null, t: TabRef | null, cut: () => void) => {
+		menu.addItem((i) =>
+			i
+				.setTitle("Copy")
+				.setIcon("copy")
+				.onClick(() => void copy(clipAt(path, t))),
+		);
+		menu.addItem((i) =>
+			i
+				.setTitle("Cut")
+				.setIcon("scissors")
+				.onClick(() => void copy(clipAt(path, t), cut)),
+		);
+		menu.addItem((i) =>
+			i
+				.setTitle("Paste")
+				.setIcon("clipboard-paste")
+				.onClick(() => void pasteFromClipboard({ path, tab: t }, true)),
+		);
+		menu.addItem((i) =>
+			i
+				.setTitle("Duplicate")
+				.setIcon("copy-plus")
+				.onClick(() => duplicate(path, t)),
+		);
+		menu.addItem((i) =>
+			i
+				.setTitle("Save as component…")
+				.setIcon("package-plus")
+				.onClick(() => saveAsComponent(clipAt(path, t))),
+		);
+		menu.addSeparator();
+	};
+
 	// ---- labels for lists (Move to…): e.g. Tab “Main” › “Overview” › column 2
 	const crumbs = (list: LayoutList): string[] => {
 		if (!list.at.length) return [];
@@ -399,6 +744,7 @@ export function LayoutTab() {
 		if (!node) return;
 		const { list, index } = parentList(base, path);
 		const count = listItems(base, list).length;
+		clipboardItems(menu, path, null, () => remove(path));
 		menu.addItem((i) =>
 			i
 				.setTitle("Move up")
@@ -480,6 +826,7 @@ export function LayoutTab() {
 	};
 	const tabMenu = (t: TabRef, menu: Menu) => {
 		const g = nodeAt(base, t.group) as LayoutTabs;
+		clipboardItems(menu, null, t, () => dropTab(t, false));
 		menu.addItem((i) =>
 			i
 				.setTitle("Move left")
@@ -606,8 +953,54 @@ export function LayoutTab() {
 			e.preventDefault();
 			e.stopPropagation();
 			redo();
+		} else if (mod && !e.altKey && !e.shiftKey && ["c", "x", "v"].includes(e.key.toLowerCase())) {
+			const k = e.key.toLowerCase();
+			if (k === "v") {
+				e.preventDefault();
+				e.stopPropagation();
+				void pasteFromClipboard({ path: sel, tab: selTab }, false);
+				return;
+			}
+			const clip = selectedClip();
+			if (!clip) return;
+			e.preventDefault();
+			e.stopPropagation();
+			if (k === "c") void copy(clip);
+			else void copy(clip, () => (selTab ? dropTab(selTab, false) : sel && remove(sel)));
 		}
 	};
+	// Obsidian's hotkeys take Ctrl/Cmd+D before the view sees it, so while the designer has focus a keymap scope does.
+	const rootRef = useRef<HTMLDivElement>(null);
+	const dup = useRef(() => {});
+	dup.current = () => duplicate(selTab ? null : sel, selTab);
+	useEffect(() => {
+		const el = rootRef.current;
+		if (!el) return;
+		const scope = new Scope(plugin.app.scope);
+		scope.register(["Mod"], "d", (e) => {
+			if ((e.target as HTMLElement | null)?.matches?.("input, textarea, select, [contenteditable]")) return true;
+			dup.current();
+			return false;
+		});
+		let pushed = false;
+		const enter = () => {
+			if (pushed) return;
+			plugin.app.keymap.pushScope(scope);
+			pushed = true;
+		};
+		const leave = (e: FocusEvent) => {
+			if (!pushed || el.contains(e.relatedTarget as Node | null)) return;
+			plugin.app.keymap.popScope(scope);
+			pushed = false;
+		};
+		el.addEventListener("focusin", enter);
+		el.addEventListener("focusout", leave);
+		return () => {
+			el.removeEventListener("focusin", enter);
+			el.removeEventListener("focusout", leave);
+			if (pushed) plugin.app.keymap.popScope(scope);
+		};
+	}, [plugin]);
 
 	// ---- dragging (pointer events, so it works with mouse, pen and touch)
 	const [dragging, setDragging] = useState<DragSource | null>(null);
@@ -745,6 +1138,10 @@ export function LayoutTab() {
 			if (src.from === "tab") shiftTab(src, { group: target.strip, tab: 0, index: target.index });
 		} else if (src.from === "canvas") move(src.path, target.list, target.index);
 		else if (src.from === "palette") add(src.node, target);
+		else if (src.from === "saved") {
+			const c = components.find((x) => x.id === src.id);
+			if (c) paste(c.clip, { at: target });
+		}
 	};
 	const onMove = (e: PointerEvent) => {
 		const d = drag.current;
@@ -1430,7 +1827,7 @@ export function LayoutTab() {
 		return n;
 	})();
 	return (
-		<div className={`oe-ld${dragging ? " is-dragging" : ""}`} onKeyDown={onRootKey}>
+		<div ref={rootRef} className={`oe-ld${dragging ? " is-dragging" : ""}`} onKeyDown={onRootKey}>
 			<aside ref={paletteRef} className={`oe-ld-palette${drop && "remove" in drop ? " is-drop-remove" : ""}`}>
 				{dragging?.from === "canvas" && (
 					<div className="oe-ld-remove-hint">
@@ -1452,6 +1849,33 @@ export function LayoutTab() {
 						{READ_ONLY_ITEMS.map(paletteField)}
 						<p className="oe-tm-muted oe-ld-note">Not placed, the name is the note's title, status, type and subtitle are in the form's top line, and the others are at the end.</p>
 					</>,
+				)}
+				{palSection(
+					"saved",
+					"My components",
+					folded.has("saved") && components.length ? `${components.length} item${components.length === 1 ? "" : "s"}` : null,
+					components.length ? (
+						components.map((c) => (
+							<button
+								key={c.id}
+								type="button"
+								className="oe-ld-pal-item is-component is-saved"
+								data-saved={c.id}
+								title={`${clipSummary(c.clip)}. Drag onto the layout or click to add it; right-click for more.`}
+								onPointerDown={(e) => startPointer(e, { from: "saved", id: c.id, node: clipNodes(c.clip)[0] })}
+								onClick={() => !justDragged.current && paste(c.clip)}
+								onContextMenu={(e) => {
+									e.preventDefault();
+									openMenu((m) => componentMenu(c, m), { x: e.clientX, y: e.clientY });
+								}}
+							>
+								<Icon name={c.icon} />
+								<span className="oe-ld-pal-label">{c.name}</span>
+							</button>
+						))
+					) : (
+						<p className="oe-tm-muted oe-ld-note">Select something on the layout, then ⋯ → Save as component… to reuse it here and in other types.</p>
+					),
 				)}
 				{palSection(
 					"layout",

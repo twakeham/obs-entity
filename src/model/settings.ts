@@ -1,4 +1,5 @@
 import { DEFAULT_DATE_FORMAT } from "./fieldFormats";
+import { readComponents, type SavedComponent } from "./layoutClipboard";
 import { STARTER_PACK } from "./packs";
 import { DEFAULT_FOLDER_PATTERN } from "./paths";
 import { cloneGroup, cloneType, DEFAULT_STATUSES, type EntityTypeDef, type GroupDef } from "./types";
@@ -17,6 +18,8 @@ export interface EntitiesSettings {
 	defaultCurrency: string;
 	/** How dates without a format of their own are shown: a moment.js pattern or "relative". */
 	dateFormat: string;
+	/** Layout items saved as components (the Layout tab's "My components"), shared by every type. */
+	layoutComponents: SavedComponent[];
 	/** Open newly created notes in a new tab instead of the current one. */
 	openInNewTab: boolean;
 	/** Prefill a matching relation field from the active note when creating an entity. */
@@ -42,6 +45,7 @@ export function defaultSettings(): EntitiesSettings {
 		openViewsAsTabs: true,
 		defaultCurrency: "AUD",
 		dateFormat: DEFAULT_DATE_FORMAT,
+		layoutComponents: [],
 		openInNewTab: false,
 		prefillFromActive: true,
 		useForm: true,
@@ -95,5 +99,6 @@ export function mergeSettings(saved: Partial<EntitiesSettings> | null | undefine
 	if (typeof merged.openViewsAsTabs !== "boolean") merged.openViewsAsTabs = true;
 	if (typeof merged.defaultCurrency !== "string" || !/^[A-Za-z]{3}$/.test(merged.defaultCurrency)) merged.defaultCurrency = "AUD";
 	if (typeof merged.dateFormat !== "string" || !merged.dateFormat.trim()) merged.dateFormat = DEFAULT_DATE_FORMAT;
+	merged.layoutComponents = readComponents(saved.layoutComponents);
 	return merged;
 }

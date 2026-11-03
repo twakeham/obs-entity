@@ -618,7 +618,7 @@ export function removeNode(layout: FormLayout, path: LayoutPath): FormLayout {
 const isWithin = (path: LayoutPath, ancestor: LayoutPath) => path.length >= ancestor.length && ancestor.every((v, i) => path[i] === v);
 
 /** Find a node by identity (the layout given, not a copy). */
-function pathOfNode(layout: FormLayout, target: unknown): LayoutPath | null {
+export function pathOfNode(layout: FormLayout, target: unknown): LayoutPath | null {
 	let found: LayoutPath | null = null;
 	walkLayout(layout, (n, p) => {
 		if (!found && n === target) found = p;

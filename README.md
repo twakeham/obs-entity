@@ -136,12 +136,17 @@ Opened from:
 - **Relationships:** a diagram, links from and to this type (click to jump to the field), and a guided **Add relationship** dialog with a plain-English summary.
 - **Display:** parent fields (for the hierarchy), subtitle fields, and the properties form's **Hide empty fields** option.
 - **Layout:** design the properties form and create dialog by drag and drop.
-  - **Palette** (left): the type's fields, the built-in properties (with the note's Name) and the read-only items (Type, Subtitle, Type + subtitle, Created, Modified); placed ones are greyed (click one to find it); and the components: Frame, 2/3/4 columns, Tabs, Heading, Text. Drag one onto the layout, or click it to add it next to what's selected. Click a section's heading (Fields, Properties, Read-only, Layout) to fold it away; a folded heading shows how many of its items are placed. Folded sections are remembered per type on this device.
+  - **Palette** (left): the type's fields, the built-in properties (with the note's Name) and the read-only items (Type, Subtitle, Type + subtitle, Created, Modified); placed ones are greyed (click one to find it); and the components: Frame, 2/3/4 columns, Tabs, Heading, Text. Drag one onto the layout, or click it to add it next to what's selected. Click a section's heading (Fields, Properties, Read-only, My components, Layout) to fold it away; a folded heading shows how many of its items are placed. Folded sections are remembered per type on this device.
   - **Layout** (middle): looks like the form. Drag things to move them; a line shows where they'll land. Drag one back to the palette, or press Delete, to remove it (fields go back to the palette).
     - Drag frames into columns to put them side by side.
     - **Tabs:** click a tab to edit what's in it, **+** adds one, drag a tab along the strip to reorder it, and hover over a tab while dragging to open it (or drop on the tab itself).
   - **Settings** (right) for what's selected: a frame's caption, "Can be collapsed", "Starts collapsed" and "Show in the create dialog"; the number of columns and their relative widths; a tab's caption, icon and "Show in the create dialog"; a tab group's tabs (reorder, add); a field's label (above, beside or hidden), custom label, placeholder, help text, height (long text) and read-only; a frame's icon, accent colour, style and header; **Show only when** conditions for frames, tabs and fields (the canvas shows an eye badge with a summary); heading and text. With nothing selected: **Hide fields that aren't placed**.
   - **Keyboard:** Tab or ↑/↓ to move between items, Alt+↑/↓ to move the selected one, Delete to remove it, the context-menu key or ⋯ for **Move to…** and **Add field here…**, Ctrl/Cmd+Z to undo and Ctrl/Cmd+Shift+Z to redo. On a tab: ←/→ switches tabs, Alt+←/→ moves the tab.
+  - **Copy and paste:** Ctrl/Cmd+C / X / V copy, cut and paste the selected item with everything inside it (a frame with its columns and fields, a tab group, a single tab…), and Ctrl/Cmd+D duplicates it; the ⋯ / right-click menu has the same. A paste goes where a palette click would (a tab into the selected tab group). Copies go through the clipboard, so you can paste into another type (or vault):
+    - fields are matched by key, then by label;
+    - fields the type doesn't have are left out, with **Add them** in a notice (they're added to the type, where the copy had them);
+    - fields already on the layout: you're asked whether to **move them here** (with the copied label and options) or leave them out. A duplicate always leaves them out, so duplicating a frame gives a styled copy to fill.
+  - **My components:** ⋯ → **Save as component…** saves an item (with a name and icon) to the palette's **My components**, for every type in the vault. Drag or click one to add it (the paste rules above apply). Right-click one to edit its name and icon, replace it with the selection, copy it, or delete it.
   - **Start from fields** puts every field in one frame. **Reset layout** goes back to the plain list. Changes are part of the type's draft, so Save or Discard them as usual.
 
 **Preview:** shown in the side panel (right sidebar) while the editor is the active tab; open or close it like any sidebar panel (its tab icon, the ribbon icon or the **Open side panel** command). Switch between **Dialog** (the create dialog), **Picker** (the link-picker row) and **Form** (the properties form). It updates as you edit, before you save, and uses the existing note with the most values, or made-up values.
@@ -421,6 +426,7 @@ src/
     formula.ts               formula language: lexer, parser, function registry, type inference, evaluator, label/id references
     formats.ts               display formats (dates, numbers) for view columns and fields
     fieldFormats.ts          field display formats: showing values, edit text, reading typed dates and numbers
+    layoutClipboard.ts       copying layout items (with their fields), pasting them into a type, saved components
     summary.ts               column summaries (count, sum, earliest…)
     bulk.ts                  bulk actions: shared fields, applying set / link / tag changes, notice text
     board.ts                 boards: bucket fields, buckets in order, card fields, the run definition, manual card order
