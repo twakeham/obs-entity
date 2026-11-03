@@ -510,19 +510,16 @@ A main-area tab, opened from:
 
 ```
 ┌──────────────┬──────────────────────────────────────────────────────┐
-│ [Search…][+] │  (icon) Person                                       │
-│ PEOPLE       │  People · 42 notes · custom · person                 │
+│ [Search…][+] │  (icon) Person      ● Unsaved changes [Discard]      │
+│ PEOPLE       │  People · 42 notes · custom · person  [Save][Preview]│
 │  ● Person 42 │  [General] [Fields 9] [Relationships 4] [Display]    │
 │    Team   6  │ ──────────────────────────────────────────────────── │
 │ PLACES       │   … tab content (scrolls) …                          │
 │    Office 3  │                                                      │
-│              │ ──────────────────────────────────────────────────── │
-│              │ ● Unsaved changes   [x] Also update 12 notes …       │
-│              │                                  [Discard] [Save]    │
 └──────────────┴──────────────────────────────────────────────────────┘
 ```
 
-The header also has a **Preview** button: the preview is in the side panel (§8.5), not in this view.
+The header's top right holds the save controls (while there are unsaved changes) and the **Preview** toggle: the preview is in the side panel (§8.5), not in this view.
 
 #### Type list (left)
 
@@ -623,7 +620,7 @@ The form layout designer (§8.4 Custom layouts), `LayoutTab.tsx`. Three panes; u
 - **Keyboard:** every item is focusable; focus selects. ↑/↓ moves focus, Alt+↑/↓ moves the item within its list, Delete/Backspace removes it, Esc deselects, the context-menu key / Shift+F10 / ⋯ / right-click opens a menu (Move up / down, **Move to** any list that can hold it, labelled like "Tab “Main” › “Overview” › column 2", **Add field here…** for frames, columns and tab groups, Remove). Tab headers: ←/→ switches tabs, Alt+←/→ moves the tab, Delete removes it (keeping its contents), and the menu has Move left / right, Move to tab group N, Add field here…, and the two removes.
 - **Undo:** Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z (or Ctrl+Y), and toolbar buttons. The history is per type and survives switching tabs; typing in one text box is one step. It's dropped when the layout changes elsewhere (Save keeps it, Discard resets it).
 - **Toolbar:** undo / redo, a summary, **Start from fields** (one frame with every field; "Start again" replaces the layout) and **Reset layout** (back to the plain list).
-- Changes go into the type's draft, so the save bar, Discard and the preview (Create dialog / Properties form) work as for other edits. Problems with the layout show at the top of this tab, which gets the red dot.
+- Changes go into the type's draft, so Save, Discard and the preview (Create dialog / Properties form) work as for other edits. Problems with the layout show at the top of this tab, which gets the red dot.
 
 #### Saving
 
@@ -631,7 +628,7 @@ The form layout designer (§8.4 Custom layouts), `LayoutTab.tsx`. Three panes; u
   - Each type being edited has a draft: a working copy, the saved original, and a parallel list of `{uid, origKey}` for each field.
   - Drafts survive switching types and closing the view for the rest of the session (keep them on the plugin instance).
   - A draft counts as dirty when `JSON.stringify(type) !== JSON.stringify(original)`.
-- **The save bar** appears when the type is dirty: "Unsaved changes" (or "New type, not saved yet"), **Discard** and **Save**. When existing notes would be affected:
+- **Save controls** sit in the header's top right, left of the Preview toggle, while the type is dirty: an orange dot with "Unsaved changes" (or "New type, not saved yet"), the "N problems to fix" link after a Save attempt, **Discard** and **Save**. The group editor has the same controls in its header. When **Save** would affect existing notes (and there's nothing to fix), it opens a confirm dialog first with these options (Save is focused; Esc or Cancel goes back); otherwise it saves straight away:
   - **Renamed field keys:** `☑ Also update N notes: old → new`, ticked by default, with an expandable list of the affected notes.
   - **Deleted fields:** `☐ Remove the values of deleted fields (…) from N notes`, unticked by default.
 - **Validation:**
@@ -653,7 +650,7 @@ The form layout designer (§8.4 Custom layouts), `LayoutTab.tsx`. Three panes; u
 
 #### Preview
 
-Shown in the **side panel** (§8.5) while the types view is the active main-area tab; the header's **Preview** button reveals it. The panel shows the selected type's icon and name, where the values come from ("using “Ada”" or "made-up values"), and a **Dialog / Picker / Form** switch (saved in the panel's view state). It updates on every edit, before saving: after each render `TypeManager` hands its `EditorApi` (or null, and whether a group is selected) to its `TypesView`, which tells the side panel; the panel renders the preview inside that `EditorContext`. Modes:
+Shown in the **side panel** (§8.5) while the types view is the active main-area tab. The header's **Preview** button is a toggle: it's highlighted (`aria-pressed`) while the panel is on screen; clicking it then collapses the panel's sidebar, and otherwise reveals the panel (`toggleSidePanel` / `sidePanelShown`, re-checked on layout changes and resizes). The panel shows the selected type's icon and name, where the values come from ("using “Ada”" or "made-up values"), and a **Dialog / Picker / Form** switch (saved in the panel's view state). It updates on every edit, before saving: after each render `TypeManager` hands its `EditorApi` (or null, and whether a group is selected) to its `TypesView`, which tells the side panel; the panel renders the preview inside that `EditorContext`. Modes:
 - **Create dialog:** which fields show (create-dialog, required and subtitle fields), and how many are under "Show more fields". Required fields get an asterisk.
 - **Picker row:** how a note of this type looks in link pickers and the switcher (icon, name, subtitle and type).
 - **Properties form:** the form as it shows on a note of this type (read-only), with the sample's values and real chips.

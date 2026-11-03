@@ -1937,35 +1937,49 @@ select.oe-status {
 	margin-bottom: var(--size-4-2);
 }
 
-/* save bar */
-.oe-tm-savebar {
-	border-top: 1px solid var(--background-modifier-border);
-	background-color: color-mix(in srgb, var(--color-orange) 7%, var(--background-secondary));
-	padding: var(--size-4-2) var(--size-4-6);
+/* Header actions: unsaved state, Discard, Save and the Preview toggle (top right of the editor) */
+.oe-tm-title {
+	flex-wrap: wrap;
 }
 
-.oe-tm-savebar-main {
+.oe-tm-headactions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: flex-end;
+	gap: var(--size-4-2);
+	margin-left: auto;
+}
+
+.oe-tm-saveactions {
 	display: flex;
 	align-items: center;
-	gap: var(--size-4-3);
+	gap: var(--size-4-2);
 }
 
-.oe-tm-savebar-title {
+.oe-tm-savestate {
 	display: inline-flex;
 	align-items: center;
 	gap: var(--size-4-2);
-	font-weight: var(--font-semibold);
+	margin-right: var(--size-4-1);
+	color: var(--text-muted);
 	font-size: var(--font-ui-small);
+	white-space: nowrap;
 }
 
-.oe-tm-savebar-issues {
+.oe-tm-saveissues {
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
 	color: var(--text-error);
 	font-size: var(--font-ui-small);
+	white-space: nowrap;
 }
 
+/* the Save confirm dialog (notes affected) */
+.oe-tm-savedialog .oe-tm-migration {
+	margin-top: var(--size-4-3);
+}
 .oe-tm-migration {
 	display: flex;
 	flex-wrap: wrap;
@@ -1993,12 +2007,18 @@ select.oe-status {
 	padding-left: 24px;
 }
 
-/* preview (shown in the side panel; the header's Preview button opens it) */
+/* preview (shown in the side panel; the header's Preview button shows and hides it) */
 .oe-tm .oe-tm-previewbtn {
 	display: inline-flex;
 	align-items: center;
 	gap: 6px;
-	margin-left: auto;
+}
+
+/* on: the preview is showing in the side panel */
+.oe-tm .oe-tm-previewbtn.is-active {
+	background-color: var(--background-modifier-active-hover);
+	color: var(--text-accent);
+	box-shadow: inset 0 0 0 1px var(--interactive-accent);
 }
 
 .oe-tm-previewbtn .oe-icon {

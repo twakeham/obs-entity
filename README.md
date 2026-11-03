@@ -139,12 +139,13 @@ Opened from:
   - **Keyboard:** Tab or ↑/↓ to move between items, Alt+↑/↓ to move the selected one, Delete to remove it, the context-menu key or ⋯ for **Move to…** and **Add field here…**, Ctrl/Cmd+Z to undo and Ctrl/Cmd+Shift+Z to redo. On a tab: ←/→ switches tabs, Alt+←/→ moves the tab.
   - **Start from fields** puts every field in one frame. **Reset layout** goes back to the plain list. Changes are part of the type's draft, so Save or Discard them as usual.
 
-**Preview:** shown in the side panel (right sidebar) while the editor is the active tab; the header's **Preview** button opens it. Switch between **Dialog** (the create dialog), **Picker** (the link-picker row) and **Form** (the properties form). It updates as you edit, before you save, and uses the existing note with the most values, or made-up values.
+**Preview:** shown in the side panel (right sidebar) while the editor is the active tab. The **Preview** button at the top right of the editor shows and hides it (it's highlighted while the preview is showing). Switch between **Dialog** (the create dialog), **Picker** (the link-picker row) and **Form** (the properties form). It updates as you edit, before you save, and uses the existing note with the most values, or made-up values.
 
 **Saving:**
 - Edits are drafts until you press **Save**. Drafts survive switching types.
+- While there are unsaved changes, the top right of the editor shows "Unsaved changes" with **Discard** and **Save** (groups too).
 - Problems are shown next to the control, and the tab with a problem gets a red dot.
-- Renaming a field key offers to **update existing notes** (on by default). Deleting a field offers to **remove its values** (off by default).
+- Renaming a field key offers to **update existing notes** (on by default). Deleting a field offers to **remove its values** (off by default). These options appear in a short confirm dialog when you press Save, only when existing notes would be affected.
 - Subtitle and parent references follow a key rename automatically.
 
 **Groups:**

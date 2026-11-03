@@ -1,5 +1,5 @@
 import { Menu, Modal, Notice, Setting, type App } from "obsidian";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import { STARTER_PACK } from "../../../model/packs";
 import {
 	duplicateType,
@@ -115,6 +115,16 @@ export function TypeManager({
 	const [attempted, setAttempted] = useState<Set<string>>(new Set());
 	const [opts, setOpts] = useState({ rename: true, remove: false });
 	const [dragGroup, setDragGroup] = useState<string | null>(null);
+	/** the Save confirm dialog (notes would be affected) is open */
+	const [confirming, setConfirming] = useState(false);
+	/** the side panel (the preview, while this view is active) is showing */
+	const [previewShown, setPreviewShown] = useState(() => plugin.sidePanelShown());
+	useEffect(() => {
+		const ws = plugin.app.workspace;
+		const check = () => setPreviewShown(plugin.sidePanelShown());
+		const refs = [ws.on("layout-change", check), ws.on("resize", check), ws.on("active-leaf-change", check)];
+		return () => refs.forEach((r) => ws.offref(r));
+	}, [plugin]);
 	const [, setTick] = useState(0);
 	/** field to select once a newly opened type is shown */
 	const pendingField = useRef<string | null>(null);
@@ -278,6 +288,11 @@ export function TypeManager({
 		setOpts({ rename: true, remove: false });
 		if (selectedId !== fin.key) select(fin.key);
 		new Notice(`Saved ${fin.name}${updated ? ` and updated ${plural(updated, "note")}` : ""}.`);
+	};
+	/** Save: ask first when existing notes would be affected (and there's nothing to fix). */
+	const requestSave = () => {
+		if (!issues.length && (renameNotes.length || deleteNotes.length)) setConfirming(true);
+		else void save();
 	};
 
 	const discard = () => {
@@ -582,9 +597,26 @@ export function TypeManager({
 										)}
 									</div>
 								</div>
-								<button type="button" className="oe-tm-previewbtn" title="Show the preview in the side panel" onClick={() => void plugin.activateSidePanel()}>
-									<Icon name="eye" /> Preview
-								</button>
+								<div className="oe-tm-headactions">
+									{dirty && (
+										<SaveActions
+											label={draft.original ? "Unsaved changes" : "New type, not saved yet"}
+											problems={issues.length > 0 && attempted.has(selectedId!) ? issues.length : 0}
+											onProblems={() => goToIssue(issues[0])}
+											onDiscard={discard}
+											onSave={requestSave}
+										/>
+									)}
+									<button
+										type="button"
+										className={`oe-tm-previewbtn${previewShown ? " is-active" : ""}`}
+										aria-pressed={previewShown}
+										title={previewShown ? "Hide the preview" : "Show the preview in the side panel"}
+										onClick={() => void plugin.toggleSidePanel().then(() => setPreviewShown(plugin.sidePanelShown()))}
+									>
+										<Icon name="eye" /> Preview
+									</button>
+								</div>
 							</div>
 							<nav className="oe-tm-tabs" role="tablist">
 								{TABS.map((tab) => {
@@ -609,51 +641,35 @@ export function TypeManager({
 							{state.tab === "display" && <DisplayTab />}
 							{state.tab === "layout" && <LayoutTab />}
 						</div>
-
-						{dirty && (
-							<div className="oe-tm-savebar" role="region" aria-label="Unsaved changes">
-								<div className="oe-tm-savebar-main">
-									<span className="oe-tm-savebar-title">
-										<span className="oe-tm-dirty" /> {draft.original ? "Unsaved changes" : "New type, not saved yet"}
-									</span>
-									{issues.length > 0 && attempted.has(selectedId!) && (
-										<a
-											href="#"
-											className="oe-tm-savebar-issues"
-											onClick={(e) => {
-												e.preventDefault();
-												goToIssue(issues[0]);
-											}}
-										>
-											<Icon name="alert-circle" /> {plural(issues.length, "problem")} to fix
-										</a>
-									)}
-									<span className="oe-spacer" />
-									<button onClick={discard}>Discard</button>
-									<button className="mod-cta" onClick={() => void save()}>
-										Save
-									</button>
-								</div>
-								{renameNotes.length > 0 && (
-									<MigrationOption
-										checked={opts.rename}
-										onChange={(v) => setOpts({ ...opts, rename: v })}
-										label={`Also update ${plural(renameNotes.length, "note")}: ${changes.renames.map((r) => `${r.from} → ${r.to}`).join(", ")}`}
-										notes={renameNotes}
-									/>
-								)}
-								{deleteNotes.length > 0 && (
-									<MigrationOption
-										checked={opts.remove}
-										onChange={(v) => setOpts({ ...opts, remove: v })}
-										label={`Remove the values of deleted field${changes.deleted.length === 1 ? "" : "s"} (${changes.deleted.map((d) => d.key).join(", ")}) from ${plural(deleteNotes.length, "note")}`}
-										notes={deleteNotes}
-									/>
-								)}
-							</div>
-						)}
 					</main>
 					{wizard && <AddRelationshipDialog onClose={() => setWizard(false)} />}
+					{confirming && (
+						<SaveDialog
+							title={`Save ${draft.type.name || "the type"}?`}
+							onCancel={() => setConfirming(false)}
+							onSave={() => {
+								setConfirming(false);
+								void save();
+							}}
+						>
+							{renameNotes.length > 0 && (
+								<MigrationOption
+									checked={opts.rename}
+									onChange={(v) => setOpts({ ...opts, rename: v })}
+									label={`Also update ${plural(renameNotes.length, "note")}: ${changes.renames.map((r) => `${r.from} → ${r.to}`).join(", ")}`}
+									notes={renameNotes}
+								/>
+							)}
+							{deleteNotes.length > 0 && (
+								<MigrationOption
+									checked={opts.remove}
+									onChange={(v) => setOpts({ ...opts, remove: v })}
+									label={`Remove the values of deleted field${changes.deleted.length === 1 ? "" : "s"} (${changes.deleted.map((d) => d.key).join(", ")}) from ${plural(deleteNotes.length, "note")}`}
+									notes={deleteNotes}
+								/>
+							)}
+						</SaveDialog>
+					)}
 				</EditorContext.Provider>
 			) : (
 				<main className="oe-tm-main">
@@ -721,6 +737,7 @@ function GroupEditor({
 	const settings = plugin.settings;
 	const [attempted, setAttempted] = useState(false);
 	const [migrate, setMigrate] = useState(true);
+	const [confirming, setConfirming] = useState(false);
 	const [dragFrom, setDragFrom] = useState<number | null>(null);
 	const g = draft.group;
 	const isNew = !draft.original;
@@ -812,6 +829,17 @@ function GroupEditor({
 							)}
 						</div>
 					</div>
+					{dirty && (
+						<div className="oe-tm-headactions">
+							<SaveActions
+								label={isNew ? "New group, not saved yet" : "Unsaved changes"}
+								problems={0}
+								onProblems={() => {}}
+								onDiscard={onDiscarded}
+								onSave={() => (!issues.length && affected.length ? setConfirming(true) : void save())}
+							/>
+						</div>
+					)}
 				</div>
 			</header>
 			<div className="oe-tm-body">
@@ -900,24 +928,81 @@ function GroupEditor({
 					</Section>
 				)}
 			</div>
-			{dirty && (
-				<div className="oe-tm-savebar" role="region" aria-label="Unsaved changes">
-					<div className="oe-tm-savebar-main">
-						<span className="oe-tm-savebar-title">
-							<span className="oe-tm-dirty" /> {isNew ? "New group, not saved yet" : "Unsaved changes"}
-						</span>
-						<span className="oe-spacer" />
-						<button onClick={onDiscarded}>Discard</button>
-						<button className="mod-cta" onClick={() => void save()}>
-							Save
-						</button>
-					</div>
-					{affected.length > 0 && (
-						<MigrationOption checked={migrate} onChange={setMigrate} label={`Also update ${plural(affected.length, "note")}: ${renames.map((r) => `${r.from} → ${r.to}`).join(", ")}`} notes={affected} />
-					)}
-				</div>
+			{confirming && (
+				<SaveDialog
+					title={`Save the ${g.name || "new"} group?`}
+					onCancel={() => setConfirming(false)}
+					onSave={() => {
+						setConfirming(false);
+						void save();
+					}}
+				>
+					<MigrationOption checked={migrate} onChange={setMigrate} label={`Also update ${plural(affected.length, "note")}: ${renames.map((r) => `${r.from} → ${r.to}`).join(", ")}`} notes={affected} />
+				</SaveDialog>
 			)}
 		</main>
+	);
+}
+
+/** Unsaved-changes state, problems link, Discard and Save, shown in the editor header while there are changes. */
+function SaveActions({ label, problems, onProblems, onDiscard, onSave }: { label: string; problems: number; onProblems: () => void; onDiscard: () => void; onSave: () => void }) {
+	return (
+		<div className="oe-tm-saveactions" role="region" aria-label="Unsaved changes">
+			<span className="oe-tm-savestate">
+				<span className="oe-tm-dirty" /> {label}
+			</span>
+			{problems > 0 && (
+				<a
+					href="#"
+					className="oe-tm-saveissues"
+					onClick={(e) => {
+						e.preventDefault();
+						onProblems();
+					}}
+				>
+					<Icon name="alert-circle" /> {plural(problems, "problem")} to fix
+				</a>
+			)}
+			<button type="button" onClick={onDiscard}>
+				Discard
+			</button>
+			<button type="button" className="mod-cta" onClick={onSave}>
+				Save
+			</button>
+		</div>
+	);
+}
+
+/** Asked on Save when existing notes would be affected: the note-update options, then Cancel / Save. */
+function SaveDialog({ title, onCancel, onSave, children }: { title: string; onCancel: () => void; onSave: () => void; children: ReactNode }) {
+	return (
+		<div className="oe-tm-overlay" onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
+			<div
+				className="oe-tm-dialog oe-tm-savedialog"
+				role="dialog"
+				aria-label={title}
+				onKeyDown={(e) => {
+					if (e.key !== "Escape") return;
+					e.preventDefault();
+					onCancel();
+				}}
+			>
+				<div className="oe-tm-dialog-head">
+					<h2>{title}</h2>
+					<button className="clickable-icon" aria-label="Close" onClick={onCancel}>
+						<Icon name="x" />
+					</button>
+				</div>
+				<p className="oe-tm-muted">Some existing notes are affected by these changes.</p>
+				{children}
+				<div className="oe-tm-dialog-foot">
+					<button onClick={onCancel}>Cancel</button>
+					<button className="mod-cta" autoFocus onClick={onSave}>
+						Save
+					</button>
+				</div>
+			</div>
+		</div>
 	);
 }
 
