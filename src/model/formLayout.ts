@@ -1,9 +1,12 @@
 import { COMMON_KEYS, type EntityTypeDef } from "./types";
 
 /**
- * A type's custom form layout: frames (captioned boxes) and rows of fields, column groups, headings and text,
- * used by the properties form, the create dialog and the type editor's preview. Two levels at most:
- * form → frames and rows; frame → rows; row → a field, columns, a heading or text; column → fields.
+ * A type's custom form layout: frames (captioned boxes), columns, tab groups, headings, text and field slots, used by
+ * the properties form, the create dialog and the type editor's preview.
+ *
+ * Nesting (`allowedIn`): the top level holds anything; a tab holds anything but tab groups; columns at the top level or
+ * in a tab hold frames, fields, headings and text; a frame holds fields, headings, text and columns of fields; columns
+ * in a frame hold fields only. The deepest a form goes is tab → column → frame → columns → field.
  */
 export interface FormLayout {
 	items: LayoutNode[];
@@ -23,15 +26,13 @@ export interface LayoutField {
 
 export interface LayoutColumns {
 	kind: "columns";
-	/** 2 to 4 columns, each a stack of fields */
-	columns: LayoutField[][];
+	/** 2 to 4 columns, each a stack (of fields; outside frames, of frames, headings and text too) */
+	columns: LayoutNode[][];
 	/** relative widths, one per column (default equal) */
 	widths?: number[];
 }
 
 export type LayoutText = { kind: "heading"; text: string } | { kind: "text"; text: string };
-
-export type LayoutItem = LayoutField | LayoutColumns | LayoutText;
 
 export interface LayoutFrame {
 	kind: "frame";
@@ -42,10 +43,27 @@ export interface LayoutFrame {
 	collapsed?: true;
 	/** false: left out of the create dialog (required fields are still asked for there) */
 	create?: false;
-	items: LayoutItem[];
+	items: LayoutNode[];
 }
 
-export type LayoutNode = LayoutFrame | LayoutItem;
+export interface LayoutTab {
+	caption: string;
+	icon?: string;
+	/** false: left out of the create dialog (required fields are still asked for there) */
+	create?: false;
+	items: LayoutNode[];
+}
+
+/** A tab group: one tab's contents show at a time. Top level only. */
+export interface LayoutTabs {
+	kind: "tabs";
+	tabs: LayoutTab[];
+}
+
+export type LayoutNode = LayoutField | LayoutColumns | LayoutText | LayoutFrame | LayoutTabs;
+
+/** Where a list of nodes is, which decides what it can hold. */
+export type LayoutPlace = "root" | "tab" | "frame" | "outer-column" | "inner-column";
 
 /** Built-in properties a layout can place. Unplaced, they stay where the form always shows them. */
 export const LAYOUT_BUILTINS = [COMMON_KEYS.status, COMMON_KEYS.related, COMMON_KEYS.tags, COMMON_KEYS.aliases, COMMON_KEYS.order] as const;
@@ -54,6 +72,27 @@ export const MAX_COLUMNS = 4;
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const text = (v: unknown) => (typeof v === "string" ? v : "");
+const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
+
+/** Whether a node can go in a list at this place. */
+export function allowedIn(place: LayoutPlace, node: LayoutNode): boolean {
+	switch (node.kind) {
+		case "tabs":
+			return place === "root";
+		case "frame":
+			return place === "root" || place === "tab" || place === "outer-column";
+		case "columns":
+			return place === "root" || place === "tab" || (place === "frame" && node.columns.every((c) => c.every((e) => e.kind === "field")));
+		case "heading":
+		case "text":
+			return place !== "inner-column";
+		default:
+			return true;
+	}
+}
+
+// ---------------------------------------------------------------- reading layouts from settings
 
 function readField(raw: unknown): LayoutField | null {
 	const key = typeof raw === "string" ? raw : isObj(raw) && typeof raw.key === "string" ? raw.key : "";
@@ -62,70 +101,131 @@ function readField(raw: unknown): LayoutField | null {
 	return { kind: "field", key: key.trim(), ...(label && label !== "above" ? { label } : {}) };
 }
 
-function readItem(raw: unknown): LayoutItem | null {
-	if (typeof raw === "string") return readField(raw);
-	if (!isObj(raw)) return null;
+/** A node read for a place: what can't go there is lifted out (a nested frame's rows, a column's entries) or dropped. */
+function readNode(raw: unknown, place: LayoutPlace): LayoutNode[] {
+	if (typeof raw === "string") {
+		const f = readField(raw);
+		return f ? [f] : [];
+	}
+	if (!isObj(raw)) return [];
+	const many = (list: unknown[], at: LayoutPlace) => list.flatMap((x) => readNode(x, at));
 	switch (raw.kind) {
 		case "field":
-		case undefined:
-			return readField(raw);
-		case "columns": {
-			const cols = (Array.isArray(raw.columns) ? raw.columns : [])
-				.slice(0, MAX_COLUMNS)
-				.map((c) => (Array.isArray(c) ? c : []).map(readField).filter((f): f is LayoutField => !!f));
-			while (cols.length < MIN_COLUMNS) cols.push([]);
-			const w = Array.isArray(raw.widths) ? raw.widths : [];
-			const widths = w.length === cols.length && w.every((x) => typeof x === "number" && x > 0) && new Set(w).size > 1 ? { widths: w as number[] } : {};
-			return { kind: "columns", columns: cols, ...widths };
+		case undefined: {
+			const f = readField(raw);
+			return f ? [f] : [];
 		}
 		case "heading":
-			return { kind: "heading", text: text(raw.text) };
 		case "text":
-			return { kind: "text", text: text(raw.text) };
+			return place === "inner-column" ? [] : [{ kind: raw.kind, text: text(raw.text) }];
+		case "frame": {
+			if (place === "frame" || place === "inner-column") return many(arr(raw.items), place);
+			const frame: LayoutFrame = {
+				kind: "frame",
+				...(text(raw.caption).trim() ? { caption: text(raw.caption).trim() } : {}),
+				...(raw.collapsible === true ? { collapsible: true as const } : {}),
+				...(raw.collapsible === true && raw.collapsed === true ? { collapsed: true as const } : {}),
+				...(raw.create === false ? { create: false as const } : {}),
+				items: many(arr(raw.items), "frame"),
+			};
+			return [frame];
+		}
+		case "columns": {
+			if (place === "outer-column" || place === "inner-column") return arr(raw.columns).flatMap((c) => many(arr(c), place));
+			const inner: LayoutPlace = place === "frame" ? "inner-column" : "outer-column";
+			const cols = arr(raw.columns)
+				.slice(0, MAX_COLUMNS)
+				.map((c) => many(arr(c), inner));
+			while (cols.length < MIN_COLUMNS) cols.push([]);
+			const w = arr(raw.widths);
+			const widths = w.length === cols.length && w.every((x) => typeof x === "number" && x > 0) && new Set(w).size > 1 ? { widths: w as number[] } : {};
+			return [{ kind: "columns", columns: cols, ...widths }];
+		}
+		case "tabs": {
+			if (place !== "root") return arr(raw.tabs).flatMap((t) => (isObj(t) ? many(arr(t.items), place) : []));
+			const tabs: LayoutTab[] = arr(raw.tabs)
+				.filter(isObj)
+				.map((t, i) => ({
+					caption: text(t.caption).trim() || `Tab ${i + 1}`,
+					...(text(t.icon).trim() ? { icon: text(t.icon).trim() } : {}),
+					...(t.create === false ? { create: false as const } : {}),
+					items: many(arr(t.items), "tab"),
+				}));
+			return tabs.length ? [{ kind: "tabs", tabs }] : [];
+		}
 	}
-	return null;
+	return [];
 }
 
 /** A layout from settings or an imported type, tidied: unknown parts dropped, nesting and column counts enforced. */
 export function normaliseLayout(raw: unknown): FormLayout | null {
 	if (!isObj(raw) || !Array.isArray(raw.items)) return null;
-	const items: LayoutNode[] = [];
-	for (const n of raw.items) {
-		if (isObj(n) && n.kind === "frame") {
-			const frame: LayoutFrame = {
-				kind: "frame",
-				...(text(n.caption).trim() ? { caption: text(n.caption).trim() } : {}),
-				...(n.collapsible === true ? { collapsible: true as const } : {}),
-				...(n.collapsible === true && n.collapsed === true ? { collapsed: true as const } : {}),
-				...(n.create === false ? { create: false as const } : {}),
-				// Frames can't hold frames: a nested one's items are lifted into this frame.
-				items: (Array.isArray(n.items) ? n.items : []).flatMap((i) => (isObj(i) && i.kind === "frame" ? (Array.isArray(i.items) ? i.items : []) : [i])).map(readItem).filter((i): i is LayoutItem => !!i),
-			};
-			items.push(frame);
-		} else {
-			const item = readItem(n);
-			if (item) items.push(item);
-		}
-	}
-	return { items, ...(raw.hideUnplaced === true ? { hideUnplaced: true as const } : {}) };
+	return { items: raw.items.flatMap((n) => readNode(n, "root")), ...(raw.hideUnplaced === true ? { hideUnplaced: true as const } : {}) };
 }
 
-/** Every field slot in the layout, in order (frames and columns included). */
-export function layoutFields(layout: FormLayout): LayoutField[] {
-	const out: LayoutField[] = [];
-	const visit = (i: LayoutNode) => {
-		if (i.kind === "frame") i.items.forEach(visit);
-		else if (i.kind === "columns") i.columns.forEach((c) => out.push(...c));
-		else if (i.kind === "field") out.push(i);
-	};
-	layout.items.forEach(visit);
+// ---------------------------------------------------------------- walking
+
+/** Where a node is: an index into the top level, then per container: a frame's row; a column and position; a tab and position. */
+export type LayoutPath = number[];
+
+/** A list of nodes: the top level (`at` []), a frame's rows (`at` the frame), or a column / tab (`at` the node, `slot` which). */
+export interface LayoutList {
+	at: LayoutPath;
+	slot?: number;
+}
+
+/** Visit every node with its path and the place of the list it's in, in the order they show. */
+export function walkLayout(layout: FormLayout, visit: (node: LayoutNode, path: LayoutPath, place: LayoutPlace) => void): void {
+	const list = (items: LayoutNode[], prefix: LayoutPath, place: LayoutPlace) =>
+		items.forEach((n, i) => {
+			const p = [...prefix, i];
+			visit(n, p, place);
+			if (n.kind === "frame") list(n.items, p, "frame");
+			else if (n.kind === "columns") n.columns.forEach((c, ci) => list(c, [...p, ci], place === "frame" ? "inner-column" : "outer-column"));
+			else if (n.kind === "tabs") n.tabs.forEach((t, ti) => list(t.items, [...p, ti], "tab"));
+		});
+	list(layout.items, [], "root");
+}
+
+/** Every field slot with its path, in the order they show. */
+export function fieldSlots(layout: FormLayout): { path: LayoutPath; field: LayoutField }[] {
+	const out: { path: LayoutPath; field: LayoutField }[] = [];
+	walkLayout(layout, (n, path) => n.kind === "field" && out.push({ path, field: n }));
 	return out;
+}
+
+/** Every field slot in the layout, in order. */
+export function layoutFields(layout: FormLayout): LayoutField[] {
+	return fieldSlots(layout).map((s) => s.field);
+}
+
+/** Keys of the fields in some nodes (frames, columns and tabs included). */
+export function nodeKeys(nodes: LayoutNode[]): string[] {
+	return layoutFields({ items: nodes }).map((f) => f.key);
 }
 
 /** Keys a type can place: its fields, status, related, tags, aliases, and order when it has parent fields. */
 export function placeableKeys(type: EntityTypeDef): string[] {
 	const builtins = LAYOUT_BUILTINS.filter((k) => k !== COMMON_KEYS.order || !!type.parentFields?.length);
 	return [...type.fields.map((f) => f.key), ...builtins];
+}
+
+/** The layout with every field slot mapped (to none, one or several slots), containers kept. */
+function mapFields(nodes: LayoutNode[], fn: (f: LayoutField) => LayoutField[]): LayoutNode[] {
+	return nodes.flatMap((n): LayoutNode[] => {
+		switch (n.kind) {
+			case "field":
+				return fn(n);
+			case "frame":
+				return [{ ...n, items: mapFields(n.items, fn) }];
+			case "columns":
+				return [{ ...n, columns: n.columns.map((c) => mapFields(c, fn)) }];
+			case "tabs":
+				return [{ ...n, tabs: n.tabs.map((t) => ({ ...t, items: mapFields(t.items, fn) })) }];
+			default:
+				return [n];
+		}
+	});
 }
 
 export interface ResolvedLayout {
@@ -143,24 +243,11 @@ export interface ResolvedLayout {
 export function resolveLayout(layout: FormLayout, type: EntityTypeDef): ResolvedLayout {
 	const allowed = new Set(placeableKeys(type));
 	const seen = new Set<string>();
-	const keep = (f: LayoutField) => {
-		if (!allowed.has(f.key) || seen.has(f.key)) return false;
+	const items = mapFields(layout.items, (f) => {
+		if (!allowed.has(f.key) || seen.has(f.key)) return [];
 		seen.add(f.key);
-		return true;
-	};
-	const items: LayoutNode[] = [];
-	const item = (i: LayoutItem): LayoutItem | null => {
-		if (i.kind === "field") return keep(i) ? i : null;
-		if (i.kind === "columns") return { ...i, columns: i.columns.map((c) => c.filter(keep)) };
-		return i;
-	};
-	for (const n of layout.items) {
-		if (n.kind === "frame") items.push({ ...n, items: n.items.map(item).filter((i): i is LayoutItem => !!i) });
-		else {
-			const i = item(n);
-			if (i) items.push(i);
-		}
-	}
+		return [f];
+	});
 	return {
 		items,
 		unplaced: type.fields.map((f) => f.key).filter((k) => !seen.has(k)),
@@ -171,12 +258,7 @@ export function resolveLayout(layout: FormLayout, type: EntityTypeDef): Resolved
 
 /** Keep a layout in step when a field's key changes (`to` null: the field was deleted, so its slot goes). */
 export function renameLayoutKey(layout: FormLayout, from: string, to: string | null): FormLayout {
-	const field = (f: LayoutField): LayoutField[] => (f.key !== from ? [f] : to ? [{ ...f, key: to }] : []);
-	const item = (i: LayoutItem): LayoutItem[] => (i.kind === "field" ? field(i) : i.kind === "columns" ? [{ ...i, columns: i.columns.map((c) => c.flatMap(field)) }] : [i]);
-	return {
-		...layout,
-		items: layout.items.flatMap((n): LayoutNode[] => (n.kind === "frame" ? [{ ...n, items: n.items.flatMap(item) }] : item(n))),
-	};
+	return { ...layout, items: mapFields(layout.items, (f) => (f.key !== from ? [f] : to ? [{ ...f, key: to }] : [])) };
 }
 
 /** A first layout for a type: one frame with every field, in field order. */
@@ -197,219 +279,6 @@ export function layoutIssues(layout: FormLayout, type: EntityTypeDef): string[] 
 	return out;
 }
 
-// ---------------------------------------------------------------- editing (the type editor's layout designer)
-
-/**
- * Where a node is: its top-level index; then, in a frame, its row; then, in columns, the column and position.
- * [i] top level · [i, j] row j of frame i · [i, c, k] columns at the top level · [i, j, c, k] columns in a frame.
- */
-export type LayoutPath = number[];
-
-/** A list that holds nodes: the form itself, a frame's rows, or one column of a columns row (`at`: the columns). */
-export type LayoutList = { kind: "root" } | { kind: "frame"; frame: number } | { kind: "column"; at: LayoutPath; col: number };
-
-export type LayoutComponent = "frame" | "columns2" | "columns3" | "columns4" | "heading" | "text";
-
-const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
-
-/** A new component from the designer's palette. */
-export function blankNode(kind: LayoutComponent): LayoutNode {
-	switch (kind) {
-		case "frame":
-			return { kind: "frame", caption: "New frame", items: [] };
-		case "heading":
-			return { kind: "heading", text: "Heading" };
-		case "text":
-			return { kind: "text", text: "Help text" };
-		default:
-			return { kind: "columns", columns: Array.from({ length: Number(kind.slice(-1)) }, () => []) };
-	}
-}
-
-/** The node at a path (null when there's none). */
-export function nodeAt(layout: FormLayout, path: LayoutPath): LayoutNode | null {
-	const top = layout.items[path[0]];
-	if (!top || path.length === 1) return top ?? null;
-	let rest = path.slice(1);
-	let node: LayoutNode | undefined = top;
-	if (node.kind === "frame") {
-		node = node.items[rest[0]];
-		rest = rest.slice(1);
-		if (!node || !rest.length) return node ?? null;
-	}
-	if (node.kind !== "columns" || rest.length !== 2) return null;
-	return node.columns[rest[0]]?.[rest[1]] ?? null;
-}
-
-/** The nodes a list holds. */
-export function listItems(layout: FormLayout, list: LayoutList): LayoutNode[] {
-	if (list.kind === "root") return layout.items;
-	if (list.kind === "frame") {
-		const f = layout.items[list.frame];
-		return f?.kind === "frame" ? f.items : [];
-	}
-	const c = nodeAt(layout, list.at);
-	return c?.kind === "columns" ? (c.columns[list.col] ?? []) : [];
-}
-
-/** The list a node is in, and its position there. */
-export function parentList(path: LayoutPath): { list: LayoutList; index: number } {
-	if (path.length === 1) return { list: { kind: "root" }, index: path[0] };
-	if (path.length === 2) return { list: { kind: "frame", frame: path[0] }, index: path[1] };
-	return { list: { kind: "column", at: path.slice(0, -2), col: path[path.length - 2] }, index: path[path.length - 1] };
-}
-
-/** The path of a list's `index`th node. */
-export function childPath(list: LayoutList, index: number): LayoutPath {
-	return list.kind === "root" ? [index] : list.kind === "frame" ? [list.frame, index] : [...list.at, list.col, index];
-}
-
-/** Whether a list can hold a node: frames only at the top level, columns only outside columns. */
-export function canHold(list: LayoutList, node: LayoutNode): boolean {
-	if (node.kind === "frame") return list.kind === "root";
-	if (list.kind === "column") return node.kind === "field";
-	return true;
-}
-
-export const sameList = (a: LayoutList, b: LayoutList) => listKey(a) === listKey(b);
-
-/** A list as a string (for data attributes), and back. */
-export function listKey(list: LayoutList): string {
-	return list.kind === "root" ? "root" : list.kind === "frame" ? `frame:${list.frame}` : `column:${list.at.join(".")}:${list.col}`;
-}
-
-export function parseListKey(key: string): LayoutList | null {
-	if (key === "root") return { kind: "root" };
-	let m = /^frame:(\d+)$/.exec(key);
-	if (m) return { kind: "frame", frame: Number(m[1]) };
-	m = /^column:([\d.]+):(\d+)$/.exec(key);
-	if (m) return { kind: "column", at: m[1].split(".").map(Number), col: Number(m[2]) };
-	return null;
-}
-
-/** Every list in the layout, in the order they show. */
-export function allLists(layout: FormLayout): LayoutList[] {
-	const out: LayoutList[] = [{ kind: "root" }];
-	const cols = (at: LayoutPath, n: LayoutNode) => {
-		if (n.kind === "columns") n.columns.forEach((_, col) => out.push({ kind: "column", at, col }));
-	};
-	layout.items.forEach((n, i) => {
-		if (n.kind === "frame") {
-			out.push({ kind: "frame", frame: i });
-			n.items.forEach((it, j) => cols([i, j], it));
-		} else cols([i], n);
-	});
-	return out;
-}
-
-/** The layout with a node put into a list at `index` (null when the list can't hold it). */
-export function insertNode(layout: FormLayout, list: LayoutList, index: number, node: LayoutNode): FormLayout | null {
-	if (!canHold(list, node) || !hasList(layout, list)) return null;
-	const next = clone(layout);
-	const items = listItems(next, list);
-	items.splice(Math.max(0, Math.min(index, items.length)), 0, clone(node));
-	return next;
-}
-
-/** The layout without the node at a path (a frame's or columns' contents go with it). */
-export function removeNode(layout: FormLayout, path: LayoutPath): FormLayout {
-	const next = clone(layout);
-	const { list, index } = parentList(path);
-	listItems(next, list).splice(index, 1);
-	return next;
-}
-
-/** Find a node by identity (the layout given, not a copy). */
-function pathOfNode(layout: FormLayout, target: unknown): LayoutPath | null {
-	for (const list of allLists(layout)) {
-		const i = listItems(layout, list).indexOf(target as LayoutNode);
-		if (i >= 0) return childPath(list, i);
-	}
-	return null;
-}
-
-/**
- * Move a node into a list before position `index` (positions as they are before the move, as a drop line shows them).
- * Returns the new layout and where the node ended up, or null when it can't go there.
- */
-export function moveNode(layout: FormLayout, from: LayoutPath, to: LayoutList, index: number): { layout: FormLayout; path: LayoutPath } | null {
-	const node = nodeAt(layout, from);
-	if (!node || !canHold(to, node) || !hasList(layout, to)) return null;
-	const next = clone(layout);
-	const moving = nodeAt(next, from)!;
-	const { list, index: at } = parentList(from);
-	// Leave a placeholder where the node was, so positions in the target list stay as given; then drop the placeholder.
-	const placeholder = { kind: "__moving" } as unknown as LayoutNode;
-	listItems(next, list)[at] = placeholder;
-	const target = listItems(next, to);
-	target.splice(Math.max(0, Math.min(index, target.length)), 0, moving);
-	const was = pathOfNode(next, placeholder)!;
-	const p = parentList(was);
-	listItems(next, p.list).splice(p.index, 1);
-	return { layout: next, path: pathOfNode(next, moving)! };
-}
-
-/** Move a node up (-1) or down (+1) within its list (null at either end). */
-export function moveBy(layout: FormLayout, path: LayoutPath, delta: -1 | 1): { layout: FormLayout; path: LayoutPath } | null {
-	const { list, index } = parentList(path);
-	const to = index + delta;
-	if (to < 0 || to >= listItems(layout, list).length) return null;
-	return moveNode(layout, path, list, delta > 0 ? to + 1 : to);
-}
-
-/** The layout with the node at a path changed by `fn` (on a copy). */
-export function updateNode(layout: FormLayout, path: LayoutPath, fn: (n: LayoutNode) => LayoutNode | void): FormLayout {
-	const next = clone(layout);
-	const { list, index } = parentList(path);
-	const items = listItems(next, list);
-	const r = fn(items[index]);
-	if (r) items[index] = r;
-	return next;
-}
-
-/** A frame replaced by its rows (they move to the top level where it was). */
-export function ungroupFrame(layout: FormLayout, index: number): FormLayout {
-	const f = layout.items[index];
-	if (f?.kind !== "frame") return layout;
-	const next = clone(layout);
-	next.items.splice(index, 1, ...clone(f.items));
-	return next;
-}
-
-/** Columns with another number of columns: new ones start empty; fields in dropped ones move to the last kept one. */
-export function setColumnCount(cols: LayoutColumns, n: number): LayoutColumns {
-	const count = Math.max(MIN_COLUMNS, Math.min(MAX_COLUMNS, n));
-	const columns = clone(cols.columns).slice(0, count);
-	while (columns.length < count) columns.push([]);
-	for (const extra of cols.columns.slice(count)) columns[count - 1].push(...clone(extra));
-	const widths = cols.widths ? [...cols.widths.slice(0, count), ...Array(Math.max(0, count - cols.widths.length)).fill(1)] : undefined;
-	return { kind: "columns", columns, ...(widths && new Set(widths).size > 1 ? { widths } : {}) };
-}
-
-/**
- * Where "add" (from the palette or "Add field here…") puts a node, given what's selected: into a selected frame or
- * columns (the shortest column), else after the selection in the nearest list that can hold it, else at the end.
- */
-export function insertionPoint(layout: FormLayout, selected: LayoutPath | null, node: LayoutNode): { list: LayoutList; index: number } {
-	const root: LayoutList = { kind: "root" };
-	const sel = selected ? nodeAt(layout, selected) : null;
-	if (!selected || !sel) return { list: root, index: layout.items.length };
-	if (node.kind === "frame") return { list: root, index: selected[0] + 1 };
-	if (sel.kind === "frame") return { list: { kind: "frame", frame: selected[0] }, index: sel.items.length };
-	if (sel.kind === "columns" && node.kind === "field") {
-		let col = 0;
-		sel.columns.forEach((c, i) => c.length < sel.columns[col].length && (col = i));
-		return { list: { kind: "column", at: selected, col }, index: sel.columns[col].length };
-	}
-	// After the selection, or after the columns it's in when its column can't hold the node.
-	let p = selected;
-	for (;;) {
-		const { list, index } = parentList(p);
-		if (canHold(list, node)) return { list, index: index + 1 };
-		p = (list as Extract<LayoutList, { kind: "column" }>).at;
-	}
-}
-
 /** Problems with field slots, by path ("1.0"): keys the type doesn't have, and keys placed twice. */
 export function slotProblems(layout: FormLayout, type: EntityTypeDef): Map<string, string> {
 	const allowed = new Set(placeableKeys(type));
@@ -424,21 +293,330 @@ export function slotProblems(layout: FormLayout, type: EntityTypeDef): Map<strin
 	return out;
 }
 
-/** Every field slot with its path, in the order they show. */
-export function fieldSlots(layout: FormLayout): { path: LayoutPath; field: LayoutField }[] {
-	const out: { path: LayoutPath; field: LayoutField }[] = [];
-	const item = (it: LayoutItem, at: LayoutPath) => {
-		if (it.kind === "field") out.push({ path: at, field: it });
-		else if (it.kind === "columns") it.columns.forEach((c, ci) => c.forEach((f, k) => out.push({ path: [...at, ci, k], field: f })));
-	};
-	layout.items.forEach((n, i) => (n.kind === "frame" ? n.items.forEach((it, j) => item(it, [i, j])) : item(n, [i])));
+/** The tabs a node is inside, outermost first, as "group path key → tab index". */
+export function tabsOnPath(layout: FormLayout, path: LayoutPath): { group: string; tab: number }[] {
+	const out: { group: string; tab: number }[] = [];
+	let nodes = layout.items;
+	let i = 0;
+	while (i < path.length) {
+		const n = nodes[path[i]];
+		if (!n) break;
+		const here = path.slice(0, i + 1);
+		if (n.kind === "frame") {
+			nodes = n.items;
+			i += 1;
+		} else if (n.kind === "columns") {
+			nodes = n.columns[path[i + 1]] ?? [];
+			i += 2;
+		} else if (n.kind === "tabs") {
+			if (path[i + 1] === undefined) break;
+			out.push({ group: here.join("."), tab: path[i + 1] });
+			nodes = n.tabs[path[i + 1]]?.items ?? [];
+			i += 2;
+		} else break;
+	}
 	return out;
+}
+
+// ---------------------------------------------------------------- editing (the type editor's layout designer)
+
+export type LayoutComponent = "frame" | "columns2" | "columns3" | "columns4" | "heading" | "text" | "tabs";
+
+/** A new component from the designer's palette. */
+export function blankNode(kind: LayoutComponent): LayoutNode {
+	switch (kind) {
+		case "frame":
+			return { kind: "frame", caption: "New frame", items: [] };
+		case "heading":
+			return { kind: "heading", text: "Heading" };
+		case "text":
+			return { kind: "text", text: "Help text" };
+		case "tabs":
+			return { kind: "tabs", tabs: [{ caption: "Tab 1", items: [] }, { caption: "Tab 2", items: [] }] };
+		default:
+			return { kind: "columns", columns: Array.from({ length: Number(kind.slice(-1)) }, () => []) };
+	}
+}
+
+/** The node at a path (null when there's none). */
+export function nodeAt(layout: FormLayout, path: LayoutPath): LayoutNode | null {
+	if (!path.length) return null;
+	let node: LayoutNode | undefined = layout.items[path[0]];
+	let i = 1;
+	while (node && i < path.length) {
+		if (node.kind === "frame") {
+			node = node.items[path[i]];
+			i += 1;
+		} else if (node.kind === "columns") {
+			node = path[i + 1] === undefined ? undefined : node.columns[path[i]]?.[path[i + 1]];
+			i += 2;
+		} else if (node.kind === "tabs") {
+			node = path[i + 1] === undefined ? undefined : node.tabs[path[i]]?.items[path[i + 1]];
+			i += 2;
+		} else return null;
+	}
+	return node ?? null;
 }
 
 /** Whether a list exists in the layout. */
 export function hasList(layout: FormLayout, list: LayoutList): boolean {
-	if (list.kind === "root") return true;
-	if (list.kind === "frame") return layout.items[list.frame]?.kind === "frame";
-	const c = nodeAt(layout, list.at);
-	return c?.kind === "columns" && list.col >= 0 && list.col < c.columns.length;
+	if (!list.at.length) return list.slot === undefined;
+	const o = nodeAt(layout, list.at);
+	if (o?.kind === "frame") return list.slot === undefined;
+	if (o?.kind === "columns") return list.slot !== undefined && list.slot >= 0 && list.slot < o.columns.length;
+	if (o?.kind === "tabs") return list.slot !== undefined && list.slot >= 0 && list.slot < o.tabs.length;
+	return false;
+}
+
+/** The nodes a list holds (the array itself, so edits on a copy can splice it). */
+export function listItems(layout: FormLayout, list: LayoutList): LayoutNode[] {
+	if (!hasList(layout, list)) return [];
+	if (!list.at.length) return layout.items;
+	const o = nodeAt(layout, list.at)!;
+	if (o.kind === "frame") return o.items;
+	if (o.kind === "columns") return o.columns[list.slot!];
+	if (o.kind === "tabs") return o.tabs[list.slot!].items;
+	return [];
+}
+
+/** The list a node is in, and its position there. */
+export function parentList(layout: FormLayout, path: LayoutPath): { list: LayoutList; index: number } {
+	let last = { list: { at: [] } as LayoutList, index: path[0] };
+	let node: LayoutNode | undefined = layout.items[path[0]];
+	let i = 1;
+	while (node && i < path.length) {
+		const at = path.slice(0, i);
+		if (node.kind === "frame") {
+			last = { list: { at }, index: path[i] };
+			node = node.items[path[i]];
+			i += 1;
+		} else if (node.kind === "columns" || node.kind === "tabs") {
+			last = { list: { at, slot: path[i] }, index: path[i + 1] };
+			node = node.kind === "columns" ? node.columns[path[i]]?.[path[i + 1]] : node.tabs[path[i]]?.items[path[i + 1]];
+			i += 2;
+		} else break;
+	}
+	return last;
+}
+
+/** The path of a list's `index`th node. */
+export function childPath(list: LayoutList, index: number): LayoutPath {
+	return [...list.at, ...(list.slot !== undefined ? [list.slot] : []), index];
+}
+
+/** Where a list is (which decides what it can hold). */
+export function placeOf(layout: FormLayout, list: LayoutList): LayoutPlace {
+	if (!list.at.length) return "root";
+	const o = nodeAt(layout, list.at);
+	if (o?.kind === "frame") return "frame";
+	if (o?.kind === "tabs") return "tab";
+	return placeOf(layout, parentList(layout, list.at).list) === "frame" ? "inner-column" : "outer-column";
+}
+
+/** Whether a list can hold a node. */
+export function canHold(layout: FormLayout, list: LayoutList, node: LayoutNode): boolean {
+	return hasList(layout, list) && allowedIn(placeOf(layout, list), node);
+}
+
+export const listKey = (list: LayoutList) => `${list.at.join(".")}:${list.slot ?? ""}`;
+export const sameList = (a: LayoutList, b: LayoutList) => listKey(a) === listKey(b);
+
+export function parseListKey(key: string): LayoutList | null {
+	const m = /^((?:\d+\.)*\d+)?:(\d+)?$/.exec(key);
+	if (!m) return null;
+	return { at: m[1] ? m[1].split(".").map(Number) : [], ...(m[2] !== undefined ? { slot: Number(m[2]) } : {}) };
+}
+
+/** Every list in the layout, in the order they show. */
+export function allLists(layout: FormLayout): LayoutList[] {
+	const out: LayoutList[] = [{ at: [] }];
+	walkLayout(layout, (n, path) => {
+		if (n.kind === "frame") out.push({ at: path });
+		else if (n.kind === "columns") n.columns.forEach((_, slot) => out.push({ at: path, slot }));
+		else if (n.kind === "tabs") n.tabs.forEach((_, slot) => out.push({ at: path, slot }));
+	});
+	return out;
+}
+
+/** The layout with a node put into a list at `index` (null when the list can't hold it). */
+export function insertNode(layout: FormLayout, list: LayoutList, index: number, node: LayoutNode): FormLayout | null {
+	if (!canHold(layout, list, node)) return null;
+	const next = clone(layout);
+	const items = listItems(next, list);
+	items.splice(Math.max(0, Math.min(index, items.length)), 0, clone(node));
+	return next;
+}
+
+/** The layout without the node at a path (its contents go with it). */
+export function removeNode(layout: FormLayout, path: LayoutPath): FormLayout {
+	const next = clone(layout);
+	const { list, index } = parentList(next, path);
+	listItems(next, list).splice(index, 1);
+	return next;
+}
+
+const isWithin = (path: LayoutPath, ancestor: LayoutPath) => path.length >= ancestor.length && ancestor.every((v, i) => path[i] === v);
+
+/** Find a node by identity (the layout given, not a copy). */
+function pathOfNode(layout: FormLayout, target: unknown): LayoutPath | null {
+	let found: LayoutPath | null = null;
+	walkLayout(layout, (n, p) => {
+		if (!found && n === target) found = p;
+	});
+	return found;
+}
+
+/**
+ * Move a node into a list before position `index` (positions as they are before the move, as a drop line shows them).
+ * Returns the new layout and where the node ended up, or null when it can't go there.
+ */
+export function moveNode(layout: FormLayout, from: LayoutPath, to: LayoutList, index: number): { layout: FormLayout; path: LayoutPath } | null {
+	const node = nodeAt(layout, from);
+	if (!node || !canHold(layout, to, node) || isWithin(to.at, from)) return null;
+	const next = clone(layout);
+	const moving = nodeAt(next, from)!;
+	const { list, index: at } = parentList(next, from);
+	// Leave a placeholder where the node was, so positions in the target list stay as given; then drop the placeholder.
+	const placeholder = { kind: "heading", text: "\u0000moving" } as LayoutNode;
+	listItems(next, list)[at] = placeholder;
+	const target = listItems(next, to);
+	target.splice(Math.max(0, Math.min(index, target.length)), 0, moving);
+	const was = pathOfNode(next, placeholder)!;
+	const p = parentList(next, was);
+	listItems(next, p.list).splice(p.index, 1);
+	return { layout: next, path: pathOfNode(next, moving)! };
+}
+
+/** Move a node up (-1) or down (+1) within its list (null at either end). */
+export function moveBy(layout: FormLayout, path: LayoutPath, delta: -1 | 1): { layout: FormLayout; path: LayoutPath } | null {
+	const { list, index } = parentList(layout, path);
+	const to = index + delta;
+	if (to < 0 || to >= listItems(layout, list).length) return null;
+	return moveNode(layout, path, list, delta > 0 ? to + 1 : to);
+}
+
+/** The layout with the node at a path changed by `fn` (on a copy). */
+export function updateNode(layout: FormLayout, path: LayoutPath, fn: (n: LayoutNode) => LayoutNode | void): FormLayout {
+	const next = clone(layout);
+	const { list, index } = parentList(next, path);
+	const items = listItems(next, list);
+	const r = fn(items[index]);
+	if (r) items[index] = r;
+	return next;
+}
+
+/** A frame replaced by its rows, where it was (null when that list can't hold them, e.g. columns in a column). */
+export function ungroupFrame(layout: FormLayout, path: LayoutPath): FormLayout | null {
+	const f = nodeAt(layout, path);
+	if (f?.kind !== "frame") return null;
+	const { list, index } = parentList(layout, path);
+	const place = placeOf(layout, list);
+	if (!f.items.every((i) => allowedIn(place, i))) return null;
+	const next = clone(layout);
+	listItems(next, list).splice(index, 1, ...clone(f.items));
+	return next;
+}
+
+/** Columns with another number of columns: new ones start empty; what's in dropped ones moves to the last kept one. */
+export function setColumnCount(cols: LayoutColumns, n: number): LayoutColumns {
+	const count = Math.max(MIN_COLUMNS, Math.min(MAX_COLUMNS, n));
+	const columns = clone(cols.columns).slice(0, count);
+	while (columns.length < count) columns.push([]);
+	for (const extra of cols.columns.slice(count)) columns[count - 1].push(...clone(extra));
+	const widths = cols.widths ? [...cols.widths.slice(0, count), ...Array(Math.max(0, count - cols.widths.length)).fill(1)] : undefined;
+	return { kind: "columns", columns, ...(widths && new Set(widths).size > 1 ? { widths } : {}) };
+}
+
+/**
+ * Where "add" (from the palette or "Add field here…") puts a node, given what's selected: into a selected frame, tab
+ * group (its open tab) or columns (the shortest column that can hold it); else after the selection in the nearest list
+ * that can hold it; else at the end.
+ */
+export function insertionPoint(layout: FormLayout, selected: LayoutPath | null, node: LayoutNode, openTab: (group: LayoutPath) => number = () => 0): { list: LayoutList; index: number } {
+	const end = { list: { at: [] } as LayoutList, index: layout.items.length };
+	const sel = selected ? nodeAt(layout, selected) : null;
+	if (!selected || !sel) return end;
+	let inside: LayoutList | null = null;
+	if (sel.kind === "frame") inside = { at: selected };
+	else if (sel.kind === "tabs") inside = { at: selected, slot: Math.min(openTab(selected), sel.tabs.length - 1) };
+	else if (sel.kind === "columns") {
+		let col = -1;
+		sel.columns.forEach((c, i) => {
+			if (canHold(layout, { at: selected, slot: i }, node) && (col < 0 || c.length < sel.columns[col].length)) col = i;
+		});
+		if (col >= 0) inside = { at: selected, slot: col };
+	}
+	if (inside && canHold(layout, inside, node)) return { list: inside, index: listItems(layout, inside).length };
+	let p = selected;
+	for (;;) {
+		const { list, index } = parentList(layout, p);
+		if (canHold(layout, list, node)) return { list, index: index + 1 };
+		if (!list.at.length) return end;
+		p = list.at;
+	}
+}
+
+// ---- tabs
+
+/** A tab group's tab, changed by `fn` (on a copy). */
+export function updateTab(layout: FormLayout, group: LayoutPath, tab: number, fn: (t: LayoutTab) => LayoutTab): FormLayout {
+	const next = clone(layout);
+	const g = nodeAt(next, group);
+	if (g?.kind === "tabs" && g.tabs[tab]) g.tabs[tab] = fn(g.tabs[tab]);
+	return next;
+}
+
+/** A tab added at the end of a group ("Tab N"). */
+export function addTab(layout: FormLayout, group: LayoutPath): FormLayout {
+	const next = clone(layout);
+	const g = nodeAt(next, group);
+	if (g?.kind === "tabs") {
+		const names = new Set(g.tabs.map((t) => t.caption));
+		let n = g.tabs.length + 1;
+		while (names.has(`Tab ${n}`)) n++;
+		g.tabs.push({ caption: `Tab ${n}`, items: [] });
+	}
+	return next;
+}
+
+/**
+ * A tab removed. `keep`: its contents move to the top level, after the group. The last tab's removal removes the group
+ * (its contents, kept, take the group's place).
+ */
+export function removeTab(layout: FormLayout, group: LayoutPath, tab: number, keep: boolean): FormLayout {
+	const g = nodeAt(layout, group);
+	if (g?.kind !== "tabs" || !g.tabs[tab]) return layout;
+	const next = clone(layout);
+	const ng = nodeAt(next, group) as LayoutTabs;
+	const [gone] = ng.tabs.splice(tab, 1);
+	const at = group[0];
+	const contents = keep ? gone.items : [];
+	if (ng.tabs.length) next.items.splice(at + 1, 0, ...contents);
+	else next.items.splice(at, 1, ...contents);
+	return next;
+}
+
+/**
+ * Move a tab to a position in a group (positions before the move, as the drop line shows them). Returns where it
+ * ended up, or null. A group left with no tabs goes.
+ */
+export function moveTab(layout: FormLayout, from: { group: LayoutPath; tab: number }, to: { group: LayoutPath; index: number }): { layout: FormLayout; group: LayoutPath; tab: number } | null {
+	const g = nodeAt(layout, from.group);
+	const tg = nodeAt(layout, to.group);
+	if (g?.kind !== "tabs" || tg?.kind !== "tabs" || !g.tabs[from.tab]) return null;
+	const next = clone(layout);
+	const src = nodeAt(next, from.group) as LayoutTabs;
+	const dst = nodeAt(next, to.group) as LayoutTabs;
+	const moving = src.tabs[from.tab];
+	const placeholder = { caption: "\u0000moving", items: [] } as LayoutTab;
+	src.tabs[from.tab] = placeholder;
+	dst.tabs.splice(Math.max(0, Math.min(to.index, dst.tabs.length)), 0, moving);
+	src.tabs.splice(src.tabs.indexOf(placeholder), 1);
+	let groupPath = to.group;
+	if (!src.tabs.length) {
+		next.items.splice(from.group[0], 1);
+		if (to.group[0] > from.group[0]) groupPath = [to.group[0] - 1];
+	}
+	const finalGroup = nodeAt(next, groupPath) as LayoutTabs;
+	return { layout: next, group: groupPath, tab: finalGroup.tabs.indexOf(moving) };
 }

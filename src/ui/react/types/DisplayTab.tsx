@@ -1,8 +1,13 @@
 import { KIND_INFO, useEditor } from "./editor";
 import { OrderedPicker, Row, Section, Toggle } from "./controls";
-import { layoutFields, normaliseLayout } from "../../../model/formLayout";
+import { layoutFields, normaliseLayout, walkLayout, type FormLayout } from "../../../model/formLayout";
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const countFrames = (l: FormLayout) => {
+	let n = 0;
+	walkLayout(l, (x) => x.kind === "frame" && n++);
+	return n;
+};
 
 /** Hierarchy (parent fields), the subtitle shown in pickers and search, and properties form options. */
 export function DisplayTab() {
@@ -71,7 +76,7 @@ export function DisplayTab() {
 					label="Layout"
 					desc={
 						layout
-							? `Custom: ${plural(layout.items.filter((i) => i.kind === "frame").length, "frame")}, ${plural(layoutFields(layout).length, "property", "properties")} placed.`
+							? `Custom: ${plural(countFrames(layout), "frame")}, ${plural(layoutFields(layout).length, "property", "properties")} placed.`
 							: "One list, in field order. Arrange fields in frames and columns on the Layout tab."
 					}
 				>

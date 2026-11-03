@@ -1,6 +1,7 @@
 import { FuzzySuggestModal, Menu, type App } from "obsidian";
 import { useEffect, useMemo, useRef, useState, type FocusEvent as RFocusEvent, type KeyboardEvent as RKeyboardEvent, type MouseEvent as RMouseEvent, type PointerEvent as RPointerEvent, type ReactNode } from "react";
 import {
+	addTab,
 	allLists,
 	blankNode,
 	canHold,
@@ -15,17 +16,22 @@ import {
 	MIN_COLUMNS,
 	moveBy,
 	moveNode,
+	moveTab,
 	nodeAt,
 	normaliseLayout,
 	parentList,
 	parseListKey,
 	placeableKeys,
+	placeOf,
 	removeNode,
+	removeTab,
 	sameList,
 	setColumnCount,
 	slotProblems,
+	tabsOnPath,
 	ungroupFrame,
 	updateNode,
+	updateTab,
 	type FormLayout,
 	type LayoutColumns,
 	type LayoutComponent,
@@ -34,11 +40,13 @@ import {
 	type LayoutList,
 	type LayoutNode,
 	type LayoutPath,
+	type LayoutTab as LayoutTabDef,
+	type LayoutTabs,
 } from "../../../model/formLayout";
 import { COMMON_KEYS } from "../../../model/types";
 import { usePlugin } from "../context";
 import { Icon } from "../Icon";
-import { Issues, Segmented, Toggle } from "./controls";
+import { IconPicker, Issues, Segmented, Toggle } from "./controls";
 import { KIND_INFO, useEditor } from "./editor";
 
 const BUILTINS: Record<string, { label: string; icon: string; kind: string }> = {
@@ -49,17 +57,21 @@ const BUILTINS: Record<string, { label: string; icon: string; kind: string }> = 
 	[COMMON_KEYS.order]: { label: "Order", icon: "arrow-down-01", kind: "Number" },
 };
 
+const TABS_ICON = "panels-top-left";
+
 const COMPONENTS: { kind: LayoutComponent; label: string; icon: string; desc: string }[] = [
 	{ kind: "frame", label: "Frame", icon: "square", desc: "A captioned box of rows" },
-	{ kind: "columns2", label: "2 columns", icon: "columns-2", desc: "Fields side by side" },
-	{ kind: "columns3", label: "3 columns", icon: "columns-3", desc: "Fields side by side" },
-	{ kind: "columns4", label: "4 columns", icon: "columns-4", desc: "Fields side by side" },
+	{ kind: "columns2", label: "2 columns", icon: "columns-2", desc: "Fields or frames side by side" },
+	{ kind: "columns3", label: "3 columns", icon: "columns-3", desc: "Fields or frames side by side" },
+	{ kind: "columns4", label: "4 columns", icon: "columns-4", desc: "Fields or frames side by side" },
+	{ kind: "tabs", label: "Tabs", icon: TABS_ICON, desc: "Tabs, one open at a time (top level only)" },
 	{ kind: "heading", label: "Heading", icon: "heading", desc: "A caption between rows" },
 	{ kind: "text", label: "Text", icon: "text", desc: "Help text between rows" },
 ];
 
 const pk = (p: LayoutPath) => p.join(".");
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const isWithin = (path: LayoutPath, ancestor: LayoutPath) => path.length >= ancestor.length && ancestor.every((v, i) => path[i] === v);
 
 /** Undo history per type, kept while switching tabs (dropped when the draft's layout changes elsewhere). */
 interface History {
@@ -72,8 +84,9 @@ interface History {
 }
 const histories = new Map<string, History>();
 
-type DragSource = { from: "palette"; node: LayoutNode } | { from: "canvas"; path: LayoutPath; node: LayoutNode };
-type DropTarget = { list: LayoutList; index: number } | { remove: true };
+type TabRef = { group: LayoutPath; tab: number };
+type DragSource = { from: "palette"; node: LayoutNode } | { from: "canvas"; path: LayoutPath; node: LayoutNode } | { from: "tab"; group: LayoutPath; tab: number };
+type DropTarget = { list: LayoutList; index: number } | { remove: true } | { strip: LayoutPath; index: number };
 
 /** Pick a property to place (Add field here…). */
 class PlaceModal extends FuzzySuggestModal<string> {
@@ -110,24 +123,49 @@ export function LayoutTab() {
 	const layout = useMemo(() => (raw ? normaliseLayout(raw) : null), [raw]);
 	const base: FormLayout = layout ?? { items: [] };
 	const histId = draft.original?.key ?? `new:${type.key}`;
+	/** the selected node, or the selected tab (one or the other) */
 	const [sel, setSel] = useState<LayoutPath | null>(null);
+	const [selTab, setSelTab] = useState<TabRef | null>(null);
+	/** each tab group's open tab on the canvas, by the group's path */
+	const [openTabs, setOpenTabs] = useState<Record<string, number>>({});
 	const [, setTick] = useState(0);
 	const canvasRef = useRef<HTMLDivElement>(null);
 	const paletteRef = useRef<HTMLDivElement>(null);
-	const focusNext = useRef<LayoutPath | null>(null);
+	/** a selector to focus after the next render */
+	const focusNext = useRef<string | null>(null);
 
 	const selected = sel ? nodeAt(base, sel) : null;
+	const selGroup = selTab ? nodeAt(base, selTab.group) : null;
+	const selTabDef = selGroup?.kind === "tabs" ? selGroup.tabs[selTab!.tab] : undefined;
 	useEffect(() => {
 		if (sel && !selected) setSel(null);
-	}, [sel, selected]);
+		if (selTab && !selTabDef) setSelTab(null);
+	}, [sel, selected, selTab, selTabDef]);
 	useEffect(() => {
-		const p = focusNext.current;
-		if (!p) return;
+		const q = focusNext.current;
+		if (!q) return;
 		focusNext.current = null;
-		const el = canvasRef.current?.querySelector<HTMLElement>(`[data-ld-path="${pk(p)}"]`);
+		const el = canvasRef.current?.querySelector<HTMLElement>(q);
 		el?.focus();
 		el?.scrollIntoView({ block: "nearest" });
 	});
+	const nodeSel = (p: LayoutPath) => `[data-ld-path="${pk(p)}"]`;
+	const tabSel = (t: TabRef) => `[data-ld-tabhead="${pk(t.group)}:${t.tab}"]`;
+	const openTab = (g: LayoutPath) => openTabs[pk(g)] ?? 0;
+	const selectNode = (p: LayoutPath | null) => {
+		setSel(p);
+		setSelTab(null);
+	};
+	const selectTab = (t: TabRef) => {
+		setSelTab(t);
+		setSel(null);
+		setOpenTabs((o) => ({ ...o, [pk(t.group)]: t.tab }));
+	};
+	/** open the tabs a node is inside, so it's on the canvas */
+	const reveal = (l: FormLayout, p: LayoutPath) => {
+		const ts = tabsOnPath(l, p);
+		if (ts.length) setOpenTabs((o) => ({ ...o, ...Object.fromEntries(ts.map((t) => [t.group, t.tab])) }));
+	};
 
 	// ---- history
 	const json = JSON.stringify(layout);
@@ -148,9 +186,9 @@ export function LayoutTab() {
 			else delete t.form;
 		});
 	/** Change the layout (one undo step; `tag`: repeated edits of the same text box join one step). */
-	const commit = (raw: FormLayout | null, opts: { select?: LayoutPath | null; focus?: boolean; tag?: string } = {}) => {
+	const commit = (rawNext: FormLayout | null, opts: { select?: LayoutPath | null; tab?: TabRef; focus?: boolean; tag?: string } = {}) => {
 		// Store layouts tidied, so the history matches what the draft reads back.
-		const next = raw ? normaliseLayout(raw) : null;
+		const next = rawNext ? normaliseLayout(rawNext) : null;
 		const h = hist();
 		const nextJson = JSON.stringify(next);
 		if (nextJson === h.current) return;
@@ -159,8 +197,14 @@ export function LayoutTab() {
 		h.tag = opts.tag;
 		h.current = nextJson;
 		write(next);
-		if (opts.select !== undefined) setSel(opts.select);
-		if (opts.focus && opts.select) focusNext.current = opts.select;
+		if (opts.tab) {
+			selectTab(opts.tab);
+			if (opts.focus) focusNext.current = tabSel(opts.tab);
+		} else if (opts.select !== undefined) {
+			selectNode(opts.select);
+			if (opts.select && next) reveal(next, opts.select);
+			if (opts.focus && opts.select) focusNext.current = nodeSel(opts.select);
+		}
 	};
 	const undo = () => {
 		const h = hist();
@@ -188,9 +232,8 @@ export function LayoutTab() {
 
 	// ---- what's placed
 	const placeable = placeableKeys(type);
-	const slots = fieldSlots(base);
 	const placedAt = new Map<string, LayoutPath>();
-	for (const s of slots) if (!placedAt.has(s.field.key)) placedAt.set(s.field.key, s.path);
+	for (const s of fieldSlots(base)) if (!placedAt.has(s.field.key)) placedAt.set(s.field.key, s.path);
 	const problems = slotProblems(base, type);
 	const fieldOf = (k: string) => type.fields.find((f) => f.key === k);
 	const labelOf = (k: string) => {
@@ -205,43 +248,67 @@ export function LayoutTab() {
 	const unplacedFields = type.fields.filter((f) => !placedAt.has(f.key)).map((f) => f.key);
 
 	// ---- edits
+	const where = (node: LayoutNode) => insertionPoint(base, selTab ? selTab.group : sel, node, (g) => (selTab && pk(selTab.group) === pk(g) ? selTab.tab : openTab(g)));
 	const add = (node: LayoutNode, at?: { list: LayoutList; index: number }) => {
-		const where = at ?? insertionPoint(base, sel, node);
-		const next = insertNode(base, where.list, where.index, node);
-		if (next) commit(next, { select: childPath(where.list, Math.min(where.index, listItems(base, where.list).length)), focus: true });
+		const w = at ?? where(node);
+		const next = insertNode(base, w.list, w.index, node);
+		if (next) commit(next, { select: childPath(w.list, Math.min(w.index, listItems(base, w.list).length)), focus: true });
 	};
 	const remove = (path: LayoutPath) => {
 		const next = removeNode(base, path);
-		const { list, index } = parentList(path);
+		const { list, index } = parentList(base, path);
 		const left = listItems(next, list).length;
-		const after = left ? childPath(list, Math.min(index, left - 1)) : list.kind === "root" ? null : list.kind === "frame" ? [list.frame] : list.at;
+		const after = left ? childPath(list, Math.min(index, left - 1)) : list.at.length ? list.at : null;
 		commit(next, { select: after, focus: !!after });
 	};
-	const move = (path: LayoutPath, to: LayoutList, index: number, focus = true) => {
+	const move = (path: LayoutPath, to: LayoutList, index: number) => {
 		const r = moveNode(base, path, to, index);
-		if (r) commit(r.layout, { select: r.path, focus });
+		if (r) commit(r.layout, { select: r.path, focus: true });
 	};
 	const change = (path: LayoutPath, fn: (n: LayoutNode) => LayoutNode, tag?: string) => commit(updateNode(base, path, fn), { tag });
+	const changeTab = (t: TabRef, fn: (x: LayoutTabDef) => LayoutTabDef, tag?: string) => commit(updateTab(base, t.group, t.tab, fn), { tag });
+	/** a tab group replaced by its tabs' contents, in order */
+	const ungroupTabs = (group: LayoutPath): FormLayout => {
+		const g = nodeAt(base, group);
+		let l = base;
+		if (g?.kind === "tabs") for (let t = g.tabs.length - 1; t >= 0; t--) l = removeTab(l, group, t, true);
+		return l;
+	};
+	const dropTab = (t: TabRef, keep: boolean) => {
+		const g = nodeAt(base, t.group) as LayoutTabs;
+		const next = removeTab(base, t.group, t.tab, keep);
+		if (g.tabs.length > 1) {
+			const tab = Math.min(t.tab, g.tabs.length - 2);
+			commit(next, { tab: { group: t.group, tab }, focus: true });
+		} else commit(next, { select: null });
+	};
+	const shiftTab = (t: TabRef, to: TabRef & { index?: number }) => {
+		const r = moveTab(base, t, { group: to.group, index: to.index ?? to.tab });
+		if (r) commit(r.layout, { tab: { group: r.group, tab: r.tab }, focus: true });
+	};
 
-	// ---- labels for lists (Move to…)
-	const frameName = (i: number) => {
-		const f = base.items[i];
-		return f?.kind === "frame" && f.caption ? `“${f.caption}”` : `Frame ${i + 1}`;
+	// ---- labels for lists (Move to…): e.g. Tab “Main” › “Overview” › column 2
+	const crumbs = (list: LayoutList): string[] => {
+		if (!list.at.length) return [];
+		const o = nodeAt(base, list.at);
+		const up = crumbs(parentList(base, list.at).list);
+		if (o?.kind === "frame") return [...up, o.caption ? `“${o.caption}”` : "frame"];
+		if (o?.kind === "tabs") return [...up, `tab “${o.tabs[list.slot!]?.caption}”`];
+		return [...up, ...(list.at.length === 1 ? ["top-level columns"] : []), `column ${(list.slot ?? 0) + 1}`];
 	};
 	const listLabel = (l: LayoutList) => {
-		if (l.kind === "root") return "Top level";
-		if (l.kind === "frame") return frameName(l.frame);
-		const where = l.at.length === 1 ? "Top-level columns" : frameName(l.at[0]);
-		const siblings: LayoutNode[] = l.at.length === 1 ? base.items : listItems(base, { kind: "frame", frame: l.at[0] });
-		const rows = siblings.filter((n) => n.kind === "columns");
-		const row = rows.length > 1 ? ` (columns ${(rows as LayoutNode[]).indexOf(siblings[l.at[l.at.length - 1]]) + 1})` : "";
-		return `${where}${row} › column ${l.col + 1}`;
+		const c = crumbs(l).join(" › ");
+		return c ? c.charAt(0).toUpperCase() + c.slice(1) : "Top level";
 	};
+	const tabGroups = base.items.flatMap((n, i) => (n.kind === "tabs" ? [i] : []));
+
+	const addFieldTo = (list: LayoutList) =>
+		new PlaceModal(plugin.app, notPlaced, labelOf, (k) => add({ kind: "field", key: k }, { list, index: listItems(base, list).length })).open();
 
 	const nodeMenu = (path: LayoutPath, menu: Menu) => {
 		const node = nodeAt(base, path);
 		if (!node) return;
-		const { list, index } = parentList(path);
+		const { list, index } = parentList(base, path);
 		const count = listItems(base, list).length;
 		menu.addItem((i) =>
 			i
@@ -257,7 +324,7 @@ export function LayoutTab() {
 				.setDisabled(index >= count - 1)
 				.onClick(() => move(path, list, index + 2)),
 		);
-		const targets = allLists(base).filter((l) => !sameList(l, list) && canHold(l, node) && !(node.kind === "columns" && l.kind === "column"));
+		const targets = allLists(base).filter((l) => !sameList(l, list) && !isWithin(l.at, path) && canHold(base, l, node));
 		if (targets.length) {
 			menu.addSeparator();
 			for (const l of targets)
@@ -268,26 +335,47 @@ export function LayoutTab() {
 						.onClick(() => move(path, l, listItems(base, l).length)),
 				);
 		}
-		if ((node.kind === "frame" || node.kind === "columns") && notPlaced.length) {
+		if ((node.kind === "frame" || node.kind === "columns" || node.kind === "tabs") && notPlaced.length) {
 			menu.addSeparator();
 			menu.addItem((i) =>
 				i
 					.setTitle("Add field here…")
 					.setIcon("plus")
-					.onClick(() => new PlaceModal(plugin.app, notPlaced, labelOf, (k) => add({ kind: "field", key: k }, insertionPoint(base, path, { kind: "field", key: k }))).open()),
+					.onClick(() =>
+						new PlaceModal(plugin.app, notPlaced, labelOf, (k) => {
+							const f: LayoutNode = { kind: "field", key: k };
+							add(f, insertionPoint(base, path, f, openTab));
+						}).open(),
+					),
 			);
 		}
 		menu.addSeparator();
 		if (node.kind === "frame") {
+			const kept = ungroupFrame(base, path);
 			menu.addItem((i) =>
 				i
 					.setTitle("Remove frame, keep its contents")
 					.setIcon("ungroup")
-					.onClick(() => commit(ungroupFrame(base, path[0]), { select: node.items.length ? [path[0]] : null, focus: node.items.length > 0 })),
+					.setDisabled(!kept)
+					.onClick(() => kept && commit(kept, { select: node.items.length ? path : null, focus: node.items.length > 0 })),
 			);
 			menu.addItem((i) =>
 				i
 					.setTitle("Remove frame and its contents")
+					.setIcon("trash-2")
+					.setWarning(true)
+					.onClick(() => remove(path)),
+			);
+		} else if (node.kind === "tabs") {
+			menu.addItem((i) =>
+				i
+					.setTitle("Remove tabs, keep their contents")
+					.setIcon("ungroup")
+					.onClick(() => commit(ungroupTabs(path), { select: null })),
+			);
+			menu.addItem((i) =>
+				i
+					.setTitle("Remove tabs and their contents")
 					.setIcon("trash-2")
 					.setWarning(true)
 					.onClick(() => remove(path)),
@@ -301,9 +389,63 @@ export function LayoutTab() {
 					.onClick(() => remove(path)),
 			);
 	};
-	const openMenu = (path: LayoutPath, at: { x: number; y: number }) => {
+	const tabMenu = (t: TabRef, menu: Menu) => {
+		const g = nodeAt(base, t.group) as LayoutTabs;
+		menu.addItem((i) =>
+			i
+				.setTitle("Move left")
+				.setIcon("arrow-left")
+				.setDisabled(t.tab === 0)
+				.onClick(() => shiftTab(t, { group: t.group, tab: t.tab, index: t.tab - 1 })),
+		);
+		menu.addItem((i) =>
+			i
+				.setTitle("Move right")
+				.setIcon("arrow-right")
+				.setDisabled(t.tab >= g.tabs.length - 1)
+				.onClick(() => shiftTab(t, { group: t.group, tab: t.tab, index: t.tab + 2 })),
+		);
+		const others = tabGroups.filter((i) => i !== t.group[0]);
+		if (others.length) {
+			menu.addSeparator();
+			for (const i of others)
+				menu.addItem((m) =>
+					m
+						.setTitle(`Move to tab group ${tabGroups.indexOf(i) + 1}`)
+						.setIcon("corner-down-right")
+						.onClick(() => {
+							const dst = nodeAt(base, [i]) as LayoutTabs;
+							shiftTab(t, { group: [i], tab: 0, index: dst.tabs.length });
+						}),
+				);
+		}
+		if (notPlaced.length) {
+			menu.addSeparator();
+			menu.addItem((i) =>
+				i
+					.setTitle("Add field here…")
+					.setIcon("plus")
+					.onClick(() => addFieldTo({ at: t.group, slot: t.tab })),
+			);
+		}
+		menu.addSeparator();
+		menu.addItem((i) =>
+			i
+				.setTitle("Remove tab, keep its contents")
+				.setIcon("ungroup")
+				.onClick(() => dropTab(t, true)),
+		);
+		menu.addItem((i) =>
+			i
+				.setTitle("Remove tab and its contents")
+				.setIcon("trash-2")
+				.setWarning(true)
+				.onClick(() => dropTab(t, false)),
+		);
+	};
+	const openMenu = (fill: (m: Menu) => void, at: { x: number; y: number }) => {
 		const m = new Menu();
-		nodeMenu(path, m);
+		fill(m);
 		m.showAtPosition(at);
 	};
 
@@ -312,38 +454,54 @@ export function LayoutTab() {
 		if (e.target !== e.currentTarget) return;
 		const node = nodeAt(base, path);
 		if (!node) return;
-		if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+		const stop = () => {
 			e.preventDefault();
 			e.stopPropagation();
+		};
+		if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+			stop();
 			const r = moveBy(base, path, e.key === "ArrowUp" ? -1 : 1);
 			if (r) commit(r.layout, { select: r.path, focus: true });
-			return;
-		}
-		if (e.key === "ArrowUp" || e.key === "ArrowDown") {
-			e.preventDefault();
-			e.stopPropagation();
+		} else if (!e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+			stop();
 			const all = [...(canvasRef.current?.querySelectorAll<HTMLElement>("[data-ld-path]") ?? [])];
-			const i = all.indexOf(e.currentTarget);
-			all[i + (e.key === "ArrowUp" ? -1 : 1)]?.focus();
-			return;
-		}
-		if (e.key === "Delete" || e.key === "Backspace") {
-			e.preventDefault();
-			e.stopPropagation();
+			all[all.indexOf(e.currentTarget) + (e.key === "ArrowUp" ? -1 : 1)]?.focus();
+		} else if (e.key === "Delete" || e.key === "Backspace") {
+			stop();
 			remove(path);
-			return;
+		} else if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+			stop();
+			const r = e.currentTarget.getBoundingClientRect();
+			openMenu((m) => nodeMenu(path, m), { x: r.left + 16, y: r.top + 24 });
+		} else if (e.key === "Escape") {
+			e.stopPropagation();
+			selectNode(null);
+			e.currentTarget.blur();
 		}
-		if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+	};
+	const onTabKey = (e: RKeyboardEvent<HTMLElement>, t: TabRef, count: number) => {
+		const stop = () => {
 			e.preventDefault();
 			e.stopPropagation();
+		};
+		if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+			stop();
+			const d = e.key === "ArrowLeft" ? -1 : 1;
+			if (e.altKey) {
+				const to = t.tab + d;
+				if (to >= 0 && to < count) shiftTab(t, { group: t.group, tab: t.tab, index: d > 0 ? to + 1 : to });
+				return;
+			}
+			const next = { group: t.group, tab: (t.tab + d + count) % count };
+			selectTab(next);
+			focusNext.current = tabSel(next);
+		} else if (e.key === "Delete" || e.key === "Backspace") {
+			stop();
+			dropTab(t, true);
+		} else if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+			stop();
 			const r = e.currentTarget.getBoundingClientRect();
-			openMenu(path, { x: r.left + 16, y: r.top + 24 });
-			return;
-		}
-		if (e.key === "Escape") {
-			e.stopPropagation();
-			setSel(null);
-			e.currentTarget.blur();
+			openMenu((m) => tabMenu(t, m), { x: r.left + 8, y: r.bottom + 4 });
 		}
 	};
 	const onRootKey = (e: RKeyboardEvent<HTMLElement>) => {
@@ -365,7 +523,24 @@ export function LayoutTab() {
 	// ---- dragging (pointer events, so it works with mouse, pen and touch)
 	const [dragging, setDragging] = useState<DragSource | null>(null);
 	const [drop, setDrop] = useState<DropTarget | null>(null);
-	const drag = useRef<{ src: DragSource; el: HTMLElement; x0: number; y0: number; x: number; y: number; dx: number; dy: number; touch: boolean; active: boolean; timer: number; ghost: HTMLElement | null; frame: number } | null>(null);
+	const drag = useRef<{
+		src: DragSource;
+		el: HTMLElement;
+		x0: number;
+		y0: number;
+		x: number;
+		y: number;
+		dx: number;
+		dy: number;
+		touch: boolean;
+		active: boolean;
+		timer: number;
+		ghost: HTMLElement | null;
+		frame: number;
+		/** a tab header being hovered (it opens after a moment) */
+		hover: string | null;
+		hoverTimer: number;
+	} | null>(null);
 	const justDragged = useRef(false);
 
 	const targetAt = (x: number, y: number): DropTarget | null => {
@@ -373,12 +548,35 @@ export function LayoutTab() {
 		if (!d) return null;
 		const hit = document.elementFromPoint(x, y);
 		if (!hit) return null;
-		if (d.src.from === "canvas" && paletteRef.current?.contains(hit)) return { remove: true };
+		const src = d.src;
+		if (src.from === "canvas" && paletteRef.current?.contains(hit)) return { remove: true };
 		if (!canvasRef.current?.contains(hit)) return null;
+		if (src.from === "tab") {
+			const strip = hit.closest<HTMLElement>("[data-ld-strip]");
+			if (!strip) return null;
+			const heads = [...strip.querySelectorAll<HTMLElement>(":scope > [data-ld-tabhead]")];
+			let index = heads.length;
+			for (let i = 0; i < heads.length; i++) {
+				const r = heads[i].getBoundingClientRect();
+				if (x < r.left + r.width / 2) {
+					index = i;
+					break;
+				}
+			}
+			return { strip: strip.dataset.ldStrip!.split(".").map(Number), index };
+		}
+		const fits = (l: LayoutList) => canHold(base, l, src.node) && !(src.from === "canvas" && isWithin(l.at, src.path));
+		// On a tab header: into that tab, at the end.
+		const head = hit.closest<HTMLElement>("[data-ld-tabhead]");
+		if (head) {
+			const [g, t] = head.dataset.ldTabhead!.split(":");
+			const l: LayoutList = { at: g.split(".").map(Number), slot: Number(t) };
+			if (fits(l)) return { list: l, index: listItems(base, l).length };
+		}
 		let listEl = hit.closest<HTMLElement>("[data-ld-list]");
 		while (listEl && canvasRef.current.contains(listEl)) {
 			const list = parseListKey(listEl.dataset.ldList!);
-			if (list && canHold(list, d.src.node)) {
+			if (list && fits(list)) {
 				const kids = [...listEl.querySelectorAll<HTMLElement>(":scope > [data-ld-path]")];
 				let index = kids.length;
 				for (let i = 0; i < kids.length; i++) {
@@ -394,8 +592,7 @@ export function LayoutTab() {
 		}
 		return null;
 	};
-	const sameTarget = (a: DropTarget | null, b: DropTarget | null) => JSON.stringify(a) === JSON.stringify(b);
-	const setTarget = (t: DropTarget | null) => setDrop((cur) => (sameTarget(cur, t) ? cur : t));
+	const setTarget = (t: DropTarget | null) => setDrop((cur) => (JSON.stringify(cur) === JSON.stringify(t) ? cur : t));
 
 	const autoScroll = () => {
 		const d = drag.current;
@@ -420,6 +617,7 @@ export function LayoutTab() {
 		ghost.classList.add("oe-ld-ghost");
 		ghost.classList.remove("is-selected");
 		ghost.removeAttribute("data-ld-path");
+		ghost.removeAttribute("data-ld-tabhead");
 		ghost.style.width = `${Math.min(r.width, 360)}px`;
 		ghost.style.left = `${d.x - Math.min(d.dx, 340)}px`;
 		ghost.style.top = `${d.y - d.dy}px`;
@@ -441,6 +639,7 @@ export function LayoutTab() {
 		document.removeEventListener("keydown", onDragKey, true);
 		if (!d) return;
 		window.clearTimeout(d.timer);
+		window.clearTimeout(d.hoverTimer);
 		cancelAnimationFrame(d.frame);
 		d.ghost?.remove();
 		if (d.active) {
@@ -450,10 +649,13 @@ export function LayoutTab() {
 			setDrop(null);
 		}
 		if (!target) return;
+		const src = d.src;
 		if ("remove" in target) {
-			if (d.src.from === "canvas") remove(d.src.path);
-		} else if (d.src.from === "canvas") move(d.src.path, target.list, target.index);
-		else add(d.src.node, target);
+			if (src.from === "canvas") remove(src.path);
+		} else if ("strip" in target) {
+			if (src.from === "tab") shiftTab(src, { group: target.strip, tab: 0, index: target.index });
+		} else if (src.from === "canvas") move(src.path, target.list, target.index);
+		else if (src.from === "palette") add(src.node, target);
 	};
 	const onMove = (e: PointerEvent) => {
 		const d = drag.current;
@@ -471,6 +673,18 @@ export function LayoutTab() {
 			d.ghost.style.left = `${d.x - Math.min(d.dx, 340)}px`;
 			d.ghost.style.top = `${d.y - d.dy}px`;
 		}
+		// Hovering over a tab header while dragging something into the layout opens that tab after a moment.
+		if (d.src.from !== "tab") {
+			const head = document.elementFromPoint(d.x, d.y)?.closest<HTMLElement>("[data-ld-tabhead]")?.dataset.ldTabhead ?? null;
+			if (head !== d.hover) {
+				window.clearTimeout(d.hoverTimer);
+				d.hover = head;
+				if (head) {
+					const [g, t] = head.split(":");
+					d.hoverTimer = window.setTimeout(() => setOpenTabs((o) => ({ ...o, [g]: Number(t) })), 500);
+				}
+			}
+		}
 		setTarget(targetAt(d.x, d.y));
 	};
 	const onUp = () => endDrag(true);
@@ -484,18 +698,17 @@ export function LayoutTab() {
 		e.stopPropagation();
 		endDrag(false);
 	};
-	// The drop handlers read the latest layout through closures made at the last render; keep them current.
 	const handlers = useRef({ endDrag });
 	handlers.current = { endDrag };
 	useEffect(() => () => handlers.current.endDrag(false), []);
 
 	const startPointer = (e: RPointerEvent<HTMLElement>, src: DragSource) => {
-		if (e.button !== 0 || (e.target as HTMLElement).closest("input, textarea, select, .oe-ld-more")) return;
+		if (e.button !== 0 || (e.target as HTMLElement).closest("input, textarea, select, .oe-ld-more, .oe-ld-addtab")) return;
 		e.stopPropagation();
 		if (drag.current) endDrag(false);
 		const rect = e.currentTarget.getBoundingClientRect();
 		const touch = e.pointerType === "touch";
-		drag.current = { src, el: e.currentTarget, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, dx: e.clientX - rect.left, dy: e.clientY - rect.top, touch, active: false, timer: 0, ghost: null, frame: 0 };
+		drag.current = { src, el: e.currentTarget, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, dx: e.clientX - rect.left, dy: e.clientY - rect.top, touch, active: false, timer: 0, ghost: null, frame: 0, hover: null, hoverTimer: 0 };
 		if (touch) drag.current.timer = window.setTimeout(startDrag, 350);
 		document.addEventListener("pointermove", onMove);
 		document.addEventListener("pointerup", onUp);
@@ -505,38 +718,40 @@ export function LayoutTab() {
 	};
 
 	// ---- canvas
+	const listDrop = drop && "list" in drop ? drop : null;
 	const dropCls = (list: LayoutList, i: number, count: number) => {
-		if (!drop || "remove" in drop || !sameList(drop.list, list)) return "";
-		if (drop.index === i) return " is-drop-before";
-		if (i === count - 1 && drop.index === count) return " is-drop-after";
+		if (!listDrop || !sameList(listDrop.list, list)) return "";
+		if (listDrop.index === i) return " is-drop-before";
+		if (i === count - 1 && listDrop.index === count) return " is-drop-after";
 		return "";
 	};
-	const listCls = (list: LayoutList, count: number) => (drop && !("remove" in drop) && sameList(drop.list, list) && count === 0 ? " is-drop-target" : "");
+	const listCls = (list: LayoutList, count: number) => (listDrop && sameList(listDrop.list, list) && count === 0 ? " is-drop-target" : "");
 	const isDragged = (p: LayoutPath) => dragging?.from === "canvas" && pk(dragging.path) === pk(p);
+	const isSel = (p: LayoutPath) => !!sel && pk(sel) === pk(p);
 
 	const nodeProps = (path: LayoutPath, node: LayoutNode, cls: string, list: LayoutList, i: number, count: number) => ({
 		"data-ld-path": pk(path),
+		"data-kind": node.kind,
 		tabIndex: 0,
-		className: `oe-ld-node ${cls}${sel && pk(sel) === pk(path) ? " is-selected" : ""}${isDragged(path) ? " is-dragging" : ""}${dropCls(list, i, count)}`,
-		"aria-selected": !!sel && pk(sel) === pk(path),
+		className: `oe-ld-node ${cls}${isSel(path) ? " is-selected" : ""}${isDragged(path) ? " is-dragging" : ""}${dropCls(list, i, count)}`,
+		"aria-selected": isSel(path),
 		onFocus: (e: RFocusEvent) => {
 			e.stopPropagation();
-			setSel(path);
+			selectNode(path);
 		},
 		onClick: (e: RMouseEvent) => {
 			e.stopPropagation();
-			if (!justDragged.current) setSel(path);
+			if (!justDragged.current) selectNode(path);
 		},
 		onContextMenu: (e: RMouseEvent) => {
 			e.preventDefault();
 			e.stopPropagation();
-			setSel(path);
-			openMenu(path, { x: e.clientX, y: e.clientY });
+			selectNode(path);
+			openMenu((m) => nodeMenu(path, m), { x: e.clientX, y: e.clientY });
 		},
 		onKeyDown: (e: RKeyboardEvent<HTMLElement>) => onNodeKey(e, path),
-		"data-kind": node.kind,
 	});
-	const moreBtn = (path: LayoutPath, label: string) => (
+	const moreBtn = (label: string, fill: (m: Menu) => void, onOpen: () => void) => (
 		<button
 			type="button"
 			className="clickable-icon oe-ld-more"
@@ -544,94 +759,155 @@ export function LayoutTab() {
 			tabIndex={-1}
 			onClick={(e) => {
 				e.stopPropagation();
-				setSel(path);
+				onOpen();
 				const r = e.currentTarget.getBoundingClientRect();
-				openMenu(path, { x: r.left, y: r.bottom + 4 });
+				openMenu(fill, { x: r.left, y: r.bottom + 4 });
 			}}
 		>
 			<Icon name="more-horizontal" />
 		</button>
 	);
+	const nodeMore = (path: LayoutPath, label: string) => moreBtn(label, (m) => nodeMenu(path, m), () => selectNode(path));
 
-	const renderField = (f: LayoutField, path: LayoutPath, list: LayoutList, i: number, count: number) => {
-		const def = fieldOf(f.key);
-		const problem = problems.get(pk(path));
-		const label = labelOf(f.key);
-		const p = nodeProps(path, f, `oe-ld-field${f.label === "beside" ? " is-beside" : ""}${problem ? " has-problem" : ""}`, list, i, count);
-		return (
-			<div key={pk(path)} {...p} onPointerDown={(e) => startPointer(e, { from: "canvas", path, node: f })} title={problem}>
-				<span className="oe-ld-label">
-					<Icon name={problem ? "alert-triangle" : iconOf(f.key)} />
-					<span className="oe-ld-label-text">{label}</span>
-					{def?.required && <span className="oe-prop-required">*</span>}
-				</span>
-				<span className="oe-ld-control">{problem ?? (def ? KIND_INFO[def.kind].label : (BUILTINS[f.key]?.kind ?? ""))}</span>
-				{moreBtn(path, label)}
-			</div>
-		);
-	};
-	const renderItem = (n: LayoutNode, path: LayoutPath, list: LayoutList, i: number, count: number): ReactNode => {
-		if (n.kind === "field") return renderField(n, path, list, i, count);
-		if (n.kind === "heading" || n.kind === "text") {
-			const p = nodeProps(path, n, `oe-ld-${n.kind}`, list, i, count);
-			return (
-				<div key={pk(path)} {...p} onPointerDown={(e) => startPointer(e, { from: "canvas", path, node: n })}>
-					<span className="oe-ld-textval">{n.text || <span className="oe-ld-faint">{n.kind === "heading" ? "Empty heading" : "Empty text"}</span>}</span>
-					{moreBtn(path, n.kind === "heading" ? "Heading" : "Text")}
-				</div>
-			);
-		}
-		if (n.kind === "columns") {
-			const p = nodeProps(path, n, "oe-ld-columns", list, i, count);
-			return (
-				<div key={pk(path)} {...p}>
-					<div className="oe-ld-head" onPointerDown={(e) => startPointer(e, { from: "canvas", path, node: n })}>
-						<Icon name="grip-vertical" className="oe-ld-grip" />
-						<Icon name={`columns-${n.columns.length}`} />
-						<span className="oe-ld-head-text">{n.columns.length} columns</span>
-						{n.widths && <span className="oe-ld-badge">{n.widths.join(" : ")}</span>}
-						{moreBtn(path, "Columns")}
-					</div>
-					<div className="oe-ld-grid" style={{ gridTemplateColumns: n.columns.map((_, ci) => `minmax(0, ${n.widths?.[ci] ?? 1}fr)`).join(" ") }}>
-						{n.columns.map((col, ci) => {
-							const cl: LayoutList = { kind: "column", at: path, col: ci };
-							return (
-								<div key={ci} className={`oe-ld-list oe-ld-column${listCls(cl, col.length)}`} data-ld-list={listKey(cl)}>
-									{col.map((f, k) => renderField(f, [...path, ci, k], cl, k, col.length))}
-									{!col.length && <div className="oe-ld-empty">Drop fields here</div>}
-								</div>
-							);
-						})}
-					</div>
-				</div>
-			);
-		}
-		return null;
-	};
-	const renderFrame = (fr: LayoutFrame, i: number, count: number) => {
-		const path = [i];
-		const root: LayoutList = { kind: "root" };
-		const fl: LayoutList = { kind: "frame", frame: i };
-		const p = nodeProps(path, fr, "oe-ld-frame", root, i, count);
-		return (
-			<section key={pk(path)} {...p}>
-				<div className="oe-ld-head" onPointerDown={(e) => startPointer(e, { from: "canvas", path, node: fr })}>
-					<Icon name="grip-vertical" className="oe-ld-grip" />
-					{fr.collapsible && <Icon name={fr.collapsed ? "chevron-right" : "chevron-down"} />}
-					<span className="oe-ld-caption">{fr.caption || <span className="oe-ld-faint">No caption</span>}</span>
-					{fr.create === false && (
-						<span className="oe-ld-badge" title="Not in the create dialog">
-							<Icon name="eye-off" /> Create dialog
+	const renderList = (list: LayoutList, nodes: LayoutNode[], cls: string, empty: string) => (
+		<div className={`oe-ld-list ${cls}${listCls(list, nodes.length)}`} data-ld-list={listKey(list)}>
+			{nodes.map((n, i) => renderNode(n, childPath(list, i), list, i, nodes.length))}
+			{!nodes.length && <div className="oe-ld-empty">{empty}</div>}
+		</div>
+	);
+
+	const renderNode = (n: LayoutNode, path: LayoutPath, list: LayoutList, i: number, count: number): ReactNode => {
+		const key = pk(path);
+		switch (n.kind) {
+			case "field": {
+				const def = fieldOf(n.key);
+				const problem = problems.get(key);
+				const label = labelOf(n.key);
+				const p = nodeProps(path, n, `oe-ld-field${n.label === "beside" ? " is-beside" : ""}${problem ? " has-problem" : ""}`, list, i, count);
+				return (
+					<div key={key} {...p} onPointerDown={(e) => startPointer(e, { from: "canvas", path, node: n })} title={problem}>
+						<span className="oe-ld-label">
+							<Icon name={problem ? "alert-triangle" : iconOf(n.key)} />
+							<span className="oe-ld-label-text">{label}</span>
+							{def?.required && <span className="oe-prop-required">*</span>}
 						</span>
-					)}
-					{moreBtn(path, fr.caption || "Frame")}
-				</div>
-				<div className={`oe-ld-list oe-ld-rows${listCls(fl, fr.items.length)}`} data-ld-list={listKey(fl)}>
-					{fr.items.map((it, j) => renderItem(it, [i, j], fl, j, fr.items.length))}
-					{!fr.items.length && <div className="oe-ld-empty">Drop fields, columns or text here</div>}
-				</div>
-			</section>
-		);
+						<span className="oe-ld-control">{problem ?? (def ? KIND_INFO[def.kind].label : (BUILTINS[n.key]?.kind ?? ""))}</span>
+						{nodeMore(path, label)}
+					</div>
+				);
+			}
+			case "heading":
+			case "text": {
+				const p = nodeProps(path, n, `oe-ld-${n.kind}`, list, i, count);
+				return (
+					<div key={key} {...p} onPointerDown={(e) => startPointer(e, { from: "canvas", path, node: n })}>
+						<span className="oe-ld-textval">{n.text || <span className="oe-ld-faint">{n.kind === "heading" ? "Empty heading" : "Empty text"}</span>}</span>
+						{nodeMore(path, n.kind === "heading" ? "Heading" : "Text")}
+					</div>
+				);
+			}
+			case "columns": {
+				const inner = placeOf(base, { at: path, slot: 0 }) === "inner-column";
+				const p = nodeProps(path, n, "oe-ld-columns", list, i, count);
+				return (
+					<div key={key} {...p}>
+						<div className="oe-ld-head" onPointerDown={(e) => startPointer(e, { from: "canvas", path, node: n })}>
+							<Icon name="grip-vertical" className="oe-ld-grip" />
+							<Icon name={`columns-${n.columns.length}`} />
+							<span className="oe-ld-head-text">{n.columns.length} columns</span>
+							{n.widths && <span className="oe-ld-badge">{n.widths.join(" : ")}</span>}
+							{nodeMore(path, "Columns")}
+						</div>
+						<div className="oe-ld-grid" style={{ gridTemplateColumns: n.columns.map((_, ci) => `minmax(0, ${n.widths?.[ci] ?? 1}fr)`).join(" ") }}>
+							{n.columns.map((col, ci) => renderList({ at: path, slot: ci }, col, "oe-ld-column", inner ? "Drop fields here" : "Drop fields or frames here"))}
+						</div>
+					</div>
+				);
+			}
+			case "frame": {
+				const p = nodeProps(path, n, "oe-ld-frame", list, i, count);
+				return (
+					<section key={key} {...p}>
+						<div className="oe-ld-head" onPointerDown={(e) => startPointer(e, { from: "canvas", path, node: n })}>
+							<Icon name="grip-vertical" className="oe-ld-grip" />
+							{n.collapsible && <Icon name={n.collapsed ? "chevron-right" : "chevron-down"} />}
+							<span className="oe-ld-caption">{n.caption || <span className="oe-ld-faint">No caption</span>}</span>
+							{n.create === false && (
+								<span className="oe-ld-badge" title="Not in the create dialog">
+									<Icon name="eye-off" /> Create dialog
+								</span>
+							)}
+							{nodeMore(path, n.caption || "Frame")}
+						</div>
+						{renderList({ at: path }, n.items, "oe-ld-rows", "Drop fields, columns or text here")}
+					</section>
+				);
+			}
+			case "tabs": {
+				const cur = Math.min(openTab(path), n.tabs.length - 1);
+				const stripDrop = drop && "strip" in drop && pk(drop.strip) === key ? drop : null;
+				const p = nodeProps(path, n, "oe-ld-tabs", list, i, count);
+				return (
+					<div key={key} {...p}>
+						<div className="oe-ld-head" onPointerDown={(e) => startPointer(e, { from: "canvas", path, node: n })}>
+							<Icon name="grip-vertical" className="oe-ld-grip" />
+							<Icon name={TABS_ICON} />
+							<span className="oe-ld-head-text">Tabs</span>
+							{nodeMore(path, "Tabs")}
+						</div>
+						<div className="oe-ld-strip" data-ld-strip={key} role="tablist">
+							{n.tabs.map((t, ti) => {
+								const ref = { group: path, tab: ti };
+								const tabIsSel = !!selTab && pk(selTab.group) === key && selTab.tab === ti;
+								const dragged = dragging?.from === "tab" && pk(dragging.group) === key && dragging.tab === ti;
+								const line = stripDrop ? (stripDrop.index === ti ? " is-drop-before" : ti === n.tabs.length - 1 && stripDrop.index === n.tabs.length ? " is-drop-after" : "") : "";
+								return (
+									<button
+										key={ti}
+										type="button"
+										role="tab"
+										aria-selected={ti === cur}
+										tabIndex={ti === cur ? 0 : -1}
+										data-ld-tabhead={`${key}:${ti}`}
+										className={`oe-ld-tabhead${ti === cur ? " is-open" : ""}${tabIsSel ? " is-selected" : ""}${dragged ? " is-dragging" : ""}${line}`}
+										onPointerDown={(e) => startPointer(e, { from: "tab", group: path, tab: ti })}
+										onClick={(e) => {
+											e.stopPropagation();
+											if (!justDragged.current) selectTab(ref);
+										}}
+										onFocus={(e) => e.stopPropagation()}
+										onKeyDown={(e) => onTabKey(e, ref, n.tabs.length)}
+										onContextMenu={(e) => {
+											e.preventDefault();
+											e.stopPropagation();
+											selectTab(ref);
+											openMenu((m) => tabMenu(ref, m), { x: e.clientX, y: e.clientY });
+										}}
+									>
+										{t.icon && <Icon name={t.icon} />}
+										<span>{t.caption}</span>
+										{t.create === false && <Icon name="eye-off" className="oe-ld-tab-off" />}
+									</button>
+								);
+							})}
+							<button
+								type="button"
+								className="clickable-icon oe-ld-addtab"
+								aria-label="Add a tab"
+								onClick={(e) => {
+									e.stopPropagation();
+									const next = addTab(base, path);
+									commit(next, { tab: { group: path, tab: n.tabs.length }, focus: true });
+								}}
+							>
+								<Icon name="plus" />
+							</button>
+						</div>
+						{renderList({ at: path, slot: cur }, n.tabs[cur].items, "oe-ld-tabbody", "Drop fields, frames or columns here")}
+					</div>
+				);
+			}
+		}
 	};
 
 	// ---- palette
@@ -649,8 +925,9 @@ export function LayoutTab() {
 				onClick={() => {
 					if (justDragged.current) return;
 					if (at) {
-						setSel(at);
-						focusNext.current = at;
+						selectNode(at);
+						reveal(base, at);
+						focusNext.current = nodeSel(at);
 						setTick((n) => n + 1);
 					} else add({ kind: "field", key: k });
 				}}
@@ -664,13 +941,52 @@ export function LayoutTab() {
 	};
 	const builtinKeys = placeable.filter((k) => !fieldOf(k));
 
-	// ---- properties of the selection
+	// ---- settings of the selection
 	const props = (): ReactNode => {
+		if (selTab && selTabDef) {
+			const t = selTab;
+			const def = selTabDef;
+			return (
+				<>
+					<div className="oe-ld-props-title">
+						<Icon name={def.icon || TABS_ICON} /> Tab
+					</div>
+					<label className="oe-ld-prop-col">
+						<span>Caption</span>
+						<LocalText value={def.caption} label="Tab caption" onChange={(v) => changeTab(t, (x) => ({ ...x, caption: v }), `tab:${pk(t.group)}:${t.tab}`)} />
+					</label>
+					<div className="oe-ld-prop-col">
+						<span>Icon</span>
+						<div className="oe-ld-iconrow">
+							<IconPicker value={def.icon ?? ""} color="var(--text-muted)" onChange={(v) => changeTab(t, (x) => ({ ...x, icon: v }))} />
+							{def.icon && (
+								<button type="button" onClick={() => changeTab(t, (x) => ({ ...x, icon: undefined }))}>
+									No icon
+								</button>
+							)}
+						</div>
+					</div>
+					<div className="oe-ld-prop-row">
+						<span>Show in the create dialog</span>
+						<Toggle label="Show in the create dialog" value={def.create !== false} onChange={(v) => changeTab(t, (x) => ({ ...x, create: v ? undefined : false }))} />
+					</div>
+					<p className="oe-tm-muted oe-ld-note">Required fields are always asked for when creating a note.</p>
+					<div className="oe-ld-prop-buttons">
+						<button type="button" onClick={() => dropTab(t, true)}>
+							<Icon name="ungroup" /> Remove tab, keep contents
+						</button>
+						<button type="button" className="mod-warning" onClick={() => dropTab(t, false)}>
+							<Icon name="trash-2" /> Remove with contents
+						</button>
+					</div>
+				</>
+			);
+		}
 		if (!sel || !selected) {
 			return (
 				<>
 					<div className="oe-ld-props-title">Layout</div>
-					<p className="oe-tm-muted">Select a frame, columns or field on the layout to change it.</p>
+					<p className="oe-tm-muted">Select a frame, columns, tab or field on the layout to change it.</p>
 					{layout && (
 						<>
 							<div className="oe-ld-prop-row">
@@ -696,6 +1012,7 @@ export function LayoutTab() {
 		);
 		if (selected.kind === "frame") {
 			const fr = selected;
+			const kept = ungroupFrame(base, sel);
 			return (
 				<>
 					<div className="oe-ld-props-title">Frame</div>
@@ -717,8 +1034,50 @@ export function LayoutTab() {
 					</div>
 					<p className="oe-tm-muted oe-ld-note">Required fields are always asked for when creating a note.</p>
 					<div className="oe-ld-prop-buttons">
-						<button type="button" onClick={() => commit(ungroupFrame(base, sel[0]), { select: fr.items.length ? [sel[0]] : null })}>
+						<button type="button" disabled={!kept} title={kept ? undefined : "Its columns can't go in a column"} onClick={() => kept && commit(kept, { select: fr.items.length ? sel : null })}>
 							<Icon name="ungroup" /> Remove frame, keep contents
+						</button>
+						{removeBtn("Remove with contents")}
+					</div>
+				</>
+			);
+		}
+		if (selected.kind === "tabs") {
+			const g = selected;
+			const path = sel;
+			return (
+				<>
+					<div className="oe-ld-props-title">
+						<Icon name={TABS_ICON} /> Tabs
+					</div>
+					<div className="oe-ld-prop-col">
+						<span>Tabs</span>
+						<div className="oe-ld-tablist">
+							{g.tabs.map((t, ti) => (
+								<div key={ti} className="oe-ld-tablist-row">
+									<button type="button" className="oe-ld-tablist-name" onClick={() => selectTab({ group: path, tab: ti })}>
+										{t.icon && <Icon name={t.icon} />}
+										{t.caption}
+									</button>
+									<button type="button" className="clickable-icon" aria-label={`Move ${t.caption} up`} disabled={ti === 0} onClick={() => shiftTab({ group: path, tab: ti }, { group: path, tab: ti, index: ti - 1 })}>
+										<Icon name="arrow-up" />
+									</button>
+									<button type="button" className="clickable-icon" aria-label={`Move ${t.caption} down`} disabled={ti === g.tabs.length - 1} onClick={() => shiftTab({ group: path, tab: ti }, { group: path, tab: ti, index: ti + 2 })}>
+										<Icon name="arrow-down" />
+									</button>
+								</div>
+							))}
+						</div>
+						<div className="oe-ld-prop-buttons">
+							<button type="button" onClick={() => commit(addTab(base, path), { tab: { group: path, tab: g.tabs.length }, focus: true })}>
+								<Icon name="plus" /> Add tab
+							</button>
+						</div>
+					</div>
+					<p className="oe-tm-muted oe-ld-note">Tab groups go at the top level. Click a tab on the layout to change its caption, icon or create-dialog setting.</p>
+					<div className="oe-ld-prop-buttons">
+						<button type="button" onClick={() => commit(ungroupTabs(path), { select: null })}>
+							<Icon name="ungroup" /> Remove tabs, keep contents
 						</button>
 						{removeBtn("Remove with contents")}
 					</div>
@@ -741,9 +1100,7 @@ export function LayoutTab() {
 							onChange={(v) => change(sel, (n) => setColumnCount(n as LayoutColumns, Number(v)))}
 						/>
 					</div>
-					{c.columns.length > MIN_COLUMNS && (
-						<p className="oe-tm-muted oe-ld-note">With fewer columns, fields in the ones that go move to the last column.</p>
-					)}
+					{c.columns.length > MIN_COLUMNS && <p className="oe-tm-muted oe-ld-note">With fewer columns, what's in the ones that go moves to the last column.</p>}
 					<div className="oe-ld-prop-col">
 						<span>Relative widths</span>
 						<div className="oe-ld-widths">
@@ -770,7 +1127,7 @@ export function LayoutTab() {
 						</div>
 						<span className="oe-tm-muted oe-ld-note">E.g. 2 and 1: the first column is twice as wide. Columns stack in narrow places.</span>
 					</div>
-					<div className="oe-ld-prop-buttons">{removeBtn("Remove with fields")}</div>
+					<div className="oe-ld-prop-buttons">{removeBtn("Remove with contents")}</div>
 				</>
 			);
 		}
@@ -831,8 +1188,13 @@ export function LayoutTab() {
 	};
 
 	const layoutIssues = issuesAt("form:layout");
-	const root: LayoutList = { kind: "root" };
+	const root: LayoutList = { at: [] };
 	const count = base.items.length;
+	const frames = (() => {
+		let n = 0;
+		walkFrames(base.items, () => n++);
+		return n;
+	})();
 	return (
 		<div className={`oe-ld${dragging ? " is-dragging" : ""}`} onKeyDown={onRootKey}>
 			<aside ref={paletteRef} className={`oe-ld-palette${drop && "remove" in drop ? " is-drop-remove" : ""}`}>
@@ -873,7 +1235,7 @@ export function LayoutTab() {
 					<button type="button" className="clickable-icon" aria-label="Redo (Ctrl/Cmd+Shift+Z)" disabled={!canRedo} onClick={redo}>
 						<Icon name="redo-2" />
 					</button>
-					<span className="oe-ld-toolbar-note oe-tm-muted">{layout ? `${plural(base.items.filter((n) => n.kind === "frame").length, "frame")}, ${plural(placedAt.size, "property", "properties")} placed` : "No custom layout"}</span>
+					<span className="oe-ld-toolbar-note oe-tm-muted">{layout ? `${plural(frames, "frame")}, ${plural(placedAt.size, "property", "properties")} placed` : "No custom layout"}</span>
 					<span className="oe-spacer" />
 					<button type="button" onClick={() => commit(layoutFromFields(type), { select: null })}>
 						<Icon name="list-restart" /> {layout ? "Start again from fields" : "Start from fields"}
@@ -888,10 +1250,13 @@ export function LayoutTab() {
 				<div
 					ref={canvasRef}
 					className={`oe-ld-canvas oe-ld-list${listCls(root, count)}`}
-					data-ld-list="root"
-					onClick={(e) => e.target === e.currentTarget && setSel(null)}
+					data-ld-list={listKey(root)}
+					onClick={(e) => {
+						if (e.target !== e.currentTarget) return;
+						selectNode(null);
+					}}
 				>
-					{base.items.map((n, i) => (n.kind === "frame" ? renderFrame(n, i, count) : renderItem(n, [i], root, i, count)))}
+					{base.items.map((n, i) => renderNode(n, [i], root, i, count))}
 					{!layout && (
 						<div className="oe-ld-start">
 							<p>No custom layout: the form lists every field in field order.</p>
@@ -915,15 +1280,22 @@ export function LayoutTab() {
 					{layout && count === 0 && <div className="oe-ld-empty">Drag fields, frames or columns here</div>}
 				</div>
 				<div className="oe-ld-hint oe-tm-muted">
-					Drag to place and move · Alt+↑/↓ moves the selection · Delete removes it · right-click or ⋯ for more · Ctrl/Cmd+Z undoes
+					Drag to place and move · Alt+↑/↓ moves the selection (Alt+←/→ for tabs) · Delete removes it · right-click or ⋯ for more · Ctrl/Cmd+Z undoes
 				</div>
 			</div>
 
-			<aside className="oe-ld-props">
-				{props()}
-			</aside>
+			<aside className="oe-ld-props">{props()}</aside>
 		</div>
 	);
+}
+
+/** Visit every frame in some nodes (inside columns and tabs too). */
+function walkFrames(nodes: LayoutNode[], fn: (f: LayoutFrame) => void): void {
+	for (const n of nodes) {
+		if (n.kind === "frame") fn(n);
+		else if (n.kind === "columns") n.columns.forEach((c) => walkFrames(c, fn));
+		else if (n.kind === "tabs") n.tabs.forEach((t) => walkFrames(t.items, fn));
+	}
 }
 
 /** A text box that keeps what's typed (spaces included) while the layout tidies the saved value. */
@@ -949,4 +1321,3 @@ function LocalText({ value, onChange, label, placeholder, multiline }: { value: 
 	};
 	return multiline ? <textarea rows={3} {...common} /> : <input type="text" {...common} />;
 }
-

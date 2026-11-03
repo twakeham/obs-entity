@@ -5067,6 +5067,72 @@ td.is-wrap .oe-bar-value {
 	padding: 0 2px;
 }
 
+/* Frames in columns (side by side) */
+.oe-form-column:has(> .oe-form-frame) {
+	gap: var(--size-4-2);
+}
+
+/* Tab groups: a strip of tabs (scrolls sideways when narrow), then the open tab's rows */
+.oe-form-tabs {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+	min-width: 0;
+}
+
+.oe-form-tabstrip {
+	display: flex;
+	gap: 2px;
+	overflow-x: auto;
+	overflow-y: hidden;
+	scrollbar-width: thin;
+	box-shadow: inset 0 -1px 0 var(--background-modifier-border);
+}
+
+.oe-form button.oe-form-tab {
+	flex-shrink: 0;
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	height: auto;
+	padding: 4px 10px;
+	border: none;
+	border-bottom: 2px solid transparent;
+	border-radius: var(--radius-s) var(--radius-s) 0 0;
+	background: none;
+	box-shadow: none;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	cursor: pointer;
+}
+
+.oe-form button.oe-form-tab:hover {
+	color: var(--text-normal);
+	background-color: var(--background-modifier-hover);
+}
+
+.oe-form button.oe-form-tab.is-active {
+	border-bottom-color: var(--oe-type-color, var(--interactive-accent));
+	color: var(--text-normal);
+	font-weight: var(--font-semibold);
+}
+
+.oe-form-tab svg {
+	width: 14px;
+	height: 14px;
+}
+
+.oe-form-tabpanel {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+	min-width: 0;
+}
+
+.oe-form-tabpanel[hidden] {
+	display: none;
+}
+
 /* Type editor: the Layout tab (form layout designer) — palette | canvas | settings of the selection */
 .oe-tm-body.is-layout {
 	display: flex;
@@ -5415,6 +5481,147 @@ td.is-wrap .oe-bar-value {
 
 .oe-ld-column {
 	min-height: 40px;
+}
+
+/* tab groups on the canvas */
+.oe-ld-tabs {
+	padding: 0 6px 6px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	background-color: var(--background-primary);
+}
+
+.oe-ld-tabs.is-selected {
+	border-color: transparent;
+}
+
+.oe-ld-strip {
+	display: flex;
+	align-items: flex-end;
+	gap: 2px;
+	margin-bottom: 6px;
+	overflow-x: auto;
+	overflow-y: hidden;
+	box-shadow: inset 0 -1px 0 var(--background-modifier-border);
+}
+
+.oe-tm .oe-ld-tabhead {
+	position: relative;
+	flex-shrink: 0;
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	height: auto;
+	padding: 4px 10px;
+	border: none;
+	border-bottom: 2px solid transparent;
+	border-radius: var(--radius-s) var(--radius-s) 0 0;
+	background: none;
+	box-shadow: none;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	cursor: grab;
+	user-select: none;
+}
+
+.oe-tm .oe-ld-tabhead:hover {
+	background-color: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.oe-tm .oe-ld-tabhead.is-open {
+	border-bottom-color: var(--oe-type-color, var(--interactive-accent));
+	color: var(--text-normal);
+	font-weight: var(--font-semibold);
+}
+
+.oe-tm .oe-ld-tabhead.is-selected {
+	box-shadow: inset 0 0 0 2px var(--interactive-accent);
+}
+
+.oe-tm .oe-ld-tabhead.is-dragging {
+	opacity: 0.35;
+}
+
+.oe-ld-tabhead svg {
+	width: 14px;
+	height: 14px;
+}
+
+.oe-ld-tab-off {
+	color: var(--text-faint);
+}
+
+.oe-ld-tabhead.is-drop-before::before,
+.oe-ld-tabhead.is-drop-after::after {
+	content: "";
+	position: absolute;
+	top: 2px;
+	bottom: 2px;
+	z-index: 2;
+	width: 3px;
+	border-radius: 2px;
+	background-color: var(--interactive-accent);
+	pointer-events: none;
+}
+
+.oe-ld-tabhead.is-drop-before::before {
+	left: -2.5px;
+}
+
+.oe-ld-tabhead.is-drop-after::after {
+	right: -2.5px;
+}
+
+.oe-tm .oe-ld-addtab {
+	flex-shrink: 0;
+	align-self: center;
+	padding: 2px;
+}
+
+.oe-ld-addtab svg {
+	width: 14px;
+	height: 14px;
+}
+
+.oe-ld-tabbody {
+	min-height: 40px;
+}
+
+.oe-ld-iconrow {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.oe-ld-tablist {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.oe-ld-tablist-row {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+}
+
+.oe-tm .oe-ld-tablist-name {
+	flex: 1;
+	min-width: 0;
+	display: inline-flex;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 4px;
+	height: auto;
+	padding: 3px 8px;
+	font-size: var(--font-ui-small);
+}
+
+.oe-ld-tablist-name svg,
+.oe-ld-tablist-row .clickable-icon svg {
+	width: 14px;
+	height: 14px;
 }
 
 .oe-ld-field {

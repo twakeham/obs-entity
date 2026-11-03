@@ -6,7 +6,7 @@ import { isEmptyValue } from "../../model/frontmatter";
 import { asArray, parseLabelledEntry, parseLink } from "../../model/links";
 import { addLink, type Edge, type RelationItem } from "../../model/relations";
 import { COMMON_KEYS, isListValued, statusesFor, type EntityTypeDef, type FieldDef, type FieldKind, type RelationTarget } from "../../model/types";
-import { normaliseLayout, resolveLayout, type LabelPosition, type LayoutFrame, type LayoutItem, type LayoutNode } from "../../model/formLayout";
+import { fieldSlots, nodeKeys, normaliseLayout, resolveLayout, tabsOnPath, walkLayout, type LabelPosition, type LayoutFrame, type LayoutNode, type LayoutTab } from "../../model/formLayout";
 import type { EntityRecord } from "../../services/entityIndex";
 import { openNativePicker } from "../components/datePicker";
 import { EntitySuggest, TypePickerModal } from "../components/entityPicker";
@@ -21,6 +21,20 @@ export type FormMode = "live" | "reading" | "preview";
 
 /** "Other properties" open or closed, shared by all notes for the session. */
 let othersOpenDefault = false;
+
+/** Open form tabs per type, kept in the vault's local storage ("type:t0" → tab). */
+const TABS_STORAGE = "obs-entities-form-tabs";
+function rememberedTabs(app: App, typeKey: string): Record<string, number> {
+	const all: unknown = app.loadLocalStorage(TABS_STORAGE);
+	const out: Record<string, number> = {};
+	if (all && typeof all === "object")
+		for (const [k, v] of Object.entries(all as Record<string, unknown>)) if (k.startsWith(`${typeKey}:`) && typeof v === "number") out[k.slice(typeKey.length + 1)] = v;
+	return out;
+}
+function rememberTab(app: App, typeKey: string, group: string, tab: number): void {
+	const all: unknown = app.loadLocalStorage(TABS_STORAGE);
+	app.saveLocalStorage(TABS_STORAGE, { ...(all && typeof all === "object" ? all : {}), [`${typeKey}:${group}`]: tab });
+}
 
 const basename = (path: string) => (path.split("/").pop() ?? path).replace(/\.md$/, "");
 const Empty = () => <span className="oe-prop-empty">Empty</span>;
@@ -99,83 +113,162 @@ export function fieldControl(
 	}
 }
 
-/** How a layout's frames behave where it's shown. */
+/** How a layout's frames and tabs behave where it's shown. Frames are keyed by path ("2.0.1"), tab groups by "t0", "t1"… */
 export interface FrameControls {
-	/** frames (by position) that are collapsed */
-	closed: Set<number>;
-	toggle: (i: number) => void;
-	/** whether a field in these keys has a problem (a dot on a collapsed frame's caption) */
+	/** frames that are collapsed */
+	closed: Set<string>;
+	toggle: (frame: string) => void;
+	/** whether a field in these keys has a problem (a dot on a collapsed frame's caption or another tab) */
 	flagged: (keys: string[]) => boolean;
-	/** which frames to show (default: all), e.g. the create dialog's */
-	include?: (frame: LayoutFrame, i: number) => boolean;
+	/** which frames and tabs to show (default: all), e.g. the create dialog's */
+	include?: (part: LayoutFrame | LayoutTab) => boolean;
+	/** a tab group's open tab */
+	tab: (group: string) => number;
+	setTab: (group: string, tab: number) => void;
 }
 
-/** Keys of the fields in some layout items. */
-export const itemKeys = (items: LayoutItem[]) => items.flatMap((i) => (i.kind === "field" ? [i.key] : i.kind === "columns" ? i.columns.flat().map((f) => f.key) : []));
+/** Frames that start collapsed, by path (for FrameControls.closed). */
+export function startCollapsed(items: LayoutNode[]): Set<string> {
+	const out = new Set<string>();
+	walkLayout({ items }, (n, p) => n.kind === "frame" && n.collapsible && n.collapsed && out.add(p.join(".")));
+	return out;
+}
+
+/** The tab group key (FrameControls.tab) and tab a field is in, if it's in one. */
+export function tabOfKey(items: LayoutNode[], key: string): { group: string; tab: number } | null {
+	const layout = { items };
+	const slot = fieldSlots(layout).find((s) => s.field.key === key);
+	const t = slot ? tabsOnPath(layout, slot.path)[0] : undefined;
+	if (!t) return null;
+	const top = Number(t.group);
+	return { group: `t${items.slice(0, top).filter((n) => n.kind === "tabs").length}`, tab: t.tab };
+}
+
+type Rendered = { node: ReactNode; fields: boolean; shown: boolean };
+
+/** Whether some rendered parts show: a field in them does, or (with no fields) something does. */
+const anyShown = (rs: Rendered[]) => (rs.some((r) => r.fields) ? rs.some((r) => r.fields && r.shown) : rs.some((r) => r.shown));
 
 /**
- * A layout's frames and rows. `propFor` gives a property's row, or null when it's hidden (then frames and columns
- * with nothing shown are left out). Call it while rendering (not as a component), so hidden-row counts add up.
+ * A layout's frames, columns, tabs and rows. `propFor` gives a property's row, or null when it's hidden (then frames,
+ * columns and tabs with nothing shown are left out). Call it while rendering (not as a component), so hidden-row
+ * counts add up. Every tab's rows are rendered (others hidden), so counts and lookups include them.
  */
 export function layoutNodes(items: LayoutNode[], propFor: (key: string, labelPos?: LabelPosition) => ReactNode | null, frames: FrameControls): ReactNode[] {
-	/** an item and whether it shows (text always; a field or columns when a field in it is shown) */
-	const renderItem = (it: LayoutItem, key: string): { node: ReactNode; fields: boolean; shown: boolean } => {
-		if (it.kind === "heading" || it.kind === "text") return { node: <div key={key} className={it.kind === "heading" ? "oe-form-heading" : "oe-form-note"}>{it.text}</div>, fields: false, shown: true };
-		if (it.kind === "field") {
-			const r = propFor(it.key, it.label ?? "above");
-			return { node: r, fields: true, shown: r !== null };
-		}
-		// Columns: empty ones (every field hidden) are left out, and the rest share the row.
-		const cols = it.columns.map((c, ci) => ({ rows: c.map((f) => propFor(f.key, f.label ?? "above")).filter((r) => r !== null), w: it.widths?.[ci] ?? 1, ci }));
-		const shown = cols.filter((c) => c.rows.length);
-		return {
-			node: shown.length ? (
-				<div key={key} className="oe-form-columns" style={{ gridTemplateColumns: shown.map((c) => `minmax(0, ${c.w}fr)`).join(" ") }}>
-					{shown.map((c) => (
-						<div key={c.ci} className="oe-form-column">
-							{c.rows}
+	let tabGroups = 0;
+	const many = (nodes: LayoutNode[], prefix: number[]): Rendered[] => nodes.map((n, i) => one(n, [...prefix, i]));
+	const one = (n: LayoutNode, path: number[]): Rendered => {
+		const key = path.join(".");
+		switch (n.kind) {
+			case "heading":
+			case "text":
+				return { node: <div key={key} className={n.kind === "heading" ? "oe-form-heading" : "oe-form-note"}>{n.text}</div>, fields: false, shown: true };
+			case "field": {
+				const r = propFor(n.key, n.label ?? "above");
+				return { node: r, fields: true, shown: r !== null };
+			}
+			case "columns": {
+				// Empty columns (nothing shown) are left out, and the rest share the row.
+				const cols = n.columns.map((c, ci) => ({ rs: many(c, [...path, ci]), w: n.widths?.[ci] ?? 1, ci }));
+				const shown = cols.filter((c) => anyShown(c.rs));
+				return {
+					node: shown.length ? (
+						<div key={key} className="oe-form-columns" style={{ gridTemplateColumns: shown.map((c) => `minmax(0, ${c.w}fr)`).join(" ") }}>
+							{shown.map((c) => (
+								<div key={c.ci} className="oe-form-column">
+									{c.rs.filter((r) => r.shown).map((r) => r.node)}
+								</div>
+							))}
 						</div>
-					))}
-				</div>
-			) : null,
-			fields: true,
-			shown: shown.length > 0,
-		};
-	};
-	const nodes: ReactNode[] = [];
-	items.forEach((n, i) => {
-		if (n.kind !== "frame") {
-			const r = renderItem(n, `i${i}`);
-			if (r.shown) nodes.push(r.node);
-			return;
+					) : null,
+					fields: cols.some((c) => c.rs.some((r) => r.fields)),
+					shown: shown.length > 0,
+				};
+			}
+			case "frame": {
+				if (frames.include && !frames.include(n)) return { node: null, fields: false, shown: false };
+				const rs = many(n.items, path);
+				// A frame shows when a field in it does (or it has no fields, only text).
+				if (rs.some((r) => r.fields) && !rs.some((r) => r.fields && r.shown)) return { node: null, fields: true, shown: false };
+				const open = !n.collapsible || !frames.closed.has(key);
+				const flagged = frames.flagged(nodeKeys(n.items));
+				const caption = n.caption ? (
+					n.collapsible ? (
+						<button type="button" className="oe-form-frame-caption is-toggle" aria-expanded={open} onClick={() => frames.toggle(key)}>
+							<Icon name={open ? "chevron-down" : "chevron-right"} />
+							<span>{n.caption}</span>
+							{flagged && !open && <span className="oe-form-frame-dot" aria-label="A field in here has a problem" />}
+						</button>
+					) : (
+						<div className="oe-form-frame-caption">{n.caption}</div>
+					)
+				) : null;
+				return {
+					node: (
+						<section key={key} className={`oe-form-frame${open ? "" : " is-closed"}`} data-frame={key}>
+							{caption}
+							{open && <div className="oe-form-rows">{rs.filter((r) => r.shown).map((r) => r.node)}</div>}
+						</section>
+					),
+					fields: rs.some((r) => r.fields),
+					shown: true,
+				};
+			}
+			case "tabs": {
+				const group = `t${tabGroups++}`;
+				const tabs = n.tabs.map((t, ti) => ({ t, ti, rs: !frames.include || frames.include(t) ? many(t.items, [...path, ti]) : null }));
+				const avail = tabs.filter((x): x is typeof x & { rs: Rendered[] } => !!x.rs && anyShown(x.rs));
+				const fields = tabs.some((x) => x.rs?.some((r) => r.fields));
+				if (!avail.length) return { node: null, fields, shown: false };
+				const want = frames.tab(group);
+				const cur = avail.some((x) => x.ti === want) ? want : avail[0].ti;
+				const onKey = (e: KeyboardEvent<HTMLButtonElement>, at: number) => {
+					if (e.key !== "ArrowLeft" && e.key !== "ArrowRight" && e.key !== "Home" && e.key !== "End") return;
+					e.preventDefault();
+					const i = e.key === "Home" ? 0 : e.key === "End" ? avail.length - 1 : (at + (e.key === "ArrowLeft" ? -1 : 1) + avail.length) % avail.length;
+					frames.setTab(group, avail[i].ti);
+					(e.currentTarget.parentElement?.children[i] as HTMLElement | undefined)?.focus();
+				};
+				return {
+					node: (
+						<div key={key} className="oe-form-tabs" data-tabs={group}>
+							<div className="oe-form-tabstrip" role="tablist">
+								{avail.map((x, i) => (
+									<button
+										key={x.ti}
+										type="button"
+										role="tab"
+										aria-selected={x.ti === cur}
+										tabIndex={x.ti === cur ? 0 : -1}
+										className={`oe-form-tab${x.ti === cur ? " is-active" : ""}`}
+										data-tab={x.ti}
+										onClick={() => frames.setTab(group, x.ti)}
+										onKeyDown={(e) => onKey(e, i)}
+									>
+										{x.t.icon && <Icon name={x.t.icon} />}
+										<span>{x.t.caption}</span>
+										{x.ti !== cur && frames.flagged(nodeKeys(x.t.items)) && <span className="oe-form-frame-dot" aria-label="A field in here has a problem" />}
+									</button>
+								))}
+							</div>
+							{avail.map((x) => (
+								<div key={x.ti} role="tabpanel" className="oe-form-tabpanel" data-tab={x.ti} hidden={x.ti !== cur}>
+									{x.rs.filter((r) => r.shown).map((r) => r.node)}
+								</div>
+							))}
+						</div>
+					),
+					fields,
+					shown: true,
+				};
+			}
 		}
-		if (frames.include && !frames.include(n, i)) return;
-		const rendered = n.items.map((it, j) => renderItem(it, `f${i}-${j}`));
-		// A frame shows when a field in it does (or it has no fields, only text).
-		if (rendered.some((r) => r.fields) && !rendered.some((r) => r.fields && r.shown)) return;
-		const open = !n.collapsible || !frames.closed.has(i);
-		const flagged = frames.flagged(itemKeys(n.items));
-		const caption = n.caption ? (
-			n.collapsible ? (
-				<button type="button" className="oe-form-frame-caption is-toggle" aria-expanded={open} onClick={() => frames.toggle(i)}>
-					<Icon name={open ? "chevron-down" : "chevron-right"} />
-					<span>{n.caption}</span>
-					{flagged && !open && <span className="oe-form-frame-dot" aria-label="A field in here has a problem" />}
-				</button>
-			) : (
-				<div className="oe-form-frame-caption">{n.caption}</div>
-			)
-		) : null;
-		nodes.push(
-			<section key={`f${i}`} className={`oe-form-frame${open ? "" : " is-closed"}`} data-frame={i}>
-				{caption}
-				{open && <div className="oe-form-rows">{rendered.filter((r) => r.shown).map((r) => r.node)}</div>}
-			</section>,
-		);
-	});
-	return nodes;
+		return { node: null, fields: false, shown: false };
+	};
+	return many(items, [])
+		.filter((r) => r.shown)
+		.map((r) => r.node);
 }
-
 /** A captioned frame of rows the layout doesn't define ("Other fields", the create dialog's "Required"). */
 export function extraFrame(key: string, caption: string, rows: ReactNode[], cls = "is-other"): ReactNode {
 	return (
@@ -193,11 +286,17 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 	const [collapsed, setCollapsed] = useState(mode !== "preview" && plugin.settings.formCollapsed);
 	const [showEmpty, setShowEmpty] = useState(false);
 	const [othersOpen, setOthersOpen] = useState(othersOpenDefault);
-	/** layout frames (by position) that are collapsed: those that start collapsed, until opened */
-	const [closedFrames, setClosedFrames] = useState<Set<number>>(() => {
+	/** layout frames (by path) that are collapsed: those that start collapsed, until opened */
+	const [closedFrames, setClosedFrames] = useState<Set<string>>(() => {
 		const l = type.form?.layout ? normaliseLayout(type.form.layout) : null;
-		return new Set(l ? l.items.flatMap((n, i) => (n.kind === "frame" && n.collapsible && n.collapsed ? [i] : [])) : []);
+		return l ? startCollapsed(resolveLayout(l, type).items) : new Set();
 	});
+	/** each tab group's open tab, remembered per type (not in the type editor's preview) */
+	const [openTabs, setOpenTabs] = useState<Record<string, number>>(() => (mode === "preview" ? {} : rememberedTabs(plugin.app, type.key)));
+	const setTab = (group: string, tab: number) => {
+		setOpenTabs((o) => ({ ...o, [group]: tab }));
+		if (mode !== "preview") rememberTab(plugin.app, type.key, group, tab);
+	};
 	const rootRef = useRef<HTMLDivElement>(null);
 	// Show written values until the saved copy has them (or another change to the same key wins), key by key.
 	useEffect(
@@ -237,10 +336,18 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 	const jumpToProblem = () => {
 		setCollapsed(false);
 		setShowEmpty(true);
-		// Open collapsed frames, so the problem's field is on screen.
+		// Open collapsed frames, and the tab with the first problem, so its field is on screen.
 		setClosedFrames(new Set());
+		const l = type.form?.layout ? normaliseLayout(type.form.layout) : null;
+		const items = l ? resolveLayout(l, type).items : [];
+		const first = fieldSlots({ items })
+			.map((s) => s.field.key)
+			.find((k) => problemsAt(k).length > 0);
+		const t = first ? tabOfKey(items, first) : null;
+		if (t) setTab(t.group, t.tab);
 		window.setTimeout(() => {
-			const row = rootRef.current?.querySelector<HTMLElement>(".oe-status.is-invalid, .oe-prop.has-problem");
+			const rows = [...(rootRef.current?.querySelectorAll<HTMLElement>(".oe-status.is-invalid, .oe-prop.has-problem") ?? [])].filter((r) => r.offsetParent !== null);
+			const row = rows.find((r) => r.dataset.key === first) ?? rows[0];
 			if (!row) return;
 			row.scrollIntoView({ block: "center" });
 			(row.matches("select") ? row : row.querySelector<HTMLElement>(".oe-prop-value input, .oe-prop-value select, .oe-prop-value textarea, .oe-prop-value button, .oe-prop-value a"))?.focus();
@@ -360,8 +467,10 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 	} else {
 		const nodes = layoutNodes(resolved.items, propFor, {
 			closed: closedFrames,
-			toggle: (i) => setClosedFrames((s) => (s.has(i) ? new Set([...s].filter((x) => x !== i)) : new Set([...s, i]))),
+			toggle: (k) => setClosedFrames((s) => (s.has(k) ? new Set([...s].filter((x) => x !== k)) : new Set([...s, k]))),
 			flagged: (keys) => keys.some((k) => problemsAt(k).length > 0),
+			tab: (g) => openTabs[g] ?? 0,
+			setTab,
 		});
 		// Fields that aren't placed: an "Other fields" section (only when something's in it).
 		const others = layout!.hideUnplaced ? [] : resolved.unplaced.map((k) => propFor(k)).filter((r) => r !== null);

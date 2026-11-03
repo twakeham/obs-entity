@@ -1,11 +1,11 @@
 import { Notice } from "obsidian";
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { normaliseLayout, resolveLayout, type LabelPosition } from "../../model/formLayout";
+import { normaliseLayout, resolveLayout, type LabelPosition, type LayoutNode } from "../../model/formLayout";
 import { fromFormFields, isEmptyValue, toFormFields, type EntityFormValues } from "../../model/frontmatter";
 import { COMMON_KEYS, statusesFor, type EntityTypeDef } from "../../model/types";
 import { emptyFormValues } from "../../services/entityFactory";
 import { usePlugin } from "./context";
-import { extraFrame, fieldControl, layoutNodes, ListControl, PropRow, StatusControl } from "./EntityForm";
+import { extraFrame, fieldControl, layoutNodes, ListControl, PropRow, StatusControl, tabOfKey } from "./EntityForm";
 import { Icon } from "./Icon";
 import { KIND_INFO } from "./types/editor";
 
@@ -52,6 +52,13 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 	const [showAll, setShowAll] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const rootRef = useRef<HTMLDivElement>(null);
+	/** each tab group's open tab */
+	const [openTabs, setOpenTabs] = useState<Record<string, number>>({});
+	/** required fields found empty on Create (their tabs get a dot) */
+	const [missingKeys, setMissingKeys] = useState<string[]>([]);
+	const shownItems = useRef<LayoutNode[]>([]);
+	/** fields rendered in the layout's frames and tabs (not the Required frame) at the last render */
+	const renderedKeys = useRef<Set<string>>(new Set());
 
 	const statuses = statusesFor(type, plugin.settings.groups);
 	const status = statuses.includes(state.status) ? state.status : statuses[0];
@@ -67,9 +74,14 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 			new Notice("Please enter a name.");
 			return;
 		}
-		const missing = type.fields.filter((f) => f.required && !hasValue(s.fields[f.key])).map((f) => f.label);
+		const missing = type.fields.filter((f) => f.required && !hasValue(s.fields[f.key]));
+		setMissingKeys(missing.map((f) => f.key));
 		if (missing.length) {
-			new Notice(`Required: ${missing.join(", ")}`);
+			new Notice(`Required: ${missing.map((f) => f.label).join(", ")}`);
+			// Open the tab with the first one that's in a tab on show.
+			const first = missing.find((f) => renderedKeys.current.has(f.key) && tabOfKey(shownItems.current, f.key));
+			const t = first ? tabOfKey(shownItems.current, first.key) : null;
+			if (t) setOpenTabs((o) => ({ ...o, [t.group]: t.tab }));
 			return;
 		}
 		setBusy(true);
@@ -128,8 +140,17 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 		hidden = type.fields.length - visible.length;
 		body = <div className="oe-form-rows">{visible.map((f) => propFor(f.key))}</div>;
 	} else {
-		// The layout's frames marked "Show in create dialog" (all of them with "Show more fields").
-		const nodes = layoutNodes(resolved.items, propFor, { closed: new Set(), toggle: () => {}, flagged: () => false, include: (fr) => showAll || fr.create !== false });
+		// The layout's frames and tabs marked "Show in create dialog" (all of them with "Show more fields").
+		shownItems.current = resolved.items;
+		const nodes = layoutNodes(resolved.items, propFor, {
+			closed: new Set(),
+			toggle: () => {},
+			flagged: (keys) => keys.some((k) => missingKeys.includes(k) && !hasValue(state.fields[k])),
+			include: (part) => showAll || part.create !== false,
+			tab: (g) => openTabs[g] ?? 0,
+			setTab: (g, t) => setOpenTabs((o) => ({ ...o, [g]: t })),
+		});
+		renderedKeys.current = new Set(shownKeys);
 		// Required fields, and ones already filled in, that aren't on show yet: asked for in a frame of their own.
 		const outside = type.fields.filter((f) => !shownKeys.has(f.key));
 		const needed = showAll ? [] : outside.filter((f) => f.required || hasValue(state.fields[f.key]));
