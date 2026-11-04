@@ -153,7 +153,7 @@ export function FieldsTab({ addRelationship }: { addRelationship: () => void }) 
 			</div>
 			<div className="oe-tm-details">
 				{selected >= 0 ? (
-					<FieldDetails index={selected} />
+					<FieldDetails key={draft.meta[selected]?.uid ?? selected} index={selected} />
 				) : (
 					<div className="oe-tm-empty oe-tm-details-empty">
 						<Icon name="mouse-pointer-click" />
@@ -193,8 +193,25 @@ function FieldBadges({ field: f }: { field: FieldDef }) {
 	);
 }
 
+type FieldPane = "general" | "display" | "validation";
+const FIELD_PANES: { id: FieldPane; label: string; icon: string }[] = [
+	{ id: "general", label: "General", icon: "settings-2" },
+	{ id: "display", label: "Display", icon: "palette" },
+	{ id: "validation", label: "Validation", icon: "shield-check" },
+];
+/** The pane a field problem belongs to (`field:<i>:<what>`). */
+const paneOf = (at: string): FieldPane => (at.endsWith(":format") ? "display" : at.endsWith(":rules") ? "validation" : "general");
+
+/** The kind a calculated field's result is formatted as (number, date or checkbox), if it has one. */
+function calcFormatAs(t: EntityTypeDef, f: FieldDef, allTypes: EntityTypeDef[], groups: GroupDef[]): FieldKind | undefined {
+	if (!f.key) return undefined;
+	const info = calcInfo(t, f, { types: [...allTypes.filter((x) => x.key !== t.key), t], groups });
+	const kind = info && !info.invalid ? info.kind : null;
+	return kind === "number" ? "number" : kind === "date" ? "date" : kind === "bool" ? "boolean" : undefined;
+}
+
 function FieldDetails({ index }: { index: number }) {
-	const { draft, update, issuesAt, allTypes, groups, setFieldUid } = useEditor();
+	const { draft, update, issues, issuesAt, allTypes, groups, setFieldUid } = useEditor();
 	const f = draft.type.fields[index];
 	const meta = draft.meta[index];
 	const set = (fn: (f: FieldDef) => void) => update((t) => fn(t.fields[index]));
@@ -206,6 +223,13 @@ function FieldDetails({ index }: { index: number }) {
 	};
 	const autoKey = !f.key || f.key === toKey(f.label);
 	const info = KIND_INFO[f.kind];
+	// A field always opens on General (FieldDetails is keyed by the field); a pane the field no longer has falls back to it.
+	const [tab, setTab] = useState<FieldPane>("general");
+	const calc = isCalculated(f);
+	const panes = FIELD_PANES.filter((p) => p.id === "general" || (p.id === "display" ? (calc ? !!calcFormatAs(draft.type, f, allTypes, groups) : !!formattedKind(f.kind)) : !calc));
+	const pane = panes.some((p) => p.id === tab) ? tab : "general";
+	const fieldIssues = issues.filter((i) => i.at.startsWith(`field:${index}:`));
+	const ruleCount = Object.keys(f.rules ?? {}).length + (f.required ? 1 : 0);
 
 	return (
 		<div className="oe-tm-fielddetails" data-field-index={index}>
@@ -258,131 +282,149 @@ function FieldDetails({ index }: { index: number }) {
 					<Icon name="trash-2" />
 				</button>
 			</div>
+			<nav className="oe-tm-fieldtabs" role="tablist">
+				{panes.map((p) => (
+					<button key={p.id} role="tab" aria-selected={pane === p.id} data-pane={p.id} className={`oe-tm-tab${pane === p.id ? " is-active" : ""}`} onClick={() => setTab(p.id)}>
+						<Icon name={p.icon} />
+						{p.label}
+						{p.id === "validation" && ruleCount > 0 && <span className="oe-tm-tabcount">{ruleCount}</span>}
+						{fieldIssues.some((i) => paneOf(i.at) === p.id) && <Icon name="alert-circle" className="oe-tm-issue-dot" />}
+					</button>
+				))}
+			</nav>
 
-			<Row label="Label" desc={isCalculated(f) ? "Shown in the properties form, views and formulas." : "Shown in the create dialog and the properties form."}>
-				<TextInput
-					label="Field label"
-					value={f.label}
-					autoFocus={!f.label}
-					onChange={(v) =>
-						update((t) => {
-							t.fields[index].label = v;
-							if (autoKey) setKey(t, toKey(v));
-						})
-					}
-				/>
-			</Row>
-			<Row
-				label="Frontmatter key"
-				desc={
-					meta?.origKey && meta.origKey !== f.key ? (
-						<>
-							Was <code>{meta.origKey}</code>. You can update existing notes when you save.
-						</>
-					) : (
-						isCalculated(f) ? "Used by views and formulas. Calculated fields aren't stored in notes." : "The property name in each note's frontmatter."
-					)
-				}
-				issues={issuesAt(`field:${index}:key`)}
-			>
-				<TextInput label="Frontmatter key" className="oe-tm-mono" value={f.key} invalid={issuesAt(`field:${index}:key`).length > 0} onChange={(v) => update((t) => setKey(t, v.trim()))} />
-			</Row>
-			<Row label="Kind">
-				<select
-					className="dropdown"
-					aria-label="Kind"
-					value={f.kind}
-					onChange={(e) =>
-						update((t) => {
-							const x = t.fields[index];
-							x.kind = e.target.value as FieldKind;
-							delete x.default;
-							// Formats belong to a kind (a date pattern means nothing to a number).
-							delete x.format;
-							if (x.kind === "list") x.multiple = true;
-							if (x.kind === "relation" && !x.targets) x.targets = ["*"];
-							if ((x.kind === "select" || x.kind === "multiselect") && !x.options) x.options = [];
-							startCalc(x, t, allTypes, groups);
-							pruneRules(x);
-							if (x.defaultFrom && !defaultKinds(x).includes(x.defaultFrom.kind)) delete x.defaultFrom;
-							// Relation fields can't be part of the subtitle.
-							if (x.kind === "relation" && t.card?.subtitle) t.card.subtitle = t.card.subtitle.filter((k) => k !== x.key);
-						})
-					}
-				>
-					{KIND_ORDER.map((k) => (
-						<option key={k} value={k}>
-							{KIND_INFO[k].label}
-						</option>
-					))}
-				</select>
-			</Row>
-			<Row label="Description" desc={isCalculated(f) ? "Help text, shown where a form layout asks for it." : "Help text shown under the field in the create dialog."}>
-				<TextInput label="Description" value={f.description ?? ""} placeholder="Optional" onChange={(v) => set((x) => (v.trim() ? (x.description = v) : delete x.description))} />
-			</Row>
-
-			{formattedKind(f.kind) && <FormatRow key={`${index}:${f.kind}`} field={f} index={index} />}
-
-			{(f.kind === "select" || f.kind === "multiselect") && (
-				<Row label="Choices" desc="Type a choice and press Enter. Drag to reorder." issues={issuesAt(`field:${index}:options`)} stacked>
-					<ChipsInput label="Choices" placeholder="e.g. small, medium, large" values={f.options ?? []} invalid={issuesAt(`field:${index}:options`).length > 0} onChange={(v) => set((x) => (x.options = v))} />
-				</Row>
-			)}
-
-			{f.kind === "relation" && (
+			{pane === "general" && (
 				<>
-					<Row label="Links to" desc="Which kinds of entity this field can point at." issues={issuesAt(`field:${index}:targets`)} stacked>
-						<TargetPicker values={f.targets ?? []} types={allTypes} groups={groups} invalid={issuesAt(`field:${index}:targets`).length > 0} onChange={(v) => set((x) => (x.targets = v))} />
-					</Row>
-					<Row label="Shown on the other note as" desc={f.symmetric ? "Optional: the link reads the same both ways." : "E.g. “Members” for a “Member of” field. Leave empty to show the field name."}>
-						<TextInput label="Inverse label" value={f.inverse ?? ""} placeholder={f.symmetric ? f.label : `${f.label || "Field"} (from ${draft.type.name || "type"})`} onChange={(v) => set((x) => (x.inverse = v.trim() ? v : undefined))} />
-					</Row>
-					<Row label="How many links">
-						<Segmented
-							label="How many links"
-							value={f.multiple || f.labelled ? "many" : "one"}
-							disabled={f.labelled}
-							options={[
-								{ value: "one", label: "One" },
-								{ value: "many", label: "Many" },
-							]}
-							onChange={(v) => set((x) => (x.multiple = v === "many"))}
-						/>
-					</Row>
-					<Row label="Reads both ways" desc="Like partners: if A is B's partner, B is A's partner.">
-						<Toggle label="Reads both ways" value={!!f.symmetric} onChange={(v) => set((x) => (x.symmetric = v || undefined))} />
-					</Row>
-					<Row label="Each link has its own label" desc="Like contacts: Ada — account owner, Grace — technical lead.">
-						<Toggle
-							label="Each link has its own label"
-							value={!!f.labelled}
+					<Row label="Label" desc={isCalculated(f) ? "Shown in the properties form, views and formulas." : "Shown in the create dialog and the properties form."}>
+						<TextInput
+							label="Field label"
+							value={f.label}
+							autoFocus={!f.label}
 							onChange={(v) =>
-								set((x) => {
-									x.labelled = v || undefined;
-									if (v) x.multiple = true;
+								update((t) => {
+									t.fields[index].label = v;
+									if (autoKey) setKey(t, toKey(v));
 								})
 							}
 						/>
 					</Row>
+					<Row
+						label="Frontmatter key"
+						desc={
+							meta?.origKey && meta.origKey !== f.key ? (
+								<>
+									Was <code>{meta.origKey}</code>. You can update existing notes when you save.
+								</>
+							) : (
+								isCalculated(f) ? "Used by views and formulas. Calculated fields aren't stored in notes." : "The property name in each note's frontmatter."
+							)
+						}
+						issues={issuesAt(`field:${index}:key`)}
+					>
+						<TextInput label="Frontmatter key" className="oe-tm-mono" value={f.key} invalid={issuesAt(`field:${index}:key`).length > 0} onChange={(v) => update((t) => setKey(t, v.trim()))} />
+					</Row>
+					<Row label="Kind">
+						<select
+							className="dropdown"
+							aria-label="Kind"
+							value={f.kind}
+							onChange={(e) =>
+								update((t) => {
+									const x = t.fields[index];
+									x.kind = e.target.value as FieldKind;
+									delete x.default;
+									// Formats belong to a kind (a date pattern means nothing to a number).
+									delete x.format;
+									if (x.kind === "list") x.multiple = true;
+									if (x.kind === "relation" && !x.targets) x.targets = ["*"];
+									if ((x.kind === "select" || x.kind === "multiselect") && !x.options) x.options = [];
+									startCalc(x, t, allTypes, groups);
+									pruneRules(x);
+									if (x.defaultFrom && !defaultKinds(x).includes(x.defaultFrom.kind)) delete x.defaultFrom;
+									// Relation fields can't be part of the subtitle.
+									if (x.kind === "relation" && t.card?.subtitle) t.card.subtitle = t.card.subtitle.filter((k) => k !== x.key);
+								})
+							}
+						>
+							{KIND_ORDER.map((k) => (
+								<option key={k} value={k}>
+									{KIND_INFO[k].label}
+								</option>
+							))}
+						</select>
+					</Row>
+					<Row label="Description" desc={isCalculated(f) ? "Help text, shown where a form layout asks for it." : "Help text shown under the field in the create dialog."}>
+						<TextInput label="Description" value={f.description ?? ""} placeholder="Optional" onChange={(v) => set((x) => (v.trim() ? (x.description = v) : delete x.description))} />
+					</Row>
+
+					{(f.kind === "select" || f.kind === "multiselect") && (
+						<Row label="Choices" desc="Type a choice and press Enter. Drag to reorder." issues={issuesAt(`field:${index}:options`)} stacked>
+							<ChipsInput label="Choices" placeholder="e.g. small, medium, large" values={f.options ?? []} invalid={issuesAt(`field:${index}:options`).length > 0} onChange={(v) => set((x) => (x.options = v))} />
+						</Row>
+					)}
+
+					{f.kind === "relation" && (
+						<>
+							<Row label="Links to" desc="Which kinds of entity this field can point at." issues={issuesAt(`field:${index}:targets`)} stacked>
+								<TargetPicker values={f.targets ?? []} types={allTypes} groups={groups} invalid={issuesAt(`field:${index}:targets`).length > 0} onChange={(v) => set((x) => (x.targets = v))} />
+							</Row>
+							<Row label="Shown on the other note as" desc={f.symmetric ? "Optional: the link reads the same both ways." : "E.g. “Members” for a “Member of” field. Leave empty to show the field name."}>
+								<TextInput label="Inverse label" value={f.inverse ?? ""} placeholder={f.symmetric ? f.label : `${f.label || "Field"} (from ${draft.type.name || "type"})`} onChange={(v) => set((x) => (x.inverse = v.trim() ? v : undefined))} />
+							</Row>
+							<Row label="How many links">
+								<Segmented
+									label="How many links"
+									value={f.multiple || f.labelled ? "many" : "one"}
+									disabled={f.labelled}
+									options={[
+										{ value: "one", label: "One" },
+										{ value: "many", label: "Many" },
+									]}
+									onChange={(v) => set((x) => (x.multiple = v === "many"))}
+								/>
+							</Row>
+							<Row label="Reads both ways" desc="Like partners: if A is B's partner, B is A's partner.">
+								<Toggle label="Reads both ways" value={!!f.symmetric} onChange={(v) => set((x) => (x.symmetric = v || undefined))} />
+							</Row>
+							<Row label="Each link has its own label" desc="Like contacts: Ada — account owner, Grace — technical lead.">
+								<Toggle
+									label="Each link has its own label"
+									value={!!f.labelled}
+									onChange={(v) =>
+										set((x) => {
+											x.labelled = v || undefined;
+											if (v) x.multiple = true;
+										})
+									}
+								/>
+							</Row>
+						</>
+					)}
+
+					{calc && <CalcRows key={`${index}:${f.kind}`} field={f} index={index} part="calc" />}
+
+					{defaultKinds(f).length > 0 && <DefaultRow field={f} index={index} />}
+
+					{!calc && (
+						<Row label="Show in the create dialog" desc="Otherwise it's under “Show more fields”.">
+							<Toggle label="Show in the create dialog" value={!!f.inModal} onChange={(v) => set((x) => (x.inModal = v))} />
+						</Row>
+					)}
+					{issuesAt(`field:${index}:other`).length > 0 && <Issues issues={issuesAt(`field:${index}:other`)} />}
 				</>
 			)}
 
-			{isCalculated(f) && <CalcRows key={`${index}:${f.kind}`} field={f} index={index} />}
+			{pane === "display" && (calc ? <CalcRows key={`${index}:${f.kind}`} field={f} index={index} part="format" /> : <FormatRow key={`${index}:${f.kind}`} field={f} index={index} />)}
 
-			{defaultKinds(f).length > 0 && <DefaultRow field={f} index={index} />}
-
-			{!isCalculated(f) && (
+			{pane === "validation" && (
 				<>
-					<Row label="Show in the create dialog" desc="Otherwise it's under “Show more fields”.">
-						<Toggle label="Show in the create dialog" value={!!f.inModal} onChange={(v) => set((x) => (x.inModal = v))} />
-					</Row>
+					<div className="oe-tm-muted oe-tm-rules-desc">Values that break a rule are still saved, and shown as problems on the note. The create dialog waits until they're fixed.</div>
 					<Row label="Required" desc="Must be filled in when creating a note. Notes where it's empty show a warning.">
 						<Toggle label="Required" value={!!f.required} onChange={(v) => set((x) => (x.required = v || undefined))} />
 					</Row>
 					<ValidationRows key={`${index}:${f.kind}`} field={f} index={index} />
 				</>
 			)}
-			{issuesAt(`field:${index}:other`).length > 0 && <Issues issues={issuesAt(`field:${index}:other`)} />}
 		</div>
 	);
 }
@@ -733,7 +775,6 @@ function ValidationRows({ field: f, index }: { field: FieldDef; index: number })
 	const g = ruleGroups(f);
 	const r = f.rules ?? {};
 	const issues = issuesAt(`field:${index}:rules`);
-	const [open, setOpen] = useState(() => !!f.rules);
 	const [testText, setTestText] = useState("");
 	const [whenOpen, setWhenOpen] = useState(false);
 	const viewCtx = useMemo(() => plugin.viewData().ctx, [plugin]);
@@ -748,7 +789,6 @@ function ValidationRows({ field: f, index }: { field: FieldDef; index: number })
 			if (Object.keys(next).length) x.rules = next;
 			else delete x.rules;
 		});
-	const count = Object.keys(r).length;
 
 	const range = (what: string, lo: keyof FieldRules, hi: keyof FieldRules, whole: boolean) => (
 		<div className="oe-tm-rule-range">
@@ -783,140 +823,132 @@ function ValidationRows({ field: f, index }: { field: FieldDef; index: number })
 	const valuesOf = (id: string) => (id === COMMON_KEYS.tags ? [...new Set(plugin.index.ofType(draft.original?.key ?? type.key).flatMap((e) => e.tags))].sort() : []);
 
 	return (
-		<div className={`oe-tm-rules${open ? " is-open" : ""}${issues.length ? " has-issue" : ""}`}>
-			<button className="oe-tm-rules-head" aria-expanded={open} onClick={() => setOpen(!open)}>
-				<Icon name={open ? "chevron-down" : "chevron-right"} />
-				<span>Validation</span>
-				{count > 0 && <span className="oe-tm-rules-count">{count === 1 ? "1 rule" : `${count} rules`}</span>}
-			</button>
-			{open && (
-				<div className="oe-tm-rules-body">
-					<div className="oe-tm-muted oe-tm-rules-desc">Values that break a rule are still saved, and shown as problems on the note. The create dialog waits until they're fixed.</div>
-					{g.number && (
-						<>
-							<Row label="Range" desc="Leave a box empty for no limit.">
-								{range("Range", "min", "max", false)}
-							</Row>
-							<Row label="Whole numbers only">
-								<Toggle label="Whole numbers only" value={!!r.integer} onChange={(v) => setRule("integer", v || undefined)} />
-							</Row>
-						</>
-					)}
-					{g.text && (
-						<>
-							<Row label="Length" desc="Characters. Leave a box empty for no limit.">
-								{range("Length", "minLength", "maxLength", true)}
-							</Row>
-							<Row label="Pattern" desc="A regular expression the value must match, e.g. ^[A-Z]{3}-\d+$" stacked>
-								<div className="oe-tm-rule-pattern">
-									<TextInput label="Pattern" className="oe-tm-mono" value={r.pattern ?? ""} placeholder="None" onChange={(v) => setRule("pattern", v || undefined)} />
-									{r.pattern && (
-										<>
-											<TextInput label="Message when it doesn't match" value={r.patternMessage ?? ""} placeholder={`Doesn't match the pattern ${r.pattern}`} onChange={(v) => setRule("patternMessage", v || undefined)} />
-											<div className="oe-tm-rule-test">
-												<TextInput label="Test it" value={testText} placeholder="Type a value to test it" onChange={setTestText} />
-												{patternTest && (
-													<span className={patternTest === "ok" ? "oe-tm-rule-ok" : "oe-tm-rule-bad"}>
-														<Icon name={patternTest === "ok" ? "check" : "x"} /> {patternTest === "ok" ? "Matches" : patternTest}
-													</span>
-												)}
-											</div>
-										</>
-									)}
-								</div>
-							</Row>
-						</>
-					)}
-					{g.date && (
-						<>
-							<Row
-								label="Dates allowed"
-								desc={
+		<div className={`oe-tm-rules${issues.length ? " has-issue" : ""}`}>
+			<>
+				{g.number && (
+					<>
+						<Row label="Range" desc="Leave a box empty for no limit.">
+							{range("Range", "min", "max", false)}
+						</Row>
+						<Row label="Whole numbers only">
+							<Toggle label="Whole numbers only" value={!!r.integer} onChange={(v) => setRule("integer", v || undefined)} />
+						</Row>
+					</>
+				)}
+				{g.text && (
+					<>
+						<Row label="Length" desc="Characters. Leave a box empty for no limit.">
+							{range("Length", "minLength", "maxLength", true)}
+						</Row>
+						<Row label="Pattern" desc="A regular expression the value must match, e.g. ^[A-Z]{3}-\d+$" stacked>
+							<div className="oe-tm-rule-pattern">
+								<TextInput label="Pattern" className="oe-tm-mono" value={r.pattern ?? ""} placeholder="None" onChange={(v) => setRule("pattern", v || undefined)} />
+								{r.pattern && (
 									<>
-										A date, or relative to today: <code>today</code>, <code>today+14d</code>, <code>today-1y</code> (d days, w weeks, m months, y years).
+										<TextInput label="Message when it doesn't match" value={r.patternMessage ?? ""} placeholder={`Doesn't match the pattern ${r.pattern}`} onChange={(v) => setRule("patternMessage", v || undefined)} />
+										<div className="oe-tm-rule-test">
+											<TextInput label="Test it" value={testText} placeholder="Type a value to test it" onChange={setTestText} />
+											{patternTest && (
+												<span className={patternTest === "ok" ? "oe-tm-rule-ok" : "oe-tm-rule-bad"}>
+													<Icon name={patternTest === "ok" ? "check" : "x"} /> {patternTest === "ok" ? "Matches" : patternTest}
+												</span>
+											)}
+										</div>
 									</>
-								}
-								stacked
-							>
-								<div className="oe-tm-rule-dates">
-									<span className="oe-tm-muted">From</span>
-									{bound("earliest")}
-									<span className="oe-tm-muted">to</span>
-									{bound("latest")}
-								</div>
-							</Row>
-							<Row label="Compared with another date" desc={dateFields.length ? "E.g. a due date on or after the start date. Skipped while the other date is empty." : "The type has no other date fields."}>
-								<div className="oe-tm-rule-compare">
-									<select
-										className="dropdown"
-										aria-label="How it compares"
-										value={r.compare?.op ?? "not-before"}
-										disabled={!r.compare}
-										onChange={(e) => r.compare && setRule("compare", { ...r.compare, op: e.target.value as DateCompareOp })}
-									>
-										{(Object.keys(DATE_COMPARE_LABELS) as DateCompareOp[]).map((op) => (
-											<option key={op} value={op}>
-												{DATE_COMPARE_LABELS[op]}
-											</option>
-										))}
-									</select>
-									<select
-										className="dropdown"
-										aria-label="Compared with"
-										value={r.compare?.field ?? ""}
-										disabled={!dateFields.length && !r.compare}
-										onChange={(e) => setRule("compare", e.target.value ? { op: r.compare?.op ?? "not-before", field: e.target.value } : undefined)}
-									>
-										<option value="">Not compared</option>
-										{r.compare && !dateFields.some((x) => x.key === r.compare!.field) && <option value={r.compare.field}>{r.compare.field} (missing)</option>}
-										{dateFields.map((x) => (
-											<option key={x.key} value={x.key}>
-												{x.label || x.key}
-											</option>
-										))}
-									</select>
-								</div>
-							</Row>
-						</>
-					)}
-					{g.items && (
-						<Row label="How many items" desc="Leave a box empty for no limit.">
-							{range("Items", "minItems", "maxItems", true)}
-						</Row>
-					)}
-					{takesUnique(f.kind) && (
-						<Row label="Unique" desc={`No two ${type.plural || "notes"} can have the same value (ignoring case).`}>
-							<Toggle label="Unique" value={!!r.unique} onChange={(v) => setRule("unique", v || undefined)} />
-						</Row>
-					)}
-					<Row
-						label="Required when…"
-						desc={f.required ? "Not needed: the field is always required." : r.requiredWhen ? `Required when ${whenText(r.requiredWhen, type, whenCtx)}.` : "Only required for some notes, e.g. a due date once the status is In progress."}
-						stacked={whenOpen || !!r.requiredWhen}
-					>
-						{f.required ? null : whenOpen || r.requiredWhen ? (
-							<div className="oe-ld-when-editor">
-								<FiltersPanel
-									filters={r.requiredWhen ? whenParts(r.requiredWhen) : { mode: "all", items: [] }}
-									choices={choices}
-									ctx={viewCtx}
-									valuesOf={valuesOf}
-									noGroups
-									heading="Required when"
-									emptyText="Add a condition: the field is required when it holds."
-									onChange={(grp) => {
-										const items = grp.items.filter((i): i is { field: string; op: string; value?: unknown } => !("items" in i));
-										setRule("requiredWhen", items.length ? (grp.mode === "all" ? { all: items } : { any: items }) : undefined);
-									}}
-								/>
+								)}
 							</div>
-						) : (
-							<button onClick={() => setWhenOpen(true)}>Add a condition…</button>
-						)}
+						</Row>
+					</>
+				)}
+				{g.date && (
+					<>
+						<Row
+							label="Dates allowed"
+							desc={
+								<>
+									A date, or relative to today: <code>today</code>, <code>today+14d</code>, <code>today-1y</code> (d days, w weeks, m months, y years).
+								</>
+							}
+							stacked
+						>
+							<div className="oe-tm-rule-dates">
+								<span className="oe-tm-muted">From</span>
+								{bound("earliest")}
+								<span className="oe-tm-muted">to</span>
+								{bound("latest")}
+							</div>
+						</Row>
+						<Row label="Compared with another date" desc={dateFields.length ? "E.g. a due date on or after the start date. Skipped while the other date is empty." : "The type has no other date fields."}>
+							<div className="oe-tm-rule-compare">
+								<select
+									className="dropdown"
+									aria-label="How it compares"
+									value={r.compare?.op ?? "not-before"}
+									disabled={!r.compare}
+									onChange={(e) => r.compare && setRule("compare", { ...r.compare, op: e.target.value as DateCompareOp })}
+								>
+									{(Object.keys(DATE_COMPARE_LABELS) as DateCompareOp[]).map((op) => (
+										<option key={op} value={op}>
+											{DATE_COMPARE_LABELS[op]}
+										</option>
+									))}
+								</select>
+								<select
+									className="dropdown"
+									aria-label="Compared with"
+									value={r.compare?.field ?? ""}
+									disabled={!dateFields.length && !r.compare}
+									onChange={(e) => setRule("compare", e.target.value ? { op: r.compare?.op ?? "not-before", field: e.target.value } : undefined)}
+								>
+									<option value="">Not compared</option>
+									{r.compare && !dateFields.some((x) => x.key === r.compare!.field) && <option value={r.compare.field}>{r.compare.field} (missing)</option>}
+									{dateFields.map((x) => (
+										<option key={x.key} value={x.key}>
+											{x.label || x.key}
+										</option>
+									))}
+								</select>
+							</div>
+						</Row>
+					</>
+				)}
+				{g.items && (
+					<Row label="How many items" desc="Leave a box empty for no limit.">
+						{range("Items", "minItems", "maxItems", true)}
 					</Row>
-					{issues.length > 0 && <Issues issues={issues} />}
-				</div>
-			)}
+				)}
+				{takesUnique(f.kind) && (
+					<Row label="Unique" desc={`No two ${type.plural || "notes"} can have the same value (ignoring case).`}>
+						<Toggle label="Unique" value={!!r.unique} onChange={(v) => setRule("unique", v || undefined)} />
+					</Row>
+				)}
+				<Row
+					label="Required when…"
+					desc={f.required ? "Not needed: the field is always required." : r.requiredWhen ? `Required when ${whenText(r.requiredWhen, type, whenCtx)}.` : "Only required for some notes, e.g. a due date once the status is In progress."}
+					stacked={whenOpen || !!r.requiredWhen}
+				>
+					{f.required ? null : whenOpen || r.requiredWhen ? (
+						<div className="oe-ld-when-editor">
+							<FiltersPanel
+								filters={r.requiredWhen ? whenParts(r.requiredWhen) : { mode: "all", items: [] }}
+								choices={choices}
+								ctx={viewCtx}
+								valuesOf={valuesOf}
+								noGroups
+								heading="Required when"
+								emptyText="Add a condition: the field is required when it holds."
+								onChange={(grp) => {
+									const items = grp.items.filter((i): i is { field: string; op: string; value?: unknown } => !("items" in i));
+									setRule("requiredWhen", items.length ? (grp.mode === "all" ? { all: items } : { any: items }) : undefined);
+								}}
+							/>
+						</div>
+					) : (
+						<button onClick={() => setWhenOpen(true)}>Add a condition…</button>
+					)}
+				</Row>
+				{issues.length > 0 && <Issues issues={issues} />}
+			</>
 		</div>
 	);
 }
@@ -940,10 +972,11 @@ const AGG_TEXT: Record<RollupAgg, string> = {
 const isoDay = (days: number) => new Date(days * 86_400_000).toISOString().slice(0, 10);
 
 /**
- * Roll-up and formula fields: what they work out (From / Calculate / Of field, or the formula), what they give, a
- * preview for the sample note, the display format for that result, and notes that store a property of the same name.
+ * Roll-up and formula fields. `part` "calc" (General pane): what they work out (From / Calculate / Of field, or the
+ * formula), what they give, a preview for the sample note, and notes that store a property of the same name.
+ * "format" (Display pane): the display format for that result.
  */
-function CalcRows({ field: f, index }: { field: FieldDef; index: number }) {
+function CalcRows({ field: f, index, part }: { field: FieldDef; index: number; part: "calc" | "format" }) {
 	const plugin = usePlugin();
 	const { draft, update, issuesAt, allTypes, groups, sample } = useEditor();
 	const t = draft.type;
@@ -1056,6 +1089,7 @@ function CalcRows({ field: f, index }: { field: FieldDef; index: number }) {
 	const as: FieldKind | undefined = kind === "number" ? "number" : kind === "date" ? "date" : kind === "bool" ? "boolean" : undefined;
 	const sampled = preview && !preview.cell.error ? (as === "date" && typeof preview.cell.value === "number" ? isoDay(preview.cell.value) : preview.cell.value) : undefined;
 	const clash = f.key && draft.original ? plugin.index.ofType(draft.original.key).filter((e) => e.frontmatter[f.key] !== undefined).length : 0;
+	if (part === "format") return as ? <FormatRow key={`${index}:${as}`} field={f} index={index} as={as} sampled={sampled} /> : null;
 	return (
 		<>
 			{rows}
@@ -1071,7 +1105,6 @@ function CalcRows({ field: f, index }: { field: FieldDef; index: number }) {
 					</span>
 				</Row>
 			)}
-			{as && <FormatRow key={`${index}:${as}`} field={f} index={index} as={as} sampled={sampled} />}
 			{clash > 0 && (
 				<div className="oe-tm-issue is-warning">
 					<Icon name="info" /> {clash === 1 ? "1 note has" : `${clash} notes have`} its own “{f.key}” property. Calculated fields aren't stored, so that value is ignored; the worked-out one is shown.

@@ -1962,50 +1962,32 @@ select.oe-status {
 	font-size: 0.95em;
 }
 
-/* Fields tab: Validation (folds; ranges, pattern test, date bounds, compare, required when) */
-.oe-tm-rules {
-	margin-top: var(--size-4-2);
-	border-top: 1px solid var(--background-modifier-border);
-	padding-top: var(--size-4-2);
+/* Fields tab: the field panel's tabs (General, Display, Validation) */
+.oe-tm-details-head:has(+ .oe-tm-fieldtabs) {
+	border-bottom: none;
+	margin-bottom: 0;
 }
 
-.oe-tm-rules-head {
-	all: unset;
+.oe-tm-fieldtabs {
 	display: flex;
-	align-items: center;
+	gap: var(--size-2-1);
+	border-bottom: 1px solid var(--background-modifier-border);
+	margin-bottom: var(--size-4-2);
+}
+
+.oe-tm .oe-tm-fieldtabs .oe-tm-tab {
+	padding: var(--size-4-1) var(--size-4-2);
+	margin-bottom: -1px;
+	font-size: var(--font-ui-small);
 	gap: var(--size-4-1);
-	width: 100%;
-	cursor: var(--cursor);
-	font-weight: var(--font-semibold);
-	color: var(--text-normal);
 }
 
-.oe-tm-rules-head:focus-visible {
-	box-shadow: 0 0 0 2px var(--background-modifier-border-focus);
-	border-radius: var(--radius-s);
+.oe-tm .oe-tm-fieldtabs .oe-tm-tab .svg-icon {
+	width: var(--icon-xs);
+	height: var(--icon-xs);
 }
 
-.oe-tm-rules-head .svg-icon {
-	width: var(--icon-s);
-	height: var(--icon-s);
-	color: var(--text-muted);
-}
-
-.oe-tm-rules.has-issue .oe-tm-rules-head {
-	color: var(--text-error);
-}
-
-.oe-tm-rules-count {
-	margin-left: auto;
-	font-weight: normal;
-	font-size: var(--font-ui-smaller);
-	color: var(--text-muted);
-	background-color: var(--background-modifier-hover);
-	border-radius: var(--radius-s);
-	padding: 0 var(--size-4-1);
-}
-
-.oe-tm-rules-desc {
+/* Fields tab: Validation pane (ranges, pattern test, date bounds, compare, required when) */.oe-tm-rules-desc {
 	font-size: var(--font-ui-smaller);
 	margin: var(--size-4-1) 0 var(--size-4-2);
 }

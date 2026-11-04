@@ -131,13 +131,16 @@ Opened from:
 
 **Type editor tabs:**
 - **General:** name, plural, key (fixed once saved), icon, colour, group, statuses (the group's or custom), folder (the entity folder pattern or the type's own exception), folder rule (in the folder / own folder each / inside its parent, with a path preview), template, search shortcuts. Also Duplicate, Copy as JSON, Reset to starter, and Delete type.
-- **Fields:** a field list (drag to reorder) and a details panel with label, key, kind, description, **display format** (numbers, dates, checkboxes, URLs; each preset shows an example from your notes), choices, default, create-dialog / required toggles, validation rules, and relation options.
+- **Fields:** a field list (drag to reorder) and a details panel for the selected field, in three tabs (a field always opens on General):
+  - **General:** label, key, kind, description, choices or relation options, default, and show in the create dialog.
+  - **Display:** the **display format** (numbers, dates, checkboxes, URLs, and calculated fields that give one of those; each preset shows an example from your notes).
+  - **Validation:** required, and the validation rules below. The tab shows how many are set.
   - **Default:** a fixed value, or a smarter one:
     - **Relative to today** (dates): `today`, `today+14d`, `today-1w`, `today+1m`, `today+1y`. The editor shows the date it gives today.
     - **From a linked note:** e.g. a task's Client from its Project's Client. The create dialog fills it in as soon as the project is chosen (and again if you change it), unless you've typed in the field yourself. This is the only kind of default for relation fields.
     - **The next number** (text and number fields): one more than the highest number used by the type's notes, in a pattern such as `TASK-{n}` with a number of digits (TASK-0042). The create dialog shows it as the placeholder and takes it when the note is created.
     - Defaults only fill in new notes.
-  - **Validation** (a foldable section under Required). Breaking a rule never stops a note being saved: the value is flagged as a problem in the properties form and with a marker in tables and boards. The create dialog shows problems as you type and won't create the note until they're fixed.
+  - **Validation** (the Validation tab). Breaking a rule never stops a note being saved: the value is flagged as a problem in the properties form and with a marker in tables and boards. The create dialog shows problems as you type and won't create the note until they're fixed.
     - **Numbers:** a range (leave a box empty for no limit) and whole numbers only.
     - **Text, long text and URLs:** a length range, and a pattern (a regular expression) with your own message for when it doesn't match, plus a box to test it.
     - **Dates:** earliest and latest, as a date or relative to today (`today`, `today-1y`, `today+2w`), and before / after another date field (e.g. End on or after Start).
@@ -148,7 +151,7 @@ Opened from:
   - **Calculated fields** are worked out whenever they're shown and never written to the note:
     - **Roll-up:** from linked notes. **From** (this type's relation fields, or notes of another type that link here, e.g. "Tasks (linking here)"), **Calculate** (count, names, unique values, sum, average, smallest, largest, earliest, latest, % done, count by status) and **Of field**, which can be a calculated field of the linked notes too. E.g. Project → "Estimate total" = sum of the tasks' Estimate.
     - **Formula:** from this note's fields, built-ins and other calculated fields, in the same formula language as view formula columns (**Edit formula…** opens the same editor, with autocomplete and a live result). E.g. "Days left" = `[Due] - today()`, or "Budget per task" = `[Budget] / [Task count]`.
-    - The details panel shows what the field **gives** (a number, a date, true / false…), a **preview** for the sample note, and a **Display format** for numbers, dates and true / false. Loops (A uses B, B uses A) and missing relationships are flagged.
+    - The details panel shows what the field **gives** (a number, a date, true / false…), a **preview** for the sample note, and (Display tab) a **Display format** for numbers, dates and true / false. Loops (A uses B, B uses A) and missing relationships are flagged.
     - They're read-only in the properties form and Reading view (placeable in layouts like any field; a value that can't be worked out shows "—" with the reason on hover), can be in the subtitle, and are ordinary **columns** in tables and boards (sort, filter, group, highlight, summarise, format). Views keep their own roll-up and formula columns too. They're left out of the create dialog. If notes have their own property with the same name, it's ignored (the details panel says how many do).
 - **Relationships:** a diagram, links from and to this type (click to jump to the field), and a guided **Add relationship** dialog with a plain-English summary.
 - **Display:** parent fields (for the hierarchy), subtitle fields, and the properties form's **Hide empty fields** option.

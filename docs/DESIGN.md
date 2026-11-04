@@ -346,7 +346,7 @@ formulaType?: FType;     // the result type, when set by hand (otherwise inferre
 
 ### 4.8 Validation rules
 
-A field's `rules` (`model/rules.ts`) say what a good value looks like. They're set on the Fields tab, in a foldable **Validation** section under Required (with a count of the rules set). Which rules a field offers depends on its kind (`ruleGroups`); changing the kind drops the ones that no longer fit (`pruneRules`).
+A field's `rules` (`model/rules.ts`) say what a good value looks like. They're set on the Fields tab, on the field's **Validation** tab, under Required (the tab shows how many are set). Which rules a field offers depends on its kind (`ruleGroups`); changing the kind drops the ones that no longer fit (`pruneRules`).
 
 ```ts
 interface FieldRules {
@@ -366,7 +366,7 @@ interface FieldRules {
 - **Required when:** the field gets the `*` and counts as required while the condition holds (in the create dialog too: it's asked for, under Required when it's not in a frame on show). On a note it's a warning, like Required.
 - **Unique** compares against the type's other notes (`CheckContext.others`, cached per type and key and cleared when the index updates). Text compares trimmed and without case; other values compare exactly.
 - **Dates** use the date adapter (so a custom calendar works) and the day the check runs, so "today" bounds move. Bounds are shown in the **Date display format**.
-- **The editor:** number boxes for ranges (empty = no limit), the pattern with its message and a **Test it** box, date bounds with "Today that's …", and the condition builder for Required when.
+- **The editor:** the field's Validation tab, with number boxes for ranges (empty = no limit), the pattern with its message and a **Test it** box, date bounds with "Today that's …", and the condition builder for Required when.
 - **Validation** (type): `rulesIssues` reports a minimum above its maximum, a negative length, a pattern that isn't a valid regular expression, an unreadable date bound, a comparison with a missing or non-date field, and a Required when that uses a missing field, at `field:<i>:rules`.
 - **Renames:** `renameFieldRefs` follows a renamed key in `compare.field` and `requiredWhen`.
 
@@ -658,7 +658,13 @@ Big icon, name, a "group · N notes · starter/custom · `key`" line, and the ta
   - the label, with the key in monospace
   - badges: target types for relations, "many", "required", "in create dialog"
   - an error icon if the field has problems
-- **The details panel (right):** shown for the selected field, sticky while scrolling. It shows only the options that apply to the field's kind:
+- **The details panel (right):** shown for the selected field, sticky while scrolling. Under its header (icon, name, move up / down, delete) are up to three tabs, each with a red dot when something in it has a problem:
+  - **General** (always): label, key, kind, description, the kind's own options below, the default (§4.9) and show in create dialog.
+  - **Display:** the display format. Only for number, date, checkbox and URL fields, and calculated fields whose result is a number, date or true / false.
+  - **Validation:** required, then the rules for the kind (§4.8). Not for calculated fields. The tab shows how many are set (required counts as one).
+  - Picking another field (or adding one) always opens General; if a kind change removes the open tab, General shows instead.
+
+  It shows only the options that apply to the field's kind:
   - **All kinds:** label, key ("Was `old_key`. You can update existing notes when you save."), kind, description, default.
   - **Choice / multichoice:** options as chips, reorderable by drag, added with Enter or a comma.
   - **Relation:**
@@ -667,12 +673,12 @@ Big icon, name, a "group · N notes · starter/custom · `key`" line, and the ta
     - one / many
     - reads both ways (symmetric)
     - each link labelled
-  - **Number, date, checkbox, URL:** **Display format** (§4.6), a dropdown of presets each with an example from the sample note (dates: "Default (05/12/2026)", "5 Dec 2026", "Relative (in 3 days)"…; numbers: "Currency ($1,240.50)"…), and **Custom…** with a pattern box (or a text box for URLs), token help and a preview. Currency adds a code box (blank: the Default currency setting).
+  - **Number, date, checkbox, URL:** on the Display tab, **Display format** (§4.6), a dropdown of presets each with an example from the sample note (dates: "Default (05/12/2026)", "5 Dec 2026", "Relative (in 3 days)"…; numbers: "Currency ($1,240.50)"…), and **Custom…** with a pattern box (or a text box for URLs), token help and a preview. Currency adds a code box (blank: the Default currency setting).
   - **Roll-up** (§4.7): **From** (`rollupSources` of the type: its relation fields, and "<Type> (linking here)" for incoming ones), **Calculate** (the aggregations in words: "Sum of a field", "% done (by status)"…), **Of field** (the linked types' fields of a suitable kind, calculated ones by result). New roll-ups start as a count of the first source.
   - **Formula** (§4.7): the formula shown with labels, and **Edit formula…**, which opens the view formula editor in field mode (no name box; references and the preview use every type as edited, with the draft in place of its saved version).
-  - **Calculated, both:** **Gives** (a number, a date, true / false, a list…), **Preview** for the sample note (or the reason it can't be worked out), **Display format** for numbers, dates and true / false (examples from the preview's value), and a note when notes store a property with the same key. No default, create-dialog or required options. "+ Add field" lists them in a section of their own.
+  - **Calculated, both:** **Gives** (a number, a date, true / false, a list…), **Preview** for the sample note (or the reason it can't be worked out), **Display format** for numbers, dates and true / false on the Display tab (examples from the preview's value), and a note when notes store a property with the same key. No default, create-dialog or required options. "+ Add field" lists them in a section of their own.
   - **Date:** the default uses a date box with the calendar; values stay ISO.
-  - **Common:** show in create dialog and required. Plus move up/down and delete. Deleting is just a draft change, so there's no confirmation.
+  - **Common:** show in create dialog (General) and required (Validation). Plus move up/down and delete. Deleting is just a draft change, so there's no confirmation.
 - **+ Add field** opens a menu of kinds (with a one-line description of each), plus **Relationship…**, which opens the guided dialog below. The new field is selected and its label input focused.
 
 #### Relationships tab
