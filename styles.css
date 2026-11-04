@@ -5219,34 +5219,6 @@ td.is-wrap .oe-bar-value {
 	border-radius: var(--radius-s);
 }
 
-.oe-view-warning.oe-view-ignored {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	padding: 4px var(--size-4-2);
-}
-
-.oe-view-ignored > svg {
-	flex: none;
-	width: 14px;
-	height: 14px;
-	color: var(--color-orange);
-}
-
-.oe-view-ignored > span {
-	min-width: 0;
-}
-
-.oe-view-ignored > .oe-pop-link {
-	flex: none;
-	margin-left: auto;
-}
-
-.oe-view.is-fill .oe-view-ignored {
-	padding-left: var(--size-4-3);
-	padding-right: var(--size-4-3);
-}
-
 .oe-view button.oe-view-tool.has-warning {
 	color: var(--color-orange);
 }

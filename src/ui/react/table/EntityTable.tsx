@@ -13,7 +13,6 @@ import {
 	defaultFormat,
 	formatKind,
 	filterFields,
-	conditionText,
 	ignoredConditions,
 	flattenGroups,
 	frozenCount,
@@ -1379,25 +1378,6 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					</>
 				)}
 			</div>
-			{ignored.length > 0 && pop?.name !== "filters" && (
-				<div className="oe-view-warning oe-view-ignored" role="status">
-					<Icon name="alert-triangle" />
-					<span>
-						{ignored.length === 1 ? "A filter condition is ignored" : `${ignored.length} filter conditions are ignored`}: {conditionText(ignored[0].cond, result.known)} ({ignored[0].issue.replace(/\.$/, "").replace(/^It /, "it ")})
-						{ignored.length > 1 && ` and ${ignored.length - 1} more`}.
-					</span>
-					<button
-						className="oe-pop-link"
-						onClick={(e) => {
-							// With the toolbar hidden (a bare embed), the panel opens by this link instead.
-							const btn = e.currentTarget.closest(".oe-view")?.querySelector<HTMLElement>("[data-pop=filters]");
-							openPop("filters", btn?.offsetParent ? btn : e.currentTarget);
-						}}
-					>
-						Edit filters
-					</button>
-				</div>
-			)}
 			{warnings.length > 0 && (
 				<div className="oe-view-warning">
 					<button className="oe-pop-link" onClick={() => setShowWarnings(!showWarnings)}>
