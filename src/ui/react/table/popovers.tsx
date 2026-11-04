@@ -9,6 +9,8 @@ import {
 	columnFromId,
 	conditionIssue,
 	NEEDS_VALUE,
+	THIS_NOTE,
+	thisNoteCondition,
 	isGroup,
 	type ColumnDef,
 	type Condition,
@@ -56,6 +58,8 @@ export function Popover({ anchor, onClose, className, children, label }: { ancho
 			close.current();
 		};
 		const down = (e: MouseEvent) => outside(e.target) && closeNow();
+		// Close when the user scrolls the page, not when the page scrolls by itself: in Live Preview an embedded
+		// view's editor shifts its scroll as the view opens a panel or changes height (e.g. a filter edit).
 		const scroll = (e: Event) => outside(e.target) && closeNow();
 		const key = (e: KeyboardEvent) => {
 			if (e.key !== "Escape" || document.querySelector(".suggestion-container")) return;
@@ -65,11 +69,13 @@ export function Popover({ anchor, onClose, className, children, label }: { ancho
 			close.current();
 		};
 		document.addEventListener("mousedown", down, true);
-		document.addEventListener("scroll", scroll, true);
+		document.addEventListener("wheel", scroll, { capture: true, passive: true });
+		document.addEventListener("touchmove", scroll, { capture: true, passive: true });
 		document.addEventListener("keydown", key, true);
 		return () => {
 			document.removeEventListener("mousedown", down, true);
-			document.removeEventListener("scroll", scroll, true);
+			document.removeEventListener("wheel", scroll, true);
+			document.removeEventListener("touchmove", scroll, true);
 			document.removeEventListener("keydown", key, true);
 		};
 	}, []);
@@ -118,6 +124,11 @@ interface FilterProps {
 	emptyText?: string;
 	/** conditions only, no nested groups (a form layout's "show only when") */
 	noGroups?: boolean;
+	/**
+	 * Offer "this note" for link conditions (views): the note the view is shown on, or null where there's none (the
+	 * view note open on its own). Undefined: not offered.
+	 */
+	thisNote?: string | null;
 }
 
 export function FiltersPanel({ filters, onChange, ...rest }: FilterProps & { filters: FilterGroup; onChange: (g: FilterGroup) => void }) {
@@ -176,11 +187,12 @@ function GroupEditor({ group, depth, onChange, onRemove, ...rest }: FilterProps 
 	);
 }
 
-function ConditionEditor({ cond, onChange, onRemove, choices, ctx, valuesOf }: FilterProps & { cond: Condition; onChange: (c: Condition) => void; onRemove: () => void }) {
+function ConditionEditor({ cond, onChange, onRemove, choices, ctx, valuesOf, thisNote }: FilterProps & { cond: Condition; onChange: (c: Condition) => void; onRemove: () => void }) {
 	const col = choices.find((c) => c.col.id === cond.field)?.col;
 	const ops = col ? OPERATORS[col.kind] : [];
 	const op = ops.find((o) => o.op === cond.op);
-	const issue = conditionIssue(cond, new Map(choices.map((c) => [c.col.id, c.col])), ctx);
+	// Checked as it runs: "this note" is the note the view is on.
+	const issue = conditionIssue(thisNote === undefined ? cond : thisNoteCondition(cond, thisNote), new Map(choices.map((c) => [c.col.id, c.col])), ctx);
 	const incomplete = issue === NEEDS_VALUE;
 	return (
 		<div className={`oe-condition${issue ? (incomplete ? " is-incomplete" : " is-invalid") : ""}`}>
@@ -209,7 +221,7 @@ function ConditionEditor({ cond, onChange, onRemove, choices, ctx, valuesOf }: F
 					</option>
 				))}
 			</select>
-			{col && op && <ValueEditor kind={op.value} col={col} value={cond.value} ctx={ctx} valuesOf={valuesOf} onChange={(v) => onChange({ ...cond, value: v })} />}
+			{col && op && <ValueEditor kind={op.value} col={col} value={cond.value} ctx={ctx} valuesOf={valuesOf} thisNote={thisNote} onChange={(v) => onChange({ ...cond, value: v })} />}
 			<span className="oe-spacer" />
 			<button className="clickable-icon" aria-label="Remove condition" onClick={onRemove}>
 				<Icon name="x" />
@@ -237,7 +249,7 @@ function DateBox({ value, ctx, onChange, label }: { value: unknown; ctx: ViewCon
 	);
 }
 
-function ValueEditor({ kind, col, value, ctx, valuesOf, onChange }: { kind: string; col: ResolvedColumn; value: unknown; ctx: ViewContext; valuesOf: (id: string) => string[]; onChange: (v: unknown) => void }) {
+function ValueEditor({ kind, col, value, ctx, valuesOf, thisNote, onChange }: { kind: string; col: ResolvedColumn; value: unknown; ctx: ViewContext; valuesOf: (id: string) => string[]; thisNote?: string | null; onChange: (v: unknown) => void }) {
 	const plugin = usePlugin();
 	switch (kind) {
 		case "none":
@@ -287,13 +299,16 @@ function ValueEditor({ kind, col, value, ctx, valuesOf, onChange }: { kind: stri
 			);
 		}
 		case "links":
-			return <LinkValues col={col} value={value} onChange={onChange} />;
+			return <LinkValues col={col} value={value} thisNote={thisNote} onChange={onChange} />;
 	}
 	return null;
 }
 
-/** Chosen notes for "links to any / none of": chips plus a picker limited to the column's targets. */
-function LinkValues({ col, value, onChange }: { col: ResolvedColumn; value: unknown; onChange: (v: unknown) => void }) {
+/**
+ * Chosen notes for "links to any / none of": chips plus a picker limited to the column's targets. In views the
+ * picker offers "This note" first (stored as `{this}`).
+ */
+function LinkValues({ col, value, thisNote, onChange }: { col: ResolvedColumn; value: unknown; thisNote?: string | null; onChange: (v: unknown) => void }) {
 	const plugin = usePlugin();
 	const ref = useRef<HTMLInputElement>(null);
 	const paths = (Array.isArray(value) ? value : value ? [value] : []).map(String);
@@ -301,6 +316,11 @@ function LinkValues({ col, value, onChange }: { col: ResolvedColumn; value: unkn
 	latest.current = paths;
 	const onChangeRef = useRef(onChange);
 	onChangeRef.current = onChange;
+	const offerThis = useRef(thisNote !== undefined);
+	offerThis.current = thisNote !== undefined;
+	const thisName = thisNote ? (plugin.index.get(thisNote)?.name ?? thisNote.split("/").pop()?.replace(/\.md$/, "")) : null;
+	const thisText = useRef(thisName);
+	thisText.current = thisName;
 	const targets = col.def.kind === "incoming" ? [col.def.type] : col.field?.targets;
 	useEffect(() => {
 		if (!ref.current) return;
@@ -309,6 +329,15 @@ function LinkValues({ col, value, onChange }: { col: ResolvedColumn; value: unkn
 			allowCreate: false,
 			exclude: () => new Set(latest.current),
 			onPick: (e: EntityRecord) => onChangeRef.current([...latest.current, e.path]),
+			extra: () =>
+				offerThis.current && !latest.current.includes(THIS_NOTE)
+					? {
+							label: "This note",
+							icon: "file",
+							note: thisText.current ? `The note the view is on (here: ${thisText.current})` : "The note the view is on",
+							onPick: () => onChangeRef.current([THIS_NOTE, ...latest.current]),
+						}
+					: null,
 		});
 		return () => s.close();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
@@ -316,8 +345,14 @@ function LinkValues({ col, value, onChange }: { col: ResolvedColumn; value: unkn
 	return (
 		<span className="oe-pop-links">
 			{paths.map((p) => (
-				<span key={p} className="oe-pill is-removable">
-					{plugin.index.get(p)?.name ?? p.split("/").pop()?.replace(/\.md$/, "")}
+				<span key={p} className={`oe-pill is-removable${p === THIS_NOTE ? " is-this-note" : ""}`} title={p === THIS_NOTE ? (thisName ? `Here: ${thisName}` : "The note the view is on") : undefined}>
+					{p === THIS_NOTE ? (
+						<>
+							<Icon name="file" /> This note
+						</>
+					) : (
+						(plugin.index.get(p)?.name ?? p.split("/").pop()?.replace(/\.md$/, ""))
+					)}
 					<span className="oe-pill-x" role="button" aria-label="Remove" onClick={() => onChange(paths.filter((x) => x !== p))}>
 						<Icon name="x" />
 					</span>

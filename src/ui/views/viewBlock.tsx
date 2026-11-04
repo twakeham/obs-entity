@@ -1,8 +1,8 @@
-import { MarkdownRenderChild, Notice, TFile, parseYaml, stringifyYaml, type MarkdownPostProcessorContext } from "obsidian";
+import { MarkdownRenderChild, MarkdownView, Notice, TFile, parseYaml, stringifyYaml, type MarkdownPostProcessorContext } from "obsidian";
 import { createRoot, type Root } from "react-dom/client";
 import type EntitiesPlugin from "../../main";
 import { replaceViewBlock } from "../../model/viewBlock";
-import { isWideAlt } from "../../model/viewEmbed";
+import { embedOptions } from "../../model/viewEmbed";
 import { removeWideButton, wideButton } from "./embedWide";
 import { parseView, serializeView, unknownSources, type ViewDef } from "../../model/views";
 import { PluginContext } from "../react/context";
@@ -41,12 +41,51 @@ export class ViewBlock extends MarkdownRenderChild {
 			return;
 		}
 		this.root = createRoot(el);
+		this.def = def;
+		this.errors = errors;
+		// A first guess at the note it's shown on; checked once the block is on the page (an embed's is the note embedding it).
+		this.thisPath = this.ctx.sourcePath;
 		this.watchFit();
+		this.renderTable();
+	}
+
+	private def: ViewDef | null = null;
+	private errors: string[] = [];
+	/** the note the view is shown on ("this note" in its filters), or null when there's none */
+	private thisPath: string | null = null;
+
+	private renderTable(): void {
+		if (!this.root || !this.def) return;
 		this.root.render(
 			<PluginContext.Provider value={this.plugin}>
-				<EntityTable initial={def} warnings={errors} sourcePath={this.ctx.sourcePath} stateKey={this.stateKey()} save={(d) => this.save(d)} editDefinition={() => this.editDefinition()} />
+				<EntityTable
+					initial={this.def}
+					warnings={this.errors}
+					sourcePath={this.ctx.sourcePath}
+					stateKey={this.stateKey()}
+					thisPath={this.thisPath}
+					save={(d) => this.save(d)}
+					editDefinition={() => this.editDefinition()}
+				/>
 			</PluginContext.Provider>,
 		);
+	}
+
+	/**
+	 * The note the view is shown on: for an embed, the note whose text embeds it (an outer embed's note, or the open
+	 * note's); otherwise the note the block is written in. Null when it can't be told (e.g. a hover preview).
+	 */
+	private hostPath(): string | null {
+		const embed = this.containerEl.closest<HTMLElement>(".internal-embed");
+		if (!embed) return this.ctx.sourcePath;
+		const { app } = this.plugin;
+		const outer = embed.parentElement?.closest<HTMLElement>(".internal-embed[src]");
+		if (outer) return app.metadataCache.getFirstLinkpathDest((outer.getAttribute("src") ?? "").split("#")[0], "")?.path ?? null;
+		let path: string | null = null;
+		app.workspace.iterateAllLeaves((leaf) => {
+			if (!path && leaf.view instanceof MarkdownView && leaf.view.containerEl.contains(embed)) path = leaf.view.file?.path ?? null;
+		});
+		return path;
 	}
 
 	onunload(): void {
@@ -75,6 +114,11 @@ export class ViewBlock extends MarkdownRenderChild {
 	private fit(): void {
 		const el = this.containerEl;
 		if (!el.isConnected) return;
+		const host = this.hostPath();
+		if (host !== this.thisPath) {
+			this.thisPath = host;
+			this.renderTable();
+		}
 		const embed = el.closest<HTMLElement>(".markdown-embed");
 		if (embed) return this.fitEmbed(embed);
 		// Callouts and hover previews keep their normal size.
@@ -88,21 +132,23 @@ export class ViewBlock extends MarkdownRenderChild {
 
 	/**
 	 * An embedded view note (nothing but this block) loses the embed's border and indent, so it fills the width, and
-	 * gets a Full width button. With `|wide` the whole embed spans the pane.
+	 * gets a Full width button. With `|wide` the whole embed spans the pane; with `|bare` the toolbar and footer go.
 	 */
 	private fitEmbed(embed: HTMLElement): void {
 		if (!this.isWholeNote()) return;
 		embed.addClass("oe-view-embed");
 		this.embed = embed;
-		// Embeds in callouts, hover previews and other embeds stay as they are.
-		if (embed.closest(".callout, .popover, .hover-popover") || embed.parentElement?.closest(".internal-embed")) return;
-		wideButton(this.plugin.app, embed);
 		// Obsidian keeps the embed when its link changes (`|wide` on or off), updating only `alt`.
 		if (!this.altObserver) {
 			this.altObserver = new MutationObserver(() => this.fit());
 			this.altObserver.observe(embed, { attributes: true, attributeFilter: ["alt"] });
 		}
-		const wide = isWideAlt(embed.getAttribute("alt"));
+		const opts = embedOptions(embed.getAttribute("alt"));
+		embed.toggleClass("is-bare", opts.has("bare"));
+		// Embeds in callouts, hover previews and other embeds stay as they are.
+		if (embed.closest(".callout, .popover, .hover-popover") || embed.parentElement?.closest(".internal-embed")) return;
+		wideButton(this.plugin.app, embed);
+		const wide = opts.has("wide");
 		embed.toggleClass("is-wide", wide);
 		const pane = embed.parentElement?.closest<HTMLElement>(".cm-scroller, .markdown-preview-view");
 		if (wide && pane) this.spread(embed, pane);
@@ -164,7 +210,7 @@ export class ViewBlock extends MarkdownRenderChild {
 			this.fitted = null;
 		}
 		if (embed && !replaced) {
-			embed.removeClass("oe-view-embed", "is-wide");
+			embed.removeClass("oe-view-embed", "is-wide", "is-bare");
 			removeWideButton(embed);
 		}
 		this.embed = null;
@@ -173,8 +219,15 @@ export class ViewBlock extends MarkdownRenderChild {
 	private isWholeNote(): boolean {
 		const file = this.plugin.app.vault.getAbstractFileByPath(this.ctx.sourcePath);
 		const sections = file instanceof TFile ? this.plugin.app.metadataCache.getFileCache(file)?.sections : undefined;
+		// Not read yet (a note just created): check again once Obsidian has read it.
+		if (!sections && file instanceof TFile && !this.awaitingCache) {
+			this.awaitingCache = true;
+			this.registerEvent(this.plugin.app.metadataCache.on("changed", (f) => f.path === file.path && this.fit()));
+		}
 		return !!sections && sections.filter((s) => s.type !== "yaml").length === 1;
 	}
+
+	private awaitingCache = false;
 
 	/** Session state (search, collapsed groups, scroll) survives the re-render after a save. */
 	private stateKey(): string {

@@ -21,6 +21,7 @@ import {
 	itemAt,
 	OPERATORS,
 	prefillFromFilters,
+	withThisNote,
 	resolveColumn,
 	ROW_TARGET,
 	rowHeight,
@@ -87,9 +88,11 @@ export interface EntityTableProps {
 	onFlushReady?: (flush: () => void) => void;
 	/** fills its container (the entity view tab) instead of sitting in a note */
 	fill?: boolean;
+	/** the note the view is shown on, for "this note" in filters (null: none, e.g. the view note on its own) */
+	thisPath?: string | null;
 }
 
-export function EntityTable({ initial, warnings, sourcePath, stateKey, save, editDefinition, onFlushReady, fill }: EntityTableProps) {
+export function EntityTable({ initial, warnings, sourcePath, stateKey, save, editDefinition, onFlushReady, fill, thisPath = null }: EntityTableProps) {
 	const plugin = usePlugin();
 	const { app } = plugin;
 	const version = useRelationsVersion();
@@ -175,7 +178,9 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	const { rows, ctx } = useMemo(() => plugin.viewData(), [plugin, version]);
 	// A board runs its card fields and bucket column, with its swimlane as the only grouping level.
 	const isBoard = def.kind === "board";
-	const runDef = useMemo(() => (isBoard ? boardRunDef(def) : def), [def, isBoard]);
+	// "This note" in filters and highlight rules becomes the note the view is on.
+	const hereDef = useMemo(() => withThisNote(def, thisPath), [def, thisPath]);
+	const runDef = useMemo(() => (isBoard ? boardRunDef(hereDef) : hereDef), [hereDef, isBoard]);
 	const result = useMemo(() => runView(runDef, rows, ctx, search), [runDef, rows, ctx, search]);
 	const bucketCol = useMemo(() => (isBoard ? bucketColumn(def, lookup) : null), [isBoard, def, lookup]);
 	const bucketChoices = useMemo(() => (isBoard ? bucketColumns(def, lookup) : []), [isBoard, def, lookup]);
@@ -834,7 +839,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 
 	/** + New: a new entity, prefilled from the filters (and on a board, the bucket's and swimlane's values). */
 	const newEntity = (extra: LaneTarget[] = []) => {
-		const pre = prefillFromFilters(def, result.known);
+		const pre = prefillFromFilters(hereDef, result.known);
 		for (const { col, value } of extra) {
 			const key = col.def.kind === "builtin" ? COMMON_KEYS.status : col.def.kind === "field" ? col.def.key : null;
 			if (!key) continue;
@@ -1268,7 +1273,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	const typeLabel = def.types.includes("*") ? "All entities" : def.types.map((k) => (k.startsWith("@") ? (lookup.groups.find((g) => `@${g.key}` === k)?.name ?? k) : (lookup.types.find((t) => t.key === k)?.plural ?? k))).join(", ");
 	const conditions = filterFields(def.filters).length;
 	// Filter conditions that can't be used (no value, unknown column…): they don't filter, and the view says so.
-	const ignored = ignoredConditions(def.filters, result.known, ctx);
+	const ignored = ignoredConditions(hereDef.filters, result.known, ctx);
 	// Fill columns share the spare width; one being resized shows the minimum being set until it's released.
 	const shownW = fillWidths(
 		columns.map((c) => ({ id: c.id, w: widthOf(c) })),
@@ -1384,8 +1389,9 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					<button
 						className="oe-pop-link"
 						onClick={(e) => {
+							// With the toolbar hidden (a bare embed), the panel opens by this link instead.
 							const btn = e.currentTarget.closest(".oe-view")?.querySelector<HTMLElement>("[data-pop=filters]");
-							if (btn) openPop("filters", btn);
+							openPop("filters", btn?.offsetParent ? btn : e.currentTarget);
 						}}
 					>
 						Edit filters
@@ -1713,7 +1719,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 
 			{pop && (
 				<Popover key={pop.name} anchor={pop.anchor} onClose={() => setPop(null)} className={`oe-pop-${pop.name}`} label={pop.name}>
-					{pop.name === "filters" && <FiltersPanel filters={def.filters} choices={choices} ctx={ctx} valuesOf={valuesOf} onChange={(filters) => update({ ...defRef.current, filters })} />}
+					{pop.name === "filters" && <FiltersPanel filters={def.filters} choices={choices} ctx={ctx} valuesOf={valuesOf} thisNote={thisPath} onChange={(filters) => update({ ...defRef.current, filters })} />}
 					{pop.name === "sort" && <SortPanel sort={def.sort} choices={choices} onChange={(sort) => update({ ...defRef.current, sort })} />}
 					{pop.name === "group" &&
 						(isBoard ? (
@@ -1753,6 +1759,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 							choices={choices}
 							ctx={ctx}
 							valuesOf={valuesOf}
+							thisNote={thisPath}
 							onChange={(highlight) => update({ ...defRef.current, highlight })}
 						/>
 					)}

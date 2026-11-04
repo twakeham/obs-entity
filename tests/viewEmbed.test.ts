@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyEdit, embedLinks, embedWideEdit, isWideAlt } from "../src/model/viewEmbed";
+import { applyEdit, embedLinks, embedOptions, embedWideEdit, isWideAlt } from "../src/model/viewEmbed";
 
 const toggle = (text: string, src: string, wide: boolean, pick?: { near?: number; index?: number }) => {
 	const e = embedWideEdit(text, src, wide, pick);
@@ -41,5 +41,19 @@ describe("wide view embeds", () => {
 	it("escapes the pipe inside a table", () => {
 		expect(toggle("| a | ![[V]] |", "V", true)).toBe("| a | ![[V\\|wide]] |");
 		expect(toggle("| a | ![[V\\|wide]] |", "V", false)).toBe("| a | ![[V]] |");
+	});
+
+	it("reads options only when every word is one", () => {
+		expect([...embedOptions("wide bare")]).toEqual(["wide", "bare"]);
+		expect([...embedOptions("Bare, Wide")]).toEqual(["bare", "wide"]);
+		expect(embedOptions("Wide open spaces").size).toBe(0);
+		expect(embedOptions("Open tasks").size).toBe(0);
+		expect(isWideAlt("bare wide")).toBe(true);
+	});
+
+	it("keeps bare when wide is turned on or off", () => {
+		expect(toggle("![[V|bare]]", "V", true)).toBe("![[V|wide bare]]");
+		expect(toggle("![[V|bare wide]]", "V", false)).toBe("![[V|bare]]");
+		expect(toggle("![[V|wide]]", "V", false)).toBe("![[V]]");
 	});
 });

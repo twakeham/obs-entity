@@ -22,6 +22,7 @@ import {
 	ignoredConditions,
 	itemAt,
 	NEEDS_VALUE,
+	NO_THIS_NOTE,
 	parseView,
 	percentile,
 	prefillFromFilters,
@@ -33,7 +34,10 @@ import {
 	scalePosition,
 	serializeView,
 	shareCell,
+	THIS_NOTE,
 	unknownSources,
+	usesThisNote,
+	withThisNote,
 	type ViewContext,
 	type ResultGroup,
 	type ViewDef,
@@ -644,6 +648,32 @@ describe("prefill", () => {
 		const def = view({ types: ["organisation"], filters: { all: [{ field: "status", op: "any-of", value: ["active"] }, { field: "kind", op: "any-of", value: ["Company"] }, { field: "part_of", op: "links-any", value: ["Acme.md"] }, { field: "website", op: "contains", value: "x" }] } });
 		const { known } = runView(def, ROWS, ctx);
 		expect(prefillFromFilters(def, known)).toEqual({ status: "active", fields: { kind: "Company", part_of: "Acme.md" } });
+	});
+});
+
+describe("this note", () => {
+	const def = view({ types: ["project"], columns: ["team"], filters: { all: [{ field: "team", op: "links-any", value: [THIS_NOTE] }] }, highlight: [{ target: "row", when: { all: [{ field: "owner", op: "links-none", value: [THIS_NOTE, "Ada"] }] }, style: { fill: "red" } }] });
+
+	it("becomes the note the view is shown on, in filters and highlight rules", () => {
+		expect(usesThisNote(def)).toBe(true);
+		expect(usesThisNote(view({ types: ["project"] }))).toBe(false);
+		const on = withThisNote(def, "Grace.md");
+		expect(runView(on, ROWS, ctx).rows.map((r) => r.row.name)).toEqual(["Apollo"]);
+		expect(on.highlight?.[0].when.items[0]).toEqual({ field: "owner", op: "links-none", value: ["Grace.md", "Ada"] });
+		// What's saved keeps the placeholder.
+		expect((def.filters.items[0] as { value: unknown }).value).toEqual([THIS_NOTE]);
+		// + New links the new note to it.
+		expect(prefillFromFilters(on, runView(on, ROWS, ctx).known).fields).toEqual({ team: "Grace.md" });
+	});
+
+	it("is skipped, and reported, where there's no note", () => {
+		const off = withThisNote(def, null);
+		const r = runView(off, ROWS, ctx);
+		expect(r.rows).toHaveLength(4);
+		const ignored = ignoredConditions(off.filters, r.known, ctx);
+		expect(ignored.map((i) => i.issue)).toEqual([NO_THIS_NOTE]);
+		// Mixed with real notes, only the placeholder goes.
+		expect(off.highlight?.[0].when.items[0]).toEqual({ field: "owner", op: "links-none", value: ["Ada"] });
 	});
 });
 

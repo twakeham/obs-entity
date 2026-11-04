@@ -239,6 +239,7 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
 - **Filters:** conditions combined with **all** or **any**, plus a nested group, e.g. "status is active AND (owner is Ada OR team has Ada)".
   - The operators suit each column: contains / is, < >, before / after / between, is any of, has any / all / none of, links to, link count…
   - Dates also accept `today`, `-7d`, `+2w` or `1m`.
+  - **This note:** for a link column (e.g. Project, or an incoming link), **links to any / none of** can pick **This note**: the note the view is shown on. Embed a Tasks view filtered by "Project links to any of This note" in your project notes and each shows its own tasks; **+ New** there links the new task to that project. It also works in highlight rules. When the view note is opened on its own there's no "this note", so the condition is ignored (and the view says so).
   - A condition that's missing its value (or has a number or date that can't be read, or a column that's gone) is **ignored** until it's fixed. The panel notes why under it, and a notice above the view (with **Edit filters**) and an orange Filters button remind you.
 - **Sort:** any number of levels, which can be dragged to reorder. Clicking a header sorts by it (ascending, descending, off), and Shift-click adds a level.
   - Statuses sort in their group's order, text sorts naturally ("Chapter 2" before "Chapter 10"), and empty values go last.
@@ -336,7 +337,8 @@ Functions: logic (`if`, `ifs`, `and`, `or`, `not`, `empty`, `coalesce`), maths (
 - **Open as Markdown** (header button or ⋯) shows the note itself, e.g. to edit the definition or write notes below the block. **Open as entity view** switches back.
 - The setting **Open view notes as entity views** turns this off.
 - A view embedded in another note (`![[View]]`) stays inline, filling the note's width: the embed's left border and indent are dropped. (An embedded note that has other content besides the view keeps the usual embed look.)
-- **Full width:** the ↔ button next to the embed's open-link button widens it to the whole pane (with a small gap each side), and back. It's saved in the embed link as `![[View|wide]]`, so each embed remembers its own width; you can also type `|wide` yourself. In Live Preview the change can be undone like any edit.
+- **Bare:** `![[View|bare]]` hides the view's toolbar and the footer (+ New, the count), leaving the table or board (the summary row and any warnings stay). Selecting rows brings the toolbar back for the bulk actions. Options combine: `![[View|wide bare]]`.
+- **Full width:** the ↔ button next to the embed's open-link button widens it to the whole pane (with a small gap each side), and back. It's saved in the embed link as `![[View|wide]]`, so each embed remembers its own width; you can also type `|wide` yourself. In Live Preview the change can be undone like any edit. It keeps any other options (`bare`).
 
 ### Boards
 

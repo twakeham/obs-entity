@@ -1,6 +1,7 @@
 /**
- * Embedded view notes can be shown full width: the embed link's display text is `wide` (`![[Open tasks|wide]]`).
- * These helpers find a note's embeds of a link and work out the edit that turns `|wide` on or off.
+ * Options for embedded view notes, written as the embed link's display text: `wide` (full width) and `bare` (no
+ * toolbar or footer), e.g. `![[Open tasks|wide bare]]`. These helpers read them, find a note's embeds of a link and
+ * work out the edit that turns `wide` on or off.
  */
 
 export interface EmbedLink {
@@ -16,8 +17,20 @@ export interface EmbedLink {
 
 const EMBED_RE = /!\[\[([^\]|\n]+?)(?:\|([^\]\n]*))?\]\]/g;
 
+export const EMBED_OPTIONS = ["wide", "bare"] as const;
+export type EmbedOption = (typeof EMBED_OPTIONS)[number];
+
+/**
+ * The options in an embed's display text: its words, when every one is an option ("wide bare", "Bare, wide").
+ * Other display text (and Obsidian's default, the link itself) gives none.
+ */
+export function embedOptions(alt: string | null | undefined): Set<EmbedOption> {
+	const words = (alt ?? "").trim().toLowerCase().split(/[\s,]+/).filter(Boolean);
+	return new Set(words.length && words.every((w) => (EMBED_OPTIONS as readonly string[]).includes(w)) ? (words as EmbedOption[]) : []);
+}
+
 /** Whether an embed's display text asks for full width. */
-export const isWideAlt = (alt: string | null | undefined): boolean => !!alt && alt.trim().toLowerCase() === "wide";
+export const isWideAlt = (alt: string | null | undefined): boolean => embedOptions(alt).has("wide");
 
 /** The embeds in `text` whose link text is `src` (as Obsidian puts it in the embed's `src` attribute). */
 export function embedLinks(text: string, src: string): EmbedLink[] {
@@ -49,7 +62,10 @@ export function embedWideEdit(text: string, src: string, wide: boolean, pick: { 
 	// A pipe inside a table row has to be escaped.
 	const lineStart = text.lastIndexOf("\n", link.from - 1) + 1;
 	const inTable = link.escaped || text.slice(lineStart, link.from).trimStart().startsWith("|");
-	const insert = `![[${link.target}${wide ? `${inTable ? "\\|" : "|"}wide` : ""}]]`;
+	// Other options stay (`wide` goes first); other display text is replaced.
+	const rest = [...embedOptions(link.alt)].filter((o) => o !== "wide");
+	const opts = wide ? ["wide", ...rest] : rest;
+	const insert = `![[${link.target}${opts.length ? `${inTable ? "\\|" : "|"}${opts.join(" ")}` : ""}]]`;
 	return { from: link.from, to: link.to, insert };
 }
 

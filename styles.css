@@ -2859,6 +2859,12 @@ button.oe-tm-typegroup-title,
 	margin-inline: 0;
 }
 
+/* Bare (`|bare`): no footer, and no toolbar unless rows are selected (it then holds the bulk actions). */
+.markdown-embed.oe-view-embed.is-bare .oe-view-toolbar:not(:has(.oe-selbar)),
+.markdown-embed.oe-view-embed.is-bare .oe-table-footer {
+	display: none;
+}
+
 /* The Full width toggle, just left of the embed's open-link button; pressed in while the embed is wide. */
 .markdown-embed.oe-view-embed > .oe-embed-wide {
 	position: absolute;
@@ -3362,6 +3368,17 @@ button.oe-tm-typegroup-title,
 	align-items: center;
 	gap: 4px;
 	max-width: 380px;
+}
+
+/* "This note" in a link condition: the note the view is on */
+.oe-pill.is-this-note {
+	color: var(--text-accent);
+	font-weight: var(--font-medium);
+}
+
+.oe-pill.is-this-note > .svg-icon {
+	width: 12px;
+	height: 12px;
 }
 
 .oe-pop-actions {

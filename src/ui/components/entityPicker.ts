@@ -74,7 +74,16 @@ export function renderEntityMatch(el: HTMLElement, m: EntityMatch): void {
 
 export type EntitySuggestion =
 	| ({ kind: "entity" } & EntityMatch)
-	| { kind: "create"; type: EntityTypeDef | null; name: string; candidates: EntityTypeDef[] };
+	| { kind: "create"; type: EntityTypeDef | null; name: string; candidates: EntityTypeDef[] }
+	| ({ kind: "extra" } & ExtraSuggestion);
+
+/** A choice listed before the notes (e.g. "This note" in a view's filters), shown when it matches what's typed. */
+export interface ExtraSuggestion {
+	label: string;
+	icon: string;
+	note?: string;
+	onPick: () => void;
+}
 
 export interface EntitySuggestOptions {
 	targets?: RelationTarget[];
@@ -82,6 +91,8 @@ export interface EntitySuggestOptions {
 	exclude?: () => Set<string>;
 	onPick: (entity: EntityRecord) => void;
 	allowCreate?: boolean;
+	/** a choice to list first (null: none just now) */
+	extra?: () => ExtraSuggestion | null;
 }
 
 /** Concrete entity types that satisfy a relation's targets. */
@@ -105,6 +116,8 @@ export class EntitySuggest extends AbstractInputSuggest<EntitySuggestion> {
 		const exclude = this.opts.exclude?.() ?? new Set<string>();
 		const pool = this.plugin.index.matching(this.opts.targets).filter((e) => !exclude.has(e.path));
 		const results: EntitySuggestion[] = searchEntities(pool, query, 30).map((m) => ({ kind: "entity", ...m }));
+		const extra = this.opts.extra?.();
+		if (extra && extra.label.toLowerCase().includes(query.trim().toLowerCase())) results.unshift({ kind: "extra", ...extra });
 		const name = query.trim();
 		const exact = this.plugin.index.matching(this.opts.targets).some((e) => e.name.toLowerCase() === name.toLowerCase());
 		if ((this.opts.allowCreate ?? true) && name && !exact) {
@@ -123,6 +136,14 @@ export class EntitySuggest extends AbstractInputSuggest<EntitySuggestion> {
 			renderEntityMatch(el, s);
 			return;
 		}
+		if (s.kind === "extra") {
+			el.addClass("oe-suggestion", "oe-suggestion-extra");
+			setIcon(el.createSpan({ cls: "oe-type-icon" }), s.icon);
+			const main = el.createDiv({ cls: "oe-suggestion-main" });
+			main.createDiv({ cls: "oe-suggestion-title", text: s.label });
+			if (s.note) main.createDiv({ cls: "oe-suggestion-note", text: s.note });
+			return;
+		}
 		el.addClass("oe-suggestion", "oe-suggestion-create");
 		const icon = el.createSpan({ cls: "oe-type-icon" });
 		setIcon(icon, "plus");
@@ -138,6 +159,10 @@ export class EntitySuggest extends AbstractInputSuggest<EntitySuggestion> {
 		this.close();
 		if (s.kind === "entity") {
 			this.opts.onPick(s.entity);
+			return;
+		}
+		if (s.kind === "extra") {
+			s.onPick();
 			return;
 		}
 		const create = async (type: EntityTypeDef) => {

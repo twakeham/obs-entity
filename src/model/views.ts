@@ -1600,6 +1600,40 @@ const blank = (v: unknown) => v === undefined || v === null || (typeof v === "st
 /** `conditionIssue` for a condition that's only missing its value (still being set up, rather than broken). */
 export const NEEDS_VALUE = "It needs a value.";
 
+// ---------------------------------------------------------------- "this note"
+
+/** In "links to any / none of" values: the note the view is shown on (the note embedding it, or the note it's in). */
+export const THIS_NOTE = "{this}";
+/** `conditionIssue` for a "this note" condition where the view isn't shown on a note (e.g. the view note opened on its own). */
+export const NO_THIS_NOTE = "It isn't shown on a note, so there's no “this note”.";
+const THIS_OPS = new Set(["links-any", "links-none"]);
+
+/** Whether the definition's filters or highlight rules use "this note". */
+export function usesThisNote(def: ViewDef): boolean {
+	const inGroup = (g: FilterGroup): boolean => g.items.some((i) => (isGroup(i) ? inGroup(i) : THIS_OPS.has(i.op) && listOf(i.value).includes(THIS_NOTE)));
+	return inGroup(def.filters) || (def.highlight ?? []).some((r) => inGroup(r.when));
+}
+
+/**
+ * The definition as run on the note at `path`: "this note" in link conditions (filters and highlight rules) becomes
+ * that note's path. With no note (null) it's dropped; a condition left with nothing else keeps it, and is reported
+ * as ignored (`NO_THIS_NOTE`). The definition itself (what's saved) keeps `{this}`.
+ */
+export function withThisNote(def: ViewDef, path: string | null): ViewDef {
+	if (!usesThisNote(def)) return def;
+	const group = (g: FilterGroup): FilterGroup => ({ ...g, items: g.items.map((i) => (isGroup(i) ? group(i) : thisNoteCondition(i, path))) });
+	return { ...def, filters: group(def.filters), ...(def.highlight ? { highlight: def.highlight.map((r) => ({ ...r, when: group(r.when) })) } : {}) };
+}
+
+/** One condition with "this note" resolved (see `withThisNote`). */
+export function thisNoteCondition(c: Condition, path: string | null): Condition {
+	if (!THIS_OPS.has(c.op)) return c;
+	const vals = listOf(c.value);
+	if (!vals.includes(THIS_NOTE)) return c;
+	const next = path ? vals.map((v) => (v === THIS_NOTE ? path : v)) : vals.filter((v) => v !== THIS_NOTE);
+	return { ...c, value: next.length ? [...new Set(next)] : [THIS_NOTE] };
+}
+
 /**
  * Why a condition is ignored: an unknown column, an operator the column doesn't support, a missing value, or (with
  * `ctx`) a number or date that can't be read. Ignored conditions don't filter anything.
@@ -1611,6 +1645,7 @@ export function conditionIssue(cond: Condition, columns: Map<string, ResolvedCol
 	const op = OPERATORS[col.kind].find((o) => o.op === cond.op);
 	if (!op) return `“${cond.op}” doesn't apply to ${col.label}.`;
 	if (op.value === "none") return null;
+	if (op.value === "links" && listOf(cond.value).includes(THIS_NOTE)) return NO_THIS_NOTE;
 	if (blank(cond.value)) return NEEDS_VALUE;
 	if (op.value === "number" && toNumber(cond.value) === null) return `“${String(cond.value)}” isn't a number.`;
 	if (ctx && op.value === "date" && dateValue(cond.value, ctx) === null) return `“${String(cond.value)}” isn't a date.`;
