@@ -59,6 +59,8 @@ export class ViewBlock extends MarkdownRenderChild {
 	private paneObserver: ResizeObserver | null = null;
 	private pane: HTMLElement | null = null;
 	private fitted: HTMLElement | null = null;
+	/** the embed this view fills (marked `oe-view-embed`) */
+	private embed: HTMLElement | null = null;
 
 	/** Start fitting once the block is in the page (post-processors run before it's attached). */
 	private watchFit(): void {
@@ -69,6 +71,12 @@ export class ViewBlock extends MarkdownRenderChild {
 	private fit(): void {
 		const el = this.containerEl;
 		if (!el.isConnected) return;
+		// An embedded view note (nothing but this block) loses the embed's border and indent, so it fills the width.
+		const embed = el.closest<HTMLElement>(".markdown-embed");
+		if (embed && this.isWholeNote()) {
+			embed.addClass("oe-view-embed");
+			this.embed = embed;
+		}
 		// Embeds, callouts and hover previews keep their normal size.
 		if (el.closest(".internal-embed, .markdown-embed, .callout, .popover, .hover-popover")) return;
 		const pane = el.closest<HTMLElement>(".cm-scroller, .markdown-preview-view");
@@ -108,6 +116,16 @@ export class ViewBlock extends MarkdownRenderChild {
 		this.sizeObserver = this.paneObserver = null;
 		this.pane = null;
 		this.fitted = null;
+		// A re-rendered embed may already hold the new block, which keeps the class.
+		if (this.embed && ![...this.embed.querySelectorAll(".oe-view-host")].some((h) => h !== this.containerEl)) this.embed.removeClass("oe-view-embed");
+		this.embed = null;
+	}
+
+	/** Whether this block is the whole note (apart from frontmatter), like the notes in the views folder. */
+	private isWholeNote(): boolean {
+		const file = this.plugin.app.vault.getAbstractFileByPath(this.ctx.sourcePath);
+		const sections = file instanceof TFile ? this.plugin.app.metadataCache.getFileCache(file)?.sections : undefined;
+		return !!sections && sections.filter((s) => s.type !== "yaml").length === 1;
 	}
 
 	/** Session state (search, collapsed groups, scroll) survives the re-render after a save. */

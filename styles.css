@@ -2832,6 +2832,21 @@ button.oe-tm-typegroup-title,
 	margin: var(--size-4-2) 0;
 }
 
+/* An embedded view note (![[Open tasks]]) fills the width: no embed border or indent. */
+.markdown-embed.oe-view-embed {
+	border-inline-start: none;
+	padding-inline-start: 0;
+}
+
+.markdown-embed.oe-view-embed > .markdown-embed-content > .markdown-preview-view,
+.markdown-embed.oe-view-embed > .markdown-embed-title {
+	padding-inline: 0;
+}
+
+.markdown-embed.oe-view-embed > .markdown-embed-content > .markdown-preview-view {
+	scrollbar-gutter: auto;
+}
+
 .oe-view {
 	container-type: inline-size;
 	border: 1px solid var(--background-modifier-border);

@@ -1671,6 +1671,7 @@ Bucket keys are the value (a status or choice), `yes` / `no` (checkboxes), the n
 
 **Notes:**
 - **Full tab:** a view placed directly in a note spans the whole pane, ignoring the readable line width, in both Live Preview and Reading view. Its scroll area can grow to the pane's height. Embedded views (`![[View]]`), views in callouts and hover previews keep their normal size.
+- **Embedded view notes:** when the embedded note is just the view (its only section apart from frontmatter, from the metadata cache), the block marks the embed `oe-view-embed`, which drops Obsidian's embed border, the left indent of the embed's title and content, and the content's reserved scrollbar gutter, so the view fills the line width. Embeds of notes with other content keep the usual look. The class is removed when the block unloads, unless the embed already holds a newer render of it.
   - `ViewBlock.fit()` measures the pane (`.cm-scroller` / `.markdown-preview-view`) and sets the host's margin and width, tracking resizes with ResizeObserver. It only styles its own element: changing CodeMirror's `.cm-embed-block` makes the editor redraw the widget.
   - For that widget, CSS lifts Obsidian's `contain: paint !important` and hides its "Edit this block" button (⋯ → Edit definition does the same).
   - A filler column takes spare width, so the grid reaches the right edge while column widths stay exact.

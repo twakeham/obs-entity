@@ -335,7 +335,7 @@ Functions: logic (`if`, `ifs`, `and`, `or`, `not`, `empty`, `coalesce`), maths (
 **Full-tab views:** opening a view note shows it as an **entity view** tab: the table fills the whole tab, edge to edge, like the Entity types editor.
 - **Open as Markdown** (header button or ⋯) shows the note itself, e.g. to edit the definition or write notes below the block. **Open as entity view** switches back.
 - The setting **Open view notes as entity views** turns this off.
-- A view embedded in another note (`![[View]]`) stays inline.
+- A view embedded in another note (`![[View]]`) stays inline, filling the note's width: the embed's left border and indent are dropped. (An embedded note that has other content besides the view keeps the usual embed look.)
 
 ### Boards
 
