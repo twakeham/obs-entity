@@ -1,6 +1,6 @@
 import { useMemo, type CSSProperties } from "react";
 import { subtitleOf } from "../../../model/card";
-import { emptyFormValues } from "../../../services/entityFactory";
+import { emptyFormValues } from "../../../model/defaults";
 import { usePlugin } from "../context";
 import { CreateForm } from "../CreateForm";
 import { FormPreview } from "../EntityForm";

@@ -1962,6 +1962,133 @@ select.oe-status {
 	font-size: 0.95em;
 }
 
+/* Fields tab: Validation (folds; ranges, pattern test, date bounds, compare, required when) */
+.oe-tm-rules {
+	margin-top: var(--size-4-2);
+	border-top: 1px solid var(--background-modifier-border);
+	padding-top: var(--size-4-2);
+}
+
+.oe-tm-rules-head {
+	all: unset;
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	width: 100%;
+	cursor: var(--cursor);
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
+}
+
+.oe-tm-rules-head:focus-visible {
+	box-shadow: 0 0 0 2px var(--background-modifier-border-focus);
+	border-radius: var(--radius-s);
+}
+
+.oe-tm-rules-head .svg-icon {
+	width: var(--icon-s);
+	height: var(--icon-s);
+	color: var(--text-muted);
+}
+
+.oe-tm-rules.has-issue .oe-tm-rules-head {
+	color: var(--text-error);
+}
+
+.oe-tm-rules-count {
+	margin-left: auto;
+	font-weight: normal;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	background-color: var(--background-modifier-hover);
+	border-radius: var(--radius-s);
+	padding: 0 var(--size-4-1);
+}
+
+.oe-tm-rules-desc {
+	font-size: var(--font-ui-smaller);
+	margin: var(--size-4-1) 0 var(--size-4-2);
+}
+
+.oe-tm-rule-range,
+.oe-tm-rule-dates,
+.oe-tm-rule-compare,
+.oe-tm-rule-bound,
+.oe-tm-rule-test {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+.oe-tm-rule-range .oe-tm-rule-num {
+	width: 6em;
+}
+
+.oe-tm-rule-bound input {
+	width: 9em;
+}
+
+.oe-tm-rule-bound .oe-tm-muted {
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-tm-default {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: var(--size-4-2);
+}
+
+.oe-tm-default-linked {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+.oe-tm-rule-pattern {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+	width: 100%;
+}
+
+.oe-tm-rule-pattern input {
+	width: 100%;
+}
+
+.oe-tm-rule-test input {
+	flex: 1;
+	width: auto;
+}
+
+.oe-tm-rule-ok,
+.oe-tm-rule-bad {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-tm-rule-ok {
+	color: var(--text-success);
+}
+
+.oe-tm-rule-bad {
+	color: var(--text-error);
+}
+
+.oe-tm-rule-ok .svg-icon,
+.oe-tm-rule-bad .svg-icon {
+	width: var(--icon-xs);
+	height: var(--icon-xs);
+}
+
+.oe-tm-rules .oe-ld-when-editor {
+	width: 100%;
+}
+
 .oe-hidden {
 	display: none !important;
 }

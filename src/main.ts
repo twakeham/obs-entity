@@ -1,6 +1,6 @@
 import { debounce, Keymap, MarkdownView, Notice, Plugin, TFile, WorkspaceLeaf, moment, normalizePath, stringifyYaml, type PaneType, type ViewState } from "obsidian";
 import type { MomentLike } from "./model/formats";
-import type { FormatEnv } from "./model/fieldFormats";
+import { showDate, type FormatEnv } from "./model/fieldFormats";
 import { isoDateAdapter, type DateAdapter } from "./model/dates";
 import type { EntityFormValues, FieldValue } from "./model/frontmatter";
 import { mergeSettings, type EntitiesSettings } from "./model/settings";
@@ -87,6 +87,7 @@ export default class EntitiesPlugin extends Plugin {
 		// Subtitles with calculated fields need every note indexed; fill them in once the index settles.
 		const calcSubtitles = debounce(() => this.refreshCalcSubtitles(), 300, true);
 		this.registerEvent(this.index.on("updated", calcSubtitles));
+		this.registerEvent(this.index.on("updated", () => this.uniqueCache.clear()));
 		this.form.load();
 		this.views.load();
 		this.registerMarkdownCodeBlockProcessor(VIEW_BLOCK, (source, el, ctx) => ctx.addChild(new ViewBlock(this, source, el, ctx)));
@@ -332,7 +333,9 @@ export default class EntitiesPlugin extends Plugin {
 	}
 
 	/** How links from `sourcePath` resolve, for checking an entity's values. */
+	private uniqueCache = new Map<string, { path: string; name: string; value: unknown }[]>();
 	checkContext(sourcePath: string): CheckContext {
+		const env = this.formatEnv();
 		return {
 			types: this.settings.types,
 			groups: this.settings.groups,
@@ -341,6 +344,15 @@ export default class EntitiesPlugin extends Plugin {
 				const file = this.app.metadataCache.getFirstLinkpathDest(linkpath, sourcePath);
 				return file ? { path: file.path, type: this.index.get(file.path)?.type ?? null } : null;
 			},
+			path: sourcePath,
+			others: (typeKey, key) => {
+				// Cached until the index changes (a table checks every row against every other).
+				const id = `${typeKey}\u0000${key}`;
+				let list = this.uniqueCache.get(id);
+				if (!list) this.uniqueCache.set(id, (list = this.index.ofType(typeKey).map((e) => ({ path: e.path, name: e.name, value: e.frontmatter[key] }))));
+				return list;
+			},
+			showDate: (d) => showDate(d, env.dateFormat, env),
 		};
 	}
 

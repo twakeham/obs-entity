@@ -10,7 +10,7 @@ import {
 	type SearchResult,
 } from "obsidian";
 import type { EntityRecord } from "../../services/entityIndex";
-import { emptyFormValues } from "../../services/entityFactory";
+import { emptyFormValues } from "../../model/defaults";
 import { groupOf, typeMatchesTarget, type EntityTypeDef, type RelationTarget } from "../../model/types";
 import type EntitiesPlugin from "../../main";
 

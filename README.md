@@ -84,7 +84,7 @@ On entity notes, a form built from the note's type replaces Obsidian's Propertie
 - **Keyboard:** in chip rows, ←/→ move between chips, and Backspace or Delete removes one.
 
 **Problems:**
-- Values set elsewhere (Source mode, sync, other plugins) are never changed silently. Instead they're checked: a wrong kind of value, a choice or status that isn't allowed, a single value where a list is expected, a link to the wrong type of entity, a link written as plain text, or an empty required field.
+- Values set elsewhere (Source mode, sync, other plugins) are never changed silently. Instead they're checked: a wrong kind of value, a choice or status that isn't allowed, a single value where a list is expected, a link to the wrong type of entity, a link written as plain text, an empty required field, or a value that breaks one of the field's validation rules (see Entity types view → Fields).
 - A problem outlines its row in red (or orange for warnings), with a tooltip and a one-click **Fix** where there is one (e.g. "Make it a number", "Remove the link").
 - **Check entities** lists every note with problems.
 
@@ -131,7 +131,19 @@ Opened from:
 
 **Type editor tabs:**
 - **General:** name, plural, key (fixed once saved), icon, colour, group, statuses (the group's or custom), folder (the entity folder pattern or the type's own exception), folder rule (in the folder / own folder each / inside its parent, with a path preview), template, search shortcuts. Also Duplicate, Copy as JSON, Reset to starter, and Delete type.
-- **Fields:** a field list (drag to reorder) and a details panel with label, key, kind, description, **display format** (numbers, dates, checkboxes, URLs; each preset shows an example from your notes), choices, default, create-dialog / required toggles, and relation options.
+- **Fields:** a field list (drag to reorder) and a details panel with label, key, kind, description, **display format** (numbers, dates, checkboxes, URLs; each preset shows an example from your notes), choices, default, create-dialog / required toggles, validation rules, and relation options.
+  - **Default:** a fixed value, or a smarter one:
+    - **Relative to today** (dates): `today`, `today+14d`, `today-1w`, `today+1m`, `today+1y`. The editor shows the date it gives today.
+    - **From a linked note:** e.g. a task's Client from its Project's Client. The create dialog fills it in as soon as the project is chosen (and again if you change it), unless you've typed in the field yourself. This is the only kind of default for relation fields.
+    - **The next number** (text and number fields): one more than the highest number used by the type's notes, in a pattern such as `TASK-{n}` with a number of digits (TASK-0042). The create dialog shows it as the placeholder and takes it when the note is created.
+    - Defaults only fill in new notes.
+  - **Validation** (a foldable section under Required). Breaking a rule never stops a note being saved: the value is flagged as a problem in the properties form and with a marker in tables and boards. The create dialog shows problems as you type and won't create the note until they're fixed.
+    - **Numbers:** a range (leave a box empty for no limit) and whole numbers only.
+    - **Text, long text and URLs:** a length range, and a pattern (a regular expression) with your own message for when it doesn't match, plus a box to test it.
+    - **Dates:** earliest and latest, as a date or relative to today (`today`, `today-1y`, `today+2w`), and before / after another date field (e.g. End on or after Start).
+    - **Lists, multiple choice and multi-link fields:** how many items.
+    - **Unique:** no other note of the type has the same value (e.g. a code or email).
+    - **Required when:** required only while a condition holds (e.g. Lost reason when Status is Lost); the field gets a `*` and the create dialog asks for it.
   - Kinds: text, long text, number, date, choice, multiple choice, list, checkbox, link (URL), relation, and two **calculated** kinds (below).
   - **Calculated fields** are worked out whenever they're shown and never written to the note:
     - **Roll-up:** from linked notes. **From** (this type's relation fields, or notes of another type that link here, e.g. "Tasks (linking here)"), **Calculate** (count, names, unique values, sum, average, smallest, largest, earliest, latest, % done, count by status) and **Of field**, which can be a calculated field of the linked notes too. E.g. Project → "Estimate total" = sum of the tasks' Estimate.
@@ -413,6 +425,8 @@ src/
   model/                     pure, unit-tested
     types.ts                 EntityTypeDef, FieldDef, GroupDef, CardConfig (subtitle), FormConfig, COMMON_KEYS
     validation.ts            typeIssues(): located problems
+    rules.ts                 field validation rules (ranges, patterns, dates, unique, required when)
+    defaults.ts              smarter defaults (relative dates, from a linked note, the next number)
     links.ts                 wikilink parsing/formatting, labelled links
     relations.ts             edges, groupRelations (inverses), addLink/removeLink
     frontmatter.ts           build/merge frontmatter, value conversion

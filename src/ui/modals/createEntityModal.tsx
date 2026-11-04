@@ -2,7 +2,7 @@ import { Modal, Notice, type TFile } from "obsidian";
 import { createRoot, type Root } from "react-dom/client";
 import type { EntityFormValues } from "../../model/frontmatter";
 import type { EntityTypeDef } from "../../model/types";
-import { emptyFormValues } from "../../services/entityFactory";
+import { emptyFormValues } from "../../model/defaults";
 import type EntitiesPlugin from "../../main";
 import { TypePickerModal } from "../components/entityPicker";
 import { PluginContext } from "../react/context";

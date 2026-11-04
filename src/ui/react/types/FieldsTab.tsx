@@ -1,12 +1,17 @@
 import { Menu, Notice } from "obsidian";
-import { useMemo, useState, type CSSProperties, type DragEvent, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type DragEvent, type MouseEvent, type ReactNode } from "react";
 import { newUid, renameFieldRefs, targetName } from "../../../model/typeEditing";
-import { isCalculated, toKey, type EntityTypeDef, type FieldDef, type FieldKind, type GroupDef } from "../../../model/types";
+import { COMMON_KEYS, isCalculated, storedFields, toKey, type EntityTypeDef, type FieldDef, type FieldKind, type GroupDef } from "../../../model/types";
 import { toDisplay } from "../../../model/formula";
 import { AGG_FIELD_KINDS, calcCell, calcInfo, fieldColumn, formatCell, formulaRefColumns, resolveColumn, rollupSources, ROLLUP_AGGS, typeViewDef, type RollupAgg, type RollupDef } from "../../../model/views";
 import { FormulaModal } from "../../modals/formulaModal";
-import { BOOLEAN_FORMATS, datePresetLabels, FIELD_DATE_PRESETS, FIELD_NUMBER_PRESETS, formattedKind, formatValue, urlText } from "../../../model/fieldFormats";
+import { BOOLEAN_FORMATS, datePresetLabels, FIELD_DATE_PRESETS, FIELD_NUMBER_PRESETS, formattedKind, formatValue, showDate, urlText } from "../../../model/fieldFormats";
 import { usePlugin } from "../context";
+import { autoText, defaultKinds, linkedTypes, nextAutoNumber, type DefaultFrom } from "../../../model/defaults";
+import { boundDays, boundText, DATE_COMPARE_LABELS, pruneRules, ruleGroups, takesUnique, type DateCompareOp, type FieldRules } from "../../../model/rules";
+import { todayDays, whenColumns, whenText } from "../../../model/formConditions";
+import { whenParts } from "../../../model/formLayout";
+import { FiltersPanel, type ColumnChoice } from "../table/popovers";
 import { Icon } from "../Icon";
 import { ChipsInput, DateInput, Issues, Row, Segmented, TargetPicker, TextInput, Toggle } from "./controls";
 import { KIND_INFO, KIND_ORDER, useEditor } from "./editor";
@@ -298,6 +303,8 @@ function FieldDetails({ index }: { index: number }) {
 							if (x.kind === "relation" && !x.targets) x.targets = ["*"];
 							if ((x.kind === "select" || x.kind === "multiselect") && !x.options) x.options = [];
 							startCalc(x, t, allTypes, groups);
+							pruneRules(x);
+							if (x.defaultFrom && !defaultKinds(x).includes(x.defaultFrom.kind)) delete x.defaultFrom;
 							// Relation fields can't be part of the subtitle.
 							if (x.kind === "relation" && t.card?.subtitle) t.card.subtitle = t.card.subtitle.filter((k) => k !== x.key);
 						})
@@ -362,7 +369,7 @@ function FieldDetails({ index }: { index: number }) {
 
 			{isCalculated(f) && <CalcRows key={`${index}:${f.kind}`} field={f} index={index} />}
 
-			{f.kind !== "relation" && !isCalculated(f) && <DefaultRow field={f} index={index} />}
+			{defaultKinds(f).length > 0 && <DefaultRow field={f} index={index} />}
 
 			{!isCalculated(f) && (
 				<>
@@ -372,6 +379,7 @@ function FieldDetails({ index }: { index: number }) {
 					<Row label="Required" desc="Must be filled in when creating a note. Notes where it's empty show a warning.">
 						<Toggle label="Required" value={!!f.required} onChange={(v) => set((x) => (x.required = v || undefined))} />
 					</Row>
+					<ValidationRows key={`${index}:${f.kind}`} field={f} index={index} />
 				</>
 			)}
 			{issuesAt(`field:${index}:other`).length > 0 && <Issues issues={issuesAt(`field:${index}:other`)} />}
@@ -379,17 +387,135 @@ function FieldDetails({ index }: { index: number }) {
 	);
 }
 
-/** Default value for the create dialog, with a control that suits the field kind. */
+const DEFAULT_KIND_LABELS: Record<"none" | "fixed" | DefaultFrom["kind"], string> = {
+	none: "None",
+	fixed: "A fixed value",
+	relative: "Relative to today",
+	linked: "From a linked note",
+	auto: "The next number",
+};
+
+/** The default for new notes: a fixed value, a date relative to today, a linked note's value, or the next number. */
 function DefaultRow({ field: f, index }: { field: FieldDef; index: number }) {
 	const plugin = usePlugin();
-	const { update, issuesAt } = useEditor();
+	const { draft, update, issuesAt, allTypes } = useEditor();
+	const issues = issuesAt(`field:${index}:default`);
+	const kinds = defaultKinds(f);
+	const options: (keyof typeof DEFAULT_KIND_LABELS)[] = kinds.includes("fixed") ? kinds : ["none", ...kinds];
+	const kind = f.defaultFrom?.kind ?? (kinds.includes("fixed") ? "fixed" : "none");
+	const relations = draft.type.fields.filter((x, i) => i !== index && x.kind === "relation" && x.key);
+	const setFrom = (d: DefaultFrom | undefined) =>
+		update((t) => {
+			const x = t.fields[index];
+			delete x.default;
+			if (d) x.defaultFrom = d;
+			else delete x.defaultFrom;
+		});
+	const choose = (k: keyof typeof DEFAULT_KIND_LABELS) =>
+		setFrom(
+			k === "relative"
+				? { kind: "relative", spec: "today" }
+				: k === "linked"
+					? { kind: "linked", via: relations[0]?.key ?? "", field: "" }
+					: k === "auto"
+						? f.kind === "text"
+							? { kind: "auto", pattern: `${(draft.type.name || "N").replace(/[^A-Za-z]/g, "").slice(0, 4).toUpperCase() || "N"}-{n}`, pad: 4 }
+							: { kind: "auto" }
+						: undefined,
+		);
+	const d = f.defaultFrom;
+	let detail: ReactNode = null;
+	if (!d) {
+		if (kinds.includes("fixed")) detail = <FixedDefault field={f} index={index} invalid={issues.length > 0} />;
+	} else if (d.kind === "relative") {
+		const env = plugin.formatEnv();
+		const days = boundDays(d.spec, todayDays(), plugin.dates);
+		detail = (
+			<div className="oe-tm-rule-bound">
+				<TextInput label="Days from today" className="oe-tm-mono" value={d.spec} placeholder="today+14d" invalid={days === null} onChange={(v) => setFrom({ ...d, spec: v.trim() })} />
+				{days !== null && <span className="oe-tm-muted">Today that's {showDate(days, env.dateFormat, env)}</span>}
+			</div>
+		);
+	} else if (d.kind === "linked") {
+		const via = relations.find((x) => x.key === d.via);
+		const seen = new Set<string>();
+		const fields = (via ? linkedTypes(via, allTypes) : [])
+			.flatMap((t) => storedFields(t))
+			.filter((x) => !seen.has(x.key) && seen.add(x.key))
+			.sort((a, b) => Number(b.kind === f.kind) - Number(a.kind === f.kind) || a.label.localeCompare(b.label));
+		detail = (
+			<div className="oe-tm-default-linked">
+				<select className="dropdown" aria-label="Through the relation field" value={d.via} onChange={(e) => setFrom({ ...d, via: e.target.value })}>
+					{!via && <option value="">Choose a relation field…</option>}
+					{relations.map((x) => (
+						<option key={x.key} value={x.key}>
+							{x.label || x.key}
+						</option>
+					))}
+				</select>
+				<span className="oe-tm-muted">note's</span>
+				<select className="dropdown" aria-label="Field to copy" value={d.field} onChange={(e) => setFrom({ ...d, field: e.target.value })}>
+					{!fields.some((x) => x.key === d.field) && <option value="">{d.field ? `${d.field} (not found)` : "Choose a field…"}</option>}
+					{fields.map((x) => (
+						<option key={x.key} value={x.key}>
+							{x.label || x.key}
+							{x.kind !== f.kind ? ` (${KIND_INFO[x.kind].label.toLowerCase()})` : ""}
+						</option>
+					))}
+				</select>
+			</div>
+		);
+	} else {
+		const used = plugin.index.ofType(draft.original?.key ?? draft.type.key).map((e) => e.frontmatter[f.key]);
+		const next = autoText(d, nextAutoNumber(f, d, used));
+		detail = (
+			<div className="oe-tm-rule-bound">
+				{f.kind === "text" && <TextInput label="Pattern" className="oe-tm-mono" value={d.pattern ?? ""} placeholder="{n}" invalid={!!d.pattern && !d.pattern.includes("{n}")} onChange={(v) => setFrom({ ...d, pattern: v || undefined })} />}
+				{f.kind === "text" && <NumberBox label="Digits" value={d.pad} whole onChange={(v) => setFrom({ ...d, pad: v && v > 0 ? Math.min(v, 12) : undefined })} />}
+				<span className="oe-tm-muted">Next: {next}</span>
+			</div>
+		);
+	}
+	const desc =
+		d?.kind === "relative"
+			? "today, or today ± a number of days, weeks, months or years: today+14d, today-1w, today+1m."
+			: d?.kind === "linked"
+				? "Copied when a new note links to a note through that field, unless this field is already filled in."
+				: d?.kind === "auto"
+					? f.kind === "text"
+						? "One more than the highest number the type's notes use. Put {n} where the number goes."
+						: "One more than the highest number the type's notes use."
+					: "Prefilled when creating a note.";
+	return (
+		<Row label="Default" desc={desc} issues={issues} stacked={!!d || f.kind === "multiselect" || f.kind === "list"}>
+			<div className="oe-tm-default">
+				{options.length > 1 && (
+					<select className="dropdown" aria-label="Kind of default" value={kind} onChange={(e) => choose(e.target.value as keyof typeof DEFAULT_KIND_LABELS)}>
+						{options.map((k) => (
+							<option key={k} value={k} disabled={k === "linked" && !relations.length && kind !== "linked"}>
+								{DEFAULT_KIND_LABELS[k]}
+								{k === "linked" && !relations.length ? " (needs a relation field)" : ""}
+							</option>
+						))}
+					</select>
+				)}
+				{detail}
+			</div>
+		</Row>
+	);
+}
+
+/** A fixed default value, with a control that suits the field kind. */
+function FixedDefault({ field: f, index, invalid }: { field: FieldDef; index: number; invalid: boolean }) {
+	const plugin = usePlugin();
+	const { update } = useEditor();
 	const set = (v: unknown) =>
 		update((t) => {
 			const x = t.fields[index];
 			if (v === undefined || v === "" || (Array.isArray(v) && v.length === 0)) delete x.default;
 			else x.default = v;
 		});
-	const issues = issuesAt(`field:${index}:default`);
+	const issues = invalid ? [""] : [];
 	let control;
 	switch (f.kind) {
 		case "boolean":
@@ -428,11 +554,7 @@ function DefaultRow({ field: f, index }: { field: FieldDef; index: number }) {
 		default:
 			control = <TextInput label="Default" value={typeof f.default === "string" ? f.default : ""} placeholder="None" onChange={(v) => set(v)} />;
 	}
-	return (
-		<Row label="Default" desc="Prefilled when creating a note." issues={issues} stacked={f.kind === "multiselect" || f.kind === "list"}>
-			{control}
-		</Row>
-	);
+	return control;
 }
 
 /** A value to show the format examples with: the sample note's, else a made-up one. */
@@ -566,6 +688,236 @@ function FormatRow({ field: f, index, as, sampled }: { field: FieldDef; index: n
 				{(choice === "custom" || choice === "currency") && !issues.length && <div className="oe-tm-muted oe-tm-format-preview">Preview: {show(fmt)}</div>}
 			</div>
 		</Row>
+	);
+}
+
+/** A number box that keeps what's typed until it reads as a number; empty means no limit. */
+function NumberBox({ label, value, whole, invalid, onChange }: { label: string; value: number | undefined; whole?: boolean; invalid?: boolean; onChange: (v: number | undefined) => void }) {
+	const [text, setText] = useState(value === undefined ? "" : String(value));
+	const read = (s: string) => {
+		const t = s.trim();
+		if (t === "") return undefined;
+		const n = Number(t);
+		return Number.isFinite(n) && (!whole || (Number.isInteger(n) && n >= 0)) ? n : null;
+	};
+	// Follow changes from elsewhere (undo, a kind change).
+	useEffect(() => {
+		if (read(text) !== value) setText(value === undefined ? "" : String(value));
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [value]);
+	const bad = read(text) === null;
+	return (
+		<TextInput
+			label={label}
+			className="oe-tm-rule-num"
+			value={text}
+			placeholder="No limit"
+			invalid={invalid || bad}
+			onChange={(v) => {
+				setText(v);
+				const n = read(v);
+				if (n !== null) onChange(n);
+			}}
+		/>
+	);
+}
+
+/**
+ * Validation: limits for numbers, text, dates and lists, a pattern, unique values and "required when". Values that
+ * break a rule are still saved; notes show them as problems and the create dialog waits for them to be fixed.
+ */
+function ValidationRows({ field: f, index }: { field: FieldDef; index: number }) {
+	const plugin = usePlugin();
+	const { draft, update, issuesAt, allTypes, groups } = useEditor();
+	const type = draft.type;
+	const g = ruleGroups(f);
+	const r = f.rules ?? {};
+	const issues = issuesAt(`field:${index}:rules`);
+	const [open, setOpen] = useState(() => !!f.rules);
+	const [testText, setTestText] = useState("");
+	const [whenOpen, setWhenOpen] = useState(false);
+	const viewCtx = useMemo(() => plugin.viewData().ctx, [plugin]);
+	const env = plugin.formatEnv();
+	const today = todayDays();
+	const setRule = <K extends keyof FieldRules>(k: K, v: FieldRules[K] | undefined) =>
+		update((t) => {
+			const x = t.fields[index];
+			const next: FieldRules = { ...(x.rules ?? {}) };
+			if (v === undefined || v === false || v === "") delete next[k];
+			else next[k] = v;
+			if (Object.keys(next).length) x.rules = next;
+			else delete x.rules;
+		});
+	const count = Object.keys(r).length;
+
+	const range = (what: string, lo: keyof FieldRules, hi: keyof FieldRules, whole: boolean) => (
+		<div className="oe-tm-rule-range">
+			<NumberBox label={`${what}: at least`} value={r[lo] as number | undefined} whole={whole} onChange={(v) => setRule(lo, v)} />
+			<span className="oe-tm-muted">to</span>
+			<NumberBox label={`${what}: at most`} value={r[hi] as number | undefined} whole={whole} onChange={(v) => setRule(hi, v)} />
+		</div>
+	);
+	const bound = (which: "earliest" | "latest") => {
+		const spec = r[which];
+		const days = spec ? boundDays(spec, today, plugin.dates) : null;
+		return (
+			<div className="oe-tm-rule-bound">
+				<TextInput label={which === "earliest" ? "Earliest date" : "Latest date"} className="oe-tm-mono" value={spec ?? ""} placeholder="No limit" invalid={!!spec && days === null} onChange={(v) => setRule(which, v.trim() || undefined)} />
+				{spec && days !== null && <span className="oe-tm-muted">{boundText(spec, (d) => showDate(d, env.dateFormat, env), today, plugin.dates).startsWith("today") ? `Today that's ${showDate(days, env.dateFormat, env)}` : ""}</span>}
+			</div>
+		);
+	};
+	const dateFields = type.fields.filter((x, i) => i !== index && x.kind === "date" && x.key);
+	let patternTest: string | null = null;
+	if (r.pattern && testText) {
+		try {
+			patternTest = new RegExp(r.pattern, "u").test(testText) ? "ok" : r.patternMessage?.trim() || "Doesn't match";
+		} catch {
+			patternTest = null;
+		}
+	}
+	const whenCtx = { types: allTypes, groups };
+	const choices: ColumnChoice[] = whenColumns(type, whenCtx)
+		.filter((col) => col.id !== fieldColumn(f.key).id)
+		.map((col) => ({ col, group: col.def.kind === "field" ? "Fields" : "Properties" }));
+	const valuesOf = (id: string) => (id === COMMON_KEYS.tags ? [...new Set(plugin.index.ofType(draft.original?.key ?? type.key).flatMap((e) => e.tags))].sort() : []);
+
+	return (
+		<div className={`oe-tm-rules${open ? " is-open" : ""}${issues.length ? " has-issue" : ""}`}>
+			<button className="oe-tm-rules-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+				<Icon name={open ? "chevron-down" : "chevron-right"} />
+				<span>Validation</span>
+				{count > 0 && <span className="oe-tm-rules-count">{count === 1 ? "1 rule" : `${count} rules`}</span>}
+			</button>
+			{open && (
+				<div className="oe-tm-rules-body">
+					<div className="oe-tm-muted oe-tm-rules-desc">Values that break a rule are still saved, and shown as problems on the note. The create dialog waits until they're fixed.</div>
+					{g.number && (
+						<>
+							<Row label="Range" desc="Leave a box empty for no limit.">
+								{range("Range", "min", "max", false)}
+							</Row>
+							<Row label="Whole numbers only">
+								<Toggle label="Whole numbers only" value={!!r.integer} onChange={(v) => setRule("integer", v || undefined)} />
+							</Row>
+						</>
+					)}
+					{g.text && (
+						<>
+							<Row label="Length" desc="Characters. Leave a box empty for no limit.">
+								{range("Length", "minLength", "maxLength", true)}
+							</Row>
+							<Row label="Pattern" desc="A regular expression the value must match, e.g. ^[A-Z]{3}-\d+$" stacked>
+								<div className="oe-tm-rule-pattern">
+									<TextInput label="Pattern" className="oe-tm-mono" value={r.pattern ?? ""} placeholder="None" onChange={(v) => setRule("pattern", v || undefined)} />
+									{r.pattern && (
+										<>
+											<TextInput label="Message when it doesn't match" value={r.patternMessage ?? ""} placeholder={`Doesn't match the pattern ${r.pattern}`} onChange={(v) => setRule("patternMessage", v || undefined)} />
+											<div className="oe-tm-rule-test">
+												<TextInput label="Test it" value={testText} placeholder="Type a value to test it" onChange={setTestText} />
+												{patternTest && (
+													<span className={patternTest === "ok" ? "oe-tm-rule-ok" : "oe-tm-rule-bad"}>
+														<Icon name={patternTest === "ok" ? "check" : "x"} /> {patternTest === "ok" ? "Matches" : patternTest}
+													</span>
+												)}
+											</div>
+										</>
+									)}
+								</div>
+							</Row>
+						</>
+					)}
+					{g.date && (
+						<>
+							<Row
+								label="Dates allowed"
+								desc={
+									<>
+										A date, or relative to today: <code>today</code>, <code>today+14d</code>, <code>today-1y</code> (d days, w weeks, m months, y years).
+									</>
+								}
+								stacked
+							>
+								<div className="oe-tm-rule-dates">
+									<span className="oe-tm-muted">From</span>
+									{bound("earliest")}
+									<span className="oe-tm-muted">to</span>
+									{bound("latest")}
+								</div>
+							</Row>
+							<Row label="Compared with another date" desc={dateFields.length ? "E.g. a due date on or after the start date. Skipped while the other date is empty." : "The type has no other date fields."}>
+								<div className="oe-tm-rule-compare">
+									<select
+										className="dropdown"
+										aria-label="How it compares"
+										value={r.compare?.op ?? "not-before"}
+										disabled={!r.compare}
+										onChange={(e) => r.compare && setRule("compare", { ...r.compare, op: e.target.value as DateCompareOp })}
+									>
+										{(Object.keys(DATE_COMPARE_LABELS) as DateCompareOp[]).map((op) => (
+											<option key={op} value={op}>
+												{DATE_COMPARE_LABELS[op]}
+											</option>
+										))}
+									</select>
+									<select
+										className="dropdown"
+										aria-label="Compared with"
+										value={r.compare?.field ?? ""}
+										disabled={!dateFields.length && !r.compare}
+										onChange={(e) => setRule("compare", e.target.value ? { op: r.compare?.op ?? "not-before", field: e.target.value } : undefined)}
+									>
+										<option value="">Not compared</option>
+										{r.compare && !dateFields.some((x) => x.key === r.compare!.field) && <option value={r.compare.field}>{r.compare.field} (missing)</option>}
+										{dateFields.map((x) => (
+											<option key={x.key} value={x.key}>
+												{x.label || x.key}
+											</option>
+										))}
+									</select>
+								</div>
+							</Row>
+						</>
+					)}
+					{g.items && (
+						<Row label="How many items" desc="Leave a box empty for no limit.">
+							{range("Items", "minItems", "maxItems", true)}
+						</Row>
+					)}
+					{takesUnique(f.kind) && (
+						<Row label="Unique" desc={`No two ${type.plural || "notes"} can have the same value (ignoring case).`}>
+							<Toggle label="Unique" value={!!r.unique} onChange={(v) => setRule("unique", v || undefined)} />
+						</Row>
+					)}
+					<Row
+						label="Required when…"
+						desc={f.required ? "Not needed: the field is always required." : r.requiredWhen ? `Required when ${whenText(r.requiredWhen, type, whenCtx)}.` : "Only required for some notes, e.g. a due date once the status is In progress."}
+						stacked={whenOpen || !!r.requiredWhen}
+					>
+						{f.required ? null : whenOpen || r.requiredWhen ? (
+							<div className="oe-ld-when-editor">
+								<FiltersPanel
+									filters={r.requiredWhen ? whenParts(r.requiredWhen) : { mode: "all", items: [] }}
+									choices={choices}
+									ctx={viewCtx}
+									valuesOf={valuesOf}
+									noGroups
+									heading="Required when"
+									emptyText="Add a condition: the field is required when it holds."
+									onChange={(grp) => {
+										const items = grp.items.filter((i): i is { field: string; op: string; value?: unknown } => !("items" in i));
+										setRule("requiredWhen", items.length ? (grp.mode === "all" ? { all: items } : { any: items }) : undefined);
+									}}
+								/>
+							</div>
+						) : (
+							<button onClick={() => setWhenOpen(true)}>Add a condition…</button>
+						)}
+					</Row>
+					{issues.length > 0 && <Issues issues={issues} />}
+				</div>
+			)}
+		</div>
 	);
 }
 

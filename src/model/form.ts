@@ -1,7 +1,8 @@
 import type { DateAdapter } from "./dates";
 import { defaultFieldValue, isEmptyValue, mergeFrontmatter, toYamlValue } from "./frontmatter";
 import { asArray, parseLabelledEntry, parseLink, toWikilink } from "./links";
-import { todayDays, typeHiddenFields } from "./formConditions";
+import { evalWhen, todayDays, typeHiddenFields, whenText } from "./formConditions";
+import { ruleMessages, type RuleContext } from "./rules";
 import { COMMON_KEYS, isCalculated, isListValued, statusesFor, storedFields, typeMatchesTarget, type EntityTypeDef, type FieldDef, type FieldKind, type GroupDef } from "./types";
 
 /** A one-click repair: write `value` to the problem's key (undefined removes the key). */
@@ -21,6 +22,8 @@ export interface FieldProblem {
 	link?: string;
 	/** a required field with no value */
 	missing?: true;
+	/** breaks one of the field's validation rules (or "required when") */
+	rule?: true;
 }
 
 /** A link resolved to a note: its path and, when it's an entity, its type. */
@@ -37,6 +40,12 @@ export interface CheckContext {
 	resolve(linkpath: string): LinkInfo | null;
 	/** today as a day number, for "show only when" conditions on dates (default: the real today) */
 	today?: number;
+	/** the note being checked (left out of "unique" comparisons) */
+	path?: string;
+	/** other notes of a type with their value for a key, for "unique" rules */
+	others?: (typeKey: string, key: string) => { path: string; name: string; value: unknown }[];
+	/** a date as shown (in rule messages; default: the date adapter's long form) */
+	showDate?: (days: number) => string;
 }
 
 const quote = (v: unknown) => `“${typeof v === "string" ? v : JSON.stringify(v)}”`;
@@ -168,7 +177,28 @@ export function entityProblems(type: EntityTypeDef, fm: Record<string, unknown>,
 			out.push({ key: COMMON_KEYS.status, severity: "error", message: `${quote(status)} isn't a status for ${type.plural.toLowerCase()}. Choose one of: ${statuses.join(", ")}.` });
 		}
 	}
-	for (const f of type.fields) out.push(...checkField(f, fm[f.key], ctx));
+	for (const f of type.fields) {
+		const own = checkField(f, fm[f.key], ctx);
+		out.push(...own);
+		// Rules apply to values the type can read (a broken value is reported as that instead).
+		if (!f.rules || own.some((p) => p.severity === "error")) continue;
+		const label = f.label || f.key;
+		const today = ctx.today ?? todayDays();
+		const rctx: RuleContext = {
+			dates: ctx.dates,
+			today,
+			showDate: ctx.showDate ?? ((d) => ctx.dates.format(d, "long")),
+			values: fm,
+			labelOf: (k) => type.fields.find((x) => x.key === k)?.label || k,
+			...(ctx.others ? { others: (k: string) => ctx.others!(type.key, k).filter((o) => o.path !== ctx.path) } : {}),
+		};
+		for (const message of ruleMessages(f, fm[f.key], rctx)) out.push({ key: f.key, severity: "error", message, rule: true });
+		// Required when…: only when the conditions hold for the values as they are.
+		if (f.rules.requiredWhen && !f.required && isEmptyValue(fm[f.key])) {
+			const wctx = { types: ctx.types, groups: ctx.groups, dates: ctx.dates, today, resolve: (lp: string) => ctx.resolve(lp)?.path ?? null };
+			if (evalWhen(f.rules.requiredWhen, type, fm, wctx)) out.push({ key: f.key, severity: "warning", message: `${label} is required when ${whenText(f.rules.requiredWhen, type, wctx)}.`, missing: true, rule: true });
+		}
+	}
 	for (const key of [COMMON_KEYS.tags, COMMON_KEYS.aliases]) {
 		const v = fm[key];
 		if (isEmptyValue(v) || Array.isArray(v)) continue;

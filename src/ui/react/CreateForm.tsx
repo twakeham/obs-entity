@@ -3,8 +3,9 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { evalWhen, hiddenFields, todayDays, type WhenContext } from "../../model/formConditions";
 import { isNoteItem, normaliseLayout, NOTE_ITEMS, resolveLayout, slotLabel, type LayoutField, type LayoutNode } from "../../model/formLayout";
 import { fromFormFields, isEmptyValue, toFormFields, type EntityFormValues } from "../../model/frontmatter";
-import { COMMON_KEYS, statusesFor, storedFields, type EntityTypeDef } from "../../model/types";
-import { emptyFormValues } from "../../services/entityFactory";
+import { entityProblems, type FieldProblem } from "../../model/form";
+import { COMMON_KEYS, statusesFor, storedFields, type EntityTypeDef, type FieldDef } from "../../model/types";
+import { autoText, emptyFormValues, linkedValues, nextAutoNumber } from "../../model/defaults";
 import { usePlugin } from "./context";
 import { extraFrame, fieldControl, layoutNodes, ListControl, PropRow, StatusControl, tabOfKey } from "./EntityForm";
 import { Icon } from "./Icon";
@@ -41,7 +42,33 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 	const plugin = usePlugin();
 	const [type, setType] = useState(initialType);
 	useEffect(() => setType(initialType), [initialType]);
-	const [state, setState] = useState<DialogState>(() => ({ name: initial.name, status: initial.status, tags: initial.tags, fields: toFormFields(initialType, initial.fields) }));
+	/** fields the user has set (a linked note's value doesn't overwrite them) */
+	const touched = useRef(new Set<string>());
+	/** a linked note's frontmatter, for "from a linked note" defaults */
+	const readLinked = (lp: string) => {
+		const file = plugin.app.metadataCache.getFirstLinkpathDest(lp, "");
+		return file ? (plugin.index.get(file.path)?.frontmatter ?? null) : null;
+	};
+	/**
+	 * Fill "from a linked note" defaults: those copied through relation field `changed` (replacing what was copied
+	 * before), or, with no `changed`, any that are still empty. Fields the user has set are left alone.
+	 */
+	const fillLinked = (t: EntityTypeDef, fields: Record<string, unknown>, changed?: string): Record<string, unknown> => {
+		const keys = new Set(
+			storedFields(t)
+				.filter((f) => f.defaultFrom?.kind === "linked" && !touched.current.has(f.key) && (changed ? f.defaultFrom.via === changed : isEmptyValue(fields[f.key])))
+				.map((f) => f.key),
+		);
+		if (!keys.size) return fields;
+		const got = linkedValues(t, fields, readLinked, (k) => keys.has(k));
+		const out = { ...fields };
+		for (const k of keys) {
+			if (got[k] !== undefined) out[k] = got[k];
+			else if (changed) delete out[k];
+		}
+		return out;
+	};
+	const [state, setState] = useState<DialogState>(() => ({ name: initial.name, status: initial.status, tags: initial.tags, fields: fillLinked(initialType, toFormFields(initialType, initial.fields)) }));
 	// Writes land in the ref at once, so a submit straight after a blur sees them.
 	const stateRef = useRef(state);
 	stateRef.current = state;
@@ -49,7 +76,10 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 		stateRef.current = { ...stateRef.current, ...patch };
 		setState(stateRef.current);
 	};
-	const setField = (key: string, v: unknown) => set({ fields: { ...stateRef.current.fields, [key]: v } });
+	const setField = (key: string, v: unknown) => {
+		touched.current.add(key);
+		set({ fields: fillLinked(type, { ...stateRef.current.fields, [key]: v }, key) });
+	};
 	const [showAll, setShowAll] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const rootRef = useRef<HTMLDivElement>(null);
@@ -57,6 +87,8 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 	const [openTabs, setOpenTabs] = useState<Record<string, number>>({});
 	/** required fields found empty on Create (their tabs get a dot) */
 	const [missingKeys, setMissingKeys] = useState<string[]>([]);
+	/** Create was tried: rule problems are shown from then on, as well as while typing */
+	const [tried, setTried] = useState(false);
 	const shownItems = useRef<LayoutNode[]>([]);
 	/** fields rendered in the layout's frames and tabs (not the Required frame) at the last render */
 	const renderedKeys = useRef<Set<string>>(new Set());
@@ -75,6 +107,15 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 	const layoutNow = type.form?.layout ? normaliseLayout(type.form.layout) : null;
 	/** fields the layout's conditions hide for these values */
 	const condHidden = (s: DialogState): Set<string> => (layoutNow ? hiddenFields(layoutNow, type, condValues(s), whenCtx) : new Set());
+	/** fields whose "required when" holds for these values */
+	const requiredNow = (s: DialogState): Set<string> =>
+		new Set(stored.filter((f) => !f.required && f.rules?.requiredWhen && evalWhen(f.rules.requiredWhen, type, condValues(s), whenCtx)).map((f) => f.key));
+	/** values that break their fields' validation rules (the dialog waits for them to be fixed) */
+	const ruleProblems = (s: DialogState): FieldProblem[] => {
+		if (!stored.some((f) => f.rules)) return [];
+		const fm = { ...fromFormFields(type, s.fields), [COMMON_KEYS.status]: s.status, [COMMON_KEYS.tags]: s.tags };
+		return entityProblems(type, fm, plugin.checkContext("")).filter((p) => p.rule && !p.missing);
+	};
 
 	const statuses = statusesFor(type, plugin.settings.groups);
 	const status = statuses.includes(state.status) ? state.status : statuses[0];
@@ -92,13 +133,20 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 		}
 		// Required fields a condition hides aren't required just now.
 		const off = condHidden(s);
-		const missing = stored.filter((f) => f.required && !hasValue(s.fields[f.key]) && !off.has(f.key));
+		const now = requiredNow(s);
+		// Auto-numbered fields get their number when the note is created.
+		const missing = stored.filter((f) => (f.required || now.has(f.key)) && !hasValue(s.fields[f.key]) && !off.has(f.key) && f.defaultFrom?.kind !== "auto");
+		const broken = ruleProblems(s);
 		setMissingKeys(missing.map((f) => f.key));
-		if (missing.length) {
-			new Notice(`Required: ${missing.map((f) => f.label).join(", ")}`);
+		setTried(true);
+		if (missing.length || broken.length) {
+			const labelOf = (k: string) => stored.find((f) => f.key === k)?.label || k;
+			if (missing.length) new Notice(`Required: ${missing.map((f) => f.label).join(", ")}`);
+			if (broken.length) new Notice(broken.length === 1 ? `${labelOf(broken[0].key)}: ${broken[0].message}` : `Please fix: ${[...new Set(broken.map((p) => labelOf(p.key)))].join(", ")}`);
 			// Open the tab with the first one that's in a tab on show.
-			const first = missing.find((f) => renderedKeys.current.has(f.key) && tabOfKey(shownItems.current, f.key));
-			const t = first ? tabOfKey(shownItems.current, first.key) : null;
+			const keys = [...missing.map((f) => f.key), ...broken.map((p) => p.key)];
+			const first = keys.find((k) => renderedKeys.current.has(k) && tabOfKey(shownItems.current, k));
+			const t = first ? tabOfKey(shownItems.current, first) : null;
 			if (t) setOpenTabs((o) => ({ ...o, [t.group]: t.tab }));
 			return;
 		}
@@ -119,12 +167,26 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 		onPickType?.((t) => {
 			const blank = emptyFormValues(t, plugin.settings.groups);
 			// Keep what's typed; fields the new type doesn't have are ignored when creating.
-			set({ status: blank.status, fields: { ...toFormFields(t, blank.fields), ...stateRef.current.fields } });
+			set({ status: blank.status, fields: fillLinked(t, { ...toFormFields(t, blank.fields), ...stateRef.current.fields }) });
 			setType(t);
 		});
 
 	// ---- rows: the properties form's rows, all editable, descriptions shown
 	const shownKeys = new Set<string>();
+	// Rule problems show as soon as a value breaks a rule; "required when" counts as required.
+	const problemsNow = ruleProblems(state);
+	const requiredKeys = requiredNow(state);
+	const rowProblems = (key: string): FieldProblem[] => {
+		const ps = problemsNow.filter((p) => p.key === key);
+		if (tried && missingKeys.includes(key) && !hasValue(state.fields[key])) ps.push({ key, severity: "warning", message: "Required.", missing: true });
+		return ps;
+	};
+	/** an auto-numbered field's placeholder: the number it will get */
+	const autoPlaceholder = (f: FieldDef): string | undefined => {
+		const d = f.defaultFrom;
+		if (d?.kind !== "auto") return undefined;
+		return `Next: ${autoText(d, nextAutoNumber(f, d, plugin.index.ofType(type.key).map((e) => e.frontmatter[f.key])))}`;
+	};
 	/** the Name box (at the top, or where the layout places the note's name) */
 	const nameInput = (placeholder?: string) => (
 		<input
@@ -168,16 +230,16 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 					k={key}
 					label={slot?.caption || f.label || f.key}
 					icon={KIND_INFO[f.kind].icon}
-					required={f.required}
+					required={f.required || requiredKeys.has(key)}
 					desc={f.description}
 					help={(typeof slot?.help === "object" ? slot.help.text : undefined) || f.description?.trim() || undefined}
-					problems={[]}
+					problems={rowProblems(key)}
 					empty={!hasValue(state.fields[key])}
 					editable
 					onFix={() => {}}
 					labelPos={labelPos}
 				>
-					{fieldControl(f, { value: state.fields[key], editable: true, path: "", type, live: false, problems: [], onCommit: (v) => setField(key, v), placeholder: slot?.placeholder, rows: slot?.rows })}
+					{fieldControl(f, { value: state.fields[key], editable: true, path: "", type, live: false, problems: [], onCommit: (v) => setField(key, v), placeholder: slot?.placeholder || autoPlaceholder(f), rows: slot?.rows })}
 				</PropRow>
 			);
 		}
@@ -199,7 +261,7 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 	if (!resolved) {
 		// No layout: the fields set to show in the dialog, required ones, subtitle fields and any with a value.
 		const subtitle = new Set(type.card?.subtitle ?? []);
-		const visible = stored.filter((f) => showAll || f.inModal || f.required || subtitle.has(f.key) || hasValue(state.fields[f.key]));
+		const visible = stored.filter((f) => showAll || f.inModal || f.required || requiredKeys.has(f.key) || subtitle.has(f.key) || hasValue(state.fields[f.key]));
 		hidden = stored.length - visible.length;
 		body = <div className="oe-form-rows">{visible.map((f) => propFor(f.key))}</div>;
 	} else {
@@ -208,7 +270,7 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 		const nodes = layoutNodes(resolved.items, propFor, {
 			closed: new Set(),
 			toggle: () => {},
-			flagged: (keys) => keys.some((k) => missingKeys.includes(k) && !hasValue(state.fields[k])),
+			flagged: (keys) => keys.some((k) => (missingKeys.includes(k) && !hasValue(state.fields[k])) || problemsNow.some((p) => p.key === k)),
 			include: (part) => showAll || part.create !== false,
 			shows: (w) => evalWhen(w, type, condValues(state), whenCtx),
 			tab: (g) => openTabs[g] ?? 0,
@@ -220,8 +282,8 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 		// (Not ones a condition hides.)
 		const off = condHidden(state);
 		const outside = stored.filter((f) => !shownKeys.has(f.key) && !off.has(f.key));
-		const needed = showAll ? [] : outside.filter((f) => f.required || hasValue(state.fields[f.key]));
-		if (needed.length) nodes.push(extraFrame("required", needed.every((f) => f.required) ? "Required" : "Required and filled in", needed.map((f) => propFor(f.key)), "is-required"));
+		const needed = showAll ? [] : outside.filter((f) => f.required || requiredKeys.has(f.key) || hasValue(state.fields[f.key]));
+		if (needed.length) nodes.push(extraFrame("required", needed.every((f) => f.required || requiredKeys.has(f.key)) ? "Required" : "Required and filled in", needed.map((f) => propFor(f.key)), "is-required"));
 		// Fields that aren't placed, with "Show more fields".
 		if (showAll && !layout!.hideUnplaced) {
 			const others = resolved.unplaced.filter((k) => !shownKeys.has(k)).map((k) => propFor(k));

@@ -375,6 +375,17 @@ export function resolveLayout(layout: FormLayout, type: EntityTypeDef): Resolved
 	};
 }
 
+/** A condition set with references to a field's old key moved to its new key. */
+export function renameWhenKey(w: LayoutWhen, from: string, to: string): LayoutWhen {
+	const toId = fieldColumn(to).id;
+	const { mode, items } = whenParts(w);
+	const out = items.map((c) => {
+		const col = columnFromId(c.field);
+		return col.kind === "field" && col.key === from ? { ...c, field: toId } : c;
+	});
+	return mode === "all" ? { all: out } : { any: out };
+}
+
 /**
  * Keep a layout in step when a field's key changes (`to` null: the field was deleted, so its slot goes). Conditions on
  * the field follow a rename; after a deletion they stay, and are reported (`whenIssues`) and ignored.
@@ -382,17 +393,7 @@ export function resolveLayout(layout: FormLayout, type: EntityTypeDef): Resolved
 export function renameLayoutKey(layout: FormLayout, from: string, to: string | null): FormLayout {
 	const next = { ...layout, items: mapFields(layout.items, (f) => (f.key !== from ? [f] : to ? [{ ...f, key: to }] : [])) };
 	if (!to) return next;
-	const toId = fieldColumn(to).id;
-	const isFrom = (id: string) => {
-		const col = columnFromId(id);
-		return col.kind === "field" && col.key === from;
-	};
-	const fix = (w: LayoutWhen | undefined): LayoutWhen | undefined => {
-		if (!w) return w;
-		const { mode, items } = whenParts(w);
-		const out = items.map((c) => (isFrom(c.field) ? { ...c, field: toId } : c));
-		return mode === "all" ? { all: out } : { any: out };
-	};
+	const fix = (w: LayoutWhen | undefined): LayoutWhen | undefined => (w ? renameWhenKey(w, from, to) : w);
 	const walk = (nodes: LayoutNode[]): LayoutNode[] =>
 		nodes.map((n) => {
 			switch (n.kind) {

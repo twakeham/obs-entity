@@ -1,5 +1,5 @@
 import { isEmptyValue } from "./frontmatter";
-import { renameLayoutKey } from "./formLayout";
+import { renameLayoutKey, renameWhenKey } from "./formLayout";
 import { installPack, parsePack, type TypePack } from "./packs";
 import { rewriteRefs } from "./formula";
 import { fieldColumn } from "./views";
@@ -66,7 +66,7 @@ export function renameFieldRefs(t: EntityTypeDef, from: string, to: string | nul
 	t.parentFields = swap(t.parentFields);
 	if (t.card) t.card.subtitle = swap(t.card.subtitle);
 	if (t.form?.layout) t.form.layout = renameLayoutKey(t.form.layout, from, to);
-	// Calculated fields that use it: formula references and roll-ups through it.
+	// Calculated fields that use it: formula references and roll-ups through it; rules that refer to it.
 	if (to)
 		for (const f of t.fields) {
 			if (f.kind === "formula" && f.formula) {
@@ -74,6 +74,9 @@ export function renameFieldRefs(t: EntityTypeDef, from: string, to: string | nul
 				f.formula = rewriteRefs(f.formula, (n) => (n === a ? b : undefined));
 			}
 			if (f.kind === "rollup" && f.rollup?.via === `field:${from}`) f.rollup = { ...f.rollup, via: `field:${to}` };
+			if (f.rules?.compare?.field === from) f.rules = { ...f.rules, compare: { ...f.rules.compare, field: to } };
+			if (f.defaultFrom?.kind === "linked" && f.defaultFrom.via === from) f.defaultFrom = { ...f.defaultFrom, via: to };
+			if (f.rules?.requiredWhen) f.rules = { ...f.rules, requiredWhen: renameWhenKey(f.rules.requiredWhen, from, to) };
 		}
 }
 

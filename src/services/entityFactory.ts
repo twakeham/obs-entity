@@ -1,5 +1,8 @@
 import { Notice, TFile, TFolder, moment, normalizePath } from "obsidian";
-import { buildFrontmatter, defaultFieldValue, fieldDisplay, mergeFrontmatter, type EntityFormValues, type FieldValue, type LabelledValue } from "../model/frontmatter";
+import { buildFrontmatter, defaultFieldValue, fieldDisplay, fromFormFields, isEmptyValue, mergeFrontmatter, toFormFields, type EntityFormValues, type FieldValue, type LabelledValue } from "../model/frontmatter";
+import { autoValue, linkedValues, nextAutoNumber, relativeDate } from "../model/defaults";
+import { isoDateAdapter, type DateAdapter } from "../model/dates";
+import { todayDays } from "../model/formConditions";
 import { parseLink } from "../model/links";
 import { effectiveFolderPattern, expandFolderPattern, joinPath, resolveEntityFolder, sanitizeFileName, uniquePath } from "../model/paths";
 import { defaultTemplate, renderTemplate } from "../model/templates";
@@ -12,16 +15,6 @@ export interface CreateOptions {
 	/** Open the new note after creating it. Default true. */
 	open?: boolean;
 	newTab?: boolean;
-}
-
-/** Blank form values for a type: first status, field defaults. */
-export function emptyFormValues(type: EntityTypeDef, groups: GroupDef[], name = ""): EntityFormValues {
-	const fields: Record<string, FieldValue> = {};
-	for (const f of storedFields(type)) {
-		const d = defaultFieldValue(f);
-		if (d !== undefined) fields[f.key] = d;
-	}
-	return { name, status: statusesFor(type, groups)[0], tags: [], fields };
 }
 
 function firstLinktext(value: FieldValue | undefined): string | null {
@@ -119,6 +112,28 @@ export class EntityFactory {
 		return out.join("/");
 	}
 
+	/**
+	 * Defaults worked out when a note is created, for fields left empty: values copied from linked notes, and the
+	 * next auto number (one more than the highest the type's notes use, so it's taken at creation).
+	 */
+	withDefaults(type: EntityTypeDef, values: EntityFormValues): EntityFormValues {
+		const fields = { ...values.fields };
+		const empty = (k: string) => isEmptyValue(fields[k]);
+		const read = (lp: string) => {
+			const file = this.app.metadataCache.getFirstLinkpathDest(lp, "");
+			return file ? (this.plugin.index.get(file.path)?.frontmatter ?? null) : null;
+		};
+		const copied = linkedValues(type, toFormFields(type, fields), read, empty);
+		Object.assign(fields, fromFormFields(type, copied));
+		for (const f of storedFields(type)) {
+			const d = f.defaultFrom;
+			if (d?.kind !== "auto" || !empty(f.key)) continue;
+			const n = nextAutoNumber(f, d, this.plugin.index.ofType(type.key).map((e) => e.frontmatter[f.key]));
+			fields[f.key] = autoValue(f, d, n);
+		}
+		return { ...values, fields };
+	}
+
 	async createEntity(type: EntityTypeDef, values: EntityFormValues, opts: CreateOptions = {}): Promise<TFile> {
 		const name = values.name.trim();
 		if (!name) throw new Error("A name is required.");
@@ -129,6 +144,7 @@ export class EntityFactory {
 		const folderObj = folder ? this.app.vault.getAbstractFileByPath(folder) : this.app.vault.getRoot();
 		const taken = new Set(folderObj instanceof TFolder ? folderObj.children.map((c) => c.path.toLowerCase()) : []);
 		const path = normalizePath(uniquePath(folder, baseName, (p) => taken.has(p.toLowerCase())));
+		values = this.withDefaults(type, values);
 
 		const fieldStrings: Record<string, string> = {};
 		for (const f of type.fields) fieldStrings[f.key] = fieldDisplay(values.fields[f.key]);

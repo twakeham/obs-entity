@@ -1,5 +1,7 @@
 import type { FormLayout } from "./formLayout";
 import type { FType } from "./formula";
+import type { FieldRules } from "./rules";
+import type { DefaultFrom } from "./defaults";
 import type { RollupDef } from "./views";
 
 export type FieldKind =
@@ -62,6 +64,10 @@ export interface FieldDef {
 	formula?: string;
 	/** formula field: the result type, when set by hand (otherwise inferred) */
 	formulaType?: FType;
+	/** validation rules (limits, pattern, unique, required when…); breaking one is a problem, not a refusal */
+	rules?: FieldRules;
+	/** a smarter default for new notes (relative date, from a linked note, auto number); replaces `default` */
+	defaultFrom?: DefaultFrom;
 }
 
 export type FolderMode = "type" | "parent" | "own";

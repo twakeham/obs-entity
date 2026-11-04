@@ -219,7 +219,9 @@ Options common to all kinds:
 | `description` | Help text shown under the control. |
 | `inModal` | Show in the create dialog; otherwise the field sits under "Show N more fields". |
 | `required` | Must be filled in when creating. When it's empty on a note, the properties form shows a warning (this never blocks saving). |
-| `default` | Prefilled value in the create dialog. |
+| `default` | A fixed value prefilled in the create dialog. |
+| `defaultFrom` | A smarter default instead of `default`: a date relative to today, a linked note's value, or the next number (§4.9). |
+| `rules` | Validation rules: ranges, lengths, a pattern, dates, item counts, unique, required when (§4.8). |
 | `format` | Display format (number, date, checkbox and URL fields only; §4.6). The stored value never changes. |
 
 Relation options:
@@ -342,6 +344,50 @@ formulaType?: FType;     // the result type, when set by hand (otherwise inferre
 - **Renames:** `renameFieldRefs` follows a renamed key in the type's formulas (`rewriteRefs`) and roll-ups through that relation field (`via`).
 - **Where they show:** the properties form (read-only, "—" with the reason on hover; conditions on them get the real view context: `WhenContext.view` / `path`), Reading view, layouts, the subtitle (the index leaves calculated parts out, then `refreshCalcSubtitles` fills them in, debounced after index updates; the form passes its own values), tables and boards.
 
+### 4.8 Validation rules
+
+A field's `rules` (`model/rules.ts`) say what a good value looks like. They're set on the Fields tab, in a foldable **Validation** section under Required (with a count of the rules set). Which rules a field offers depends on its kind (`ruleGroups`); changing the kind drops the ones that no longer fit (`pruneRules`).
+
+```ts
+interface FieldRules {
+  min?: number; max?: number; integer?: boolean;           // number
+  minLength?: number; maxLength?: number;                  // text, textarea, url (characters)
+  pattern?: string; patternMessage?: string;               // text, textarea, url: a regular expression (u flag)
+  earliest?: string; latest?: string;                      // date: "2026-01-01", "today", "today+14d" (d, w, m, y)
+  compare?: { op: "before" | "not-after" | "after" | "not-before"; field: string };   // date vs another date field
+  minItems?: number; maxItems?: number;                    // list, multiselect, multi-link relation
+  unique?: boolean;                                        // any stored kind except checkbox: no other note of the type has the value
+  requiredWhen?: Condition;                                // required while a condition holds (the "show only when" builder)
+}
+```
+
+- **Breaking a rule never blocks saving.** `entityProblems` adds an error (`FieldProblem.rule`) with a plain message (`ruleMessages`: "Must be between 1 and 5.", "Must be at most 80 characters (it has 92).", the pattern's own message, "Must be on or after today+1w (11/11/2026).", "Must be unique: “Apollo” has the same value.") — only when the value has no problem of its own (a wrong kind is reported first). Empty values break no rules except "required when".
+- **Where problems show:** the properties form (the row's problem line), tables and boards (the cell's problem marker, via `problemsFor`), and the create dialog, which shows them as you type and **won't create the note** until they're fixed (Create shows a notice and opens the tab with the first one).
+- **Required when:** the field gets the `*` and counts as required while the condition holds (in the create dialog too: it's asked for, under Required when it's not in a frame on show). On a note it's a warning, like Required.
+- **Unique** compares against the type's other notes (`CheckContext.others`, cached per type and key and cleared when the index updates). Text compares trimmed and without case; other values compare exactly.
+- **Dates** use the date adapter (so a custom calendar works) and the day the check runs, so "today" bounds move. Bounds are shown in the **Date display format**.
+- **The editor:** number boxes for ranges (empty = no limit), the pattern with its message and a **Test it** box, date bounds with "Today that's …", and the condition builder for Required when.
+- **Validation** (type): `rulesIssues` reports a minimum above its maximum, a negative length, a pattern that isn't a valid regular expression, an unreadable date bound, a comparison with a missing or non-date field, and a Required when that uses a missing field, at `field:<i>:rules`.
+- **Renames:** `renameFieldRefs` follows a renamed key in `compare.field` and `requiredWhen`.
+
+### 4.9 Smarter defaults
+
+A field's default can be worked out when a note is created (`model/defaults.ts`). On the Fields tab, **Default** has a **kind of default** dropdown (`defaultKinds`): **A fixed value** (`default`), **Relative to today** (dates), **From a linked note** (any stored kind; the only kind for relation fields, which also have **None**), and **The next number** (text and number). Choosing one clears the other; changing the field's kind drops a `defaultFrom` that no longer fits.
+
+```ts
+type DefaultFrom =
+  | { kind: "relative"; spec: string }                  // "today", "today+14d", "today-1w", "today+1m", "today+1y"
+  | { kind: "linked"; via: string; field: string }      // copy `field` from the note linked through relation field `via`
+  | { kind: "auto"; pattern?: string; pad?: number };   // "TASK-{n}", 4 digits → TASK-0042
+```
+
+- **Relative to today:** worked out in `emptyFormValues` (the create dialog's starting values and the preview), so the dialog shows the date and you can change it. The editor shows "Today that's …".
+- **From a linked note:** e.g. a task's client from its project. In the create dialog it's filled as soon as the relation field is set (including a prefilled parent from **+ New**), and replaced when the relation changes, unless you've typed in the field yourself. Notes created without the dialog get it in `EntityFactory.withDefaults`. The second dropdown lists the fields of the types the relation can link to, the same kind first.
+- **The next number:** one more than the highest number the type's notes use in that field (for text, matched against the pattern); 1 when there are none. It's taken when the note is created (`withDefaults`), so two dialogs open at once don't clash; the dialog shows it as the placeholder ("Next: TASK-0042"), and a required auto-numbered field isn't asked for. The editor shows the next number too.
+- **Only new notes** get defaults; existing notes never change.
+- **Validation** (`defaultIssues`, at `field:<i>:default`): a kind that doesn't suit the field, an unreadable relative date, a pattern without `{n}`, and a linked default without a relation field or whose field the linked types don't have.
+- **Renames:** `renameFieldRefs` follows a renamed relation field in `defaultFrom.via`.
+
 ---
 
 ## 5. Relationship semantics
@@ -429,6 +475,8 @@ src/
   model/
     types.ts                    EntityTypeDef, FieldDef, GroupDef, COMMON_KEYS, typeMatchesTarget
     validation.ts               typeIssues() → located problems; validateType()
+    rules.ts                    field validation rules: what each kind offers, messages, type problems
+    defaults.ts                 smarter defaults: relative dates, linked values, the next number; emptyFormValues
     links.ts                    parseLink, parseLabelledEntry, toWikilink, toLabelledWikilink, asArray
     relations.ts                extractEdges, groupRelations, addLink, removeLink
     frontmatter.ts              buildFrontmatter, mergeFrontmatter, fieldDisplay, toYamlValue
@@ -761,7 +809,7 @@ Opened from:
 **Prefill:**
 - From the active note: if the type has a relation field whose targets include the active note's type, prefill it. For example, creating a Person while viewing a Team prefills "Member of". This can be turned off in settings.
 - From context: "New child here" prefills the parent field (§8.3). A double-click elsewhere can prefill any field.
-- From field `default` values.
+- From field `default` values, and smarter defaults (§4.9): dates relative to today, values copied from a linked note as soon as the relation is set, and the next number (shown as the placeholder, taken on Create).
 
 **Date fields** open the calendar when clicked (§4.4); a date that can't be read isn't taken (a notice says why), as in the properties form.
 
@@ -1644,6 +1692,8 @@ Bucket keys are the value (a status or choice), `yes` / `no` (checkboxes), the n
 | `field:i:options` | select/multiselect has ≥1 option | Choice field "x" needs at least one option. |
 | `field:i:targets` | every target is a known type key, `*` or `@<known group>` | Field "x" targets unknown type "y". |
 | `field:i:default` | the default is valid for the kind (e.g. one of the options) | Default "z" isn't one of the options. |
+| `field:i:default` | a smarter default that works (§4.9) | Put {n} in the pattern where the number goes. / The linked notes have no “x” field. |
+| `field:i:rules` | the validation rules make sense (§4.8) | The minimum is more than the maximum. / The pattern isn't a valid regular expression: … |
 | `parentFields` | each is a relation field of this type | Parent field "x" isn't a relation field. |
 | `card:subtitle` | each is an existing non-relation field of this type | Subtitle field "x" doesn't exist. / Relation fields can't be used in the subtitle. |
 
@@ -1755,6 +1805,8 @@ These cover all of `model/`, with no Obsidian dependency:
 - **bulk:** shared fields across types (kinds that differ, status and tags), status unions, set / clear (keys kept, values copied, no-op detection), add / remove links (duplicates, single fields), add / remove tags (case and #), which entities a change applies to, set values by kind, notice text, copy names.
 - **viewBlock:** finding blocks, and replacing one by line or content, keeping callout prefixes, CRLF, longer fences, and closing an unclosed block.
 - **validation:** every row of §9, with the right `at`.
+- **rules:** which rules each kind offers and pruning on a kind change, date bounds (today ± d / w / m / y, fixed dates, unreadable specs), every rule's message (ranges, whole numbers, lengths, patterns with their own message, dates and comparisons, item counts, unique), type problems with rules, and renames.
+- **defaults:** which kinds each field offers, relative dates in a new note's values, the next number (padding, patterns, gaps, numbers), copying from a linked note only into empty fields, default problems, and renamed relation fields.
 - **card:** subtitle composition (several fields, empty values skipped, first line of a textarea); renaming or deleting a field updates `card.subtitle` and `parentFields` in the draft.
 - **formConditions:** reading conditions on frames, tabs and slots; the view operators on the note's own values (choices, numbers, status, tags, relative dates, links, checkboxes); unusable conditions ignored; which fields a layout hides; a hidden required field isn't required (other problems still count); renames and deleted fields; conditions in words.
 - **calendar:** ISO dates to and from parts (including years before 100), month stepping clamped to years 1–9999, the 6-week grid for any first day of the week, weekday order.

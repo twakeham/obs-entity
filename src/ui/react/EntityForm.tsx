@@ -420,6 +420,10 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 	// Checked against what's on screen, so fixes build on edits that haven't reached the index yet.
 	const problems = mode === "preview" ? [] : entityProblems(type, values, plugin.checkContext(path));
 	const problemsAt = (key: string) => problems.filter((p) => p.key === key);
+	/** a field whose "required when" holds for the values on screen (it gets the asterisk) */
+	const requiredNow = (f: FieldDef) =>
+		!!f.rules?.requiredWhen &&
+		evalWhen(f.rules.requiredWhen, type, values, { types: plugin.settings.types, groups: plugin.settings.groups, dates: plugin.dates, today: todayDays(), resolve: (lp) => plugin.app.metadataCache.getFirstLinkpathDest(lp, path)?.path ?? null });
 	const fix = (p: FieldProblem) => p.fix && write(p.key, p.fix.value);
 	// Once the problems are fixed, what conditions hide goes back to hidden.
 	useEffect(() => {
@@ -556,7 +560,7 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 				f.key,
 				f.kind,
 				fieldControl(f, { value: get(f.key), editable: ed, path, type, live: mode !== "preview", problems: problemsAt(f.key), onCommit: (v) => write(f.key, v), placeholder: ph, rows: slot?.rows }),
-				{ label: f.label || f.key, icon: KIND_INFO[f.kind].icon, required: f.required, desc: f.description },
+				{ label: f.label || f.key, icon: KIND_INFO[f.kind].icon, required: f.required || requiredNow(f), desc: f.description },
 				slot,
 				ed,
 			);

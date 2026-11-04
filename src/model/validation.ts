@@ -1,9 +1,12 @@
 import { unknownPlaceholders } from "./paths";
 import { fieldFormatIssue } from "./fieldFormats";
-import { whenIssues } from "./formConditions";
-import { layoutIssues, normaliseLayout } from "./formLayout";
+import { whenColumns, whenIssues } from "./formConditions";
+import { layoutIssues, normaliseLayout, whenParts } from "./formLayout";
 import { RESERVED_KEYS, isCalculated, isValidKey, type EntityTypeDef, type GroupDef } from "./types";
-import { calcInfo } from "./views";
+import { calcInfo, columnFromId } from "./views";
+import { rulesIssues } from "./rules";
+import { defaultIssues } from "./defaults";
+import { isoDateAdapter } from "./dates";
 
 /** A problem with a type definition, tied to the control it belongs to. */
 export interface TypeIssue {
@@ -67,6 +70,16 @@ export function typeIssues(t: EntityTypeDef, ctx: ValidationContext): TypeIssue[
 		if (defaultProblem) add(`field:${i}:default`, defaultProblem);
 		const formatProblem = isCalculated(f) ? null : fieldFormatIssue(f.kind, f.format);
 		if (formatProblem) add(`field:${i}:format`, formatProblem);
+		for (const m of rulesIssues(f, t.fields, isoDateAdapter)) add(`field:${i}:rules`, m);
+		for (const m of defaultIssues(f, t, ctx.types ? [...ctx.types.filter((x) => x.key !== t.key), t] : undefined, isoDateAdapter)) add(`field:${i}:default`, m);
+		if (f.rules?.requiredWhen) {
+			const ids = new Set(whenColumns(t, { groups: ctx.groups ?? [] }).map((c) => c.id));
+			for (const c of whenParts(f.rules.requiredWhen).items) {
+				if (ids.has(c.field)) continue;
+				const col = columnFromId(c.field);
+				add(`field:${i}:rules`, `“Required when” uses “${col.kind === "field" ? col.key : c.field}”, which isn't a field of this type. It's ignored until it's fixed.`);
+			}
+		}
 		// Calculated fields: checked against every type (as edited), when the caller has them.
 		if (isCalculated(f) && ctx.types && f.key) {
 			const types = [...ctx.types.filter((x) => x.key !== t.key), t];
