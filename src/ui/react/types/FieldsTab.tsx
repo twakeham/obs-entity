@@ -193,14 +193,22 @@ function FieldBadges({ field: f }: { field: FieldDef }) {
 	);
 }
 
-type FieldPane = "general" | "display" | "validation";
+type FieldPane = "general" | "kind" | "display" | "validation";
 const FIELD_PANES: { id: FieldPane; label: string; icon: string }[] = [
 	{ id: "general", label: "General", icon: "settings-2" },
+	// "kind": named after what it holds (kindPane)
+	{ id: "kind", label: "", icon: "" },
 	{ id: "display", label: "Display", icon: "palette" },
 	{ id: "validation", label: "Validation", icon: "shield-check" },
 ];
+/** The tab for a kind's own settings, or null when the kind has none. */
+const kindPane = (kind: FieldKind): { label: string; icon: string } | null => {
+	const label = kind === "select" || kind === "multiselect" ? "Choices" : kind === "relation" ? "Relation" : kind === "rollup" ? "Roll-up" : kind === "formula" ? "Formula" : null;
+	return label ? { label, icon: KIND_INFO[kind].icon } : null;
+};
 /** The pane a field problem belongs to (`field:<i>:<what>`). */
-const paneOf = (at: string): FieldPane => (at.endsWith(":format") ? "display" : at.endsWith(":rules") ? "validation" : "general");
+const paneOf = (at: string): FieldPane =>
+	at.endsWith(":format") ? "display" : at.endsWith(":rules") ? "validation" : at.endsWith(":options") || at.endsWith(":targets") || at.endsWith(":calc") ? "kind" : "general";
 
 /** The kind a calculated field's result is formatted as (number, date or checkbox), if it has one. */
 function calcFormatAs(t: EntityTypeDef, f: FieldDef, allTypes: EntityTypeDef[], groups: GroupDef[]): FieldKind | undefined {
@@ -226,7 +234,12 @@ function FieldDetails({ index }: { index: number }) {
 	// A field always opens on General (FieldDetails is keyed by the field); a pane the field no longer has falls back to it.
 	const [tab, setTab] = useState<FieldPane>("general");
 	const calc = isCalculated(f);
-	const panes = FIELD_PANES.filter((p) => p.id === "general" || (p.id === "display" ? (calc ? !!calcFormatAs(draft.type, f, allTypes, groups) : !!formattedKind(f.kind)) : !calc));
+	const own = kindPane(f.kind);
+	const panes = FIELD_PANES.flatMap((p) => {
+		if (p.id === "kind") return own ? [{ ...p, ...own }] : [];
+		const has = p.id === "general" || (p.id === "display" ? (calc ? !!calcFormatAs(draft.type, f, allTypes, groups) : !!formattedKind(f.kind)) : !calc);
+		return has ? [p] : [];
+	});
 	const pane = panes.some((p) => p.id === tab) ? tab : "general";
 	const fieldIssues = issues.filter((i) => i.at.startsWith(`field:${index}:`));
 	const ruleCount = Object.keys(f.rules ?? {}).length + (f.required ? 1 : 0);
@@ -295,34 +308,6 @@ function FieldDetails({ index }: { index: number }) {
 
 			{pane === "general" && (
 				<>
-					<Row label="Label" desc={isCalculated(f) ? "Shown in the properties form, views and formulas." : "Shown in the create dialog and the properties form."}>
-						<TextInput
-							label="Field label"
-							value={f.label}
-							autoFocus={!f.label}
-							onChange={(v) =>
-								update((t) => {
-									t.fields[index].label = v;
-									if (autoKey) setKey(t, toKey(v));
-								})
-							}
-						/>
-					</Row>
-					<Row
-						label="Frontmatter key"
-						desc={
-							meta?.origKey && meta.origKey !== f.key ? (
-								<>
-									Was <code>{meta.origKey}</code>. You can update existing notes when you save.
-								</>
-							) : (
-								isCalculated(f) ? "Used by views and formulas. Calculated fields aren't stored in notes." : "The property name in each note's frontmatter."
-							)
-						}
-						issues={issuesAt(`field:${index}:key`)}
-					>
-						<TextInput label="Frontmatter key" className="oe-tm-mono" value={f.key} invalid={issuesAt(`field:${index}:key`).length > 0} onChange={(v) => update((t) => setKey(t, v.trim()))} />
-					</Row>
 					<Row label="Kind">
 						<select
 							className="dropdown"
@@ -353,10 +338,51 @@ function FieldDetails({ index }: { index: number }) {
 							))}
 						</select>
 					</Row>
+					<Row label="Label" desc={isCalculated(f) ? "Shown in the properties form, views and formulas." : "Shown in the create dialog and the properties form."}>
+						<TextInput
+							label="Field label"
+							value={f.label}
+							autoFocus={!f.label}
+							onChange={(v) =>
+								update((t) => {
+									t.fields[index].label = v;
+									if (autoKey) setKey(t, toKey(v));
+								})
+							}
+						/>
+					</Row>
+					<Row
+						label="Frontmatter key"
+						desc={
+							meta?.origKey && meta.origKey !== f.key ? (
+								<>
+									Was <code>{meta.origKey}</code>. You can update existing notes when you save.
+								</>
+							) : (
+								isCalculated(f) ? "Used by views and formulas. Calculated fields aren't stored in notes." : "The property name in each note's frontmatter."
+							)
+						}
+						issues={issuesAt(`field:${index}:key`)}
+					>
+						<TextInput label="Frontmatter key" className="oe-tm-mono" value={f.key} invalid={issuesAt(`field:${index}:key`).length > 0} onChange={(v) => update((t) => setKey(t, v.trim()))} />
+					</Row>
 					<Row label="Description" desc={isCalculated(f) ? "Help text, shown where a form layout asks for it." : "Help text shown under the field in the create dialog."}>
 						<TextInput label="Description" value={f.description ?? ""} placeholder="Optional" onChange={(v) => set((x) => (v.trim() ? (x.description = v) : delete x.description))} />
 					</Row>
 
+					{defaultKinds(f).length > 0 && <DefaultRow field={f} index={index} />}
+
+					{!calc && (
+						<Row label="Show in the create dialog" desc="Otherwise it's under “Show more fields”.">
+							<Toggle label="Show in the create dialog" value={!!f.inModal} onChange={(v) => set((x) => (x.inModal = v))} />
+						</Row>
+					)}
+					{issuesAt(`field:${index}:other`).length > 0 && <Issues issues={issuesAt(`field:${index}:other`)} />}
+				</>
+			)}
+
+			{pane === "kind" && (
+				<>
 					{(f.kind === "select" || f.kind === "multiselect") && (
 						<Row label="Choices" desc="Type a choice and press Enter. Drag to reorder." issues={issuesAt(`field:${index}:options`)} stacked>
 							<ChipsInput label="Choices" placeholder="e.g. small, medium, large" values={f.options ?? []} invalid={issuesAt(`field:${index}:options`).length > 0} onChange={(v) => set((x) => (x.options = v))} />
@@ -402,15 +428,6 @@ function FieldDetails({ index }: { index: number }) {
 					)}
 
 					{calc && <CalcRows key={`${index}:${f.kind}`} field={f} index={index} part="calc" />}
-
-					{defaultKinds(f).length > 0 && <DefaultRow field={f} index={index} />}
-
-					{!calc && (
-						<Row label="Show in the create dialog" desc="Otherwise it's under “Show more fields”.">
-							<Toggle label="Show in the create dialog" value={!!f.inModal} onChange={(v) => set((x) => (x.inModal = v))} />
-						</Row>
-					)}
-					{issuesAt(`field:${index}:other`).length > 0 && <Issues issues={issuesAt(`field:${index}:other`)} />}
 				</>
 			)}
 
@@ -1010,7 +1027,7 @@ const AGG_TEXT: Record<RollupAgg, string> = {
 const isoDay = (days: number) => new Date(days * 86_400_000).toISOString().slice(0, 10);
 
 /**
- * Roll-up and formula fields. `part` "calc" (General pane): what they work out (From / Calculate / Of field, or the
+ * Roll-up and formula fields. `part` "calc" (the Roll-up / Formula tab): what they work out (From / Calculate / Of field, or the
  * formula), what they give, a preview for the sample note, and notes that store a property of the same name.
  * "format" (Display pane): the display format for that result.
  */

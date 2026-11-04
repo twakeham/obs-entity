@@ -132,7 +132,8 @@ Opened from:
 **Type editor tabs:**
 - **General:** name, plural, key (fixed once saved), icon, colour, group, statuses (the group's or custom), folder (the entity folder pattern or the type's own exception), folder rule (in the folder / own folder each / inside its parent, with a path preview), template, search shortcuts. Also Duplicate, Copy as JSON, Reset to starter, and Delete type.
 - **Fields:** a field list (drag to reorder) and a details panel for the selected field, in three tabs (a field always opens on General):
-  - **General:** label, key, kind, description, choices or relation options, default, and show in the create dialog.
+  - **General:** kind (at the top), label, key, description, default, and show in the create dialog.
+  - **Choices**, **Relation**, **Roll-up** or **Formula** (only for those kinds): the kind's own settings: the choices; what a relation links to and how; or what a calculated field works out, with its result and a preview.
   - **Display:** the **display format** (numbers, dates, checkboxes, URLs, and calculated fields that give one of those; each preset shows an example from your notes).
   - **Validation:** required, and the validation rules below. The tab shows how many are set.
   - **Default:** a fixed value, or a smarter one:

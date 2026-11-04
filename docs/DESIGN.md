@@ -660,7 +660,8 @@ Big icon, name, a "group · N notes · starter/custom · `key`" line, and the ta
   - badges: target types for relations, "many", "required", "in create dialog"
   - an error icon if the field has problems
 - **The details panel (right):** shown for the selected field, sticky while scrolling. Under its header (icon, name, move up / down, delete) are up to three tabs, each with a red dot when something in it has a problem:
-  - **General** (always): label, key, kind, description, the kind's own options below, the default (§4.9) and show in create dialog.
+  - **General** (always): kind (first), label, key, description, the default (§4.9) and show in create dialog.
+  - **The kind's own tab** (second; only kinds that have settings of their own; named after them, with the kind's icon): **Choices** (choice / multiple choice), **Relation** (targets, inverse, one / many, both ways, labelled), **Roll-up** or **Formula** (the set-up, Only include, Gives, Preview, and the note about notes storing the same key). Problems at `field:<i>:options`, `:targets` and `:calc` put the red dot on it.
   - **Display:** the display format. Only for number, date, checkbox and URL fields, and calculated fields whose result is a number, date or true / false.
   - **Validation:** required, then the rules for the kind (§4.8). Not for calculated fields. The tab shows how many are set (required counts as one).
   - Picking another field (or adding one) always opens General; if a kind change removes the open tab, General shows instead.
@@ -679,7 +680,7 @@ Big icon, name, a "group · N notes · starter/custom · `key`" line, and the ta
   - **Formula** (§4.7): the formula shown with labels, and **Edit formula…**, which opens the view formula editor in field mode (no name box; references and the preview use every type as edited, with the draft in place of its saved version).
   - **Calculated, both:** **Gives** (a number, a date, true / false, a list…), **Preview** for the sample note (or the reason it can't be worked out), **Display format** for numbers, dates and true / false on the Display tab (examples from the preview's value), and a note when notes store a property with the same key. No default, create-dialog or required options. "+ Add field" lists them in a section of their own.
   - **Date:** the default uses a date box with the calendar; values stay ISO.
-  - **Common:** show in create dialog (General) and required (Validation). Plus move up/down and delete. Deleting is just a draft change, so there's no confirmation.
+  - **Common:** kind, default and show in create dialog (General), required (Validation). Plus move up/down and delete. Deleting is just a draft change, so there's no confirmation.
 - **+ Add field** opens a menu of kinds (with a one-line description of each), plus **Relationship…**, which opens the guided dialog below. The new field is selected and its label input focused.
 
 #### Relationships tab
@@ -1312,7 +1313,7 @@ columns:
   - A filtered **count** is the number of linked notes that exist and match (links to missing notes can't be checked); unfiltered it still counts every link.
   - **Label and tooltip:** the automatic label ends in " (filtered)"; the resolved column's `hint` ("Sum of value of Deals where Status is any of won", `rollupWhereText` / `filterText`) is the header's tooltip.
   - **This note** (views only): `{this}` in a roll-up column's filter is the note the view is on, like in the view's filters (`withThisNote` covers roll-up columns; the dialog gets the view's note). Edit roll-up and the header menu work on the saved column, so `{this}` isn't replaced by a path.
-  - **Roll-up fields** (§4.7) have the same **Only include** (Fields tab, General, after Of field, with the conditions in words), without "this note" (they're worked out wherever the note shows). Type validation (`rollupIgnored`) reports broken conditions at `field:<i>:calc`; conditions still waiting for a value are only noted in the builder.
+  - **Roll-up fields** (§4.7) have the same **Only include** (Fields tab, Roll-up tab, after Of field, with the conditions in words), without "this note" (they're worked out wherever the note shows). Type validation (`rollupIgnored`) reports broken conditions at `field:<i>:calc`; conditions still waiting for a value are only noted in the builder.
 - **Show as a share** (`show: total | group`, count and sum only; Value when unset):
   - `total`: each row's share (%) of the column's total over the rows the view shows. `group`: of its innermost group's total (the swimlane on a board; rows in several groups use their first); without grouping, the same as `total`. The label gets "(% of total)" / "(% of group total)".
   - The share is the cell's value (0–100, e.g. 18.4): sorting, filtering, highlight rules, data bars and colour scales use it. Shown as "18%", "< 1%" for tiny shares, empty when the total is 0. Number formats apply to the share (Percent, or decimals). The summary row's Sum shows 100%.
