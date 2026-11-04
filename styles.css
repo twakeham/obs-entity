@@ -2843,6 +2843,11 @@ button.oe-tm-typegroup-title,
 	padding-inline: 0;
 }
 
+/* A gap between the header (the view's name and the buttons) and the view. */
+.markdown-embed.oe-view-embed > .markdown-embed-title {
+	padding-bottom: var(--size-4-2);
+}
+
 .markdown-embed.oe-view-embed > .markdown-embed-content > .markdown-preview-view {
 	scrollbar-gutter: auto;
 }
