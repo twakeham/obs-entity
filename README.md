@@ -336,6 +336,7 @@ Functions: logic (`if`, `ifs`, `and`, `or`, `not`, `empty`, `coalesce`), maths (
 - **Open as Markdown** (header button or ⋯) shows the note itself, e.g. to edit the definition or write notes below the block. **Open as entity view** switches back.
 - The setting **Open view notes as entity views** turns this off.
 - A view embedded in another note (`![[View]]`) stays inline, filling the note's width: the embed's left border and indent are dropped. (An embedded note that has other content besides the view keeps the usual embed look.)
+- **Full width:** the ↔ button next to the embed's open-link button widens it to the whole pane (with a small gap each side), and back. It's saved in the embed link as `![[View|wide]]`, so each embed remembers its own width; you can also type `|wide` yourself. In Live Preview the change can be undone like any edit.
 
 ### Boards
 

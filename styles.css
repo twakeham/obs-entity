@@ -2847,6 +2847,40 @@ button.oe-tm-typegroup-title,
 	scrollbar-gutter: auto;
 }
 
+/* Wide (`|wide`): the embed spans the pane, and its content isn't held to the readable line width. */
+.markdown-embed.oe-view-embed.is-wide > .markdown-embed-content > .markdown-preview-view > .markdown-preview-sizer {
+	max-width: none;
+	width: 100%;
+	margin-inline: 0;
+}
+
+/* The Full width toggle, just left of the embed's open-link button; pressed in while the embed is wide. */
+.markdown-embed.oe-view-embed > .oe-embed-wide {
+	position: absolute;
+	z-index: 2;
+	top: 4px;
+	inset-inline-end: 32px;
+	width: 24px;
+	height: 24px;
+	padding: 4px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--text-faint);
+	cursor: var(--cursor);
+}
+
+.markdown-embed.oe-view-embed > .oe-embed-wide:hover {
+	color: var(--text-muted);
+}
+
+.markdown-embed.oe-view-embed > .oe-embed-wide.is-active,
+.markdown-embed.oe-view-embed > .oe-embed-wide.is-active:hover {
+	color: var(--text-normal);
+	background-color: color-mix(in srgb, var(--interactive-normal), black 14%);
+	box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
 .oe-view {
 	container-type: inline-size;
 	border: 1px solid var(--background-modifier-border);

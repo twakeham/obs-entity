@@ -2,6 +2,8 @@ import { MarkdownRenderChild, Notice, TFile, parseYaml, stringifyYaml, type Mark
 import { createRoot, type Root } from "react-dom/client";
 import type EntitiesPlugin from "../../main";
 import { replaceViewBlock } from "../../model/viewBlock";
+import { isWideAlt } from "../../model/viewEmbed";
+import { removeWideButton, wideButton } from "./embedWide";
 import { parseView, serializeView, unknownSources, type ViewDef } from "../../model/views";
 import { PluginContext } from "../react/context";
 import { EntityTable } from "../react/table/EntityTable";
@@ -61,6 +63,8 @@ export class ViewBlock extends MarkdownRenderChild {
 	private fitted: HTMLElement | null = null;
 	/** the embed this view fills (marked `oe-view-embed`) */
 	private embed: HTMLElement | null = null;
+	/** watches the embed's `alt` (its display text, e.g. `wide`) */
+	private altObserver: MutationObserver | null = null;
 
 	/** Start fitting once the block is in the page (post-processors run before it's attached). */
 	private watchFit(): void {
@@ -71,28 +75,51 @@ export class ViewBlock extends MarkdownRenderChild {
 	private fit(): void {
 		const el = this.containerEl;
 		if (!el.isConnected) return;
-		// An embedded view note (nothing but this block) loses the embed's border and indent, so it fills the width.
 		const embed = el.closest<HTMLElement>(".markdown-embed");
-		if (embed && this.isWholeNote()) {
-			embed.addClass("oe-view-embed");
-			this.embed = embed;
-		}
-		// Embeds, callouts and hover previews keep their normal size.
-		if (el.closest(".internal-embed, .markdown-embed, .callout, .popover, .hover-popover")) return;
+		if (embed) return this.fitEmbed(embed);
+		// Callouts and hover previews keep their normal size.
+		if (el.closest(".internal-embed, .callout, .popover, .hover-popover")) return;
 		const pane = el.closest<HTMLElement>(".cm-scroller, .markdown-preview-view");
 		if (!pane) return;
+		// Only our own element is resized: changing CodeMirror's widget (.cm-embed-block) makes the editor redraw it.
+		el.addClass("is-full");
+		this.spread(el, pane);
+	}
+
+	/**
+	 * An embedded view note (nothing but this block) loses the embed's border and indent, so it fills the width, and
+	 * gets a Full width button. With `|wide` the whole embed spans the pane.
+	 */
+	private fitEmbed(embed: HTMLElement): void {
+		if (!this.isWholeNote()) return;
+		embed.addClass("oe-view-embed");
+		this.embed = embed;
+		// Embeds in callouts, hover previews and other embeds stay as they are.
+		if (embed.closest(".callout, .popover, .hover-popover") || embed.parentElement?.closest(".internal-embed")) return;
+		wideButton(this.plugin.app, embed);
+		// Obsidian keeps the embed when its link changes (`|wide` on or off), updating only `alt`.
+		if (!this.altObserver) {
+			this.altObserver = new MutationObserver(() => this.fit());
+			this.altObserver.observe(embed, { attributes: true, attributeFilter: ["alt"] });
+		}
+		const wide = isWideAlt(embed.getAttribute("alt"));
+		embed.toggleClass("is-wide", wide);
+		const pane = embed.parentElement?.closest<HTMLElement>(".cm-scroller, .markdown-preview-view");
+		if (wide && pane) this.spread(embed, pane);
+		else this.unspread(embed);
+	}
+
+	/** Size `target` to span `pane` (20px in from each side), and follow the pane's size. */
+	private spread(target: HTMLElement, pane: HTMLElement): void {
 		if (pane !== this.pane) {
 			this.paneObserver?.disconnect();
 			this.paneObserver = new ResizeObserver(() => this.fit());
 			this.paneObserver.observe(pane);
 			this.pane = pane;
 		}
-		// Only our own element is resized: changing CodeMirror's widget (.cm-embed-block) makes the editor redraw it.
-		const target = el;
 		const parent = target.parentElement;
 		if (!parent) return;
 		this.fitted = target;
-		el.addClass("is-full");
 		const pad = 20;
 		const p = pane.getBoundingClientRect();
 		const left = p.left + pane.clientLeft + pad;
@@ -101,26 +128,47 @@ export class ViewBlock extends MarkdownRenderChild {
 		const margin = `${Math.round(left - (pr.left + parent.clientLeft + parseFloat(getComputedStyle(parent).paddingLeft || "0")))}px`;
 		const w = `${Math.round(width)}px`;
 		if (target.style.marginLeft !== margin || target.style.width !== w) {
+			// Live Preview pins its top-level blocks' margins (`margin: 0 !important`), which an embed is.
 			target.style.maxWidth = "none";
-			target.style.marginLeft = margin;
-			target.style.marginRight = "0";
+			target.style.setProperty("margin-left", margin, "important");
+			target.style.setProperty("margin-right", "0", "important");
 			target.style.width = w;
 		}
 		// The table's scroll area can grow to the pane's height (minus toolbar and footer).
-		el.style.setProperty("--oe-view-max-height", `${Math.max(240, pane.clientHeight - 110)}px`);
+		this.containerEl.style.setProperty("--oe-view-max-height", `${Math.max(240, pane.clientHeight - 110)}px`);
+	}
+
+	/** Undo `spread` on `t` (an embed going back to normal width; an earlier render may have spread it). */
+	private unspread(t: HTMLElement | null = this.fitted): void {
+		if (t) for (const k of ["max-width", "margin-left", "margin-right", "width"]) t.style.removeProperty(k);
+		this.containerEl.style.removeProperty("--oe-view-max-height");
+		this.fitted = null;
+		this.paneObserver?.disconnect();
+		this.paneObserver = null;
+		this.pane = null;
 	}
 
 	private unfit(): void {
 		this.sizeObserver?.disconnect();
-		this.paneObserver?.disconnect();
-		this.sizeObserver = this.paneObserver = null;
-		this.pane = null;
-		this.fitted = null;
-		// A re-rendered embed may already hold the new block, which keeps the class.
-		if (this.embed && ![...this.embed.querySelectorAll(".oe-view-host")].some((h) => h !== this.containerEl)) this.embed.removeClass("oe-view-embed");
+		this.sizeObserver = null;
+		this.altObserver?.disconnect();
+		this.altObserver = null;
+		// A re-rendered embed may already hold the new block, which keeps the embed as it is.
+		const embed = this.embed;
+		const replaced = !!embed && [...embed.querySelectorAll(".oe-view-host")].some((h) => h !== this.containerEl);
+		if (embed && !replaced) this.unspread(embed);
+		else {
+			this.paneObserver?.disconnect();
+			this.paneObserver = null;
+			this.pane = null;
+			this.fitted = null;
+		}
+		if (embed && !replaced) {
+			embed.removeClass("oe-view-embed", "is-wide");
+			removeWideButton(embed);
+		}
 		this.embed = null;
 	}
-
 	/** Whether this block is the whole note (apart from frontmatter), like the notes in the views folder. */
 	private isWholeNote(): boolean {
 		const file = this.plugin.app.vault.getAbstractFileByPath(this.ctx.sourcePath);
