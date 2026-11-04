@@ -749,7 +749,8 @@ select.oe-status {
 }
 
 .oe-form .oe-option,
-.oe-popover .oe-option {
+.oe-popover .oe-option,
+.oe-filters .oe-option {
 	height: auto;
 	padding: 1px 10px;
 	border: 1px solid var(--background-modifier-border);
@@ -761,7 +762,8 @@ select.oe-status {
 }
 
 .oe-form .oe-option.is-active,
-.oe-popover .oe-option.is-active {
+.oe-popover .oe-option.is-active,
+.oe-filters .oe-option.is-active {
 	border-color: var(--interactive-accent);
 	background-color: color-mix(in srgb, var(--interactive-accent) 15%, var(--background-primary));
 	color: var(--text-normal);
@@ -3368,6 +3370,21 @@ button.oe-tm-typegroup-title,
 	align-items: center;
 	gap: 4px;
 	max-width: 380px;
+}
+
+/* The roll-up dialog's "Only include" filter: sized like the settings around it. */
+.oe-rollup-where {
+	font-size: var(--font-ui-small);
+	padding: var(--size-4-3) 0;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.oe-rollup-where .oe-filter-group-head {
+	color: var(--text-normal);
+}
+
+.oe-rollup-modal .setting-item-control input[type="text"] {
+	width: 300px;
 }
 
 /* "This note" in a link condition: the note the view is on */

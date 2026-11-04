@@ -61,6 +61,8 @@ export interface RollupDef {
 	field?: string;
 	/** count and sum: show each row's share (%) of the view's total, or of its group's total */
 	show?: RollupShow;
+	/** only the linked notes that match (view filter conditions, on the linked notes' columns) */
+	where?: FilterGroup;
 }
 
 export type RollupShow = "total" | "group";
@@ -321,8 +323,9 @@ function parseColumn(raw: unknown, errors: string[], taken: Set<string>): Column
 			else if (!SHARE_AGGS.includes(agg)) errors.push(`Roll-up "show: ${r.show}" only works with count and sum.`);
 			else show = r.show;
 		}
+		const where = r.where !== undefined ? parseFilterItems(r.where, errors, 0) : null;
 		const id = str(raw.id) || uniqueId(label ?? `${via}_${agg}`);
-		return { kind: "rollup", id, rollup: { via, agg, ...(field ? { field } : {}), ...(show ? { show } : {}) }, ...(label ? { label } : {}) };
+		return { kind: "rollup", id, rollup: { via, agg, ...(field ? { field } : {}), ...(show ? { show } : {}), ...(where?.items.length ? { where } : {}) }, ...(label ? { label } : {}) };
 	}
 	if (typeof raw.formula === "string") {
 		const id = str(raw.id) || uniqueId(label ?? "formula");
@@ -564,8 +567,10 @@ function serializeColumn(c: ColumnDef): unknown {
 			return c.label || c.id !== c.key ? { field: c.key, ...label } : c.key;
 		case "incoming":
 			return c.label ? { incoming: `${c.type}.${c.field}`, ...label } : c.id;
-		case "rollup":
-			return { rollup: { ...c.rollup }, ...label, id: c.id };
+		case "rollup": {
+			const { where, ...rest } = c.rollup;
+			return { rollup: { ...rest, ...(where?.items.length ? { where: serializeFilters(where) } : {}) }, ...label, id: c.id };
+		}
 		case "formula":
 			return { formula: c.formula, ...label, id: c.id, ...(c.type ? { type: c.type } : {}) };
 	}
@@ -717,6 +722,8 @@ export interface ResolvedColumn {
 	options?: string[];
 	/** formula columns: the compiled formula, its referenced columns and its result type */
 	formula?: { compiled: Compiled; refs: Map<string, ResolvedColumn>; type: FType };
+	/** more about the column, for its header's tooltip (a filtered roll-up's conditions in words) */
+	hint?: string;
 }
 
 const FIELD_VALUE_KIND: Record<string, ValueKind> = {
@@ -763,7 +770,87 @@ export function rollupLabel(r: RollupDef, sources: EntityTypeDef[], types: Entit
 	const rel = v.incoming ? incomingLabel(v.type, v.field, r.via) : (v.field?.label ?? r.via.slice(6));
 	const linked = v.incoming ? (v.type ? [v.type] : []) : targetTypes(v.field, types);
 	const fieldLabel = r.field ? (fieldOf(r.field, linked)?.label ?? r.field) : "";
-	return `${rel}: ${AGG_LABELS[r.agg]}${fieldLabel ? ` of ${fieldLabel.toLowerCase()}` : ""}${r.show ? ` (${SHOW_LABELS[r.show]})` : ""}`;
+	return `${rel}: ${AGG_LABELS[r.agg]}${fieldLabel ? ` of ${fieldLabel.toLowerCase()}` : ""}${r.show ? ` (${SHOW_LABELS[r.show]})` : ""}${isFiltered(r) ? " (filtered)" : ""}`;
+}
+
+// ---- roll-up filters ("only include linked notes where…")
+
+/** Whether a roll-up has any filter conditions. */
+export const isFiltered = (r: RollupDef): boolean => !!r.where && filterFields(r.where).length > 0;
+
+/** The types a roll-up's linked notes can be (`sources`: the types the roll-up is on). */
+export function rollupLinkedTypes(r: Pick<RollupDef, "via">, sources: EntityTypeDef[], types: EntityTypeDef[]): EntityTypeDef[] {
+	const v = viaField(r.via, sources, types);
+	return v.incoming ? (v.type ? [v.type] : []) : targetTypes(v.field, types);
+}
+
+/** The columns a roll-up filter can test, grouped: the linked types' fields (calculated ones too), built-ins and incoming links. */
+export function rollupFilterColumns(linked: EntityTypeDef[], ctx: Pick<ViewContext, "types" | "groups">): { col: ResolvedColumn; group: string }[] {
+	const def = emptyView(linked.map((t) => t.key));
+	const a = availableColumns(def, ctx);
+	const grouped = (cols: ColumnDef[], group: string) => cols.map((c) => ({ col: resolveColumn(c, def, ctx), group }));
+	return [...grouped(a.fields, "Fields"), ...grouped([columnFromId("name"), ...a.builtins], "Built-in"), ...grouped(a.incoming, "Incoming links")];
+}
+
+/** A filter group in words, e.g. "Status is any of done and (Due is before today or Priority is any of High)". */
+export function filterText(g: FilterGroup, columns: Map<string, ResolvedColumn>): string {
+	const words = (v: unknown, col?: ResolvedColumn) =>
+		asArray(v)
+			.map((x) => String(x))
+			.filter((x) => x !== "")
+			.map((x) => (x === THIS_NOTE ? "this note" : col?.kind === "links" ? basename(x) : x))
+			.join(", ");
+	return g.items
+		.map((i) => {
+			if (isGroup(i)) return `(${filterText(i, columns)})`;
+			const col = columns.get(i.field);
+			const op = col ? OPERATORS[col.kind].find((o) => o.op === i.op) : undefined;
+			const value = op && op.value !== "none" ? words(i.value, col) : "";
+			return `${col?.label ?? i.field} ${op?.label ?? i.op}${value ? ` ${value}` : ""}`;
+		})
+		.join(g.mode === "all" ? " and " : " or ");
+}
+
+/** A filtered roll-up in words, e.g. "Count of Tasks where Status is any of done" (null when it isn't filtered). */
+export function rollupWhereText(r: RollupDef, sources: EntityTypeDef[], ctx: Pick<ViewContext, "types" | "groups">): string | null {
+	if (!r.where || !isFiltered(r)) return null;
+	const linked = rollupLinkedTypes(r, sources, ctx.types);
+	const what = linked.length === 1 ? linked[0].plural : "linked notes";
+	const agg = AGG_LABELS[r.agg];
+	const fieldLabel = r.field ? (fieldOf(r.field, linked)?.label ?? r.field).toLowerCase() : "";
+	return `${agg[0].toUpperCase()}${agg.slice(1)}${fieldLabel ? ` of ${fieldLabel}` : ""} of ${what} where ${filterText(r.where, whereColumns(r.where, linked, ctx))}`;
+}
+
+/** The roll-up filter's conditions that are ignored, and why (the linked types' columns). */
+export function rollupIgnored(r: RollupDef, sources: EntityTypeDef[], ctx: Pick<ViewContext, "types" | "groups" | "dates" | "today">): { cond: Condition; issue: string }[] {
+	if (!r.where) return [];
+	return ignoredConditions(r.where, whereColumns(r.where, rollupLinkedTypes(r, sources, ctx.types), ctx), ctx);
+}
+
+/** The columns a filter uses, resolved against the linked types. */
+function whereColumns(where: FilterGroup, linked: EntityTypeDef[], ctx: Pick<ViewContext, "types" | "groups">): Map<string, ResolvedColumn> {
+	const def = emptyView(linked.map((t) => t.key));
+	return new Map(filterFields(where).map((id) => [id, resolveColumn(columnFromId(id), def, ctx)]));
+}
+
+/** Columns for testing a linked note against roll-up filters: per type list, type and column id. */
+const linkedColumnCache = new WeakMap<object, Map<string, ResolvedColumn>>();
+function linkedColumn(type: EntityTypeDef, id: string, ctx: ViewContext): ResolvedColumn {
+	let m = linkedColumnCache.get(ctx.types);
+	if (!m) linkedColumnCache.set(ctx.types, (m = new Map()));
+	const key = `${type.key}\u0000${id}`;
+	let col = m.get(key);
+	if (!col || !ctx.types.includes(type)) {
+		col = resolveColumn(columnFromId(id), emptyView([type.key]), ctx);
+		if (ctx.types.includes(type)) m.set(key, col);
+	}
+	return col;
+}
+
+/** Whether a linked note passes a roll-up's filter (true when none of its conditions can be used). */
+function passesWhere(row: ViewRow, where: FilterGroup, ctx: ViewContext): boolean {
+	const cols = new Map(filterFields(where).map((id) => [id, linkedColumn(row.type, id, ctx)]));
+	return evalGroup(where, (id) => cellOf(row, cols.get(id)!, ctx), cols, ctx) ?? true;
 }
 
 function statusOptions(sources: EntityTypeDef[], groups: GroupDef[]): string[] {
@@ -819,7 +906,8 @@ export function resolveColumn(col: ColumnDef, def: ViewDef, ctx: Pick<ViewContex
 			const v = viaField(r.via, sources, ctx.types);
 			const kind = rollupValueKind(r.agg);
 			const invalid = !v.field || v.field.kind !== "relation" ? `The roll-up's relationship "${r.via}" doesn't exist.` : undefined;
-			return { ...base, label, kind, editable: false, ...(invalid ? { invalid } : {}) };
+			const hint = invalid ? null : rollupWhereText(r, sources, ctx);
+			return { ...base, label, kind, editable: false, ...(invalid ? { invalid } : {}), ...(hint ? { hint } : {}) };
 		}
 		case "formula":
 			return resolveFormula(col, def, ctx, stack);
@@ -1116,7 +1204,10 @@ function linkedRows(row: ViewRow, via: string, ctx: ViewContext): { rows: ViewRo
 }
 
 function rollupCell(row: ViewRow, r: RollupDef, ctx: ViewContext): Cell {
-	const { rows, count } = linkedRows(row, r.via, ctx);
+	const linked = linkedRows(row, r.via, ctx);
+	// Filtered: only linked notes that exist and match (links to missing notes can't be checked).
+	const rows = r.where && isFiltered(r) ? linked.rows.filter((x) => passesWhere(x, r.where!, ctx)) : linked.rows;
+	const count = r.where && isFiltered(r) ? rows.length : linked.count;
 	const numbers = () => rows.map((x) => toNumber(fieldValue(x, r.field ?? "", ctx).raw)).filter((n): n is number => n !== null);
 	const num = (n: number | null): Cell => (n === null ? EMPTY : { value: n, text: String(Math.round(n * 100) / 100), sort: n });
 	switch (r.agg) {
@@ -1608,21 +1699,26 @@ export const THIS_NOTE = "{this}";
 export const NO_THIS_NOTE = "It isn't shown on a note, so there's no “this note”.";
 const THIS_OPS = new Set(["links-any", "links-none"]);
 
-/** Whether the definition's filters or highlight rules use "this note". */
+/** Whether the definition's filters, highlight rules or roll-up columns' filters use "this note". */
 export function usesThisNote(def: ViewDef): boolean {
 	const inGroup = (g: FilterGroup): boolean => g.items.some((i) => (isGroup(i) ? inGroup(i) : THIS_OPS.has(i.op) && listOf(i.value).includes(THIS_NOTE)));
-	return inGroup(def.filters) || (def.highlight ?? []).some((r) => inGroup(r.when));
+	return inGroup(def.filters) || (def.highlight ?? []).some((r) => inGroup(r.when)) || def.columns.some((c) => c.kind === "rollup" && !!c.rollup.where && inGroup(c.rollup.where));
 }
 
 /**
- * The definition as run on the note at `path`: "this note" in link conditions (filters and highlight rules) becomes
- * that note's path. With no note (null) it's dropped; a condition left with nothing else keeps it, and is reported
- * as ignored (`NO_THIS_NOTE`). The definition itself (what's saved) keeps `{this}`.
+ * The definition as run on the note at `path`: "this note" in link conditions (filters, highlight rules and roll-up
+ * columns' filters) becomes that note's path. With no note (null) it's dropped; a condition left with nothing else
+ * keeps it, and is reported as ignored (`NO_THIS_NOTE`). The definition itself (what's saved) keeps `{this}`.
  */
 export function withThisNote(def: ViewDef, path: string | null): ViewDef {
 	if (!usesThisNote(def)) return def;
 	const group = (g: FilterGroup): FilterGroup => ({ ...g, items: g.items.map((i) => (isGroup(i) ? group(i) : thisNoteCondition(i, path))) });
-	return { ...def, filters: group(def.filters), ...(def.highlight ? { highlight: def.highlight.map((r) => ({ ...r, when: group(r.when) })) } : {}) };
+	return {
+		...def,
+		filters: group(def.filters),
+		columns: def.columns.map((c) => (c.kind === "rollup" && c.rollup.where ? { ...c, rollup: { ...c.rollup, where: group(c.rollup.where) } } : c)),
+		...(def.highlight ? { highlight: def.highlight.map((r) => ({ ...r, when: group(r.when) })) } : {}),
+	};
 }
 
 /** One condition with "this note" resolved (see `withThisNote`). */

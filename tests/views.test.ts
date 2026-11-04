@@ -4,6 +4,7 @@ import { isoDateAdapter } from "../src/model/dates";
 import type { MomentLike } from "../src/model/formats";
 import { CRM_PACK, STARTER_PACK } from "../src/model/packs";
 import { extractEdges } from "../src/model/relations";
+import { typeIssues } from "../src/model/validation";
 import { spanText, summarize, summaryOptions } from "../src/model/summary";
 import {
 	availableColumns,
@@ -27,6 +28,9 @@ import {
 	percentile,
 	prefillFromFilters,
 	resolveColumn,
+	rollupIgnored,
+	rollupLinkedTypes,
+	rollupFilterColumns,
 	rollupSources,
 	rowHeight,
 	rowOffsets,
@@ -38,6 +42,7 @@ import {
 	unknownSources,
 	usesThisNote,
 	withThisNote,
+	type ColumnDef,
 	type ViewContext,
 	type ResultGroup,
 	type ViewDef,
@@ -674,6 +679,61 @@ describe("this note", () => {
 		expect(ignored.map((i) => i.issue)).toEqual([NO_THIS_NOTE]);
 		// Mixed with real notes, only the placeholder goes.
 		expect(off.highlight?.[0].when.items[0]).toEqual({ field: "owner", op: "links-none", value: ["Ada"] });
+	});
+});
+
+describe("roll-up filters", () => {
+	const deals = (where: unknown, agg = "count", field?: string) => ({ types: ["organisation"], columns: [{ rollup: { via: "in:deal.company", agg, ...(field ? { field } : {}), where }, id: "x" }] });
+
+	it("only roll up the linked notes that match", () => {
+		expect(texts(deals({ all: [{ field: "status", op: "any-of", value: ["won"] }] }, "sum", "value"), "x")).toEqual(["Acme=50", "Globex="]);
+		expect(texts(deals({ all: [{ field: "value", op: ">=", value: 60 }] }), "x")).toEqual(["Acme=1", "Globex=0"]);
+		// Relative dates, and "any" groups.
+		expect(texts(deals({ all: [{ field: "close_date", op: "before", value: "today" }] }), "x")[0]).toBe("Acme=1");
+		expect(texts(deals({ any: [{ field: "value", op: ">", value: 75 }, { field: "status", op: "any-of", value: ["won"] }] }), "x")[0]).toBe("Acme=2");
+		// Outgoing relationships too: Apollo's team, only the active people.
+		const team = { types: ["project"], columns: [{ rollup: { via: "field:team", agg: "list", where: { all: [{ field: "status", op: "any-of", value: ["active"] }] } }, id: "x" }] };
+		expect(texts(team, "x")).toContain("Apollo=Ada");
+		// A condition that can't be used is ignored (every linked note counts).
+		expect(texts(deals({ all: [{ field: "status", op: "any-of", value: [] }] }), "x")[0]).toBe("Acme=2");
+	});
+
+	it("round-trip, label themselves and say what they count", () => {
+		const def = view(deals({ all: [{ field: "status", op: "any-of", value: ["won"] }] }, "sum", "value"));
+		const col = def.columns[1] as Extract<ColumnDef, { kind: "rollup" }>;
+		expect(col.rollup.where).toEqual({ mode: "all", items: [{ field: "status", op: "any-of", value: ["won"] }] });
+		expect(serializeView(def).columns).toContainEqual({ rollup: { via: "in:deal.company", agg: "sum", field: "value", where: { all: [{ field: "status", op: "any-of", value: ["won"] }] } }, id: "x" });
+		expect(view(serializeView(def))).toEqual(def);
+		// No conditions: no "where" at all.
+		expect((serializeView(view(deals({ all: [] }))).columns as unknown[])[1]).toEqual({ rollup: { via: "in:deal.company", agg: "count" }, id: "x" });
+		const r = runView(def, ROWS, ctx).columns[1];
+		expect(r.label).toMatch(/ \(filtered\)$/);
+		expect(r.hint).toBe("Sum of value of Deals where Status is any of won");
+		expect(rollupLinkedTypes(col.rollup, [T("organisation")], TYPES).map((t) => t.key)).toEqual(["deal"]);
+		const cols = rollupFilterColumns([T("deal")], ctx);
+		expect(cols.find((c) => c.col.id === "value")?.group).toBe("Fields");
+		expect(cols.find((c) => c.col.id === "name")?.group).toBe("Built-in");
+		expect(rollupIgnored({ ...col.rollup, where: { mode: "all", items: [{ field: "ghost", op: "is", value: "x" }] } }, [T("organisation")], ctx)[0].issue).toMatch(/ghost/);
+	});
+
+	it("can use this note in a view (the note the view is on)", () => {
+		// People: how many of the projects they're on are owned by this note.
+		const def = view({ types: ["person"], columns: [{ rollup: { via: "in:project.team", agg: "count", where: { all: [{ field: "owner", op: "links-any", value: [THIS_NOTE] }] } }, id: "x" }] });
+		const counts = (path: string | null) => runView(withThisNote(def, path), ROWS, ctx).rows.map((r) => `${r.row.name}=${r.cells.x.text}`);
+		expect(counts("Ada.md")).toEqual(["Ada=1", "Grace=1"]);
+		expect(counts("Grace.md")).toEqual(["Ada=0", "Grace=0"]);
+		// No note: the condition is ignored.
+		expect(counts(null)).toEqual(["Ada=1", "Grace=1"]);
+		expect(usesThisNote(def)).toBe(true);
+	});
+
+	it("are checked with the type", () => {
+		const org = T("organisation");
+		const won = { key: "won", label: "Won", kind: "rollup" as const, rollup: { via: "in:deal.company", agg: "count" as const, where: { mode: "all" as const, items: [{ field: "ghost", op: "is", value: "x" }, { field: "status", op: "any-of" }] } } };
+		const t = { ...org, fields: [...org.fields, won] };
+		const issues = typeIssues(t, { typeKeys: TYPES.map((x) => x.key), groupKeys: GROUPS.map((g) => g.key), types: TYPES, groups: GROUPS }).filter((i) => i.at === `field:${t.fields.length - 1}:calc`);
+		// The unknown column is a problem; the condition still waiting for a value isn't.
+		expect(issues.map((i) => i.message)).toEqual(["Won: the condition “ghost is” is ignored: No source type has a \"ghost\" field."]);
 	});
 });
 

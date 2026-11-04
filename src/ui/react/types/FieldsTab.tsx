@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState, type CSSProperties, type DragEvent, type 
 import { newUid, renameFieldRefs, targetName } from "../../../model/typeEditing";
 import { COMMON_KEYS, isCalculated, storedFields, toKey, type EntityTypeDef, type FieldDef, type FieldKind, type GroupDef } from "../../../model/types";
 import { toDisplay } from "../../../model/formula";
-import { AGG_FIELD_KINDS, calcCell, calcInfo, fieldColumn, formatCell, formulaRefColumns, resolveColumn, rollupSources, ROLLUP_AGGS, typeViewDef, type RollupAgg, type RollupDef } from "../../../model/views";
+import { AGG_FIELD_KINDS, calcCell, calcInfo, fieldColumn, filterText, formatCell, formulaRefColumns, isFiltered, resolveColumn, rollupFilterColumns, rollupSources, ROLLUP_AGGS, typeViewDef, type RollupAgg, type RollupDef } from "../../../model/views";
 import { FormulaModal } from "../../modals/formulaModal";
 import { BOOLEAN_FORMATS, datePresetLabels, FIELD_DATE_PRESETS, FIELD_NUMBER_PRESETS, formattedKind, formatValue, showDate, urlText } from "../../../model/fieldFormats";
 import { usePlugin } from "../context";
@@ -953,6 +953,44 @@ function ValidationRows({ field: f, index }: { field: FieldDef; index: number })
 	);
 }
 
+/**
+ * A roll-up field's "Only include": the view filter builder on the linked notes' columns, with the conditions in words.
+ * (Roll-up fields have no "this note": they're worked out wherever the note shows.)
+ */
+function RollupWhereRow({ rollup: r, linked, lookup, onChange }: { rollup: RollupDef; linked: EntityTypeDef[]; lookup: { types: EntityTypeDef[]; groups: GroupDef[] }; onChange: (where: RollupDef["where"]) => void }) {
+	const plugin = usePlugin();
+	const [open, setOpen] = useState(false);
+	const viewCtx = useMemo(() => plugin.viewData().ctx, [plugin]);
+	const choices = useMemo(() => rollupFilterColumns(linked, lookup), [linked, lookup]);
+	const filtered = !!r.where && isFiltered(r);
+	const what = linked.length === 1 ? linked[0].plural.toLowerCase() : "linked notes";
+	const keys = new Set(linked.map((t) => t.key));
+	const valuesOf = (id: string) => (id === "tags" ? [...new Set(plugin.index.all().filter((e) => keys.has(e.type.key)).flatMap((e) => e.tags))].sort() : []);
+	return (
+		<Row
+			label="Only include"
+			desc={filtered ? `Only ${what} where ${filterText(r.where!, new Map(choices.map((c) => [c.col.id, c.col])))}.` : `Every linked note counts. Add conditions to count only some, e.g. only ${what} that are done.`}
+			stacked={open || !!r.where?.items.length}
+		>
+			{open || r.where?.items.length ? (
+				<div className="oe-ld-when-editor">
+					<FiltersPanel
+						filters={r.where ?? { mode: "all", items: [] }}
+						choices={choices}
+						ctx={viewCtx}
+						valuesOf={valuesOf}
+						heading="Only include linked notes that match"
+						emptyText="No conditions: every linked note counts."
+						onChange={(g) => onChange(g.items.length ? g : undefined)}
+					/>
+				</div>
+			) : (
+				<button onClick={() => setOpen(true)}>Add a condition…</button>
+			)}
+		</Row>
+	);
+}
+
 const RESULT_TEXT: Record<string, string> = { number: "a number", date: "a date", bool: "true / false", multi: "a list", links: "links", text: "text", choice: "text", folder: "text" };
 const AGG_TEXT: Record<RollupAgg, string> = {
 	count: "Count",
@@ -1049,6 +1087,7 @@ function CalcRows({ field: f, index, part }: { field: FieldDef; index: number; p
 						</select>
 					</Row>
 				)}
+				<RollupWhereRow rollup={r} linked={source?.linked ?? []} lookup={lookup} onChange={(where) => setRollup({ where })} />
 			</>
 		);
 	} else {

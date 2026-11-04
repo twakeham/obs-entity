@@ -359,7 +359,11 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		update({ ...cur, columns, ...board });
 	};
 	const formulaDialog = (existing: Extract<ColumnDef, { kind: "formula" }> | null) => new FormulaModal(plugin, defRef.current, existing, (col) => addComputed(existing, col)).open();
-	const rollupDialog = (existing: Extract<ColumnDef, { kind: "rollup" }> | null) => new RollupModal(plugin, defRef.current, existing, (col) => addComputed(existing, col)).open();
+	const rollupDialog = (existing: Extract<ColumnDef, { kind: "rollup" }> | null) => {
+		const saved = existing ? defRef.current.columns.find((x) => x.id === existing.id) : undefined;
+		const col = saved?.kind === "rollup" ? saved : existing;
+		new RollupModal(plugin, defRef.current, col, (next) => addComputed(col, next), thisPath).open();
+	};
 
 	/**
 	 * Fit columns to their contents: draw the header, every shown row and the summary of each column off-screen
@@ -630,7 +634,9 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 						}),
 				);
 		if (c.def.kind === "rollup") {
-			const rc = c.def;
+			// The saved column (the shown one has "this note" filled in).
+			const saved = defRef.current.columns.find((x) => x.id === c.id);
+			const rc = saved?.kind === "rollup" ? saved : c.def;
 			m.addItem((i) => i.setSection("edit").setTitle("Edit roll-up…").setIcon("pencil").onClick(() => rollupDialog(rc)));
 			if (SHARE_AGGS.includes(rc.rollup.agg))
 				m.addItem((i) =>
@@ -1465,7 +1471,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 										onContextMenu={(e) => headerMenu(e, c)}
 									>
 										<span className="oe-th-inner">
-											<span className="oe-th-label" aria-label={c.invalid}>
+											<span className="oe-th-label" aria-label={c.invalid ?? c.hint}>
 												{c.label}
 											</span>
 											{s >= 0 && (

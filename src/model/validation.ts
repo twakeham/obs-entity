@@ -1,9 +1,9 @@
 import { unknownPlaceholders } from "./paths";
 import { fieldFormatIssue } from "./fieldFormats";
-import { whenColumns, whenIssues } from "./formConditions";
+import { todayDays, whenColumns, whenIssues } from "./formConditions";
 import { layoutIssues, normaliseLayout, whenParts } from "./formLayout";
 import { RESERVED_KEYS, isCalculated, isValidKey, type EntityTypeDef, type GroupDef } from "./types";
-import { calcInfo, columnFromId } from "./views";
+import { calcInfo, columnFromId, conditionText, NEEDS_VALUE, rollupFilterColumns, rollupIgnored, rollupLinkedTypes } from "./views";
 import { rulesIssues } from "./rules";
 import { defaultIssues } from "./defaults";
 import { isoDateAdapter } from "./dates";
@@ -85,6 +85,14 @@ export function typeIssues(t: EntityTypeDef, ctx: ValidationContext): TypeIssue[
 			const types = [...ctx.types.filter((x) => x.key !== t.key), t];
 			const calc = calcInfo(t, f, { types, groups: ctx.groups ?? [] });
 			if (calc.invalid) add(`field:${i}:calc`, `${f.label || f.key}: ${calc.invalid}`);
+			// Roll-up filters: broken conditions (ones still waiting for a value are only noted in the builder).
+			if (f.kind === "rollup" && f.rollup?.where) {
+				const cols = { types, groups: ctx.groups ?? [], dates: isoDateAdapter, today: todayDays() };
+				const linked = rollupLinkedTypes(f.rollup, [t], types);
+				const known = new Map(rollupFilterColumns(linked, cols).map((c) => [c.col.id, c.col]));
+				for (const x of rollupIgnored(f.rollup, [t], cols))
+					if (x.issue !== NEEDS_VALUE) add(`field:${i}:calc`, `${f.label || f.key}: the condition “${conditionText(x.cond, known)}” is ignored: ${x.issue}`);
+			}
 		}
 	});
 

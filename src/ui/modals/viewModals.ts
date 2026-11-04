@@ -1,6 +1,10 @@
 import { FuzzySuggestModal, Modal, Notice, Setting, type App, type FuzzyMatch, type TFile } from "obsidian";
-import { AGG_FIELD_KINDS, AGG_LABELS, calcInfo, ROLLUP_AGGS, rollupLabel, rollupSources, SHARE_AGGS, SHOW_LABELS, sourceTypes, type ColumnDef, type RollupAgg, type RollupShow, type ViewDef, type ViewKind } from "../../model/views";
-import { isCalculated, toKey } from "../../model/types";
+import { createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { AGG_FIELD_KINDS, AGG_LABELS, calcInfo, ROLLUP_AGGS, rollupFilterColumns, rollupLabel, rollupSources, SHARE_AGGS, SHOW_LABELS, sourceTypes, type ColumnDef, type FilterGroup, type RollupAgg, type RollupShow, type ViewDef, type ViewKind } from "../../model/views";
+import { isCalculated, toKey, type EntityTypeDef } from "../../model/types";
+import { PluginContext } from "../react/context";
+import { FiltersPanel } from "../react/table/popovers";
 import type EntitiesPlugin from "../../main";
 
 /** Ask for a name (Save as…, Rename, New view). */
@@ -158,19 +162,22 @@ export class OpenViewModal extends FuzzySuggestModal<TFile> {
 	}
 }
 
-/** Add or edit a roll-up column: relationship → aggregation → field → label. */
+/** Add or edit a roll-up column: relationship → aggregation → field → which linked notes → label. */
 export class RollupModal extends Modal {
 	constructor(
 		private plugin: EntitiesPlugin,
 		private def: ViewDef,
 		private existing: Extract<ColumnDef, { kind: "rollup" }> | null,
 		private done: (col: ColumnDef) => void,
+		/** the note the view is on, for "this note" in the filter (null: none) */
+		private thisPath: string | null = null,
 	) {
 		super(plugin.app);
 	}
 
 	onOpen(): void {
 		this.titleEl.setText(this.existing ? "Edit roll-up" : "Add roll-up");
+		this.modalEl.addClass("oe-rollup-modal");
 		this.render();
 	}
 
@@ -179,7 +186,45 @@ export class RollupModal extends Modal {
 	private field = "";
 	private label = "";
 	private show: RollupShow | "" = "";
+	private where: FilterGroup = { mode: "all", items: [] };
 	private started = false;
+	/** the "Only include" filter (React), kept across re-renders of the rest */
+	private whereEl: HTMLElement | null = null;
+	private whereRoot: Root | null = null;
+	/** updates the label's placeholder (the automatic label) after a filter change */
+	private refreshLabel: (() => void) | null = null;
+
+	/** The filter builder for the linked notes' columns. */
+	private renderWhere(linked: EntityTypeDef[]): HTMLElement {
+		if (!this.whereEl) {
+			this.whereEl = createDiv({ cls: "oe-rollup-where" });
+			this.whereRoot = createRoot(this.whereEl);
+		}
+		const ctx = { types: this.plugin.settings.types, groups: this.plugin.settings.groups };
+		const keys = new Set(linked.map((t) => t.key));
+		const tags = () => [...new Set(this.plugin.index.all().filter((e) => keys.has(e.type.key)).flatMap((e) => e.tags))].sort();
+		this.whereRoot!.render(
+			createElement(
+				PluginContext.Provider,
+				{ value: this.plugin },
+				createElement(FiltersPanel, {
+					filters: this.where,
+					choices: rollupFilterColumns(linked, ctx),
+					ctx: this.plugin.viewData().ctx,
+					valuesOf: (id: string) => (id === "tags" ? tags() : []),
+					heading: "Only include linked notes that match",
+					emptyText: "No conditions: every linked note counts.",
+					thisNote: this.thisPath,
+					onChange: (g: FilterGroup) => {
+						this.where = g;
+						this.renderWhere(linked);
+						this.refreshLabel?.();
+					},
+				}),
+			),
+		);
+		return this.whereEl;
+	}
 
 	private render(): void {
 		const { contentEl } = this;
@@ -198,6 +243,7 @@ export class RollupModal extends Modal {
 			this.field = r?.field ?? "";
 			this.label = this.existing?.label ?? "";
 			this.show = r?.show ?? "";
+			this.where = r?.where ?? { mode: "all", items: [] };
 		}
 		const source = sources.find((s) => s.via === this.via) ?? sources[0];
 		const need = AGG_FIELD_KINDS[this.agg];
@@ -236,6 +282,7 @@ export class RollupModal extends Modal {
 					d.setValue(this.field).onChange((v) => (this.field = v));
 				});
 		}
+		contentEl.appendChild(this.renderWhere(source.linked));
 		const canShare = SHARE_AGGS.includes(this.agg);
 		const show = canShare ? this.show : "";
 		if (canShare)
@@ -250,8 +297,13 @@ export class RollupModal extends Modal {
 						this.render();
 					});
 				});
-		const auto = rollupLabel({ via: source.via, agg: this.agg, ...(this.field && need ? { field: this.field } : {}), ...(show ? { show } : {}) }, sourceTypes(this.def, ctx.types), ctx.types);
-		new Setting(contentEl).setName("Column label").addText((t) => t.setPlaceholder(auto).setValue(this.label).onChange((v) => (this.label = v)));
+		// Worked out when asked: the filter (React) changes without redrawing the rest.
+		const autoLabel = () =>
+			rollupLabel({ via: source.via, agg: this.agg, ...(this.field && need ? { field: this.field } : {}), ...(show ? { show } : {}), ...(this.where.items.length ? { where: this.where } : {}) }, sourceTypes(this.def, ctx.types), ctx.types);
+		new Setting(contentEl).setName("Column label").addText((t) => {
+			t.setPlaceholder(autoLabel()).setValue(this.label).onChange((v) => (this.label = v));
+			this.refreshLabel = () => t.setPlaceholder(autoLabel());
+		});
 		new Setting(contentEl).addButton((b) =>
 			b
 				.setButtonText(this.existing ? "Save" : "Add column")
@@ -259,16 +311,20 @@ export class RollupModal extends Modal {
 				.setDisabled(!!need && !this.field)
 				.onClick(() => {
 					const label = this.label.trim();
+					const auto = autoLabel();
 					const taken = new Set(this.def.columns.filter((c) => c !== this.existing).map((c) => c.id));
 					let id = this.existing?.id ?? toKey(label || auto) ?? "rollup";
 					for (let n = 2; !this.existing && taken.has(id); n++) id = `${toKey(label || auto)}_${n}`;
 					this.close();
-					this.done({ kind: "rollup", id, rollup: { via: source.via, agg: this.agg, ...(need ? { field: this.field } : {}), ...(show ? { show } : {}) }, ...(label ? { label } : {}) });
+					this.done({ kind: "rollup", id, rollup: { via: source.via, agg: this.agg, ...(need ? { field: this.field } : {}), ...(show ? { show } : {}), ...(this.where.items.length ? { where: this.where } : {}) }, ...(label ? { label } : {}) });
 				}),
 		);
 	}
 
 	onClose(): void {
+		this.whereRoot?.unmount();
+		this.whereRoot = null;
+		this.whereEl = null;
 		this.contentEl.empty();
 	}
 }

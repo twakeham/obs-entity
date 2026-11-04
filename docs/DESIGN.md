@@ -330,7 +330,7 @@ A field's `format` changes how its value is **shown**, never what's stored (`mod
 
 ```ts
 // on FieldDef
-rollup?: RollupDef;      // { via: "field:<key>" | "in:<type>.<field>", agg, field? }: the same as a view roll-up column
+rollup?: RollupDef;      // { via: "field:<key>" | "in:<type>.<field>", agg, field?, where? }: the same as a view roll-up column
 formula?: string;        // stored with column ids, e.g. "[budget] / [task_count]" (shown with labels)
 formulaType?: FType;     // the result type, when set by hand (otherwise inferred)
 ```
@@ -341,6 +341,7 @@ formulaType?: FType;     // the result type, when set by hand (otherwise inferre
 - **Results:** `calcInfo(type, field, ctx)` gives the value kind (roll-ups by aggregation: counts, sums… are numbers, earliest / latest are dates, names / unique values are lists, count by status is text; formulas by result type) and why it can't be worked out. That kind drives filters, sorting, grouping and display formats (number, date and true / false formats; `defaultFormat` applies a calculated field's format by its result kind). A true / false result uses the checkbox formats.
 - **As columns:** a field column for a calculated field resolves to that kind, not editable; `cellOf` works it out per row (with the row's own type's definition). Views keep their own roll-up and formula columns.
 - **Validation:** with every type (as edited) in the validation context, `typeIssues` reports a roll-up's missing relationship or field and a formula's errors or loops at `field:<i>:calc`.
+- **Only include:** a roll-up field's `where` filters the linked notes (§8.10 Roll-ups).
 - **Renames:** `renameFieldRefs` follows a renamed key in the type's formulas (`rewriteRefs`) and roll-ups through that relation field (`via`).
 - **Where they show:** the properties form (read-only, "—" with the reason on hover; conditions on them get the real view context: `WhenContext.view` / `path`), Reading view, layouts, the subtitle (the index leaves calculated parts out, then `refreshCalcSubtitles` fills them in, debounced after index updates; the form passes its own values), tables and boards.
 
@@ -1306,7 +1307,12 @@ columns:
 | `count-by-status` | | e.g. "2 active · 1 done" (sorted as text) |
 
 - **Read-only**, but sortable and filterable as numbers, dates or text, depending on `agg`.
-- **Editing** happens in a small dialog: relationship → aggregation → field (if needed) → show as (count and sum) → label.
+- **Editing** happens in a small dialog: relationship → aggregation → field (if needed) → only include → show as (count and sum) → label.
+- **Only include** (`where`, a filter group like `filters`, written `where: { all: [...] }` and left out when empty): only the linked notes that match are rolled up (`passesWhere` in `rollupCell`). Conditions test the linked note's own columns (fields, calculated ones too, built-ins, incoming links), resolved per linked type (`linkedColumn`, cached per type list); the builder offers the linked types' columns (`rollupFilterColumns`: Fields, Built-in with Name, Incoming links). Ignored conditions (no value, unknown column…) don't filter, as in view filters, and a group with nothing usable passes every note.
+  - A filtered **count** is the number of linked notes that exist and match (links to missing notes can't be checked); unfiltered it still counts every link.
+  - **Label and tooltip:** the automatic label ends in " (filtered)"; the resolved column's `hint` ("Sum of value of Deals where Status is any of won", `rollupWhereText` / `filterText`) is the header's tooltip.
+  - **This note** (views only): `{this}` in a roll-up column's filter is the note the view is on, like in the view's filters (`withThisNote` covers roll-up columns; the dialog gets the view's note). Edit roll-up and the header menu work on the saved column, so `{this}` isn't replaced by a path.
+  - **Roll-up fields** (§4.7) have the same **Only include** (Fields tab, General, after Of field, with the conditions in words), without "this note" (they're worked out wherever the note shows). Type validation (`rollupIgnored`) reports broken conditions at `field:<i>:calc`; conditions still waiting for a value are only noted in the builder.
 - **Show as a share** (`show: total | group`, count and sum only; Value when unset):
   - `total`: each row's share (%) of the column's total over the rows the view shows. `group`: of its innermost group's total (the swimlane on a board; rows in several groups use their first); without grouping, the same as `total`. The label gets "(% of total)" / "(% of group total)".
   - The share is the cell's value (0–100, e.g. 18.4): sorting, filtering, highlight rules, data bars and colour scales use it. Shown as "18%", "< 1%" for tiny shares, empty when the total is 0. Number formats apply to the share (Percent, or decimals). The summary row's Sum shows 100%.
@@ -1800,6 +1806,7 @@ These cover all of `model/`, with no Obsidian dependency:
   - available columns and roll-up sources
   - cell values: fields, built-ins, incoming, every roll-up aggregation
   - every filter kind, nested groups and relative dates; ignored conditions (missing values, unreadable numbers and dates, unknown columns and operators) neither matching nor blocking, in "all" and "any" groups and nested groups; reporting them in words
+  - roll-up filters: only matching linked notes (incoming and outgoing, relative dates, any groups, ignored conditions), parse / serialize (no `where` when empty), "(filtered)" labels and the tooltip text, the linked types and their columns, "this note" in a view's roll-up, and type validation (broken conditions reported, unfinished ones not)
   - roll-ups as a share: parse / serialize (count and sum only), labels, shares of the view's total and of the group's (and of the search results), adding up to 100% in the summary, filtering / sorting / formatting / highlighting on the share, formulas getting the roll-up's own value, tiny and empty shares
   - natural, status-order and multi-level sorting with empty values last
   - header sort cycling
