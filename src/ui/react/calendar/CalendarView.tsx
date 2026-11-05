@@ -25,12 +25,11 @@ import {
 	type Segment,
 } from "../../../model/calendarView";
 import { choiceColor, statusColor } from "../../../model/colors";
-import { highlightOf, ROW_TARGET, type CalendarLayout, type Cell, type ResolvedColumn, type ResultRow, type ViewContext, type ViewDef, type ViewResult } from "../../../model/views";
-import type { LaneTarget } from "../board/Board";
+import { highlightOf, ROW_TARGET, type CalendarLayout, type ResolvedColumn, type ResultRow, type ViewContext, type ViewDef, type ViewResult } from "../../../model/views";
+import { CardFields, type LaneTarget } from "../board/Board";
 import { usePlugin } from "../context";
 import { GroupValue, statusTone } from "../EntityBits";
 import { Icon } from "../Icon";
-import { CellView } from "../table/cells";
 import { hlClasses, Popover } from "../table/popovers";
 
 /** What a calendar keeps for the session: whether the No date list is open. */
@@ -102,8 +101,6 @@ interface Lane {
 }
 
 const laneValue = (col: ResolvedColumn, key: string): string | boolean | null => (key === "" ? null : col.kind === "bool" ? key === "yes" : key);
-const isEmptyCell = (c: Cell | undefined) =>
-	!c || (!c.error && (c.value === null || c.value === undefined || c.value === "" || c.value === false || (Array.isArray(c.value) && c.value.length === 0)) && !c.text);
 
 /**
  * The calendar layout of a view: Month (weeks of days, bars in lanes, "+n more" past four), Week (seven days, every
@@ -245,26 +242,10 @@ export function CalendarView(p: CalendarViewProps) {
 		const c = statusColor(s, r.row.type, ctx.groups);
 		return c ? paletteEdge(c) : TONE_EDGE[statusTone(s)];
 	};
-	const fieldsOf = (r: ResultRow) => {
-		const shown = cardFields.filter((c) => !isEmptyCell(r.cells[c.id]));
-		if (!shown.length) return null;
-		return (
-			<span className="oe-calv-fields">
-				{shown.map((c) => {
-					const ci = r.hl?.[c.id];
-					const rule = ci !== undefined ? def.highlight[ci] : undefined;
-					return (
-						<span key={c.id} className={`oe-calv-field${rule ? ` ${hlClasses({ ...rule.style, icon: undefined })}` : ""}`} data-col={c.id}>
-							<CellView col={c} cell={r.cells[c.id]} row={r.row} />
-						</span>
-					);
-				})}
-			</span>
-		);
-	};
 	const spanText = (e: CalEntry) => (e.end > e.start ? `${shortDate(e.start)} – ${shortDate(e.end)}` : "");
 	const entryEl = (r: ResultRow, e: CalEntry | null, opts: { seg?: Segment; key?: string; style?: CSSProperties; list?: boolean } = {}) => {
 		const path = r.row.path;
+		const subtitle = cal.cardSubtitle ? (r.row.subtitle ?? plugin.index.get(path)?.subtitle) : null;
 		const rowRule = r.hl?.[ROW_TARGET] !== undefined ? def.highlight[r.hl[ROW_TARGET]] : undefined;
 		const nameRule = r.hl?.name !== undefined ? def.highlight[r.hl.name] : undefined;
 		const titleHl = r.hl ? highlightOf(def, r, "name") : null;
@@ -272,7 +253,9 @@ export function CalendarView(p: CalendarViewProps) {
 		const s = opts.seg;
 		const resizable = !!e?.dates.end && !!s && layout !== "agenda";
 		const cls = [
+			"oe-card",
 			"oe-calv-entry",
+			cardFields.length || subtitle ? "" : "is-compact",
 			opts.list ? "is-list" : "",
 			s?.before ? "is-cut-start" : "",
 			s?.after ? "is-cut-end" : "",
@@ -299,7 +282,7 @@ export function CalendarView(p: CalendarViewProps) {
 				onClick={(ev) => {
 					ev.stopPropagation();
 					// A link among the card fields opens itself.
-					if (ev.target instanceof Element && ev.target.closest(".oe-calv-fields a, .oe-calv-fields .oe-chip")) return;
+					if (ev.target instanceof Element && ev.target.closest(".oe-card-fields a, .oe-card-fields .oe-chip")) return;
 					plugin.openPath(path, ev.nativeEvent);
 				}}
 				onAuxClick={(ev) => ev.button === 1 && plugin.openPath(path, "tab")}
@@ -312,17 +295,20 @@ export function CalendarView(p: CalendarViewProps) {
 				}}
 			>
 				{resizable && !s?.before && <span className="oe-calv-resize is-start" aria-hidden="true" onPointerDown={(ev) => onPointerDown(ev, r, e, "start")} />}
-				<span className={`oe-calv-entry-title${nameRule ? ` ${hlClasses({ ...nameRule.style, icon: undefined, fill: undefined })}` : ""}`}>
+				<div className={`oe-card-title${nameRule ? ` ${hlClasses({ ...nameRule.style, icon: undefined, fill: undefined })}` : ""}`}>
 					{titleHl?.style.icon && (
 						<span className="oe-hl-icon" aria-label={titleHl.iconRule?.name}>
 							<Icon name={titleHl.style.icon} />
 						</span>
 					)}
-					<Icon name={r.row.type.icon} className="oe-chip-icon" />
-					<span className="oe-calv-entry-name">{r.row.name}</span>
+					<a className="oe-table-name oe-card-name" href="#" draggable={false} tabIndex={-1} onClick={(ev) => ev.preventDefault()}>
+						<Icon name={r.row.type.icon} className="oe-chip-icon" />
+						<span>{r.row.name}</span>
+					</a>
 					{opts.list && e && e.end > e.start && <span className="oe-calv-entry-span">{spanText(e)}</span>}
-				</span>
-				{fieldsOf(r)}
+				</div>
+				{subtitle && <div className="oe-card-subtitle">{subtitle}</div>}
+				<CardFields def={def} r={r} fields={cardFields} labels={!!cal.cardLabels} />
 				{resizable && !s?.after && <span className="oe-calv-resize is-end" aria-hidden="true" onPointerDown={(ev) => onPointerDown(ev, r, e, "end")} />}
 			</div>
 		);
@@ -353,7 +339,6 @@ export function CalendarView(p: CalendarViewProps) {
 				className={`oe-calv-week is-${kind}${preview?.lane !== null && preview?.lane === lane.key && lane.key !== null ? " is-drop-lane" : ""}`}
 				data-week={from}
 				data-lane={lane.key ?? undefined}
-				style={{ "--oe-calv-lanes": shown + (hidden.some(Boolean) ? 1 : 0) } as CSSProperties}
 			>
 				<div className="oe-calv-days">
 					{days.map((d) => {
@@ -465,7 +450,7 @@ export function CalendarView(p: CalendarViewProps) {
 								<Icon name="plus" />
 							</button>
 						</div>
-						{es.length === 0 ? <div className="oe-calv-agenda-none">Nothing planned</div> : es.map((e) => entryEl(e.r, e, { key: `${e.r.row.path}@${day}`, list: true }))}
+						{es.length === 0 ? <div className="oe-calv-agenda-none">Nothing planned</div> : <div className="oe-calv-agenda-cards">{es.map((e) => entryEl(e.r, e, { key: `${e.r.row.path}@${day}`, list: true }))}</div>}
 					</section>
 				))}
 			</div>
@@ -490,7 +475,7 @@ export function CalendarView(p: CalendarViewProps) {
 	const span = layout === "agenda" ? "30 days" : layout;
 
 	return (
-		<div ref={rootRef} className={`oe-calv is-${layout}${preview ? " is-dragging" : ""}${cardFields.length ? " has-fields" : ""}`} tabIndex={0} onKeyDown={onKey}>
+		<div ref={rootRef} className={`oe-calv is-${layout}${preview ? " is-dragging" : ""}`} tabIndex={0} onKeyDown={onKey}>
 			<div className="oe-calv-nav">
 				<button className="clickable-icon" aria-label={`Previous ${span}`} onClick={() => p.setAnchor(shiftPeriod(layout, anchor, -1))}>
 					<Icon name="chevron-left" />

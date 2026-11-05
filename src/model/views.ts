@@ -245,6 +245,10 @@ export interface CalendarDef {
 	cardFields?: string[];
 	/** one grouping level, shown as swimlanes in Week */
 	swimlanes?: GroupBy;
+	/** show the type's subtitle under each entry's name */
+	cardSubtitle?: true;
+	/** label each card field with its name */
+	cardLabels?: true;
 }
 
 export const emptyCalendar = (): CalendarDef => ({ dates: {} });
@@ -553,6 +557,8 @@ function parseCalendar(raw: unknown, errors: string[]): CalendarDef {
 		if (g) c.swimlanes = g;
 		else errors.push(`calendar swimlanes should be a column id: ${JSON.stringify(raw.swimlanes)}.`);
 	}
+	if (raw.cardSubtitle === true) c.cardSubtitle = true;
+	if (raw.cardLabels === true) c.cardLabels = true;
 	return c;
 }
 
@@ -567,6 +573,8 @@ function serializeCalendar(c: CalendarDef | undefined): Record<string, unknown> 
 	if (c.colorBy) out.colorBy = c.colorBy;
 	if (c.cardFields) out.cardFields = c.cardFields;
 	if (c.swimlanes) out.swimlanes = c.swimlanes.date ? { by: c.swimlanes.by, date: c.swimlanes.date } : c.swimlanes.by;
+	if (c.cardSubtitle) out.cardSubtitle = true;
+	if (c.cardLabels) out.cardLabels = true;
 	return Object.keys(out).length ? out : undefined;
 }
 

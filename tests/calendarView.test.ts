@@ -70,11 +70,11 @@ describe("calendar days", () => {
 
 describe("calendar settings", () => {
 	it("read and write the calendar block, leaving out defaults", () => {
-		const def = view({ calendar: { dates: { task: "due", project: { start: "start_date", end: "due" }, note: "none" }, layout: "week", weekStart: "sunday", colorBy: "priority", cardFields: ["priority"], swimlanes: "status" } });
+		const def = view({ calendar: { dates: { task: "due", project: { start: "start_date", end: "due" }, note: "none" }, layout: "week", weekStart: "sunday", colorBy: "priority", cardFields: ["priority"], swimlanes: "status", cardSubtitle: true, cardLabels: true } });
 		expect(def.kind).toBe("calendar");
-		expect(def.calendar).toEqual({ dates: { task: { start: "due" }, project: { start: "start_date", end: "due" }, note: null }, layout: "week", weekStart: 0, colorBy: "priority", cardFields: ["priority"], swimlanes: { by: "status" } });
+		expect(def.calendar).toEqual({ dates: { task: { start: "due" }, project: { start: "start_date", end: "due" }, note: null }, layout: "week", weekStart: 0, colorBy: "priority", cardFields: ["priority"], swimlanes: { by: "status" }, cardSubtitle: true, cardLabels: true });
 		const out = serializeView(def).calendar as Record<string, unknown>;
-		expect(out).toEqual({ dates: { task: "due", project: { start: "start_date", end: "due" }, note: "none" }, layout: "week", weekStart: "sunday", colorBy: "priority", cardFields: ["priority"], swimlanes: "status" });
+		expect(out).toEqual({ dates: { task: "due", project: { start: "start_date", end: "due" }, note: "none" }, layout: "week", weekStart: "sunday", colorBy: "priority", cardFields: ["priority"], swimlanes: "status", cardSubtitle: true, cardLabels: true });
 		expect(view({ calendar: { layout: "month", weekStart: "monday", colorBy: "status" } }).calendar).toEqual(emptyCalendar());
 		expect(serializeView(view({ calendar: { layout: "month" } })).calendar).toBeUndefined();
 		expect(parseView({ kind: "calendar", calendar: { layout: "year", weekStart: "someday" } }).errors).toHaveLength(2);

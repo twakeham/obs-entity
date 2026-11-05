@@ -781,7 +781,15 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 				}),
 		);
 		if (isBoard) boardMoreItems(m, { x: e.clientX, y: e.clientY });
-		else if (!isCalendar) tableMoreItems(m, { x: e.clientX, y: e.clientY });
+		else if (isCalendar) {
+			const c = calendarOf(def);
+			const setCal = (patch: Partial<typeof c>) => {
+				const cur = defRef.current;
+				update({ ...cur, calendar: { ...calendarOf(cur), ...patch } });
+			};
+			m.addItem((i) => i.setSection("cards").setTitle("Show subtitles").setIcon("text").setChecked(!!c.cardSubtitle).onClick(() => setCal({ cardSubtitle: c.cardSubtitle ? undefined : true })));
+			m.addItem((i) => i.setSection("cards").setTitle("Show field names").setIcon("tag").setChecked(!!c.cardLabels).onClick(() => setCal({ cardLabels: c.cardLabels ? undefined : true })));
+		} else tableMoreItems(m, { x: e.clientX, y: e.clientY });
 		m.showAtMouseEvent(e.nativeEvent);
 	};
 

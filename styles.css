@@ -6817,16 +6817,11 @@ td.is-wrap .oe-bar-value {
 
 /* ---------- Calendar views ---------- */
 .oe-calv {
-	--oe-calv-chip-h: 22px;
-	--oe-calv-gap: 2px;
+	--oe-calv-gap: 3px;
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
 	outline: none;
-}
-
-.oe-calv.has-fields {
-	--oe-calv-chip-h: 40px;
 }
 
 .oe-view.is-fill .oe-calv {
@@ -6934,12 +6929,11 @@ button.oe-calv-today {
 }
 
 .oe-calv-week.is-month {
-	min-height: calc(26px + var(--oe-calv-lanes, 0) * (var(--oe-calv-chip-h) + var(--oe-calv-gap)) + 8px);
-	min-height: max(96px, calc(26px + var(--oe-calv-lanes, 0) * (var(--oe-calv-chip-h) + var(--oe-calv-gap)) + 8px));
+	min-height: 96px;
 }
 
 .oe-calv-week.is-week {
-	min-height: max(220px, calc(28px + var(--oe-calv-lanes, 0) * (var(--oe-calv-chip-h) + var(--oe-calv-gap)) + 12px));
+	min-height: 220px;
 }
 
 .oe-calv-days {
@@ -7013,7 +7007,8 @@ button.oe-calv-add:focus-visible {
 	position: relative;
 	display: grid;
 	grid-template-columns: repeat(7, minmax(0, 1fr));
-	grid-auto-rows: var(--oe-calv-chip-h);
+	grid-auto-rows: auto;
+	align-items: start;
 	row-gap: var(--oe-calv-gap);
 	padding: 26px 0 6px;
 	pointer-events: none;
@@ -7031,116 +7026,67 @@ button.oe-calv-add:focus-visible {
 	background-color: color-mix(in srgb, var(--interactive-accent) 5%, transparent);
 }
 
-/* An entry: a chip with its status (or Colour by) as the left edge */
-.oe-calv-entry {
-	--oe-calv-edge: var(--background-modifier-border-hover);
-	position: relative;
-	display: flex;
-	flex-direction: column;
-	justify-content: center;
-	gap: 1px;
+/* An entry: a board card (.oe-card), its left edge in the status (or Colour by) colour */
+.oe-card.oe-calv-entry {
+	--oe-calv-edge: var(--oe-type-color);
+	align-self: start;
+	width: auto;
 	min-width: 0;
 	margin: 0 3px;
-	padding: 0 6px;
-	border: 1px solid var(--background-modifier-border);
-	border-left: 3px solid var(--oe-calv-edge);
-	border-radius: var(--radius-s);
-	background-color: var(--background-primary);
-	box-shadow: var(--shadow-xs, 0 1px 2px rgba(0, 0, 0, 0.06));
-	font-size: var(--font-ui-smaller);
-	line-height: 1.3;
+	border-left-color: var(--oe-calv-edge);
 	cursor: pointer;
-	overflow: hidden;
-	user-select: none;
 	touch-action: none;
 }
 
-.oe-calv-entry.has-edge {
-	background-color: color-mix(in srgb, var(--oe-calv-edge) 8%, var(--background-primary));
-}
-
-.oe-calv-entry:hover {
-	border-color: var(--background-modifier-border-hover);
+.oe-card.oe-calv-entry:hover,
+.oe-card.oe-calv-entry.is-selected {
 	border-left-color: var(--oe-calv-edge);
 }
 
-.oe-calv-entry.is-cut-start {
+.oe-card.oe-calv-entry.has-edge:not(.oe-hl-fill) {
+	background-color: color-mix(in srgb, var(--oe-calv-edge) 8%, var(--background-primary));
+}
+
+/* Without fields or a subtitle: one tight line, so a month day holds several */
+.oe-card.oe-calv-entry.is-compact {
+	padding: 2px 6px;
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-card.oe-calv-entry.is-cut-start {
 	margin-left: 0;
 	border-left-style: dashed;
 	border-top-left-radius: 0;
 	border-bottom-left-radius: 0;
 }
 
-.oe-calv-entry.is-cut-end {
+.oe-card.oe-calv-entry.is-cut-end {
 	margin-right: 0;
 	border-right: none;
 	border-top-right-radius: 0;
 	border-bottom-right-radius: 0;
 }
 
-.oe-calv-entry.is-dragging {
-	opacity: 0.85;
+/* The dragged entry is drawn where it would land */
+.oe-card.oe-calv-entry.is-dragging {
+	opacity: 0.9;
 	box-shadow: var(--shadow-s);
 	outline: 2px solid var(--interactive-accent);
 	z-index: 1;
 }
 
-.oe-calv-entry-title {
-	display: flex;
-	align-items: center;
-	gap: 4px;
-	min-width: 0;
-	white-space: nowrap;
-}
-
-.oe-calv-entry-title .oe-chip-icon {
-	flex: none;
-	color: var(--oe-type-color, var(--text-muted));
-}
-
-.oe-calv-entry-title .oe-chip-icon svg {
-	width: 12px;
-	height: 12px;
-}
-
-.oe-calv-entry-name {
-	overflow: hidden;
-	text-overflow: ellipsis;
+.oe-calv-entry .oe-card-name {
+	cursor: inherit;
 }
 
 .oe-calv-entry-span {
+	flex: none;
 	margin-left: auto;
 	padding-left: var(--size-4-2);
 	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
 	font-variant-numeric: tabular-nums;
 }
-
-.oe-calv-fields {
-	display: flex;
-	align-items: center;
-	gap: 4px;
-	min-width: 0;
-	overflow: hidden;
-	white-space: nowrap;
-	color: var(--text-muted);
-}
-
-.oe-calv-field {
-	display: inline-flex;
-	align-items: center;
-	min-width: 0;
-	flex: none;
-	max-width: 100%;
-	overflow: hidden;
-}
-
-.oe-calv-field .oe-pill {
-	font-size: inherit;
-	padding-top: 0;
-	padding-bottom: 0;
-	line-height: 1.35;
-}
-
 /* Dragging an end changes the start or end */
 .oe-calv-resize {
 	position: absolute;
@@ -7181,10 +7127,8 @@ button.oe-calv-more:hover {
 }
 
 /* Lists: the agenda, the No date list and a day's "+n more" */
-.oe-calv-entry.is-list {
+.oe-card.oe-calv-entry.is-list {
 	margin: 0;
-	padding: 4px 8px;
-	min-height: var(--oe-calv-chip-h);
 }
 
 .oe-calv-day-pop {
@@ -7219,7 +7163,7 @@ button.oe-calv-more:hover {
 }
 
 .oe-calv-lane .oe-calv-week.is-week {
-	min-height: max(90px, calc(28px + var(--oe-calv-lanes, 0) * (var(--oe-calv-chip-h) + var(--oe-calv-gap)) + 12px));
+	min-height: 90px;
 }
 
 /* Agenda */
@@ -7265,15 +7209,11 @@ button.oe-calv-more:hover {
 	font-size: var(--font-ui-smaller);
 }
 
-.oe-calv-agenda .oe-calv-entry.is-list {
-	flex-direction: row;
-	align-items: center;
-	justify-content: flex-start;
-	gap: var(--size-4-3);
-}
-
-.oe-calv-agenda .oe-calv-entry-title {
-	flex: 0 1 auto;
+.oe-calv-agenda-cards {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+	gap: 6px;
+	align-items: start;
 }
 
 /* The No date list */

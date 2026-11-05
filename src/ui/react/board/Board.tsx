@@ -730,49 +730,7 @@ export function Board(p: BoardProps) {
 					{bucketCol.label}: {bucketTitle(bucket)}
 				</span>
 				{subtitle && <div className="oe-card-subtitle">{subtitle}</div>}
-				{cardFields.length > 0 && (
-					<div className="oe-card-fields">
-						{cardFields.map((c) => {
-							const cell = r.cells[c.id];
-							const viz = r.viz?.[c.id];
-							if (isEmptyCell(cell)) return null;
-							const ci = r.hl?.[c.id];
-							const cellRule = ci !== undefined ? def.highlight[ci] : undefined;
-							const barRule = viz?.bar ? def.highlight[viz.bar.rule] : undefined;
-							const scaleRule = viz?.scale ? def.highlight[viz.scale.rule] : undefined;
-							const scaleBg = viz?.scale && scaleRule?.scale && !(ci !== undefined && ci < viz.scale.rule && cellRule?.style.fill) ? scaleFill(scaleRule.scale.colors, viz.scale.t) : undefined;
-							const bar =
-								viz?.bar && barRule ? (
-									<span
-										className={`oe-bar${barRule.bar?.gradient ? " is-gradient" : ""}`}
-										aria-hidden="true"
-										style={{ left: `${viz.bar.start * 100}%`, width: `${(viz.bar.end - viz.bar.start) * 100}%`, "--oe-bar": cssColor(viz.bar.negative ? (barRule.bar?.negative ?? "red") : (barRule.bar?.color ?? "blue")) } as CSSProperties}
-									/>
-								) : null;
-							return (
-								<div
-									key={c.id}
-									className={`oe-card-field${cellRule ? ` ${hlClasses({ ...cellRule.style, icon: undefined })}` : ""}${scaleBg ? " has-scale" : ""}`}
-									style={scaleBg ? { backgroundColor: scaleBg } : undefined}
-									data-col={c.id}
-								>
-									{board.cardLabels && <span className="oe-card-label">{c.label}</span>}
-									<span className={`oe-card-value${bar ? " has-bar" : ""}${bar && barRule?.bar?.barOnly ? " is-bar-only" : ""}`} aria-label={bar && barRule?.bar?.barOnly ? cell?.text : undefined}>
-										{bar}
-										{cellRule?.style.icon && (
-											<span className="oe-hl-icon" aria-label={cellRule.name}>
-												<Icon name={cellRule.style.icon} />
-											</span>
-										)}
-										<span className="oe-bar-value">
-											<CellView col={c} cell={cell} row={r.row} />
-										</span>
-									</span>
-								</div>
-							);
-						})}
-					</div>
-				)}
+				<CardFields def={def} r={r} fields={cardFields} labels={!!board.cardLabels} />
 			</div>
 		);
 	};
@@ -870,6 +828,57 @@ export function Board(p: BoardProps) {
 			<div className="oe-sr-only" aria-live="polite">
 				{announce}
 			</div>
+		</div>
+	);
+}
+
+/**
+ * A card's fields (boards and calendars): each a line, rendered like table cells, with cell highlight rules, data
+ * bars and colour scales; empty values are left out (none at all: nothing is drawn).
+ */
+export function CardFields({ def, r, fields, labels }: { def: ViewDef; r: ResultRow; fields: ResolvedColumn[]; labels: boolean }) {
+	const shown = fields.filter((c) => !isEmptyCell(r.cells[c.id]));
+	if (!shown.length) return null;
+	return (
+		<div className="oe-card-fields">
+			{shown.map((c) => {
+				const cell = r.cells[c.id];
+				const viz = r.viz?.[c.id];
+				const ci = r.hl?.[c.id];
+				const cellRule = ci !== undefined ? def.highlight[ci] : undefined;
+				const barRule = viz?.bar ? def.highlight[viz.bar.rule] : undefined;
+				const scaleRule = viz?.scale ? def.highlight[viz.scale.rule] : undefined;
+				const scaleBg = viz?.scale && scaleRule?.scale && !(ci !== undefined && ci < viz.scale.rule && cellRule?.style.fill) ? scaleFill(scaleRule.scale.colors, viz.scale.t) : undefined;
+				const bar =
+					viz?.bar && barRule ? (
+						<span
+							className={`oe-bar${barRule.bar?.gradient ? " is-gradient" : ""}`}
+							aria-hidden="true"
+							style={{ left: `${viz.bar.start * 100}%`, width: `${(viz.bar.end - viz.bar.start) * 100}%`, "--oe-bar": cssColor(viz.bar.negative ? (barRule.bar?.negative ?? "red") : (barRule.bar?.color ?? "blue")) } as CSSProperties}
+						/>
+					) : null;
+				return (
+					<div
+						key={c.id}
+						className={`oe-card-field${cellRule ? ` ${hlClasses({ ...cellRule.style, icon: undefined })}` : ""}${scaleBg ? " has-scale" : ""}`}
+						style={scaleBg ? { backgroundColor: scaleBg } : undefined}
+						data-col={c.id}
+					>
+						{labels && <span className="oe-card-label">{c.label}</span>}
+						<span className={`oe-card-value${bar ? " has-bar" : ""}${bar && barRule?.bar?.barOnly ? " is-bar-only" : ""}`} aria-label={bar && barRule?.bar?.barOnly ? cell?.text : undefined}>
+							{bar}
+							{cellRule?.style.icon && (
+								<span className="oe-hl-icon" aria-label={cellRule.name}>
+									<Icon name={cellRule.style.icon} />
+								</span>
+							)}
+							<span className="oe-bar-value">
+								<CellView col={c} cell={cell} row={r.row} />
+							</span>
+						</span>
+					</div>
+				);
+			})}
 		</div>
 	);
 }
