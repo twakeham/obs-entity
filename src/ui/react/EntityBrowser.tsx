@@ -21,6 +21,8 @@ import { statusClass } from "./EntityBits";
 import { statusColor, type PaletteColor } from "../../model/colors";
 import { Icon } from "./Icon";
 import { BOARD_ICON } from "../../model/board";
+import { CALENDAR_ICON, dateFields } from "../../model/calendarView";
+import { VIEW_KIND_ICON } from "../../model/views";
 
 export interface BrowserState extends BrowserOptions {
 	search: string;
@@ -250,7 +252,7 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 									}}
 								>
 									<span className="oe-tree-toggle is-leaf" />
-									<Icon name={plugin.views.kind(f.path) === "board" ? BOARD_ICON : "table"} className="oe-tree-icon" />
+									<Icon name={VIEW_KIND_ICON[plugin.views.kind(f.path) ?? "table"] ?? "table"} className="oe-tree-icon" />
 									<span className="oe-tree-name">{f.basename}</span>
 								</div>
 							))}
@@ -281,6 +283,8 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 													for (const t of sectionTypes) m.addItem((i) => i.setSection("new").setTitle(`New ${t.name.toLowerCase()}`).setIcon(t.icon).onClick(() => plugin.openCreateModal(t)));
 													m.addItem((i) => i.setSection("view").setTitle(`New table view of ${s.group!.name}`).setIcon("table").onClick(() => plugin.newView(`@${s.group!.key}`)));
 													m.addItem((i) => i.setSection("view").setTitle(`New board of ${s.group!.name}`).setIcon(BOARD_ICON).onClick(() => plugin.newView(`@${s.group!.key}`, "board")));
+													if (sectionTypes.some((t) => dateFields(t).length))
+														m.addItem((i) => i.setSection("view").setTitle(`New calendar of ${s.group!.name}`).setIcon(CALENDAR_ICON).onClick(() => plugin.newView(`@${s.group!.key}`, "calendar")));
 													m.addItem((i) => i.setSection("config").setTitle("Configure group").setIcon("settings-2").onClick(() => void plugin.activateTypes(`group:${s.group!.key}`)));
 													m.showAtMouseEvent(evt.nativeEvent);
 												}
@@ -312,6 +316,8 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 														m.addItem((i) => i.setSection("new").setTitle(`New ${t.name.toLowerCase()}`).setIcon(t.icon).onClick(() => plugin.openCreateModal(t)));
 														m.addItem((i) => i.setSection("view").setTitle(`New table view of ${(t.plural || t.name).toLowerCase()}`).setIcon("table").onClick(() => plugin.newView(t.key)));
 														m.addItem((i) => i.setSection("view").setTitle(`New board of ${(t.plural || t.name).toLowerCase()}`).setIcon(BOARD_ICON).onClick(() => plugin.newView(t.key, "board")));
+														if (dateFields(t).length)
+															m.addItem((i) => i.setSection("view").setTitle(`New calendar of ${(t.plural || t.name).toLowerCase()}`).setIcon(CALENDAR_ICON).onClick(() => plugin.newView(t.key, "calendar")));
 														m.addItem((i) => i.setSection("config").setTitle(`Configure the ${t.name} type`).setIcon("shapes").onClick(() => void plugin.activateTypes(t.key)));
 														m.showAtMouseEvent(evt.nativeEvent);
 													}}

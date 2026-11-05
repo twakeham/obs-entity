@@ -10,8 +10,10 @@ import { choiceValue, choiceValueOf, hasValues } from "./choiceValues";
 
 // ---------------------------------------------------------------- definition
 
-export type ViewKind = "table" | "board";
-export const VIEW_KINDS: ViewKind[] = ["table", "board"];
+export type ViewKind = "table" | "board" | "calendar";
+export const VIEW_KINDS: ViewKind[] = ["table", "board", "calendar"];
+/** Lucide icon per layout (views in the browser, tabs, the layout toggle). */
+export const VIEW_KIND_ICON: Record<ViewKind, string> = { table: "table", board: "kanban", calendar: "calendar-days" };
 
 export const BUILTINS = ["name", "type", "status", "tags", "aliases", "related", "folder", "created", "modified"] as const;
 export type BuiltinKey = (typeof BUILTINS)[number];
@@ -188,6 +190,8 @@ export interface ViewDef {
 	highlight: HighlightRule[];
 	/** the board layout's own settings (kept whichever layout is shown) */
 	board?: BoardDef;
+	/** the calendar layout's own settings (kept whichever layout is shown) */
+	calendar?: CalendarDef;
 }
 
 /** Card widths (px) per card size. */
@@ -218,6 +222,33 @@ export interface BoardDef {
 }
 
 export const emptyBoard = (): BoardDef => ({ collapsedBuckets: [], hiddenBuckets: [], limits: {}, order: {} });
+
+/** Where a type's notes go on a calendar: a date field, and optionally an end date field (notes spanning days). */
+export interface CalendarDates {
+	start: string;
+	end?: string;
+}
+
+export type CalendarLayout = "month" | "week" | "agenda";
+
+/** A calendar's settings (see calendarView.ts). */
+export interface CalendarDef {
+	/** type key → its date fields; null: the type isn't on the calendar. Types not listed get the automatic choice. */
+	dates: Record<string, CalendarDates | null>;
+	/** month when unset */
+	layout?: "week" | "agenda";
+	/** the first day of the week, 0 Sunday … 6 Saturday (Monday when unset) */
+	weekStart?: number;
+	/** what colours each entry's edge: status (unset), a choice field's column id, or "none" */
+	colorBy?: string;
+	/** columns shown under each entry's name (unset: none in Month, the table's first few in Week and Agenda) */
+	cardFields?: string[];
+	/** one grouping level, shown as swimlanes in Week */
+	swimlanes?: GroupBy;
+}
+
+export const emptyCalendar = (): CalendarDef => ({ dates: {} });
+export const WEEKDAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
 
 export const NAME_COLUMN: ColumnDef = { kind: "builtin", id: "name", key: "name" };
 
@@ -422,8 +453,9 @@ export function parseView(raw: unknown): { def: ViewDef | null; errors: string[]
 	const filters = parseFilterItems(raw.filters, errors, 0) ?? { mode: "all", items: [] };
 	const highlight = parseHighlight(raw.highlight, errors);
 	const board = raw.board === undefined || raw.board === null ? {} : { board: parseBoard(raw.board, errors) };
+	const calendar = raw.calendar === undefined || raw.calendar === null ? {} : { calendar: parseCalendar(raw.calendar, errors) };
 	if (errors.length && !VIEW_KINDS.includes(kind)) return { def: null, errors };
-	return { def: { kind, types: types.length ? types : ["*"], columns, widths, fill, ...freeze, ...density, wrap, ...wrapLines, formats, summary, sort, group, ...groupSummaries, ...groupFieldNames, filters, highlight, ...board }, errors };
+	return { def: { kind, types: types.length ? types : ["*"], columns, widths, fill, ...freeze, ...density, wrap, ...wrapLines, formats, summary, sort, group, ...groupSummaries, ...groupFieldNames, filters, highlight, ...board, ...calendar }, errors };
 }
 
 const strList = (v: unknown) => [...new Set(asArray(v).filter((x): x is string => typeof x === "string" && !!x.trim()).map((x) => x.trim()))];
@@ -485,6 +517,58 @@ function serializeBoard(b: BoardDef | undefined): Record<string, unknown> | unde
 }
 
 const isColor = (v: unknown): v is HighlightColor => HIGHLIGHT_COLORS.includes(v as HighlightColor);
+
+/**
+ * A calendar's settings. `dates` maps type keys to a field key, { start, end }, or "none" (not on the calendar);
+ * the week starts on a day name.
+ */
+function parseCalendar(raw: unknown, errors: string[]): CalendarDef {
+	const c = emptyCalendar();
+	if (!isObj(raw)) {
+		errors.push("calendar should be a set of keys like dates:, layout:.");
+		return c;
+	}
+	if (raw.dates !== undefined && raw.dates !== null) {
+		if (!isObj(raw.dates)) errors.push("calendar dates should map each type to its date field, e.g. dates: { task: due }.");
+		else
+			for (const [type, v] of Object.entries(raw.dates)) {
+				if (v === null || v === false || v === "none") c.dates[type] = null;
+				else if (typeof v === "string" && v.trim()) c.dates[type] = { start: v.trim() };
+				else if (isObj(v) && typeof v.start === "string" && v.start.trim()) c.dates[type] = { start: v.start.trim(), ...(typeof v.end === "string" && v.end.trim() ? { end: v.end.trim() } : {}) };
+				else errors.push(`calendar dates for "${type}" should be a date field, { start, end } or none.`);
+			}
+	}
+	if (raw.layout === "week" || raw.layout === "agenda") c.layout = raw.layout;
+	else if (raw.layout !== undefined && raw.layout !== "month") errors.push(`Unknown calendar layout "${String(raw.layout)}". Use month, week or agenda.`);
+	if (raw.weekStart !== undefined) {
+		const n = typeof raw.weekStart === "number" ? raw.weekStart : WEEKDAY_NAMES.indexOf(String(raw.weekStart).toLowerCase() as (typeof WEEKDAY_NAMES)[number]);
+		if (Number.isInteger(n) && n >= 0 && n <= 6) {
+			if (n !== 1) c.weekStart = n;
+		} else errors.push(`Unknown week start "${String(raw.weekStart)}". Use a day, e.g. monday or sunday.`);
+	}
+	if (typeof raw.colorBy === "string" && raw.colorBy.trim() && raw.colorBy.trim() !== "status") c.colorBy = raw.colorBy.trim();
+	if (raw.cardFields !== undefined) c.cardFields = strList(raw.cardFields);
+	if (raw.swimlanes !== undefined && raw.swimlanes !== null) {
+		const g = parseGroupBy(Array.isArray(raw.swimlanes) ? raw.swimlanes[0] : raw.swimlanes);
+		if (g) c.swimlanes = g;
+		else errors.push(`calendar swimlanes should be a column id: ${JSON.stringify(raw.swimlanes)}.`);
+	}
+	return c;
+}
+
+/** The calendar's settings as plain data, leaving out defaults (undefined when there's nothing to write). */
+function serializeCalendar(c: CalendarDef | undefined): Record<string, unknown> | undefined {
+	if (!c) return undefined;
+	const out: Record<string, unknown> = {};
+	const dates = Object.fromEntries(Object.entries(c.dates).map(([t, d]) => [t, d === null ? "none" : d.end ? { start: d.start, end: d.end } : d.start]));
+	if (Object.keys(dates).length) out.dates = dates;
+	if (c.layout) out.layout = c.layout;
+	if (c.weekStart !== undefined && c.weekStart !== 1) out.weekStart = WEEKDAY_NAMES[c.weekStart];
+	if (c.colorBy) out.colorBy = c.colorBy;
+	if (c.cardFields) out.cardFields = c.cardFields;
+	if (c.swimlanes) out.swimlanes = c.swimlanes.date ? { by: c.swimlanes.by, date: c.swimlanes.date } : c.swimlanes.by;
+	return Object.keys(out).length ? out : undefined;
+}
 
 function parseHighlight(raw: unknown, errors: string[]): HighlightRule[] {
 	const rules: HighlightRule[] = [];
@@ -585,7 +669,7 @@ function serializeFilters(g: FilterGroup): Record<string, unknown> {
 export function serializeView(def: ViewDef): Record<string, unknown> {
 	const out: Record<string, unknown> = { kind: def.kind, types: def.types, columns: def.columns.map(serializeColumn) };
 	// Formats and summaries also apply to card fields that aren't table columns.
-	const referenced = new Set([...def.columns.map((c) => c.id), ...(def.board?.cardFields ?? [])]);
+	const referenced = new Set([...def.columns.map((c) => c.id), ...(def.board?.cardFields ?? []), ...(def.calendar?.cardFields ?? [])]);
 	const widths = Object.fromEntries(Object.entries(def.widths).filter(([id]) => def.columns.some((c) => c.id === id)));
 	if (Object.keys(widths).length) out.widths = widths;
 	const fill = (def.fill ?? []).filter((id) => def.columns.some((c) => c.id === id));
@@ -622,6 +706,8 @@ export function serializeView(def: ViewDef): Record<string, unknown> {
 		});
 	const board = serializeBoard(def.board);
 	if (board) out.board = board;
+	const calendar = serializeCalendar(def.calendar);
+	if (calendar) out.calendar = calendar;
 	return out;
 }
 

@@ -6814,3 +6814,550 @@ td.is-wrap .oe-bar-value {
 	border-radius: var(--radius-s);
 	font-size: var(--font-ui-small);
 }
+
+/* ---------- Calendar views ---------- */
+.oe-calv {
+	--oe-calv-chip-h: 22px;
+	--oe-calv-gap: 2px;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	outline: none;
+}
+
+.oe-calv.has-fields {
+	--oe-calv-chip-h: 40px;
+}
+
+.oe-view.is-fill .oe-calv {
+	flex: 1;
+}
+
+.oe-calv-nav {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	padding: var(--size-4-1) var(--size-4-2);
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+button.oe-calv-today {
+	height: 24px;
+	padding: 0 var(--size-4-2);
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-calv-title {
+	margin-left: var(--size-4-2);
+	font-weight: var(--font-semibold);
+	font-size: var(--font-ui-medium);
+	white-space: nowrap;
+}
+
+.oe-calv-layouts .oe-layout-btn {
+	padding: 0 var(--size-4-2);
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-calv-undated-btn.is-active {
+	background-color: var(--background-modifier-hover);
+}
+
+.oe-calv-body {
+	display: flex;
+	flex: 1;
+	min-height: 0;
+}
+
+.oe-calv-main {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	overflow: auto;
+}
+
+/* Weekday names */
+.oe-calv-weekdays {
+	display: grid;
+	grid-template-columns: repeat(7, minmax(0, 1fr));
+	border-bottom: 1px solid var(--background-modifier-border);
+	position: sticky;
+	top: 0;
+	z-index: 2;
+	background-color: var(--background-primary);
+}
+
+.oe-calv-weekday {
+	display: flex;
+	align-items: baseline;
+	justify-content: center;
+	gap: 6px;
+	padding: 4px 0;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.oe-calv-weekday-date {
+	color: var(--text-normal);
+	font-size: var(--font-ui-medium);
+	text-transform: none;
+}
+
+.oe-calv-weekday.is-today .oe-calv-weekday-date {
+	padding: 0 6px;
+	border-radius: 999px;
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+.oe-calv-grid {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-height: 0;
+}
+
+.oe-calv-weeks {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+}
+
+/* A week: the days underneath, the entries' bars on top (a grid of 7 columns and a row per lane) */
+.oe-calv-week {
+	position: relative;
+	flex: 1 0 auto;
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.oe-calv-week.is-month {
+	min-height: calc(26px + var(--oe-calv-lanes, 0) * (var(--oe-calv-chip-h) + var(--oe-calv-gap)) + 8px);
+	min-height: max(96px, calc(26px + var(--oe-calv-lanes, 0) * (var(--oe-calv-chip-h) + var(--oe-calv-gap)) + 8px));
+}
+
+.oe-calv-week.is-week {
+	min-height: max(220px, calc(28px + var(--oe-calv-lanes, 0) * (var(--oe-calv-chip-h) + var(--oe-calv-gap)) + 12px));
+}
+
+.oe-calv-days {
+	position: absolute;
+	inset: 0;
+	display: grid;
+	grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.oe-calv-day {
+	border-right: 1px solid var(--background-modifier-border);
+	min-width: 0;
+}
+
+.oe-calv-day:last-child {
+	border-right: none;
+}
+
+.oe-calv-day.is-weekend {
+	background-color: color-mix(in srgb, var(--background-secondary) 50%, transparent);
+}
+
+.oe-calv-day.is-outside .oe-calv-daynum {
+	color: var(--text-faint);
+}
+
+.oe-calv-day-head {
+	display: flex;
+	align-items: center;
+	height: 24px;
+	padding: 0 4px 0 6px;
+}
+
+.oe-calv-daynum {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	font-variant-numeric: tabular-nums;
+}
+
+.oe-calv-day.is-today .oe-calv-daynum {
+	padding: 0 6px;
+	border-radius: 999px;
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-weight: var(--font-semibold);
+}
+
+.oe-calv-week.is-week .oe-calv-day.is-today {
+	background-color: color-mix(in srgb, var(--interactive-accent) 6%, transparent);
+}
+
+button.oe-calv-add {
+	margin-left: auto;
+	padding: 2px;
+	height: auto;
+	opacity: 0;
+	color: var(--text-faint);
+}
+
+.oe-calv-day:hover button.oe-calv-add,
+.oe-calv-agenda-day:hover button.oe-calv-add,
+button.oe-calv-add:focus-visible {
+	opacity: 1;
+}
+
+.oe-calv.is-dragging button.oe-calv-add {
+	opacity: 0 !important;
+}
+
+.oe-calv-bars {
+	position: relative;
+	display: grid;
+	grid-template-columns: repeat(7, minmax(0, 1fr));
+	grid-auto-rows: var(--oe-calv-chip-h);
+	row-gap: var(--oe-calv-gap);
+	padding: 26px 0 6px;
+	pointer-events: none;
+}
+
+.oe-calv-week.is-week .oe-calv-bars {
+	padding-top: 28px;
+}
+
+.oe-calv-bars > * {
+	pointer-events: auto;
+}
+
+.oe-calv-week.is-drop-lane {
+	background-color: color-mix(in srgb, var(--interactive-accent) 5%, transparent);
+}
+
+/* An entry: a chip with its status (or Colour by) as the left edge */
+.oe-calv-entry {
+	--oe-calv-edge: var(--background-modifier-border-hover);
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	gap: 1px;
+	min-width: 0;
+	margin: 0 3px;
+	padding: 0 6px;
+	border: 1px solid var(--background-modifier-border);
+	border-left: 3px solid var(--oe-calv-edge);
+	border-radius: var(--radius-s);
+	background-color: var(--background-primary);
+	box-shadow: var(--shadow-xs, 0 1px 2px rgba(0, 0, 0, 0.06));
+	font-size: var(--font-ui-smaller);
+	line-height: 1.3;
+	cursor: pointer;
+	overflow: hidden;
+	user-select: none;
+	touch-action: none;
+}
+
+.oe-calv-entry.has-edge {
+	background-color: color-mix(in srgb, var(--oe-calv-edge) 8%, var(--background-primary));
+}
+
+.oe-calv-entry:hover {
+	border-color: var(--background-modifier-border-hover);
+	border-left-color: var(--oe-calv-edge);
+}
+
+.oe-calv-entry.is-cut-start {
+	margin-left: 0;
+	border-left-style: dashed;
+	border-top-left-radius: 0;
+	border-bottom-left-radius: 0;
+}
+
+.oe-calv-entry.is-cut-end {
+	margin-right: 0;
+	border-right: none;
+	border-top-right-radius: 0;
+	border-bottom-right-radius: 0;
+}
+
+.oe-calv-entry.is-dragging {
+	opacity: 0.85;
+	box-shadow: var(--shadow-s);
+	outline: 2px solid var(--interactive-accent);
+	z-index: 1;
+}
+
+.oe-calv-entry-title {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+	white-space: nowrap;
+}
+
+.oe-calv-entry-title .oe-chip-icon {
+	flex: none;
+	color: var(--oe-type-color, var(--text-muted));
+}
+
+.oe-calv-entry-title .oe-chip-icon svg {
+	width: 12px;
+	height: 12px;
+}
+
+.oe-calv-entry-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.oe-calv-entry-span {
+	margin-left: auto;
+	padding-left: var(--size-4-2);
+	color: var(--text-faint);
+	font-variant-numeric: tabular-nums;
+}
+
+.oe-calv-fields {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	color: var(--text-muted);
+}
+
+.oe-calv-field {
+	display: inline-flex;
+	align-items: center;
+	min-width: 0;
+	flex: none;
+	max-width: 100%;
+	overflow: hidden;
+}
+
+.oe-calv-field .oe-pill {
+	font-size: inherit;
+	padding-top: 0;
+	padding-bottom: 0;
+	line-height: 1.35;
+}
+
+/* Dragging an end changes the start or end */
+.oe-calv-resize {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	width: 7px;
+	cursor: ew-resize;
+	z-index: 1;
+}
+
+.oe-calv-resize.is-start {
+	left: -3px;
+}
+
+.oe-calv-resize.is-end {
+	right: 0;
+}
+
+body.oe-calv-dragging,
+body.oe-calv-dragging * {
+	cursor: grabbing !important;
+}
+
+button.oe-calv-more {
+	justify-self: start;
+	height: auto;
+	margin: 0 3px;
+	padding: 0 4px;
+	background: none;
+	box-shadow: none;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+button.oe-calv-more:hover {
+	color: var(--text-normal);
+	background-color: var(--background-modifier-hover);
+}
+
+/* Lists: the agenda, the No date list and a day's "+n more" */
+.oe-calv-entry.is-list {
+	margin: 0;
+	padding: 4px 8px;
+	min-height: var(--oe-calv-chip-h);
+}
+
+.oe-calv-day-pop {
+	width: 280px;
+}
+
+.oe-calv-day-list,
+.oe-calv-undated-list {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.oe-calv-day-list {
+	padding: 0 var(--size-4-2) var(--size-4-2);
+}
+
+/* Week swimlanes */
+.oe-calv-lane {
+	display: flex;
+	flex-direction: column;
+}
+
+.oe-calv-lane-head {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	padding: 4px var(--size-4-2);
+	border-bottom: 1px solid var(--background-modifier-border);
+	background-color: var(--background-secondary);
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-calv-lane .oe-calv-week.is-week {
+	min-height: max(90px, calc(28px + var(--oe-calv-lanes, 0) * (var(--oe-calv-chip-h) + var(--oe-calv-gap)) + 12px));
+}
+
+/* Agenda */
+.oe-calv-agenda {
+	display: flex;
+	flex-direction: column;
+	padding: var(--size-4-2) var(--size-4-3);
+	gap: var(--size-4-3);
+}
+
+.oe-calv-agenda-day {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.oe-calv-agenda-head {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	padding-bottom: 2px;
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.oe-calv-agenda-date {
+	font-weight: var(--font-semibold);
+}
+
+.oe-calv-agenda-day.is-today .oe-calv-agenda-date {
+	color: var(--interactive-accent);
+}
+
+.oe-calv-today-badge {
+	padding: 0 6px;
+	border-radius: 999px;
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-calv-agenda-none {
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-calv-agenda .oe-calv-entry.is-list {
+	flex-direction: row;
+	align-items: center;
+	justify-content: flex-start;
+	gap: var(--size-4-3);
+}
+
+.oe-calv-agenda .oe-calv-entry-title {
+	flex: 0 1 auto;
+}
+
+/* The No date list */
+.oe-calv-undated {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+	width: 220px;
+	flex: none;
+	padding: var(--size-4-2);
+	border-left: 1px solid var(--background-modifier-border);
+	background-color: var(--background-secondary);
+	overflow: auto;
+}
+
+.oe-calv-undated-head {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	font-weight: var(--font-semibold);
+}
+
+.oe-calv-undated-head .clickable-icon {
+	padding: 2px;
+}
+
+.oe-calv-undated-hint,
+.oe-calv-undated-none {
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-calv-undated .oe-calv-entry {
+	cursor: grab;
+}
+
+.oe-calv-empty {
+	padding: var(--size-4-6) var(--size-4-4);
+}
+
+/* Toolbar → Dates */
+.oe-datespanel {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+	min-width: 320px;
+	padding: 0 var(--size-4-2) var(--size-4-2);
+}
+
+.oe-datespanel-type,
+.oe-datespanel-row {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+.oe-datespanel-name {
+	width: 110px;
+	flex: none;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.oe-datespanel-none {
+	color: var(--text-faint);
+}
+
+.oe-datespanel .oe-pop-select {
+	flex: 1;
+	min-width: 0;
+}
+
+/* In a note (not the view's own tab), give the month a sensible height */
+.oe-view:not(.is-fill) .oe-calv-main {
+	max-height: 760px;
+}
+
+@container (max-width: 640px) {
+	.oe-calv-undated {
+		width: 160px;
+	}
+
+	.oe-calv-title {
+		font-size: var(--font-ui-small);
+	}
+}

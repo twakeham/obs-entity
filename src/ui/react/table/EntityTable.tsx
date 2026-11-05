@@ -36,6 +36,7 @@ import {
 	type ResultRow,
 	type ViewDef,
 	type ViewKind,
+	VIEW_KIND_ICON,
 	emptyBoard,
 } from "../../../model/views";
 import { VIEW_BLOCK } from "../../../services/viewIndex";
@@ -58,6 +59,31 @@ import { applyChange } from "../../../model/bulk";
 import { toWikilink } from "../../../model/links";
 import { COMMON_KEYS } from "../../../model/types";
 import { Board, BucketsPanel, SwimlanePanel, type BoardMemory, type CardMove, type LaneTarget } from "../board/Board";
+import { CalendarView, DatesPanel, type CalendarMemory, type CalendarMove } from "../calendar/CalendarView";
+import {
+	CALENDAR_ICON,
+	calendarEntries,
+	calendarFieldIds,
+	calendarOf,
+	calendarRunDef,
+	canCalendar,
+	dateFields,
+	dateWrites,
+	datesFor,
+	datesLabel,
+	initialDates,
+	layoutOf,
+	monthName,
+	monthRange,
+	periodRange,
+	periodTitle,
+	weekStartOf,
+	writeDay,
+	type CalEntry,
+} from "../../../model/calendarView";
+
+/** A layout's icon (views, the layout toggle). */
+const KIND_ICON = VIEW_KIND_ICON;
 
 /** What survives the re-render after a save, per block, for the session. */
 interface Session {
@@ -66,6 +92,9 @@ interface Session {
 	selected: string[];
 	scrollTop: number;
 	board?: BoardMemory;
+	calendar?: CalendarMemory;
+	/** the day a calendar shows around */
+	anchor?: number;
 }
 const sessions = new Map<string, Session>();
 
@@ -74,7 +103,7 @@ const SELECT_W = 36;
 const DEFAULT_W: Record<string, number> = { text: 170, number: 100, date: 120, choice: 120, multi: 170, bool: 80, links: 200, folder: 180 };
 
 type Item = { kind: "group"; key: string; label: string; count: number; open: boolean; level: number; by: string; rows: ResultRow[] } | { kind: "row"; r: ResultRow; n: number; depth: number };
-type PopName = "filters" | "sort" | "group" | "highlight" | "columns" | "format" | "buckets";
+type PopName = "filters" | "sort" | "group" | "highlight" | "columns" | "format" | "buckets" | "dates";
 
 export interface EntityTableProps {
 	initial: ViewDef;
@@ -122,9 +151,11 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	const edits = useRef<({ kind: "cell"; path: string } | { kind: "bulk"; undo: BulkUndo })[]>([]);
 	const lastClicked = useRef<number | null>(null);
 	const boardMem = useRef<BoardMemory>(session.board ?? { left: 0, top: 0, bodies: {} });
+	const calMem = useRef<CalendarMemory>(session.calendar ?? {});
+	const [anchor, setAnchor] = useState<number | null>(session.anchor ?? null);
 
 	useEffect(() => {
-		sessions.set(stateKey, { search, collapsed: [...collapsed], selected: [...selected], scrollTop: liveScroll.current.top, board: boardMem.current });
+		sessions.set(stateKey, { search, collapsed: [...collapsed], selected: [...selected], scrollTop: liveScroll.current.top, board: boardMem.current, calendar: calMem.current, ...(anchor !== null ? { anchor } : {}) });
 	});
 	// The selection is by path: follow renames and moves (including a bulk move and its undo). So does a board's manual order.
 	useEffect(() => {
@@ -176,11 +207,13 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	// ---- data
 	const lookup = useMemo(() => ({ types: plugin.settings.types, groups: plugin.settings.groups }), [plugin, version]);
 	const { rows, ctx } = useMemo(() => plugin.viewData(), [plugin, version]);
-	// A board runs its card fields and bucket column, with its swimlane as the only grouping level.
+	// A board runs its card fields and bucket column, with its swimlane as the only grouping level; a calendar
+	// its card fields and colour column (and in Week its swimlane).
 	const isBoard = def.kind === "board";
+	const isCalendar = def.kind === "calendar";
 	// "This note" in filters and highlight rules becomes the note the view is on.
 	const hereDef = useMemo(() => withThisNote(def, thisPath), [def, thisPath]);
-	const runDef = useMemo(() => (isBoard ? boardRunDef(hereDef) : hereDef), [hereDef, isBoard]);
+	const runDef = useMemo(() => (isBoard ? boardRunDef(hereDef) : isCalendar ? calendarRunDef(hereDef) : hereDef), [hereDef, isBoard, isCalendar]);
 	const result = useMemo(() => runView(runDef, rows, ctx, search), [runDef, rows, ctx, search]);
 	const bucketCol = useMemo(() => (isBoard ? bucketColumn(def, lookup) : null), [isBoard, def, lookup]);
 	const bucketChoices = useMemo(() => (isBoard ? bucketColumns(def, lookup) : []), [isBoard, def, lookup]);
@@ -357,7 +390,8 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		const cur = defRef.current;
 		const columns = existing ? cur.columns.map((x) => (x.id === existing.id ? col : x)) : [...cur.columns, col];
 		const board = !existing && cur.kind === "board" ? { board: { ...boardOf(cur), cardFields: [...cardFieldIds(cur), col.id] } } : {};
-		update({ ...cur, columns, ...board });
+		const calendar = !existing && cur.kind === "calendar" ? { calendar: { ...calendarOf(cur), cardFields: [...calendarFieldIds(cur), col.id] } } : {};
+		update({ ...cur, columns, ...board, ...calendar });
 	};
 	const formulaDialog = (existing: Extract<ColumnDef, { kind: "formula" }> | null) => new FormulaModal(plugin, defRef.current, existing, (col) => addComputed(existing, col)).open();
 	const rollupDialog = (existing: Extract<ColumnDef, { kind: "rollup" }> | null) => {
@@ -666,7 +700,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		e.preventDefault();
 		rowMenuAt({ x: e.clientX, y: e.clientY }, r);
 	};
-	const rowMenuAt = (at: { x: number; y: number }, r: ResultRow) => {
+	const rowMenuAt = (at: { x: number; y: number }, r: ResultRow, extra?: (m: Menu) => void) => {
 		// Right-clicking one of several selected rows acts on the selection.
 		if (selected.has(r.row.path) && selectedEntities.length > 1) {
 			bulkMenu(new Menu()).showAtPosition(at);
@@ -675,6 +709,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		const entity = plugin.index.get(r.row.path);
 		if (!entity) return;
 		const m = new Menu();
+		extra?.(m);
 		m.addItem((i) => i.setSection("open").setTitle("Open in new tab").setIcon("file-plus").onClick(() => plugin.openPath(entity.path, "tab")));
 		m.addItem((i) => i.setSection("open").setTitle("Open to the right").setIcon("separator-vertical").onClick(() => plugin.openPath(entity.path, "split")));
 		m.addItem((i) =>
@@ -746,7 +781,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 				}),
 		);
 		if (isBoard) boardMoreItems(m, { x: e.clientX, y: e.clientY });
-		else tableMoreItems(m, { x: e.clientX, y: e.clientY });
+		else if (!isCalendar) tableMoreItems(m, { x: e.clientX, y: e.clientY });
 		m.showAtMouseEvent(e.nativeEvent);
 	};
 
@@ -843,8 +878,11 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		);
 	};
 
-	/** + New: a new entity, prefilled from the filters (and on a board, the bucket's and swimlane's values). */
-	const newEntity = (extra: LaneTarget[] = []) => {
+	/**
+	 * + New: a new entity, prefilled from the filters (and on a board, the bucket's and swimlane's values; on a
+	 * calendar, the day in each type's own date field). `among` limits the types offered.
+	 */
+	const newEntity = (extra: LaneTarget[] = [], perType?: (t: EntityTypeDef) => Record<string, FieldValue>, among: EntityTypeDef[] = sources) => {
 		const pre = prefillFromFilters(hereDef, result.known);
 		for (const { col, value } of extra) {
 			const key = col.def.kind === "builtin" ? COMMON_KEYS.status : col.def.kind === "field" ? col.def.key : null;
@@ -867,15 +905,19 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					fields[k] = f.labelled ? [{ target: lt, label: "" }] : isListValued(f) ? [lt] : lt;
 				} else fields[k] = v as FieldValue;
 			}
+			Object.assign(fields, perType?.(t));
 			const status = pre.status && statusesFor(t, plugin.settings.groups).includes(pre.status) ? { status: pre.status } : {};
 			plugin.openCreateModal(t, { ...status, fields });
 		};
-		if (sources.length === 1) go(sources[0]);
-		else if (sources.length) new TypePickerModal(plugin, go, sources).open();
+		if (among.length === 1) go(among[0]);
+		else if (among.length) new TypePickerModal(plugin, go, among).open();
 	};
 
 	// ---- board actions
-	/** Switch between the table and the board (each keeps its own settings). A board without buckets gets status. */
+	/**
+	 * Switch between the table, the board and the calendar (each keeps its own settings). A board without buckets
+	 * gets status; a calendar without date fields gets each type's automatic choice, saved so it stays put.
+	 */
 	const setKind = (kind: ViewKind) => {
 		const cur = defRef.current;
 		if (cur.kind === kind) return;
@@ -884,6 +926,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 			const b = defaultBuckets(cur, lookup);
 			if (b) next.board = { ...boardOf(cur), buckets: b };
 		}
+		if (kind === "calendar" && !Object.keys(calendarOf(cur).dates).length) next.calendar = { ...calendarOf(cur), dates: initialDates(sources) };
 		setFocus(null);
 		setPop(null);
 		update(next);
@@ -940,6 +983,87 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 				},
 			});
 	};
+	// ---- calendar actions
+	const calAnchor = anchor ?? ctx.today;
+	/** The types a calendar can show, and why it can't show any. */
+	const calSources = isCalendar ? sources.filter((t) => datesFor(calendarOf(def), t)) : [];
+	const noDates = !isCalendar
+		? null
+		: !canCalendar(ctx.dates)
+			? "Dates in this vault use a calendar that can't be shown here."
+			: calSources.length === 0
+				? `None of ${sources.length === 1 ? `the ${sources[0].name} type's` : "this view's types'"} date fields are on the calendar.`
+				: null;
+	/** Write a calendar move: the entry's new dates (and swimlane), as one Ctrl/Cmd+Z step. */
+	const moveOnCalendar = async (mv: CalendarMove) => {
+		const d = mv.entry?.dates ?? datesFor(calendarOf(defRef.current), mv.row.row.type);
+		if (!d) return;
+		const writes: Record<string, unknown> = mv.entry ? dateWrites(mv.entry, { start: mv.start, end: mv.end }, ctx.dates) : { [d.start]: writeDay(ctx.dates, mv.start) };
+		const lane = mv.lane;
+		let refused = false;
+		const undo = await plugin.bulk.updateFrontmatter(
+			[mv.row.row.path],
+			(entity, file) => (fm) => {
+				let changed = false;
+				for (const [key, value] of Object.entries(writes)) if (applyChange(fm, { op: "set", key, value })) changed = true;
+				const key = lane ? keyOf(lane.col) : null;
+				if (lane && key && (key === COMMON_KEYS.status || entity.type.fields.some((f) => f.key === key))) {
+					let value: unknown = lane.value;
+					if (key === COMMON_KEYS.status && typeof value === "string" && !statusesFor(entity.type, plugin.settings.groups).includes(value)) refused = true;
+					else {
+						if (lane.col.kind === "links" && typeof value === "string") {
+							const target = app.vault.getAbstractFileByPath(value);
+							value = target instanceof TFile ? toWikilink(app.metadataCache.fileToLinktext(target, file.path, true)) : null;
+						}
+						if (applyChange(fm, { op: "set", key, value })) changed = true;
+					}
+				}
+				return changed;
+			},
+			null,
+		);
+		if (refused) new Notice(`${mv.row.row.name} can't have that status: its type doesn't use it.`);
+		if (undo) edits.current.push({ kind: "bulk", undo });
+	};
+	/** Right-click → Clear date: empties the note's date (and end date) fields. */
+	const clearDate = async (e: CalEntry) => {
+		const keys = [e.dates.start, ...(e.dates.end ? [e.dates.end] : [])];
+		const undo = await plugin.bulk.updateFrontmatter([e.r.row.path], () => (fm) => keys.map((key) => applyChange(fm, { op: "set", key, value: null })).some(Boolean), null);
+		if (undo) edits.current.push({ kind: "bulk", undo });
+	};
+	const calendarRowMenu = (at: { x: number; y: number }, r: ResultRow, e: CalEntry | null) =>
+		rowMenuAt(at, r, (m) => {
+			if (e) m.addItem((i) => i.setSection("date").setTitle("Clear date").setIcon("calendar-x").onClick(() => void clearDate(e)));
+		});
+	/** A new note on a day: its type's date field set to the day (only types on the calendar are offered). */
+	const newOnDay = (day: number, lane: LaneTarget | null) => {
+		const cal = calendarOf(defRef.current);
+		newEntity(
+			lane ? [lane] : [],
+			(t) => {
+				const d = datesFor(cal, t);
+				return d ? { [d.start]: writeDay(ctx.dates, day) } : {};
+			},
+			sources.filter((t) => datesFor(cal, t)),
+		);
+	};
+	/** Toolbar → "Dates: Due" (the field when every type uses one with the same name). */
+	const datesButtonLabel = () => {
+		const labels = [...new Set(calSources.map((t) => datesLabel(t, datesFor(calendarOf(def), t))))];
+		return labels.length === 1 ? `Dates: ${labels[0]}` : "Dates";
+	};
+	/** The footer's count: "12 in November · 3 without a date". */
+	const calendarCount = () => {
+		const data = calendarEntries(result.rows, def, ctx.dates, ctx.groups);
+		const layout = layoutOf(def);
+		const range = layout === "month" ? monthRange(calAnchor) : periodRange(layout, calAnchor, weekStartOf(def));
+		const n = data.entries.filter((e) => e.start <= range.to && e.end >= range.from).length;
+		const parts = [`${n} in ${layout === "month" ? monthName(calAnchor) : periodTitle(layout, calAnchor, weekStartOf(def))}`];
+		if (data.undated.length) parts.push(`${data.undated.length} without a date`);
+		if (data.off) parts.push(`${data.off} not on the calendar`);
+		return parts.join(" · ");
+	};
+
 	// ---- bucket order
 	/** Every bucket (hidden and empty ones too) as the board orders them. */
 	const allBuckets = () => (bucketCol ? bucketsOf(bucketCol, result.rows, { ...boardOf(defRef.current), hideEmpty: undefined }) : []);
@@ -1063,6 +1187,12 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		const cur = defRef.current;
 		const ids = cardFieldIds(cur).filter((id) => id !== c.id);
 		update({ ...cur, board: { ...boardOf(cur), cardFields: on ? [...ids, c.id] : ids } });
+	};
+	/** …and on a calendar, the fields under each entry's name. */
+	const toggleCalendarField = (c: ColumnDef, on: boolean) => {
+		const cur = defRef.current;
+		const ids = calendarFieldIds(cur).filter((id) => id !== c.id);
+		update({ ...cur, calendar: { ...calendarOf(cur), cardFields: on ? [...ids, c.id] : ids } });
 	};
 
 	const selectRow = (n: number, path: string, range: boolean) => {
@@ -1321,19 +1451,23 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		>
 			<div className="oe-view-toolbar">
 				<span className="oe-view-source">
-					<Icon name={sources.length === 1 ? sources[0].icon : isBoard ? BOARD_ICON : "table"} />
+					<Icon name={sources.length === 1 ? sources[0].icon : KIND_ICON[def.kind]} />
 					{typeLabel}
 				</span>
 				<input type="search" className="oe-view-search" placeholder="Search…" value={search} aria-label="Search this view" onChange={(e) => setSearch(e.target.value)} />
 				<div className="oe-layout-toggle" role="group" aria-label="Layout">
-					<button className={`oe-layout-btn${isBoard ? "" : " is-active"}`} aria-label="Table" aria-pressed={!isBoard} onClick={() => setKind("table")}>
-						<Icon name="table" />
-						<span className="oe-view-tool-label">Table</span>
-					</button>
-					<button className={`oe-layout-btn${isBoard ? " is-active" : ""}`} aria-label="Board" aria-pressed={isBoard} onClick={() => setKind("board")}>
-						<Icon name={BOARD_ICON} />
-						<span className="oe-view-tool-label">Board</span>
-					</button>
+					{(
+						[
+							["table", "Table"],
+							["board", "Board"],
+							["calendar", "Calendar"],
+						] as const
+					).map(([k, label]) => (
+						<button key={k} className={`oe-layout-btn${def.kind === k ? " is-active" : ""}`} aria-label={label} aria-pressed={def.kind === k} onClick={() => setKind(k)}>
+							<Icon name={KIND_ICON[k]} />
+							<span className="oe-view-tool-label">{label}</span>
+						</button>
+					))}
 				</div>
 				<span className="oe-spacer" />
 				{selectedEntities.length > 0 ? (
@@ -1369,16 +1503,19 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 						/>
 						<ToolButton name="sort" icon="arrow-up-down" label="Sort" count={def.sort.length} active={pop?.name === "sort"} onClick={openPop} />
 						{isBoard && <ToolButton name="buckets" icon={BOARD_ICON} label={bucketCol ? `Buckets: ${bucketCol.label}` : "Buckets"} count={0} active={pop?.name === "buckets"} onClick={openPop} />}
-						<ToolButton
-							name="group"
-							icon="rows-3"
-							label={isBoard ? "Swimlanes" : "Group"}
-							count={isBoard ? (boardOf(def).swimlanes ? 1 : 0) : def.group.length}
-							active={pop?.name === "group"}
-							onClick={openPop}
-						/>
+						{isCalendar && <ToolButton name="dates" icon={CALENDAR_ICON} label={datesButtonLabel()} count={0} active={pop?.name === "dates"} onClick={openPop} />}
+						{(!isCalendar || layoutOf(def) === "week") && (
+							<ToolButton
+								name="group"
+								icon="rows-3"
+								label={isBoard || isCalendar ? "Swimlanes" : "Group"}
+								count={isBoard ? (boardOf(def).swimlanes ? 1 : 0) : isCalendar ? (calendarOf(def).swimlanes ? 1 : 0) : def.group.length}
+								active={pop?.name === "group"}
+								onClick={openPop}
+							/>
+						)}
 						<ToolButton name="highlight" icon="highlighter" label="Highlight" count={(def.highlight ?? []).filter((r) => !r.off).length} active={pop?.name === "highlight"} onClick={openPop} />
-						<ToolButton name="columns" icon={isBoard ? "list" : "columns-3"} label={isBoard ? "Card fields" : "Columns"} count={0} active={pop?.name === "columns"} onClick={openPop} />
+						<ToolButton name="columns" icon={isBoard || isCalendar ? "list" : "columns-3"} label={isBoard || isCalendar ? "Card fields" : "Columns"} count={0} active={pop?.name === "columns"} onClick={openPop} />
 						<button className="clickable-icon" aria-label="More options" onClick={moreMenu}>
 							<Icon name="more-horizontal" />
 						</button>
@@ -1424,6 +1561,23 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					chooseBuckets={(el) => setPop({ name: "buckets", anchor: el.getBoundingClientRect() })}
 					memory={boardMem.current}
 					SummaryText={SummaryText}
+				/>
+			) : isCalendar ? (
+				<CalendarView
+					def={def}
+					update={update}
+					result={result}
+					ctx={ctx}
+					anchor={calAnchor}
+					setAnchor={setAnchor}
+					memory={calMem.current}
+					rowMenu={calendarRowMenu}
+					hover={hover}
+					move={moveOnCalendar}
+					newOn={newOnDay}
+					onCommonKey={(e) => !pop && !editing && commonKey(e)}
+					chooseDates={(el) => setPop({ name: "dates", anchor: el.getBoundingClientRect() })}
+					noDates={noDates}
 				/>
 			) : (
 			<div
@@ -1699,7 +1853,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 				</button>
 				<span className="oe-spacer" />
 				<span className="oe-table-count">
-					{result.rows.length} of {result.total}
+					{isCalendar && !noDates ? calendarCount() : `${result.rows.length} of ${result.total}`}
 					{selectedEntities.length > 0 && ` · ${selectedEntities.length} selected`}
 				</span>
 			</div>
@@ -1709,13 +1863,15 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					{pop.name === "filters" && <FiltersPanel filters={def.filters} choices={choices} ctx={ctx} valuesOf={valuesOf} thisNote={thisPath} onChange={(filters) => update({ ...defRef.current, filters })} />}
 					{pop.name === "sort" && <SortPanel sort={def.sort} choices={choices} onChange={(sort) => update({ ...defRef.current, sort })} />}
 					{pop.name === "group" &&
-						(isBoard ? (
+						(isBoard || isCalendar ? (
 							<SwimlanePanel
 								def={def}
 								choices={choices}
+								calendar={isCalendar}
 								onChange={(swimlanes, groupSummaries, groupFieldNames) => {
 									const cur = defRef.current;
-									update({ ...cur, groupSummaries, groupFieldNames, board: { ...boardOf(cur), swimlanes } });
+									if (isCalendar) update({ ...cur, groupSummaries, groupFieldNames, calendar: { ...calendarOf(cur), swimlanes } });
+									else update({ ...cur, groupSummaries, groupFieldNames, board: { ...boardOf(cur), swimlanes } });
 								}}
 							/>
 						) : (
@@ -1725,6 +1881,17 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 								onChange={(group, groupSummaries, groupFieldNames) => update({ ...defRef.current, group, groupSummaries, groupFieldNames })}
 							/>
 						))}
+					{pop.name === "dates" && (
+						<DatesPanel
+							def={def}
+							types={sources.map((t) => ({ key: t.key, name: t.plural || t.name, fields: dateFields(t).map((f) => ({ key: f.key, label: f.label })), current: datesFor(calendarOf(def), t) }))}
+							colorChoices={choices.filter((c) => c.col.field?.kind === "select" && c.col.def.kind === "field").map((c) => ({ id: c.col.id, label: c.col.label }))}
+							onChange={(patch) => {
+								const cur = defRef.current;
+								update({ ...cur, calendar: { ...calendarOf(cur), ...patch } });
+							}}
+						/>
+					)}
 					{pop.name === "buckets" && (
 						<BucketsPanel
 							value={bucketCol?.id}
@@ -1776,24 +1943,29 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 								{ title: "Incoming links", columns: available.incoming },
 							]}
 							labelOf={labelOf}
-							onToggle={isBoard ? toggleCardField : toggleColumn}
-							shown={isBoard ? cardFieldIds(def) : undefined}
+							onToggle={isBoard ? toggleCardField : isCalendar ? toggleCalendarField : toggleColumn}
+							shown={isBoard ? cardFieldIds(def) : isCalendar ? calendarFieldIds(def) : undefined}
 							onReorder={
 								isBoard
 									? (ids) => {
 											const cur = defRef.current;
 											update({ ...cur, board: { ...boardOf(cur), cardFields: ids } });
 										}
-									: undefined
+									: isCalendar
+										? (ids) => {
+												const cur = defRef.current;
+												update({ ...cur, calendar: { ...calendarOf(cur), cardFields: ids } });
+											}
+										: undefined
 							}
-							hint={isBoard ? "Fields shown on the cards, in this order. Empty values are left out." : undefined}
+							hint={isBoard ? "Fields shown on the cards, in this order. Empty values are left out." : isCalendar ? "Fields shown under each entry's name, in this order. Empty values are left out." : undefined}
 							formatOf={(id) => {
 								const c = result.known.get(id);
 								const k = c ? formatKind(c) : null;
 								return k ? { kind: k, set: !!def.formats[id] } : null;
 							}}
 							// The Format panel opens in the Card fields panel's place.
-							onFormat={isBoard ? (id) => setPop({ name: "format", anchor: pop.anchor, col: id }) : undefined}
+							onFormat={isBoard || isCalendar ? (id) => setPop({ name: "format", anchor: pop.anchor, col: id }) : undefined}
 							onAddRollup={() => rollupDialog(null)}
 							onEditRollup={(c) => rollupDialog(c)}
 							onAddFormula={() => {

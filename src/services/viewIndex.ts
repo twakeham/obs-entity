@@ -70,7 +70,7 @@ export class ViewIndex extends Events {
 		const text = await this.plugin.app.vault.cachedRead(f);
 		if (!FENCE.test(text)) return null;
 		const m = /^kind:\s*["']?(\w+)/m.exec(findViewBlocks(text)[0]?.inner ?? "");
-		return m?.[1] === "board" ? "board" : "table";
+		return m?.[1] === "board" ? "board" : m?.[1] === "calendar" ? "calendar" : "table";
 	}
 
 	private async check(f: TFile, changed = false): Promise<void> {

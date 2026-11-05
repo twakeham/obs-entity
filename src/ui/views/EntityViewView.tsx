@@ -2,8 +2,7 @@ import { Notice, TextFileView, parseYaml, stringifyYaml, type Menu, type TFile, 
 import { createRoot, type Root } from "react-dom/client";
 import type EntitiesPlugin from "../../main";
 import { findViewBlocks, replaceViewBlock } from "../../model/viewBlock";
-import { parseView, serializeView, unknownSources, type ViewDef, type ViewKind } from "../../model/views";
-import { BOARD_ICON } from "../../model/board";
+import { parseView, serializeView, unknownSources, VIEW_KIND_ICON, type ViewDef, type ViewKind } from "../../model/views";
 import { PluginContext } from "../react/context";
 import { EntityTable } from "../react/table/EntityTable";
 
@@ -34,10 +33,10 @@ export class EntityViewView extends TextFileView {
 	}
 
 	getIcon(): string {
-		return this.kind === "board" ? BOARD_ICON : "table";
+		return VIEW_KIND_ICON[this.kind] ?? "table";
 	}
 
-	/** The layout shown, for the tab icon (it changes with the Table / Board toggle). */
+	/** The layout shown, for the tab icon (it changes with the Table / Board / Calendar toggle). */
 	private kind: ViewKind = "table";
 	private setKind(kind: ViewKind): void {
 		if (kind === this.kind) return;

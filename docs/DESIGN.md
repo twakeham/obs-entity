@@ -500,6 +500,7 @@ src/
     rules.ts                    field validation rules: what each kind offers, messages, type problems
     defaults.ts                 smarter defaults: relative dates, linked values, the next number; emptyFormValues
     colors.ts                   choice and status colours: PALETTE, choiceColor, statusColor, keeping maps in step
+    calendarView.ts             calendar views: date fields per type, entries, months / weeks / agenda, bars in lanes, moves
     choiceValues.ts             choices with values: choiceValue, choiceValueOf, choiceText / choiceTitle, pruneValues
     links.ts                    parseLink, parseLabelledEntry, toWikilink, toLabelledWikilink, asArray
     relations.ts                extractEdges, groupRelations, addLink, removeLink
@@ -1188,12 +1189,12 @@ These are proven in Story Forge and worth adding behind module toggles once the 
   - hubs and loners
   - customisable sections, plus an embeddable code block
 - **Bulk edit in the browser:** multi-select, then set status, add a relation, or move.
-- **More entity view kinds** (§8.10): gallery, calendar. (Boards are done.)
+- **More entity view kinds** (§8.10): gallery, timeline. (Boards and calendars are done.)
 - **Domain views**, as separate modules: timeline (with a date adapter), family tree, relationship grid.
 
 ### 8.10 Entity views
 
-Saved, named views over entities, shown as a **table** or a **board** (cards in buckets). Every view kind shares the same source, columns, filters, sorting and highlight rules; one note keeps both layouts' settings.
+Saved, named views over entities, shown as a **table**, a **board** (cards in buckets) or a **calendar** (notes by date). Every view kind shares the same source, columns, filters, sorting and highlight rules; one note keeps every layout's settings.
 
 #### Storage: a Markdown note
 
@@ -1220,7 +1221,7 @@ filters: { all: [{ field: status, op: is-not, value: done }] }
 
 | Key | Meaning |
 |---|---|
-| `kind` | The layout the view opens in: `table` or `board` (later `gallery`, `calendar`). The Table / Board toggle switches it. |
+| `kind` | The layout the view opens in: `table`, `board` or `calendar` (later `gallery`). The Table / Board / Calendar toggle switches it. |
 | `types` | Type keys, `@group`, or `*` (all entities), like relation targets. Default `*`. |
 | `columns` | Ordered columns (below). `name` is always first, and is added if missing. |
 | `widths` | Column id → width in px. For fill columns, the minimum width. |
@@ -1480,7 +1481,7 @@ highlight:
   - The toolbar's **Highlight (n)** button (n counts enabled rules) opens the rule list. Each rule shows a sample, its name (or a summary of its first condition), its target and how many shown rows match.
   - Rules can be turned on and off, reordered by dragging, removed, and expanded to edit: name, apply to (whole row or a column), conditions, fill and text swatches, B / I / S toggles and icon.
   - Right-clicking a header gives **Highlight cells…**, which adds a cell rule for that column, with a condition on it and a yellow fill, and opens it.
-- `runView` returns each row's matching rule per target (`hl`) and a match count per rule. Future board, gallery and calendar views will use row rules to colour cards.
+- `runView` returns each row's matching rule per target (`hl`) and a match count per rule. Boards and calendars use row rules to colour cards and entries (and a future gallery will).
 
 #### Data bars and colour scales
 
@@ -1636,6 +1637,54 @@ Bucket keys are the value (a status or choice), `yes` / `no` (checkboxes), the n
   - Cards have a fixed width (`--oe-card-w`); a bucket is as wide as its cards plus a stable scrollbar gutter, and an empty bucket's body is still a card wide.
   - With swimlanes, the board's `scroll-padding-top` is set to the sticky header row's height, so a card scrolled into view (focus, auto-scroll) isn't hidden under it.
   - The drop target is worked out before the drag state is cleared on release (an early version cleared it first and dropped nothing).
+
+#### Calendar
+
+A calendar shows the view's notes by date (`model/calendarView.ts`, `ui/react/calendar/CalendarView.tsx`). Same note, same toolbar: the third button of the **Table | Board | Calendar** toggle.
+
+```yaml
+kind: calendar
+types: [project, milestone, task]
+columns: [name, status, assignee, priority]
+calendar:
+  dates:
+    project: { start: start, end: due }   # spans days
+    task: due
+    milestone: due
+    meeting: none                          # left off the calendar
+  layout: week                             # month (default) | week | agenda
+  weekStart: sunday                        # monday by default
+  colorBy: priority                        # status (default) | a choice field | none
+  cardFields: [assignee]
+  swimlanes: assignee                      # Week only, one level
+```
+
+| `calendar:` key | Meaning |
+|---|---|
+| `dates` | Type key → its date field, `{ start, end }` (a note spans the days from one to the other) or `none`. Types not listed get the automatic choice (`autoDates`: a pair named like start / begin / from and end / finish / until / due, else the first date field). A field that's gone or isn't a date falls back to it; an unusable end is dropped (`datesFor`). Only stored date fields (not calculated ones) can place notes, since dragging writes them. |
+| `layout` | `week` or `agenda`; month when unset. |
+| `weekStart` | A day name; Monday when unset. |
+| `colorBy` | Each entry's left edge: status (unset: the type's or group's status colour, else its tone by name: done green, active blue, on-hold orange, closed faint), a choice field's column id (its choice colours), or `none`. |
+| `cardFields` | Columns shown under each entry's name. Unset: none in Month, the table's first 3 columns (after the name and the swimlane column) in Week and Agenda. |
+| `swimlanes` | One grouping level (`<column id>` or `{ by, date }`), shown as rows in Week only. |
+
+- **Days** are whole days since 1970-01-01, read through the date adapter's picker form (`toPicker`, YYYY-MM-DD) and written back with `fromPicker`, so stored values keep their format. An adapter without a picker form (a custom calendar) can't be shown: the calendar says so. Unreadable dates count as no date; an end before the start is ignored (a one-day note).
+- **Switching to Calendar** the first time saves every source type's automatic choice (`initialDates`), so adding a date field later doesn't move notes around. **New view** and "New calendar of …" (browser type and group headings, when a type has a date field) do the same. If no source type has a date field on the calendar, the calendar says so with a link to the Dates panel.
+- **What runs** (`calendarRunDef`): the name, the card fields and the Colour by column, with the swimlane as the only grouping level in Week. Filters, search, sort and highlight rules are the view's own. Without a sort, entries within a day go in status order, then by name (`calendarEntries`).
+- **Navigation:** ‹ Today › and the title ("November 2026", "2 – 8 Nov 2026", "5 Nov – 4 Dec 2026") above the calendar, with the Month / Week / Agenda switch and the **No date** button. The day shown (`anchor`) is kept for the session, not saved, and starts at today; ‹ › move a month (the same date, clamped to the month's end), a week, or 30 days. Page Up / Page Down / Home on the focused calendar do the same.
+- **Month:** the weeks covering the month (4–6 rows, `monthWeeks`), weekday names above, weekends shaded, days outside the month faint, today's number in an accent circle, the 1st labelled with its month. Entries are bars in lanes over the days (`weekSegments`: earlier starts first, then longer bars, each in the first lane free for all its days); a bar continuing from the previous week or into the next has a dashed / open end. A week shows 4 lanes; when a day holds more, the week shows 3 and the day gets "+n more" (`weekOverflow`), which opens a popover listing the day.
+- **Week:** seven columns with the date in the header and every entry. **Swimlanes** (toolbar, shown in Week only) give one row per group, with "Field: value" and the count of entries that week; dragging into another swimlane writes that column when dragging can change it (the board's rule, `isBucketColumn`), else entries stay in their own.
+- **Agenda:** days from the anchor for 30 days that have entries, plus today (with "Nothing planned"), as headed lists. A note spanning days is listed once, on its first day in range, with its dates (`agendaDays`).
+- **Entries:** the type icon and name, the card fields on a second line (rendered like table cells), the edge colour (and a light tint of it), and row / name / cell highlight rules. Click opens the note (Ctrl/Cmd-click: new tab, middle-click: new tab), hover shows the page preview, a link among the card fields opens that link instead.
+- **Dragging** (pointer events): an entry moves by whole days, keeping its offset from the grabbed day (`movedBy`); the ends of a bar (on notes whose type has an end field, in Month and Week) change only the start or end, never past each other (`resizedTo`). The entry follows the pointer while dragging; Esc cancels. On release, `dateWrites` gives the fields to write: the start, and the end when the note has one or now spans days. Notes from the **No date** list drop onto a day to set their date. Each drop is one Ctrl/Cmd+Z step. Native link drags inside entries are blocked, as they'd cancel the pointer events.
+- **Creating:** double-click a day or its **+** (on hover): the create dialog opens with each type's own date field set to that day (and the Week swimlane's value, and the filters' values as with + New); only types on the calendar are offered.
+- **Right-click** an entry: the row menu, plus **Clear date** (empties the date and end fields).
+- **No date** list (a side panel, toggled by the button; open by default for the session when some notes have no date): those notes, draggable onto a day.
+- **Toolbar on a calendar:** Filters, Sort (within days), **Dates** ("Dates: Due" when every type uses a field with that name: each type's date and end fields, week start, Colour by), **Swimlanes** (Week only), Highlight, **Card fields** (the Columns panel, as on boards, with formats), ⋯ (Save as…, Rename, Edit definition, Copy block).
+- **Footer:** "12 in November · 3 without a date · 2 not on the calendar": entries overlapping the month (or the week / agenda span) shown.
+- **Embeds:** `|wide` and `|bare` work as for tables; bare hides the toolbar and footer but keeps the calendar's own navigation.
+- Not supported: times of day, repeating events, calculated date fields, custom (non-Gregorian) calendars.
+- The calendar's classes are `oe-calv-*`: the date picker already uses `oe-cal-*`.
 
 #### Bulk actions
 
@@ -1844,6 +1893,7 @@ These cover all of `model/`, with no Obsidian dependency:
   - density and wrapping: parse/serialize without defaults, `unlimited` lines, repeated and removed wrap columns dropped, an error for a bad density; `rowHeight`, `rowOffsets`, `itemAt` at and between boundaries
 - **board:** `board:` round trips without defaults, both layouts' settings surviving a switch, formats and summaries of card fields kept, errors; bucket fields (status and single-value choice / checkbox / link fields only, never read-only columns), types with the field; default card fields (and picked ones, bucket and swimlane columns included) and the run definition; bucket order for status, choices (undefined values, the empty bucket), links and checkboxes, hidden and empty buckets, sort within buckets; manual order (`orderRows`, `reorder`); bucket order (round trips without the empty bucket, saved order applied with unknown keys after their neighbour, the empty bucket always last, moves that return to the field's order saving nothing, stepping left / right).
   - summaries: parse/serialize (removed columns dropped, the group header toggle), every aggregation, status-order value counts, formatted sums and dates, empty results, options by column kind, `spanText`
+- **calendarView:** days to and from dates, weekdays and week starts; months as whole weeks for a week start; stepping months (clamped to the month's end), weeks and agenda spans, and period titles across months and years; `calendar:` round trips without defaults and errors; automatic date fields (start / end pairs, the first date field, none) and saved choices (left off, missing fields, a bad end); card fields and the run definition (swimlanes only in Week); entries (status order without a sort, the view's sort, undated and unreadable dates, ends before starts, types not on the calendar); bars in lanes within a week (cut ends, longer first) and "+n more"; agenda days (spanning notes once, past notes left out, today); what moving and resizing write.
 - **formats:** date presets, custom and relative dates; number presets, currencies, custom patterns and their errors.
 - **formula:** tokenizing, precedence, syntax errors with positions; reference resolution by label or id, type inference, unknown columns / names / functions and argument counts; label ↔ id conversion; every function's example compiles; evaluation of arithmetic, dates, comparisons, empty values and runtime errors, and every function category (including lazy logic, `dateAdd` / `dateDiff` month ends, `map` / `filter` / `prop`). In views: per-row values, kinds used for sorting and filtering, formulas using formulas and linked notes' fields, type overrides, invalid columns, loops, per-row errors, round trips.
 - **bulk:** shared fields across types (kinds that differ, status and tags), status unions, set / clear (keys kept, values copied, no-op detection), add / remove links (duplicates, single fields), add / remove tags (case and #), which entities a change applies to, set values by kind, notice text, copy names.
@@ -1899,6 +1949,7 @@ Drive a real Obsidian instance via the Chrome DevTools Protocol (Obsidian starte
   - switcher type prefixes
   - import/export
   - boards, on a scratch view: buckets and counts, mouse drags between buckets (status, choice, empty bucket, link) with undo, reordering (drop line, saved order, undo), moving a selection, swimlanes (writable and not), collapsed buckets taking drops, limits, hiding, card options and fields, highlight rules on cards, keyboard moves, Add card prefill, the Table / Board toggle and tab icon, paging big buckets, the New view dialog. Scroll the card and the target into view (centred) before dragging, as auto-scroll would. Board drags write notes: back up the vault's notes first and compare afterwards.
+  - calendars, on a scratch view: Month / Week / Agenda, dragging an entry to another day with undo, the No date list (count, footer, dragging onto a day), + on a day opening the create dialog with the date, right-click Clear date, Colour by a choice, card fields, Week swimlanes (dragging into another lane changes that field), resizing a project's end, embeds (bare keeps the navigation).
 - Check **dark and light themes** and at least one community theme.
 
 ### Manual checklist per release

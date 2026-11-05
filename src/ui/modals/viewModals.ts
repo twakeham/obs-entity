@@ -90,11 +90,12 @@ export class NewViewModal extends Modal {
 			});
 		new Setting(this.contentEl)
 			.setName("Layout")
-			.setDesc("A table, or a board of cards in buckets (by status, for example). You can switch at any time.")
+			.setDesc("A table, a board of cards in buckets (by status, for example), or a calendar of notes by date. You can switch at any time.")
 			.addDropdown((d) =>
 				d
 					.addOption("table", "Table")
 					.addOption("board", "Board")
+					.addOption("calendar", "Calendar")
 					.setValue(this.kind)
 					.onChange((v) => (this.kind = v as ViewKind)),
 			);

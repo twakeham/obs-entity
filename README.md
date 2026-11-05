@@ -222,7 +222,7 @@ A left sidebar tree of all entities. Open it with the **library** ribbon icon or
 
 ## Entity views
 
-A view is a saved, named table (or board, see Boards) of entities. It's an ordinary note in the **views folder** (default `Entities/Views`, set in settings). The definition lives in an `entity-view` code block, so the view syncs and opens anywhere; without the plugin you see the readable definition:
+A view is a saved, named table (or board or calendar, see Boards and Calendars) of entities. It's an ordinary note in the **views folder** (default `Entities/Views`, set in settings). The definition lives in an `entity-view` code block, so the view syncs and opens anywhere; without the plugin you see the readable definition:
 
 ````markdown
 ```entity-view
@@ -235,7 +235,7 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
 ````
 
 **Creating and opening views:**
-- **New entity view** (command, the + on the browser's **Views** section, or "New table view of …" / "New board of …" on a type or group heading): pick what it shows, Table or Board, name it, and the note is created.
+- **New entity view** (command, the + on the browser's **Views** section, or "New table view of …" / "New board of …" / "New calendar of …" on a type or group heading): pick what it shows, Table, Board or Calendar, name it, and the note is created.
 - **Open entity view…** lists the view notes. The browser shows them at the top.
 - **Embed** a view in any note with `![[Active projects]]`, or paste the block anywhere.
 
@@ -361,6 +361,20 @@ Any view can also be shown as a **board**: cards in **buckets**, one per value o
 - **Keyboard:** arrow keys move between cards, Enter opens, Space selects, Ctrl/Cmd+Shift+←/→ moves a card to the next bucket, and Ctrl/Cmd+Shift+Alt+←/→ moves the card's whole bucket.
 - Big buckets show 50 cards at a time, with "Show 50 more…".
 
+### Calendars
+
+Any view can also be shown as a **calendar** of its notes by date: use the **Table | Board | Calendar** toggle, or "New calendar of …" on a type heading in the browser (types with a date field). Like boards, the note keeps every layout's settings, and filters, search, sort and highlight rules apply as usual.
+
+- **Dates** (toolbar, e.g. "Dates: Due"): for each type, the date field that places its notes and optionally an **end date field** ("Until …") for notes that span days, such as a project from Start to Due. The first time a view becomes a calendar each type gets a pair named like Start / End (or Start / Due) if it has one, else its first date field; choose **Not shown** to leave a type off. The same panel sets the day the **week starts on** (Monday by default) and **Colour by**: each entry's left edge shows its status colour (set colours, else the status's usual tone), a choice field's colours, or nothing.
+- **Month | Week | Agenda** (above the calendar), with **‹ Today ›** and the period's title. Page Up / Page Down and Home do the same from the keyboard.
+  - **Month:** the weeks of the month; notes spanning days are bars across them. A day shows up to four entries, then "+3 more", which lists the day in a popover.
+  - **Week:** seven days with every entry. **Swimlanes** (toolbar, Week only) split it into rows by a field, e.g. Assignee or Status, to see who's doing what this week.
+  - **Agenda:** the next 30 days from the shown date, day by day (today is always listed). A note spanning days is listed once, on its first day, with its dates.
+- **Entries** show the type icon and name; click to open (Ctrl/Cmd-click for a new tab), hover for a preview. **Card fields** (toolbar) add a line of fields under the name; Week and Agenda show the table's first few columns until you choose.
+- **Editing:** drag an entry to another day to change its date (a spanning note moves its start and end together); drag a bar's start or end to change just that. In Week, dragging into another swimlane changes that field too (if dragging can change it). Double-click a day, or its **+**, to create a note with that date filled in. Right-click an entry for the usual menu plus **Clear date**. Ctrl/Cmd+Z undoes a move.
+- **No date** (button above the calendar) lists the notes without a date; drag one onto a day to give it that date. The footer counts the notes in the period shown: "12 in November · 3 without a date".
+- Dates have no times, and repeating events aren't supported. Calendars need real (Gregorian) dates.
+
 ## Commands
 
 | Command | Action |
@@ -463,6 +477,7 @@ src/
     summary.ts               column summaries (count, sum, earliest…)
     bulk.ts                  bulk actions: shared fields, applying set / link / tag changes, notice text
     board.ts                 boards: bucket fields, buckets in order, card fields, the run definition, manual card order
+    calendarView.ts          calendar views: date fields per type, entries, months / weeks / agenda, bars in lanes, moves
     formLayout.ts            custom form layouts: format, tidying, resolving against a type, field renames
     viewBlock.ts             find / rewrite an entity-view block inside a note
   services/
@@ -477,8 +492,9 @@ src/
   ui/react/                  EntityForm (properties form, layouts, shared rows and controls), CreateForm (create dialog), ConnectionsPanel, EntityChip, EntityBits (status tones, relation groups), EntityBrowser
   ui/react/table/            EntityTable (toolbar, virtual rows, editing; hosts the board too), cells, popovers (filters, sort, group, columns)
   ui/react/board/            Board (buckets, swimlanes, cards, pointer drag and drop, keyboard), Buckets and Swimlanes panels
+  ui/react/calendar/         CalendarView (Month, Week, Agenda, No date list, dragging), Dates panel
   ui/react/types/            Entity types view: TypeManager (sidebar, group editor, save), General/Fields/Relationships/Display/Layout tabs, Preview, controls
   ui/views/                  BrowserView (left sidebar), SidePanelView (right sidebar: connections or type preview), TypesView (main area), EntityViewView (view notes as full tabs), viewBlock (renders entity-view blocks in notes)
-tests/                       model, relations, typeEditing, tree, form, views, viewBlock, formats, formula, bulk, board, form layout and choice-value tests
+tests/                       model, relations, typeEditing, tree, form, views, viewBlock, formats, formula, bulk, board, calendar, form layout and choice-value tests
 styles.css                   all classes prefixed `oe-`
 ```

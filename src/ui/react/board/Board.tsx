@@ -913,19 +913,22 @@ export function BucketsPanel({ value, choices, onChange }: { value: string | und
 	);
 }
 
-/** Toolbar → Group on a board: one level of swimlanes. */
+/** Toolbar → Group on a board (or a calendar's Week): one level of swimlanes. */
 export function SwimlanePanel({
 	def,
 	choices,
 	onChange,
+	calendar,
 }: {
 	def: ViewDef;
 	choices: ColumnChoice[];
 	onChange: (swimlanes: GroupBy | undefined, groupSummaries: false | undefined, groupFieldNames: false | undefined) => void;
+	/** the calendar's swimlanes rather than the board's */
+	calendar?: boolean;
 }) {
 	const b = boardOf(def);
-	const lane = b.swimlanes;
-	const usable = choices.filter((c) => c.col.id !== "name" && !c.col.invalid && c.col.id !== b.buckets);
+	const lane = calendar ? def.calendar?.swimlanes : b.swimlanes;
+	const usable = choices.filter((c) => c.col.id !== "name" && !c.col.invalid && (calendar || c.col.id !== b.buckets));
 	const col = usable.find((c) => c.col.id === lane?.by)?.col;
 	const groups = [...new Set(usable.map((c) => c.group))];
 	return (
@@ -960,8 +963,8 @@ export function SwimlanePanel({
 				)}
 			</div>
 			<div className="oe-pop-hint">
-				Swimlanes split the board into rows, one per value.{" "}
-				{col ? (isBucketColumn(col) && !lane?.date ? "Dragging a card to another swimlane changes its value too." : `Cards stay in their own ${col.label} swimlane when dragged: dragging can't change this column.`) : ""}
+				Swimlanes split the {calendar ? "week" : "board"} into rows, one per value.{" "}
+				{col ? (isBucketColumn(col) && !lane?.date ? `Dragging ${calendar ? "an entry" : "a card"} to another swimlane changes its value too.` : `${calendar ? "Entries" : "Cards"} stay in their own ${col.label} swimlane when dragged: dragging can't change this column.`) : ""}
 			</div>
 			{lane && (
 				<>

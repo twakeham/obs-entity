@@ -27,6 +27,7 @@ import { TYPES_VIEW, TypesView } from "./ui/views/TypesView";
 import type { GroupDraft, TypeDraft } from "./model/typeEditing";
 import { calcCell, emptyBoard, emptyView, fieldColumn, formatCell, resolveColumn, serializeView, sourceTypes, typeViewDef, type ViewContext, type ViewDef, type ViewKind, type ViewRow, columnFromId } from "./model/views";
 import { defaultBuckets } from "./model/board";
+import { initialDates } from "./model/calendarView";
 import { VIEW_BLOCK, ViewIndex } from "./services/viewIndex";
 import { NewViewModal, OpenViewModal } from "./ui/modals/viewModals";
 import { ViewBlock } from "./ui/views/viewBlock";
@@ -428,7 +429,7 @@ export default class EntitiesPlugin extends Plugin {
 		return { rows, ctx };
 	}
 
-	/** Starting columns for a new view: name, type (when several), status, then up to four fields. A board starts with status buckets. */
+	/** Starting columns for a new view: name, type (when several), status, then up to four fields. A board starts with status buckets, a calendar with each type's date fields. */
 	defaultView(source: string, kind: ViewKind = "table"): ViewDef {
 		const def = emptyView([source || "*"]);
 		const types = sourceTypes(def, this.settings.types);
@@ -441,6 +442,10 @@ export default class EntitiesPlugin extends Plugin {
 			def.kind = "board";
 			const lookup = { types: this.settings.types, groups: this.settings.groups };
 			def.board = { ...emptyBoard(), buckets: defaultBuckets(def, lookup) };
+		}
+		if (kind === "calendar") {
+			def.kind = "calendar";
+			def.calendar = { dates: initialDates(types) };
 		}
 		return def;
 	}
