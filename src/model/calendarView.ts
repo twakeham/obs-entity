@@ -7,6 +7,7 @@ import { isoOf, parseIso } from "./calendar";
 import type { DateAdapter } from "./dates";
 import { statusesFor, type EntityTypeDef, type FieldDef, type GroupDef } from "./types";
 import {
+	CARD_MODE_DEFAULT,
 	columnFromId,
 	emptyCalendar,
 	NAME_COLUMN,
@@ -14,6 +15,7 @@ import {
 	type CalendarDates,
 	type CalendarDef,
 	type CalendarLayout,
+	type CardMode,
 	type ColumnDef,
 	type ResultRow,
 	type ViewDef,
@@ -128,26 +130,40 @@ export function datesLabel(t: EntityTypeDef, d: CalendarDates | null): string {
 
 const defFor = (def: ViewDef, id: string): ColumnDef => def.columns.find((c) => c.id === id) ?? columnFromId(id);
 
-/** Card fields: the calendar's own list, or in Week and Agenda the table's first few columns. */
-export function calendarFieldIds(def: ViewDef, layout: CalendarLayout = layoutOf(def)): string[] {
+/** Card fields: the calendar's own list, or the table's first few columns (shown in Extended cards). */
+export function calendarFieldIds(def: ViewDef): string[] {
 	const c = calendarOf(def);
 	if (c.cardFields) return c.cardFields.filter((id) => id !== "name");
-	if (layout === "month") return [];
 	return def.columns
 		.map((x) => x.id)
 		.filter((id) => id !== "name" && id !== c.swimlanes?.by)
 		.slice(0, DEFAULT_CALENDAR_FIELDS);
 }
 
+/** A layout's cards: Minimal (the title only) or Extended (the whole card). */
+export const cardModeOf = (def: ViewDef, layout: CalendarLayout = layoutOf(def)): CardMode => calendarOf(def).cards?.[layout] ?? CARD_MODE_DEFAULT[layout];
+
+/** The calendar with a layout's card mode set (the default isn't written). */
+export function withCardMode(cal: CalendarDef, layout: CalendarLayout, mode: CardMode): CalendarDef {
+	const cards = { ...(cal.cards ?? {}) };
+	if (mode === CARD_MODE_DEFAULT[layout]) delete cards[layout];
+	else cards[layout] = mode;
+	const { cards: _, ...rest } = cal;
+	return Object.keys(cards).length ? { ...rest, cards } : rest;
+}
+
+/** The card fields a layout shows: none on Minimal cards. */
+export const shownFieldIds = (def: ViewDef, layout: CalendarLayout = layoutOf(def)): string[] => (cardModeOf(def, layout) === "minimal" ? [] : calendarFieldIds(def));
+
 /**
- * The definition `runView` runs for a calendar: name, the card fields and the colour column, with the swimlane (in
- * Week) as the only grouping level. Filters, search, sort and highlight rules are the view's own.
+ * The definition `runView` runs for a calendar: name, the card fields shown and the colour column, with the swimlane
+ * (in Week) as the only grouping level. Filters, search, sort and highlight rules are the view's own.
  */
 export function calendarRunDef(def: ViewDef): ViewDef {
 	const c = calendarOf(def);
 	const layout = layoutOf(def);
 	const color = c.colorBy && c.colorBy !== "none" ? [c.colorBy] : [];
-	const ids = [...calendarFieldIds(def, layout), ...color];
+	const ids = [...shownFieldIds(def, layout), ...color];
 	return { ...def, columns: [NAME_COLUMN, ...[...new Set(ids)].map((id) => defFor(def, id))], group: layout === "week" && c.swimlanes ? [c.swimlanes] : [] };
 }
 

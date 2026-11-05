@@ -249,7 +249,11 @@ export interface CalendarDef {
 	cardSubtitle?: true;
 	/** label each card field with its name */
 	cardLabels?: true;
+	/** per layout: minimal cards (the title only) or extended (the whole card); unset: Month minimal, Week and Agenda extended */
+	cards?: Partial<Record<CalendarLayout, CardMode>>;
 }
+
+export type CardMode = "minimal" | "extended";
 
 export const emptyCalendar = (): CalendarDef => ({ dates: {} });
 export const WEEKDAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
@@ -559,8 +563,20 @@ function parseCalendar(raw: unknown, errors: string[]): CalendarDef {
 	}
 	if (raw.cardSubtitle === true) c.cardSubtitle = true;
 	if (raw.cardLabels === true) c.cardLabels = true;
+	if (raw.cards !== undefined && raw.cards !== null) {
+		if (!isObj(raw.cards)) errors.push("calendar cards should map layouts to minimal or extended, e.g. cards: { month: extended }.");
+		else
+			for (const [layout, mode] of Object.entries(raw.cards)) {
+				if (!["month", "week", "agenda"].includes(layout)) errors.push(`Unknown calendar layout "${layout}" in cards. Use month, week or agenda.`);
+				else if (mode !== "minimal" && mode !== "extended") errors.push(`Calendar cards should be minimal or extended, not "${String(mode)}".`);
+				else if (mode !== CARD_MODE_DEFAULT[layout as CalendarLayout]) (c.cards ??= {})[layout as CalendarLayout] = mode;
+			}
+	}
 	return c;
 }
+
+/** Each calendar layout's cards when the view doesn't say. */
+export const CARD_MODE_DEFAULT: Record<CalendarLayout, CardMode> = { month: "minimal", week: "extended", agenda: "extended" };
 
 /** The calendar's settings as plain data, leaving out defaults (undefined when there's nothing to write). */
 function serializeCalendar(c: CalendarDef | undefined): Record<string, unknown> | undefined {
@@ -575,6 +591,8 @@ function serializeCalendar(c: CalendarDef | undefined): Record<string, unknown> 
 	if (c.swimlanes) out.swimlanes = c.swimlanes.date ? { by: c.swimlanes.by, date: c.swimlanes.date } : c.swimlanes.by;
 	if (c.cardSubtitle) out.cardSubtitle = true;
 	if (c.cardLabels) out.cardLabels = true;
+	const cards = Object.fromEntries(Object.entries(c.cards ?? {}).filter(([l, m]) => m && m !== CARD_MODE_DEFAULT[l as CalendarLayout]));
+	if (Object.keys(cards).length) out.cards = cards;
 	return Object.keys(out).length ? out : undefined;
 }
 

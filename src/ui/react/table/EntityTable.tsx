@@ -78,6 +78,7 @@ import {
 	periodRange,
 	periodTitle,
 	weekStartOf,
+	withCardMode,
 	writeDay,
 	type CalEntry,
 } from "../../../model/calendarView";
@@ -1196,11 +1197,12 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		const ids = cardFieldIds(cur).filter((id) => id !== c.id);
 		update({ ...cur, board: { ...boardOf(cur), cardFields: on ? [...ids, c.id] : ids } });
 	};
-	/** …and on a calendar, the fields under each entry's name. */
+	/** …and on a calendar, the fields under each entry's name (ticking one shows Extended cards, so it's seen). */
 	const toggleCalendarField = (c: ColumnDef, on: boolean) => {
 		const cur = defRef.current;
 		const ids = calendarFieldIds(cur).filter((id) => id !== c.id);
-		update({ ...cur, calendar: { ...calendarOf(cur), cardFields: on ? [...ids, c.id] : ids } });
+		const cal = { ...calendarOf(cur), cardFields: on ? [...ids, c.id] : ids };
+		update({ ...cur, calendar: on ? withCardMode(cal, layoutOf(cur), "extended") : cal });
 	};
 
 	const selectRow = (n: number, path: string, range: boolean) => {
@@ -1966,7 +1968,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 											}
 										: undefined
 							}
-							hint={isBoard ? "Fields shown on the cards, in this order. Empty values are left out." : isCalendar ? "Fields shown under each entry's name, in this order. Empty values are left out." : undefined}
+							hint={isBoard ? "Fields shown on the cards, in this order. Empty values are left out." : isCalendar ? "Fields shown under each entry's name on Extended cards, in this order. Empty values are left out." : undefined}
 							formatOf={(id) => {
 								const c = result.known.get(id);
 								const k = c ? formatKind(c) : null;

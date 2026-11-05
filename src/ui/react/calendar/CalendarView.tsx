@@ -3,8 +3,10 @@ import { isBucketColumn } from "../../../model/board";
 import {
 	agendaDays,
 	calendarEntries,
-	calendarFieldIds,
 	calendarOf,
+	cardModeOf,
+	shownFieldIds,
+	withCardMode,
 	entriesOn,
 	layoutOf,
 	longDate,
@@ -25,7 +27,7 @@ import {
 	type Segment,
 } from "../../../model/calendarView";
 import { choiceColor, statusColor } from "../../../model/colors";
-import { highlightOf, ROW_TARGET, type CalendarLayout, type ResolvedColumn, type ResultRow, type ViewContext, type ViewDef, type ViewResult } from "../../../model/views";
+import { highlightOf, ROW_TARGET, type CalendarLayout, type CardMode, type ResolvedColumn, type ResultRow, type ViewContext, type ViewDef, type ViewResult } from "../../../model/views";
 import { CardFields, type LaneTarget } from "../board/Board";
 import { usePlugin } from "../context";
 import { GroupValue, statusTone } from "../EntityBits";
@@ -72,6 +74,10 @@ const LAYOUTS: { id: CalendarLayout; label: string }[] = [
 	{ id: "week", label: "Week" },
 	{ id: "agenda", label: "Agenda" },
 ];
+const CARD_MODES: { id: CardMode; label: string; hint: string }[] = [
+	{ id: "minimal", label: "Minimal", hint: "Cards show only their title" },
+	{ id: "extended", label: "Extended", hint: "Cards show their fields too (Card fields in the toolbar)" },
+];
 
 interface Drag {
 	path: string;
@@ -115,7 +121,8 @@ export function CalendarView(p: CalendarViewProps) {
 	const weekStart = weekStartOf(def);
 	const today = ctx.today;
 	const data = useMemo(() => calendarEntries(result.rows, def, ctx.dates, ctx.groups), [result, def, ctx]);
-	const cardFields = calendarFieldIds(def, layout).flatMap((id) => result.known.get(id) ?? []);
+	const cardMode = cardModeOf(def, layout);
+	const cardFields = shownFieldIds(def, layout).flatMap((id) => result.known.get(id) ?? []);
 	const colorCol = cal.colorBy && cal.colorBy !== "none" ? (result.known.get(cal.colorBy) ?? null) : null;
 	const [undatedOpen, setUndatedOpen] = useState(p.memory.undated ?? data.undated.length > 0);
 	p.memory.undated = undatedOpen;
@@ -245,7 +252,7 @@ export function CalendarView(p: CalendarViewProps) {
 	const spanText = (e: CalEntry) => (e.end > e.start ? `${shortDate(e.start)} – ${shortDate(e.end)}` : "");
 	const entryEl = (r: ResultRow, e: CalEntry | null, opts: { seg?: Segment; key?: string; style?: CSSProperties; list?: boolean } = {}) => {
 		const path = r.row.path;
-		const subtitle = cal.cardSubtitle ? (r.row.subtitle ?? plugin.index.get(path)?.subtitle) : null;
+		const subtitle = cal.cardSubtitle && cardMode === "extended" ? (r.row.subtitle ?? plugin.index.get(path)?.subtitle) : null;
 		const rowRule = r.hl?.[ROW_TARGET] !== undefined ? def.highlight[r.hl[ROW_TARGET]] : undefined;
 		const nameRule = r.hl?.name !== undefined ? def.highlight[r.hl.name] : undefined;
 		const titleHl = r.hl ? highlightOf(def, r, "name") : null;
@@ -492,6 +499,19 @@ export function CalendarView(p: CalendarViewProps) {
 					{LAYOUTS.map((l) => (
 						<button key={l.id} className={`oe-layout-btn${layout === l.id ? " is-active" : ""}`} aria-pressed={layout === l.id} onClick={() => setLayout(l.id)}>
 							{l.label}
+						</button>
+					))}
+				</div>
+				<div className="oe-layout-toggle oe-calv-layouts oe-calv-cardmode" role="group" aria-label="Cards">
+					{CARD_MODES.map((m) => (
+						<button
+							key={m.id}
+							className={`oe-layout-btn${cardMode === m.id ? " is-active" : ""}`}
+							aria-pressed={cardMode === m.id}
+							title={m.hint}
+							onClick={() => p.update({ ...def, calendar: withCardMode(calendarOf(def), layout, m.id) })}
+						>
+							{m.label}
 						</button>
 					))}
 				</div>

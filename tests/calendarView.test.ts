@@ -5,6 +5,9 @@ import {
 	calendarEntries,
 	calendarFieldIds,
 	calendarRunDef,
+	cardModeOf,
+	shownFieldIds,
+	withCardMode,
 	dateWrites,
 	datesFor,
 	dayOfIso,
@@ -92,12 +95,24 @@ describe("calendar settings", () => {
 
 	it("run the name, card fields and colour column, with a swimlane only in Week", () => {
 		const base = { types: ["task"], columns: ["name", "status", "priority", "due", "assignee"] };
-		expect(calendarFieldIds(view(base))).toEqual([]);
-		expect(calendarFieldIds(view({ ...base, calendar: { layout: "week" } }))).toEqual(["status", "priority", "due"]);
-		const run = calendarRunDef(view({ ...base, calendar: { colorBy: "priority", cardFields: ["assignee"], swimlanes: "status" } }));
+		expect(calendarFieldIds(view(base))).toEqual(["status", "priority", "due"]);
+		expect(shownFieldIds(view(base))).toEqual([]);
+		expect(shownFieldIds(view({ ...base, calendar: { layout: "week" } }))).toEqual(["status", "priority", "due"]);
+		const run = calendarRunDef(view({ ...base, calendar: { colorBy: "priority", cardFields: ["assignee"], swimlanes: "status", cards: { month: "extended" } } }));
 		expect(run.columns.map((c) => c.id)).toEqual(["name", "assignee", "priority"]);
 		expect(run.group).toEqual([]);
 		expect(calendarRunDef(view({ ...base, calendar: { layout: "week", swimlanes: "status" } })).group).toEqual([{ by: "status" }]);
+	});
+
+	it("keep each layout's Minimal / Extended cards, writing only what differs from the default", () => {
+		const def = view({ calendar: { cards: { month: "extended", week: "extended", agenda: "minimal" } } });
+		expect(def.calendar!.cards).toEqual({ month: "extended", agenda: "minimal" });
+		expect(serializeView(def).calendar).toEqual({ cards: { month: "extended", agenda: "minimal" } });
+		expect([cardModeOf(def, "month"), cardModeOf(def, "week"), cardModeOf(def, "agenda")]).toEqual(["extended", "extended", "minimal"]);
+		expect(cardModeOf(view({}), "month")).toBe("minimal");
+		expect(withCardMode(def.calendar!, "month", "minimal")).toEqual({ dates: {}, cards: { agenda: "minimal" } });
+		expect(withCardMode({ dates: {}, cards: { agenda: "minimal" } }, "agenda", "extended")).toEqual({ dates: {} });
+		expect(parseView({ kind: "calendar", calendar: { cards: { month: "huge", year: "minimal" } } }).errors).toHaveLength(2);
 	});
 });
 
