@@ -482,7 +482,7 @@ export function CalendarView(p: CalendarViewProps) {
 	const span = layout === "agenda" ? "30 days" : layout;
 
 	return (
-		<div ref={rootRef} className={`oe-calv is-${layout}${preview ? " is-dragging" : ""}`} tabIndex={0} onKeyDown={onKey}>
+		<div ref={rootRef} className={`oe-calv is-${layout} is-${cardMode}${preview ? " is-dragging" : ""}`} tabIndex={0} onKeyDown={onKey}>
 			<div className="oe-calv-nav">
 				<button className="clickable-icon" aria-label={`Previous ${span}`} onClick={() => p.setAnchor(shiftPeriod(layout, anchor, -1))}>
 					<Icon name="chevron-left" />

@@ -6921,6 +6921,24 @@ button.oe-calv-today {
 	flex: 1;
 }
 
+/*
+ * Month with Minimal cards: every week the same height. The weekday names and the weeks are rows of one grid, the
+ * weeks 1fr each, at least the scroll area's height: they share it equally, or all grow to the tallest week when one
+ * needs more. With Extended cards each week grows to fit its own cards.
+ */
+.oe-calv.is-minimal .oe-calv-grid.is-month {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	grid-template-rows: auto;
+	grid-auto-rows: 1fr;
+	flex: none;
+	min-height: 100%;
+}
+
+.oe-calv.is-minimal .oe-calv-grid.is-month > .oe-calv-weeks {
+	display: contents;
+}
+
 /* A week: the days underneath, the entries' bars on top (a grid of 7 columns and a row per lane) */
 .oe-calv-week {
 	position: relative;
