@@ -202,8 +202,8 @@ Appendix A has the full interfaces; this section explains them.
 | `textarea` | string (block) | textarea | |
 | `number` | number | number input | Invalid input is written as `null`. |
 | `date` | `"YYYY-MM-DD"` string | date input + free text | §4.4 extension point |
-| `select` | string | dropdown | `options` required (≥1) |
-| `multiselect` | string[] | chips | `options` required. New in Obsidian Entities (Story Forge used `list`). |
+| `select` | string | pill + choice dropdown | `options` required (≥1) |
+| `multiselect` | string[] | pills + choice dropdown | `options` required. New in Obsidian Entities (Story Forge used `list`). |
 | `list` | string[] | chips | free values |
 | `boolean` | boolean | toggle | an empty value is written as `false` |
 | `url` | string | text input + open button | new in Obsidian Entities |
@@ -254,7 +254,8 @@ There's always at least one group. If every group is removed, an "Entities" grou
 Choices and statuses can have a colour from a small palette that follows the theme: `red`, `orange`, `yellow`, `green`, `blue`, `purple`, `pink`, `grey` (Obsidian's `--color-*` variables; `model/colors.ts`). Unset means the standard look.
 
 - **Choices:** `FieldDef.colors` (`{ High: "red" }`), set on the field's Choices tab: each choice chip has a colour dot that opens a menu (Default, then the colours with swatches). Removing a choice drops its colour (`pruneColors`), changing the field's kind away from a choice drops them all. Lookups (`choiceColor`) match the name exactly, else ignoring case.
-  - **Shown** as a tinted pill (`.oe-pill.oe-choice.oe-c-<colour>`: a light background, the text and border in the colour) in table cells, board cards, bucket headings, table group and swimlane headings (`GroupValue`), the properties form and Reading view (read-only values; an editable single choice's dropdown text takes the colour; multiple-choice buttons are tinted), and the filter and highlight panels' value pills. Not in subtitles or link pickers. Uncoloured choices: plain text (single) or a grey pill (multiple), as before.
+  - **Shown** as pills (`choicePillClass`: `.oe-pill.oe-choice`, a darker grey than tag pills; with a colour, `.has-color.oe-c-<colour>`: a light background, the text and border in the colour) in table cells, board cards, bucket headings, table group and swimlane headings (`GroupValue`), the properties form and Reading view, and the choice dropdown; the filter and highlight panels' value buttons are tinted. Not in subtitles or link pickers.
+- **The choice control** (`ChoiceControl`, behind `SelectControl` / `MultiControl`; properties form, create dialog, table cell editor, bulk Set field): like a link field. The value is a pill (× removes it; for a single choice, clicking the pill or Enter on it opens the list to pick another). An empty single choice, or multiple choice's "Add…", is a box that opens `ChoiceSuggest`: the choices as pills (those not picked yet), filtered by what's typed, opened on focus or click. Picking saves at once; clearing a single choice focuses its box. Values that aren't choices show as pills with a dashed red border.
 - **Statuses:** `GroupDef.statusColors` and, for types with their own statuses, `EntityTypeDef.statusColors` (`statusColor(status, type, groups)`: the type's, else its group's). Without one a status keeps its colour by name (`statusTone`: done green, active blue, on-hold orange, closed faint, others neutral). Set with the dot next to each status in the group editor (renaming moves the colour, removing drops it, saving tidies) or on a type's General tab (switching to its own statuses copies the group's colours; back to the group's drops them).
   - **Shown** wherever statuses are (`statusClass`): pills in tables and boards (bucket headings use the first source type with a colour, `statusColorAmong`), the properties form's status dropdown and pill, the browser's status dots, and filter pills.
 
@@ -964,7 +965,7 @@ interface LayoutTabs { kind: "tabs"; tabs: { caption: string; icon?: string; cre
 - **Fields** show their label above the value by default (`label: "beside"` for the plain list's label | value row; `"hidden"` for the value alone, with the label kept for screen readers). Outside columns a field spans the row.
 - **Slot options** (this form and the create dialog only; the field itself is unchanged; defaults aren't written):
   - `caption`: a label for this form.
-  - `placeholder`: grey text in the empty control instead of "Empty": text, long text, number, URL, list, tags, aliases and link pickers, and the empty option of a choice dropdown. Not checkboxes, dates (they show their format), multiple choice or status.
+  - `placeholder`: grey text in the empty control instead of "Empty": text, long text, number, URL, list, tags, aliases link pickers, and an empty choice's box. Not checkboxes, dates (they show their format), multiple choice or status.
   - `help`: text under the value (`slotHelp`): the field's description, or this form's own text. Without it the description is the label's tooltip, as before. The create dialog shows the custom text if there is one, else the description.
   - `rows`: a long text box's height (3, 6 or 12 lines; default grows with the text).
   - `readOnly`: on the properties form the value shows as in Reading view (links still open), with a lock by the label ("Read-only on this form"); a problem is still flagged but its quick fixes are hidden. The create dialog can still set it, and so can views, boards, bulk edits and the Connections panel: it's a layout setting, not a lock on the data.

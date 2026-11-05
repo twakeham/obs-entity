@@ -75,7 +75,8 @@ On entity notes, a form built from the note's type replaces Obsidian's Propertie
 
 **Entering values:**
 - **Only valid values go in.** Text, numbers and dates save when you leave the box or press Enter, and Esc cancels. A number that isn't a number, or a date that doesn't exist, isn't saved; a notice says why.
-- **Other fields save immediately:** checkboxes, dropdowns, multiple-choice pills, chip lists, and links.
+- **Other fields save immediately:** checkboxes, choices, chip lists, and links.
+- **Choices** work like link fields: the value is a pill (× clears it; click it to pick another), and an empty field has a "Choose…" box that opens the choices as pills (type to filter, ↑/↓ and Enter to pick). Multiple choice shows its pills plus an "Add…" box offering the choices not yet picked. The same control is used in the create dialog and when editing a table cell.
 - **Link fields** show each entity as a coloured chip with a **×** inside to remove it. They only offer entities of the allowed types, with **Create "X"**.
   - A single-link field with a link set shows just the link. Remove it with its × (or Delete on the focused link) and the picker appears, ready to type in.
   - Labelled fields ask for the label.
@@ -134,7 +135,7 @@ Opened from:
 - **Fields:** a field list (drag to reorder) and a details panel for the selected field, in three tabs (a field always opens on General):
   - **General:** kind (at the top), label, key, description, default, and show in the create dialog.
   - **Choices**, **Relation**, **Roll-up** or **Formula** (only for those kinds): the kind's own settings: the choices; what a relation links to and how; or what a calculated field works out, with its result and a preview.
-  - **Coloured choices:** on the Choices tab, click a choice's dot to give it a colour (red, orange, yellow, green, blue, purple, pink or grey; they follow the light / dark theme), or **Default** for the standard look. A coloured choice shows as a tinted pill in tables, board cards, bucket and group headings, the properties form and Reading view (the dropdown's text takes the colour too), and in filter and highlight panels. Uncoloured choices look as before.
+  - **Coloured choices:** on the Choices tab, click a choice's dot to give it a colour (red, orange, yellow, green, blue, purple, pink or grey; they follow the light / dark theme), or **Default** for a darker grey. Choices always show as pills, tinted with their colour (or grey): in tables, board cards, bucket and group headings, the properties form and Reading view, and in filter and highlight panels.
   - **Display:** the **display format** (numbers, dates, checkboxes, URLs, and calculated fields that give one of those; each preset shows an example from your notes).
   - **Validation:** required, and the validation rules below. The tab shows how many are set.
   - **Default:** a fixed value, or a smarter one:

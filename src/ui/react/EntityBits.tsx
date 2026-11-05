@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { choiceColor, type PaletteColor } from "../../model/colors";
+import type { PaletteColor } from "../../model/colors";
+import { choicePillClass } from "../components/choicePicker";
 import type { RelationGroup } from "../../model/relations";
 import type { FieldDef } from "../../model/types";
 import { EntityChip } from "./EntityChip";
@@ -36,10 +37,10 @@ export const colorClass = (c: PaletteColor | null | undefined): string => (c ? `
 /** A status's colour classes: its set colour (group or type), else its tone by name. */
 export const statusClass = (status: string | null, color: PaletteColor | null): string => (color ? `has-color oe-c-${color}` : `oe-tone-${statusTone(status)}`);
 
-/** A group or swimlane heading's value: a coloured pill for a choice with a colour, else the plain text. */
+/** A group or swimlane heading's value: a choice field's value as its pill (in its colour), else the plain text. */
 export function GroupValue({ col, text }: { col: { kind: string; field?: FieldDef } | null | undefined; text: string }) {
-	const c = col?.field && (col.kind === "choice" || col.kind === "multi") ? choiceColor(col.field, text) : null;
-	return c ? <span className={`oe-pill oe-choice${colorClass(c)}`}>{text}</span> : <>{text}</>;
+	const f = col?.field;
+	return f && (f.kind === "select" || f.kind === "multiselect") ? <span className={choicePillClass(f.colors, text)}>{text}</span> : <>{text}</>;
 }
 
 /** Groups keyed by a link label ("Mentor", "Mentor of") already show the label as their title. */

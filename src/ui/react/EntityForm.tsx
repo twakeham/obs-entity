@@ -14,8 +14,9 @@ import type { EntityRecord } from "../../services/entityIndex";
 import { CalendarPopover } from "./Calendar";
 import { EntitySuggest, TypePickerModal } from "../components/entityPicker";
 import { usePlugin, useRelationsVersion } from "./context";
-import { colorClass, statusClass } from "./EntityBits";
-import { choiceColor, statusColor, type ColorMap } from "../../model/colors";
+import { statusClass } from "./EntityBits";
+import { statusColor, type ColorMap } from "../../model/colors";
+import { ChoiceSuggest, choicePillClass } from "../components/choicePicker";
 import { EntityChip } from "./EntityChip";
 import { Icon } from "./Icon";
 import { KIND_INFO } from "./types/editor";
@@ -1133,57 +1134,132 @@ export function CheckControl({ value, editable, label, format, onCommit }: { val
 	}
 	return <input type="checkbox" className="oe-prop-check" aria-label={label} checked={value === true} onChange={(e) => onCommit(e.target.checked)} />;
 }
-export function SelectControl({ options, value, editable, label, placeholder, colors, onCommit }: { options: string[]; value: unknown; editable: boolean; label: string; placeholder?: string; colors?: ColorMap; onCommit: (v: unknown) => void }) {
-	const current = isEmptyValue(value) ? "" : Array.isArray(value) ? String(value[0] ?? "") : String(value);
-	const color = current ? choiceColor({ colors }, current) : null;
-	if (!editable) return current ? color ? <span className={`oe-pill oe-choice${colorClass(color)}`}>{current}</span> : <span className="oe-prop-text">{current}</span> : <Empty />;
-	const all = current && !options.includes(current) ? [current, ...options] : options;
-	return (
-		<select className={`dropdown oe-prop-select${colorClass(color)}`} aria-label={label} value={current} onChange={(e) => onCommit(e.target.value || null)}>
-			<option value="">{placeholder || "—"}</option>
-			{all.map((o) => (
-				<option key={o} value={o}>
-					{options.includes(o) ? o : `${o} (not an option)`}
-				</option>
-			))}
-		</select>
-	);
-}
+type ChoiceProps = { options: string[]; value: unknown; editable: boolean; label: string; placeholder?: string; colors?: ColorMap; onCommit: (v: unknown) => void };
 
-export function MultiControl({ options, value, editable, label, colors, onCommit }: { options: string[]; value: unknown; editable: boolean; label: string; colors?: ColorMap; onCommit: (v: unknown) => void }) {
-	const chosen = asArray(value).map(String);
-	const extra = chosen.filter((c) => !options.includes(c));
-	const tint = (o: string) => colorClass(choiceColor({ colors }, o));
-	if (!editable) {
-		return chosen.length ? (
-			<span className="oe-prop-pills">
-				{chosen.map((c) => (
-					<span key={c} className={`oe-pill${tint(c) ? ` oe-choice${tint(c)}` : ""}`}>
-						{c}
-					</span>
-				))}
-			</span>
-		) : (
-			<Empty />
-		);
-	}
-	const toggle = (o: string) => onCommit(chosen.includes(o) ? chosen.filter((x) => x !== o) : [...options.filter((x) => x === o || chosen.includes(x)), ...extra]);
+/** A choice field: its value as a pill, with a dropdown of the choices (see ChoiceControl). */
+export const SelectControl = (p: ChoiceProps) => <ChoiceControl {...p} multiple={false} />;
+/** A multiple-choice field: its values as pills, with a dropdown to add more (see ChoiceControl). */
+export const MultiControl = (p: ChoiceProps) => <ChoiceControl {...p} multiple />;
+
+/**
+ * Choice and multiple-choice fields, like link fields: the chosen values as pills (in their colours, else the darker
+ * grey; × removes), and a box that opens the choices as pills ("Choose…" when empty, "Add…" for more). A single
+ * choice's pill opens the list to pick another. Values that aren't choices show as invalid pills.
+ */
+export function ChoiceControl({ options, value, editable, label, placeholder, colors, multiple, onCommit }: ChoiceProps & { multiple: boolean }) {
+	const plugin = usePlugin();
+	const chosen = (multiple ? asArray(value) : isEmptyValue(value) ? [] : [Array.isArray(value) ? value[0] : value]).map((v) => String(v ?? "")).filter(Boolean);
+	const inputRef = useRef<HTMLInputElement>(null);
+	/** a single choice being changed: the box replaces its pill */
+	const [picking, setPicking] = useState(false);
+	const latest = useRef(chosen);
+	latest.current = chosen;
+	const cfg = useRef({ options, colors, multiple, onCommit });
+	cfg.current = { options, colors, multiple, onCommit };
+	const focusPicker = useRef(false);
+	const picked = useRef(false);
+	const showPicker = editable && (multiple || chosen.length === 0 || picking);
+	useEffect(() => {
+		if (!showPicker || !inputRef.current) return;
+		const suggest = new ChoiceSuggest(plugin.app, inputRef.current, {
+			options: () => cfg.current.options,
+			exclude: () => new Set(latest.current),
+			colors: () => cfg.current.colors,
+			onPick: (v) => {
+				const { multiple: many, options: opts, onCommit: commit } = cfg.current;
+				picked.current = true;
+				if (many) {
+					// Keep the choices' order; values that aren't choices stay at the end.
+					const cur = latest.current;
+					commit([...opts.filter((o) => o === v || cur.includes(o)), ...cur.filter((c) => !opts.includes(c))]);
+					focusPicker.current = true;
+				} else {
+					setPicking(false);
+					commit(v);
+				}
+			},
+		});
+		// Changing a single choice: open straight away.
+		if (picking) {
+			inputRef.current.focus();
+			inputRef.current.dispatchEvent(new Event("input"));
+		}
+		return () => suggest.close();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [showPicker]);
+	useEffect(() => {
+		if (!focusPicker.current || !inputRef.current) return;
+		focusPicker.current = false;
+		inputRef.current.focus();
+	});
+
+	if (!editable && !chosen.length) return <Empty />;
+	const removeAt = (i: number) => {
+		if (!multiple) focusPicker.current = true;
+		onCommit(multiple ? chosen.filter((_, j) => j !== i) : null);
+	};
+	const open = (e: { currentTarget: HTMLInputElement }) => {
+		// Show every choice, not only after typing.
+		if (!e.currentTarget.value) e.currentTarget.dispatchEvent(new Event("input"));
+	};
 	return (
-		<span className="oe-prop-options" role="group" aria-label={label}>
-			{options.map((o) => (
-				<button key={o} type="button" className={`oe-option${chosen.includes(o) ? " is-active" : ""}${tint(o)}`} aria-pressed={chosen.includes(o)} onClick={() => toggle(o)}>
-					{o}
-				</button>
-			))}
-			{extra.map((o) => (
-				<button key={`x:${o}`} type="button" className="oe-option is-active is-invalid" aria-label={`Remove “${o}” (not an option)`} onClick={() => onCommit(chosen.filter((x) => x !== o))}>
-					{o} ×
-				</button>
-			))}
+		<span className="oe-prop-chips" onKeyDown={editable ? chipKeys((chip) => removeAt(Number(chip.dataset.chip))) : undefined}>
+			{!picking &&
+				chosen.map((c, i) => {
+					const invalid = !options.includes(c);
+					return (
+						<span
+							key={`${i}:${c}`}
+							className={`${choicePillClass(colors, c)}${editable ? " is-removable" : ""}${invalid ? " is-invalid" : ""}${editable && !multiple ? " is-clickable" : ""}`}
+							data-chip={i}
+							tabIndex={editable ? 0 : undefined}
+							title={invalid ? `“${c}” isn't one of the choices` : undefined}
+							aria-label={editable ? `${c}${multiple ? "" : ". Press Enter to change it"}. Press Delete to remove.` : undefined}
+							onClick={editable && !multiple ? () => setPicking(true) : undefined}
+							onKeyDown={editable && !multiple ? (e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setPicking(true)) : undefined}
+						>
+							{c}
+							{editable && (
+								<span
+									className="oe-pill-x"
+									role="button"
+									aria-label={`Remove ${c}`}
+									onClick={(e) => {
+										e.stopPropagation();
+										removeAt(i);
+									}}
+								>
+									<Icon name="x" />
+								</span>
+							)}
+						</span>
+					);
+				})}
+			{showPicker && (
+				<input
+					ref={inputRef}
+					className="oe-prop-add"
+					placeholder={picking ? chosen[0] : chosen.length ? "Add…" : placeholder || "Choose…"}
+					aria-label={multiple ? `Add to ${label}` : `Choose ${label}`}
+					onFocus={open}
+					onClick={open}
+					onKeyDown={(e) => {
+						if (e.key === "Escape" && picking) {
+							e.preventDefault();
+							setPicking(false);
+						}
+					}}
+					onBlur={() => {
+						// Leave "change" mode unless a choice was picked (a click in the list blurs the box first).
+						if (!picking) return;
+						picked.current = false;
+						window.setTimeout(() => !picked.current && setPicking(false), 200);
+					}}
+				/>
+			)}
 		</span>
 	);
 }
-
 /**
  * Keyboard for chip rows: ←/→ move between chips and the add box, Backspace/Delete removes the focused chip,
  * Backspace in an empty add box removes the last chip.

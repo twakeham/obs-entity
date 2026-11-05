@@ -130,8 +130,8 @@ function SetField({ plugin, entities, close, onUndo }: { plugin: EntitiesPlugin;
 			/>
 		);
 	else if (f?.kind === "boolean") control = <CheckControl value={value} editable label={field.label} onCommit={commit} />;
-	else if (f?.kind === "select") control = <SelectControl options={f.options ?? []} value={value} editable label={field.label} onCommit={commit} />;
-	else if (f?.kind === "multiselect") control = <MultiControl options={f.options ?? []} value={value} editable label={field.label} onCommit={commit} />;
+	else if (f?.kind === "select") control = <SelectControl options={f.options ?? []} value={value} editable label={field.label} colors={f.colors} onCommit={commit} />;
+	else if (f?.kind === "multiselect") control = <MultiControl options={f.options ?? []} value={value} editable label={field.label} colors={f.colors} onCommit={commit} />;
 	else if (f?.kind === "list") control = <ListControl value={value} editable label={field.label} onCommit={commit} />;
 	else if (f) control = <TextControl key={field.key} kind={f.kind as "text"} value={value} editable label={field.label} onCommit={commit} />;
 

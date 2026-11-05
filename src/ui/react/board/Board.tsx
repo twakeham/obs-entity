@@ -3,8 +3,9 @@ import { BUCKET_NONE, BUCKET_PAGE, bucketsOf, boardOf, cardFieldIds, cardWidth, 
 import { highlightOf, ROW_TARGET, sourceTypes, type Cell, type GroupBy, type ResolvedColumn, type ResultGroup, type ResultRow, type ViewContext, type ViewDef, type ViewResult } from "../../../model/views";
 import type { SummaryResult } from "../../../model/summary";
 import { usePlugin } from "../context";
-import { colorClass, GroupValue, statusClass } from "../EntityBits";
-import { choiceColor, statusColorAmong } from "../../../model/colors";
+import { GroupValue, statusClass } from "../EntityBits";
+import { statusColorAmong } from "../../../model/colors";
+import { choicePillClass } from "../../components/choicePicker";
 import { Icon } from "../Icon";
 import { CellView } from "../table/cells";
 import { cssColor, hlClasses, scaleFill, type ColumnChoice } from "../table/popovers";
@@ -591,8 +592,7 @@ export function Board(p: BoardProps) {
 				</span>
 			);
 		}
-		const tint = bucketCol.field ? colorClass(choiceColor(bucketCol.field, b.label)) : "";
-		return <span className={`oe-pill${tint ? ` oe-choice${tint}` : ""}`}>{b.label}</span>;
+		return <span className={bucketCol.field?.kind === "select" ? choicePillClass(bucketCol.field.colors, b.label) : "oe-pill"}>{b.label}</span>;
 	};
 	const count = (b: Bucket) => {
 		const limit = board.limits[b.key];

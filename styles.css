@@ -376,18 +376,46 @@ select.oe-status {
 .oe-c-pink { --oe-c: var(--color-pink); }
 .oe-c-grey { --oe-c: var(--text-muted); }
 
-/* A coloured choice: a pill tinted with its colour (uncoloured choices keep the standard look) */
+/* A choice: a pill, darker grey without a colour, tinted with its colour when it has one */
 .oe-pill.oe-choice {
 	padding: 0 7px;
+	color: var(--text-normal);
+	background-color: var(--background-modifier-border);
+	border: 1px solid transparent;
+}
+
+.oe-pill.oe-choice.has-color {
 	color: var(--oe-c);
 	background-color: color-mix(in srgb, var(--oe-c) 14%, transparent);
-	border: 1px solid color-mix(in srgb, var(--oe-c) 40%, transparent);
+	border-color: color-mix(in srgb, var(--oe-c) 40%, transparent);
+}
+
+.oe-pill.oe-choice.is-removable {
+	padding-right: 4px;
+}
+
+/* A single choice in the form: click its pill to pick another */
+.oe-pill.oe-choice.is-clickable {
+	cursor: var(--cursor);
+}
+
+.oe-pill.oe-choice.is-clickable:hover {
+	filter: brightness(1.1);
+}
+
+/* A value that isn't one of the choices */
+.oe-pill.oe-choice.is-invalid {
+	border: 1px dashed var(--text-error);
+}
+
+/* The choice dropdown: the choices as pills */
+.suggestion-item.oe-choice-suggestion {
+	padding: 3px var(--size-4-3);
 }
 
 /* Statuses with a set colour (others are coloured by name, .oe-tone-*) */
 .oe-status-pill.has-color,
-select.oe-status.has-color,
-select.oe-prop-select.has-color {
+select.oe-status.has-color {
 	color: var(--oe-c);
 }
 
