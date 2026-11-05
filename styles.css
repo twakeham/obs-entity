@@ -5386,21 +5386,15 @@ td.is-wrap .oe-bar-value {
 	color: var(--color-orange);
 }
 
-.oe-view button.oe-view-tool.has-warning .oe-view-tool-count {
+/* A warning (ignored filter conditions, a read-only board): the icon after the word, instead of the count */
+.oe-view-tool-warning {
 	display: inline-flex;
 	align-items: center;
-	gap: 2px;
-	background-color: color-mix(in srgb, var(--color-orange) 20%, transparent);
 }
 
-/* A warning without a count (e.g. a read-only board's Buckets): just the icon */
-.oe-view-tool-count.is-icon-only {
-	padding: 0 4px;
-}
-
-.oe-view-tool-count svg {
-	width: 11px;
-	height: 11px;
+.oe-view-tool-warning svg {
+	width: 13px;
+	height: 13px;
 }
 
 /* Card fields: Format (numbers, dates) and Edit buttons on a picked field */
