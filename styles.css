@@ -2105,7 +2105,13 @@ select.oe-status.has-color {
 	height: var(--icon-xs);
 }
 
-/* Fields tab: Validation pane (ranges, pattern test, date bounds, compare, required when) */.oe-tm-rules-desc {
+/* The tabs' line is enough: no second line on a row straight below them (Validation has its note in between) */
+.oe-tm-fieldtabs + .oe-tm-row {
+	border-top: none;
+}
+
+/* Fields tab: Validation pane (ranges, pattern test, date bounds, compare, required when) */
+.oe-tm-rules-desc {
 	font-size: var(--font-ui-smaller);
 	margin: var(--size-4-1) 0 var(--size-4-2);
 }
