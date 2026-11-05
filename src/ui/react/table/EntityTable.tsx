@@ -374,7 +374,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	};
 	const openPop = (name: PopName, el: HTMLElement) => setPop(pop?.name === name ? null : { name, anchor: el.getBoundingClientRect() });
 	const openEditor = (path: string, col: string, el: HTMLElement) => setEditing({ path, col, anchor: el.getBoundingClientRect() });
-	const widthOf = (c: ResolvedColumn) => (liveWidth?.id === c.id ? liveWidth.w : (def.widths[c.id] ?? (c.id === "name" ? 220 : (DEFAULT_W[c.kind] ?? 160))));
+	const widthOf = (c: ResolvedColumn) => (liveWidth?.id === c.id ? liveWidth.w : (def.widths[c.id] ?? (c.id === "name" ? 220 : c.id === "tree-path" ? 320 : (DEFAULT_W[c.kind] ?? 160))));
 	const labelOf = (c: ColumnDef) => resolveColumn(c, def, lookup).label;
 
 	const toggleColumn = (c: ColumnDef, on: boolean) => {

@@ -257,6 +257,7 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
 - **Columns:**
   - the source types' fields
   - built-ins: type, status, tags, aliases, related, folder, created, modified
+  - hierarchy built-ins (when a type has parent fields, the ones the browser nests by): **Parent** (e.g. Portal beta release for the task Accessibility review: the first of the type's parent fields that links to an entity), **Top-level parent** (the top of that chain, e.g. Mobile Banking App) and **Ancestors** (the whole chain as links, "Mobile Banking App › Customer Portal Rebuild › Portal beta release"). They're read-only (change the Milestone / Project field itself) and work for filters ("Parent links to …", including this note), sorting, grouping, swimlanes, highlight rules, card fields and formulas (`[Parent]`).
   - **incoming links**, e.g. "People" on organisations
   - **roll-ups**
   - Drag headers to reorder, and drag their edges to resize. Double-click a header's edge (or right-click → **Auto-fit width**) to fit the column to its contents; **Auto-fit all columns** fits them all.

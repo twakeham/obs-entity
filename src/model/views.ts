@@ -15,7 +15,7 @@ export const VIEW_KINDS: ViewKind[] = ["table", "board", "calendar"];
 /** Lucide icon per layout (views in the browser, tabs, the layout toggle). */
 export const VIEW_KIND_ICON: Record<ViewKind, string> = { table: "table", board: "kanban", calendar: "calendar-days" };
 
-export const BUILTINS = ["name", "type", "status", "tags", "aliases", "related", "folder", "created", "modified"] as const;
+export const BUILTINS = ["name", "type", "status", "tags", "aliases", "related", "folder", "created", "modified", "tree-parent", "tree-root", "tree-path"] as const;
 export type BuiltinKey = (typeof BUILTINS)[number];
 const BUILTIN_LABELS: Record<BuiltinKey, string> = {
 	name: "Name",
@@ -27,7 +27,12 @@ const BUILTIN_LABELS: Record<BuiltinKey, string> = {
 	folder: "Folder",
 	created: "Created",
 	modified: "Modified",
+	"tree-parent": "Parent",
+	"tree-root": "Top-level parent",
+	"tree-path": "Ancestors",
 };
+/** The hierarchy built-ins (from the types' parent fields). Their ids have a hyphen, which no field key can. */
+export const TREE_BUILTINS: readonly BuiltinKey[] = ["tree-parent", "tree-root", "tree-path"];
 const isBuiltin = (s: string): s is BuiltinKey => (BUILTINS as readonly string[]).includes(s);
 
 export const ROLLUP_AGGS = ["count", "list", "unique", "sum", "avg", "min", "max", "earliest", "latest", "percent-done", "count-by-status"] as const;
@@ -990,7 +995,11 @@ export function resolveColumn(col: ColumnDef, def: ViewDef, ctx: Pick<ViewContex
 				case "aliases":
 					return { ...base, label, kind: "multi", editable: false };
 				case "related":
+				case "tree-parent":
+				case "tree-root":
 					return { ...base, label, kind: "links", editable: false };
+				case "tree-path":
+					return { ...base, label, kind: "text", editable: false };
 				case "folder":
 					return { ...base, label, kind: "folder", editable: false };
 				default:
@@ -1210,7 +1219,7 @@ export function availableColumns(def: ViewDef, ctx: Pick<ViewContext, "types" | 
 	const sources = sourceTypes(def, ctx.types);
 	const fields: ColumnDef[] = [];
 	for (const t of sources) for (const f of t.fields) if (!fields.some((c) => c.kind === "field" && c.key === f.key)) fields.push(fieldColumn(f.key));
-	const builtins = BUILTINS.filter((b) => b !== "name").map((b) => columnFromId(b));
+	const builtins = BUILTINS.filter((b) => b !== "name" && (!TREE_BUILTINS.includes(b) || sources.some((t) => t.parentFields?.length))).map((b) => columnFromId(b));
 	const incoming: ColumnDef[] = [];
 	for (const t of ctx.types)
 		for (const f of t.fields)
@@ -1256,6 +1265,8 @@ export interface Cell {
 	raw?: number | null;
 	/** a choice field with values: the choice's number (multiple choice: the total), for sorting and summaries */
 	num?: number | null;
+	/** the Ancestors built-in: each ancestor as a link, top-level first (the value is their names joined by ›) */
+	chain?: LinkValue[];
 }
 
 const EMPTY: Cell = { value: null, text: "", sort: null };
@@ -1286,6 +1297,36 @@ function linksCell(list: LinkValue[]): Cell {
 	if (list.length === 0) return { value: [], text: "", sort: null };
 	const names = list.map((l) => l.name);
 	return { value: list, text: names.join(", "), sort: [...names].sort(natural)[0].toLowerCase() };
+}
+
+/** A link to another entity's row. */
+const rowLink = (r: ViewRow): LinkValue => ({ path: r.path, linktext: r.path.replace(/\.md$/, ""), name: r.name });
+
+/**
+ * A row's hierarchy parent, as the browser nests it: the entity linked by the first of its type's parent fields
+ * (in priority order) that links to another entity.
+ */
+export function parentOf(row: ViewRow, ctx: ViewContext): ViewRow | undefined {
+	for (const key of row.type.parentFields ?? []) {
+		const field = row.type.fields.find((f) => f.key === key);
+		if (field?.kind !== "relation") continue;
+		for (const l of links(row.frontmatter[key], row.path, ctx, !!field.labelled)) {
+			const p = l.path && l.path !== row.path ? ctx.row(l.path) : undefined;
+			if (p) return p;
+		}
+	}
+	return undefined;
+}
+
+/** A row's ancestors, nearest first (its parent, the parent's parent…), stopping at a loop. */
+export function hierarchyOf(row: ViewRow, ctx: ViewContext): ViewRow[] {
+	const out: ViewRow[] = [];
+	const seen = new Set([row.path]);
+	for (let p = parentOf(row, ctx); p && !seen.has(p.path); p = parentOf(p, ctx)) {
+		seen.add(p.path);
+		out.push(p);
+	}
+	return out;
 }
 
 function multiCell(list: string[]): Cell {
@@ -1424,6 +1465,18 @@ export function cellOf(row: ViewRow, col: ResolvedColumn, ctx: ViewContext): Cel
 					return multiCell(row.aliases);
 				case "related":
 					return linksCell(links(row.frontmatter[COMMON_KEYS.related], row.path, ctx));
+				case "tree-parent":
+				case "tree-root": {
+					const up = hierarchyOf(row, ctx);
+					const p = d.key === "tree-parent" ? up[0] : up[up.length - 1];
+					return linksCell(p ? [rowLink(p)] : []);
+				}
+				case "tree-path": {
+					const chain = hierarchyOf(row, ctx).reverse().map(rowLink);
+					if (!chain.length) return EMPTY;
+					const text = chain.map((l) => l.name).join(" › ");
+					return { value: text, text, sort: text.toLowerCase(), chain };
+				}
 				case "folder":
 					return { value: row.folder, text: row.folder, sort: row.folder ? row.folder.toLowerCase() : null };
 				case "created":

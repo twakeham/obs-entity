@@ -1250,7 +1250,17 @@ filters: { all: [{ field: status, op: is-not, value: done }] }
 
 Column ids are the field / built-in key, `in:<type>.<field>`, or the given `id` (for roll-ups and formulas). A field whose key is also a built-in name (e.g. a `type` field) is written `{ field: type }` and has the id `f:type`.
 
-**Built-ins:** `name` (always first, can't be hidden), `type`, `status`, `tags`, `aliases`, `related`, `folder`, `created`, `modified`.
+**Built-ins:** `name` (always first, can't be hidden), `type`, `status`, `tags`, `aliases`, `related`, `folder`, `created`, `modified`, and the hierarchy built-ins below.
+
+**Hierarchy built-ins** (offered when a source type has `parentFields`; their ids have a hyphen, which no field key can, so they never clash with fields or change existing views):
+
+| Id | Label | Value |
+|---|---|---|
+| `tree-parent` | Parent | The note's hierarchy parent as the browser nests it (`parentOf`): the entity linked by the first of its type's parent fields, in priority order, that links to an entity. A link column. |
+| `tree-root` | Top-level parent | The last ancestor (`hierarchyOf`: parent, its parent… stopping at a loop). Empty for top-level notes. A link column. |
+| `tree-path` | Ancestors | Every ancestor, top-level first. A text column whose value is the names joined by " › " (sorting, grouping and text filters use that), with the links in `Cell.chain`, shown as chips with › between them; 320px wide by default. |
+
+All three are read-only (the parent can come from different fields: edit those), and work like other columns for filters (Parent / Top-level parent: links to any / none of, including "this note"), sorting, grouping, swimlanes, highlight rules, summaries, card fields and formulas (`[Parent]`, `prop(link, "parent")`).
 
 **Fields:** the union of the source types' fields. A key that several types share appears once; types that don't have it show blank.
 
@@ -1912,6 +1922,7 @@ These cover all of `model/`, with no Obsidian dependency:
 - **calendar:** ISO dates to and from parts (including years before 100), month stepping clamped to years 1–9999, the 6-week grid for any first day of the week, weekday order.
 - **fieldFormats:** dates in a field's format or the setting (and the adapter's display without moment); numbers, checkboxes and URLs (domain, custom text); which date patterns can be typed back; edit text; reading typed dates (the edit pattern or ISO) and numbers (currency, separators, %, units, de-DE, K/M/B only for compact); format problems on the type; the setting's default; field formats as view column defaults with the view's format winning.
 - **layoutClipboard:** copying a node or tab with its field definitions and reading it back (other text and broken items ignored); matching fields by key then label; missing and already-placed fields; renames (including swaps) with conditions following; leaving fields out vs adding / moving them while keeping the structure; placing a node or tab and moving old slots out with the right path; keys a type can't place; summaries; saved components in settings.
+- **hierarchy:** the parent by the first parent field linking to an entity (missing targets skipped, types without parent fields), ancestors up the chain and stopping at loops; Parent / Top-level parent / Ancestors cells, labels, kinds and round trips; filtering, grouping and sorting on them; formulas; offered only with parent fields.
 - **calcFields:** roll-ups (counts, sums, over the linked notes' own formula fields); formulas using fields and other calculated fields (numbers, dates, true / false with Yes / No); errors on cells, not crashes; calculated fields as view columns (kinds, formats, sorting, filtering); loops, missing relationships and empty formulas flagged (and checked only with every type); not written, not checked and no migrations; renames followed in formulas and roll-ups.
 - **formLayout:** tidying layouts (nested frames lifted, 2–4 columns, widths, defaults dropped), listing slots and placeable keys (order only with parent fields; the note items), resolving against a type (unknown and repeated slots dropped, unplaced fields and built-ins, whether status, type and subtitle are placed), the note items' hidden-by-default labels, renames and deletions through `renameFieldRefs`, "start from fields", problems in type validation, and the designer's edits (paths, lists and what they hold, insert / remove / move with drop positions, keyboard moves, column counts and widths, ungrouping frames, where "add" goes, flagged slots), slot options and frame styling (read with defaults and bad values dropped; help text; coloured headers and readable text on them), and tabs and frames in columns (reading and lifting what can't nest, walking, finding a field's tab, what each place holds, moving frames in and out of columns and tabs, adding into the open tab, adding / renaming / moving / removing tabs).
 - **form:**

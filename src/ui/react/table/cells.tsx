@@ -47,6 +47,23 @@ export function CellView({ col, cell, row, onToggle }: { col: ResolvedColumn; ce
 			</span>
 		);
 	}
+	if (cell.chain?.length) {
+		// The Ancestors built-in: top-level first, each a chip.
+		return (
+			<span className="oe-cell-chips oe-cell-chain">
+				{cell.chain.map((l, i) => (
+					<span key={`${l.path}:${i}`} className="oe-cell-chain-step">
+						{i > 0 && (
+							<span className="oe-cell-chain-sep" aria-hidden="true">
+								›
+							</span>
+						)}
+						<EntityChip item={chipItem(l, row.path)} sourcePath={row.path} />
+					</span>
+				))}
+			</span>
+		);
+	}
 	if (col.kind === "bool") {
 		if (d.kind === "formula") return <input type="checkbox" className="oe-cell-check" checked={v === true} disabled aria-label={col.label} />;
 		const field = d.kind === "field" ? row.type.fields.find((f) => f.key === d.key) : undefined;

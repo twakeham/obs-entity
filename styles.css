@@ -7319,3 +7319,14 @@ button.oe-calv-more:hover {
 		font-size: var(--font-ui-small);
 	}
 }
+/* The Ancestors column: the chain of parents, top-level first */
+.oe-cell-chain-step {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+}
+
+.oe-cell-chain-sep {
+	color: var(--text-faint);
+}
