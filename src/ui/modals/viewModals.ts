@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { AGG_FIELD_KINDS, AGG_LABELS, calcInfo, ROLLUP_AGGS, rollupFilterColumns, rollupLabel, rollupSources, SHARE_AGGS, SHOW_LABELS, sourceTypes, type ColumnDef, type FilterGroup, type RollupAgg, type RollupShow, type ViewDef, type ViewKind } from "../../model/views";
 import { isCalculated, toKey, type EntityTypeDef } from "../../model/types";
+import { hasValues } from "../../model/choiceValues";
 import { PluginContext } from "../react/context";
 import { FiltersPanel } from "../react/table/popovers";
 import type EntitiesPlugin from "../../main";
@@ -251,7 +252,7 @@ export class RollupModal extends Modal {
 		for (const t of source.linked)
 			for (const f of t.fields) {
 				// Calculated fields count by what they give.
-				const kind = isCalculated(f) ? calcInfo(t, f, ctx).kind : f.kind;
+				const kind = isCalculated(f) ? calcInfo(t, f, ctx).kind : hasValues(f) ? "number" : f.kind;
 				if ((need === "any" || (need && need.includes(kind))) && !fields.some((x) => x.key === f.key)) fields.push({ key: f.key, label: `${f.label} (${t.name})` });
 			}
 		if (need && !fields.some((f) => f.key === this.field)) this.field = fields[0]?.key ?? "";

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { PaletteColor } from "../../model/colors";
 import { choicePillClass } from "../components/choicePicker";
+import { choiceText, choiceTitle } from "../../model/choiceValues";
 import type { RelationGroup } from "../../model/relations";
 import type { FieldDef } from "../../model/types";
 import { EntityChip } from "./EntityChip";
@@ -40,7 +41,7 @@ export const statusClass = (status: string | null, color: PaletteColor | null): 
 /** A group or swimlane heading's value: a choice field's value as its pill (in its colour), else the plain text. */
 export function GroupValue({ col, text }: { col: { kind: string; field?: FieldDef } | null | undefined; text: string }) {
 	const f = col?.field;
-	return f && (f.kind === "select" || f.kind === "multiselect") ? <span className={choicePillClass(f.colors, text)}>{text}</span> : <>{text}</>;
+	return f && (f.kind === "select" || f.kind === "multiselect") ? <span className={choicePillClass(f.colors, text)} title={choiceTitle(f, text)}>{choiceText(f, text)}</span> : <>{text}</>;
 }
 
 /** Groups keyed by a link label ("Mentor", "Mentor of") already show the label as their title. */

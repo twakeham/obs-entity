@@ -6,6 +6,7 @@ import { usePlugin } from "../context";
 import { GroupValue, statusClass } from "../EntityBits";
 import { statusColorAmong } from "../../../model/colors";
 import { choicePillClass } from "../../components/choicePicker";
+import { choiceText, choiceTitle } from "../../../model/choiceValues";
 import { Icon } from "../Icon";
 import { CellView } from "../table/cells";
 import { cssColor, hlClasses, scaleFill, type ColumnChoice } from "../table/popovers";
@@ -592,7 +593,13 @@ export function Board(p: BoardProps) {
 				</span>
 			);
 		}
-		return <span className={bucketCol.field?.kind === "select" ? choicePillClass(bucketCol.field.colors, b.label) : "oe-pill"}>{b.label}</span>;
+		return bucketCol.field?.kind === "select" ? (
+			<span className={choicePillClass(bucketCol.field.colors, b.label)} title={choiceTitle(bucketCol.field, b.label)}>
+				{choiceText(bucketCol.field, b.label)}
+			</span>
+		) : (
+			<span className="oe-pill">{b.label}</span>
+		);
 	};
 	const count = (b: Bucket) => {
 		const limit = board.limits[b.key];

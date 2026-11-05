@@ -224,6 +224,7 @@ Options common to all kinds:
 | `rules` | Validation rules: ranges, lengths, a pattern, dates, item counts, unique, required when (§4.8). |
 | `format` | Display format (number, date, checkbox and URL fields only; §4.6). The stored value never changes. |
 | `colors` | Choice and multiple-choice fields: a palette colour per choice, e.g. `{ High: "red" }` (§4.3.1). Unset choices keep the standard look. |
+| `valued`, `values`, `showValues` | Choice and multiple-choice fields: each choice has a number (`values: { Low: 1, High: 3 }`, when `valued`); `showValues` writes it on pills (§4.3.2). |
 
 Relation options:
 
@@ -258,6 +259,15 @@ Choices and statuses can have a colour from a small palette that follows the the
 - **The choice control** (`ChoiceControl`, behind `SelectControl` / `MultiControl`; properties form, create dialog, table cell editor, bulk Set field): like a link field. The value is a pill (× removes it; for a single choice, clicking the pill or Enter on it opens the list to pick another). An empty single choice, or multiple choice's "Add…", is a box that opens `ChoiceSuggest`: the choices as pills (those not picked yet), filtered by what's typed, opened on focus or click. Picking saves at once; clearing a single choice focuses its box. Values that aren't choices show as pills with a dashed red border.
 - **Statuses:** `GroupDef.statusColors` and, for types with their own statuses, `EntityTypeDef.statusColors` (`statusColor(status, type, groups)`: the type's, else its group's). Without one a status keeps its colour by name (`statusTone`: done green, active blue, on-hold orange, closed faint, others neutral). Set with the dot next to each status in the group editor (renaming moves the colour, removing drops it, saving tidies) or on a type's General tab (switching to its own statuses copies the group's colours; back to the group's drops them).
   - **Shown** wherever statuses are (`statusClass`): pills in tables and boards (bucket headings use the first source type with a colour, `statusColorAmong`), the properties form's status dropdown and pill, the browser's status dots, and filter pills.
+
+### 4.3.2 Choices with values
+
+A choice or multiple-choice field can give each choice a number (`model/choiceValues.ts`): `valued: true` and `values: { Low: 1, Medium: 2, High: 3 }`. Notes keep the label; the number is looked up from the field when calculating, so changing a value needs no note changes. Choices without a value count as empty.
+
+- **Set** on the field's Choices tab: the **Each choice has a value** toggle, then a number box on each choice chip (empty: no value; text that isn't a number is marked and not saved). Removing a choice drops its value (`pruneValues`); turning the toggle off keeps the numbers (but nothing uses them) and turns off `showValues`; changing the field's kind away from a choice drops all three.
+- **A note's value** (`choiceValueOf`): the choice's value (`choiceValue`: the label exactly, else ignoring case), or for multiple choice the total of the chosen values (empty when none of them has one).
+- **Used by:** formulas (`value([Field])`, see Formulas in §8; only a field reference is allowed), roll-ups (sum / avg / min / max over a linked field with values; such fields are offered as numbers under Of field, in the type editor and view roll-up columns), view sorting (by value, then label; multiple choice by the total) and summaries (the number aggregations as well as the choice ones, see Summaries in §8). `Cell.num` carries the number for summaries. Filters, grouping and highlight rules still work on the labels.
+- **Shown:** each pill's tooltip reads "High = 3" (`choiceTitle`), and the choice dropdown shows the value faintly after each pill. With `showValues` pills read "High: 3" (`choiceText`) in table cells, board cards and bucket headings, group headings and the properties form.
 
 ### 4.4 Date adapter (extension point)
 
@@ -490,6 +500,7 @@ src/
     rules.ts                    field validation rules: what each kind offers, messages, type problems
     defaults.ts                 smarter defaults: relative dates, linked values, the next number; emptyFormValues
     colors.ts                   choice and status colours: PALETTE, choiceColor, statusColor, keeping maps in step
+    choiceValues.ts             choices with values: choiceValue, choiceValueOf, choiceText / choiceTitle, pruneValues
     links.ts                    parseLink, parseLabelledEntry, toWikilink, toLabelledWikilink, asArray
     relations.ts                extractEdges, groupRelations, addLink, removeLink
     frontmatter.ts              buildFrontmatter, mergeFrontmatter, fieldDisplay, toYamlValue
@@ -1276,7 +1287,7 @@ columns:
   | Category | Functions |
   |---|---|
   | Logic | `if`, `ifs`, `and`, `or`, `not`, `empty`, `coalesce` (lazy: unused branches aren't evaluated) |
-  | Maths | `round`, `floor`, `ceil`, `abs`, `min`, `max`, `sum`, `avg`, `pow`, `sqrt`, `mod`, `number` |
+  | Maths | `round`, `floor`, `ceil`, `abs`, `min`, `max`, `sum`, `avg`, `pow`, `sqrt`, `mod`, `number`, `value` (a choice field's value, §4.3.2) |
   | Text | `concat`, `text`, `upper`, `lower`, `trim`, `len`, `left`, `right`, `mid`, `replace`, `contains`, `startsWith`, `format` (column format patterns) |
   | Dates | `today`, `now`, `date(y, m, d)` / `date(text)`, `year`, `month`, `day`, `weekday` (1 Mon … 7 Sun), `dateAdd`, `dateDiff` (whole units, consistent with `dateAdd`), `startOf`, `endOf` (week / month / year) |
   | Lists | `count`, `first`, `last`, `join`, `includes`, `unique`, `sort`, `map(list, expr)`, `filter(list, cond)`; `item` is the current element |
@@ -1422,7 +1433,7 @@ groupSummaries: false      # only written when turned off
 | number (fields, number roll-ups) | `sum`, `avg`, `median`, `min`, `max`, `range` |
 | date | `earliest`, `latest`, `range` (a span: "12 days", "3 weeks", "4 months", "2.7 years") |
 | checkbox | `checked`, `unchecked`, `percent-checked` (plus `count`) |
-| choice, status, type | `values` (count of each value, in status / option order), `percent:<value>` |
+| choice, status, type | `values` (count of each value, in status / option order), `percent:<value>`; choice fields with values (§4.3.2) also get the number ones |
 | list, links, tags | `links` (total values) |
 | name | `count` only (the row count) |
 

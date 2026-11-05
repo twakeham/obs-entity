@@ -158,6 +158,7 @@ export function ChipsInput({
 	colors,
 	onColor,
 	toneOf,
+	extra,
 }: {
 	values: string[];
 	onChange: (v: string[]) => void;
@@ -167,6 +168,8 @@ export function ChipsInput({
 	colors?: ColorMap;
 	onColor?: (value: string, color: PaletteColor | null) => void;
 	toneOf?: (value: string) => string;
+	/** something more on each chip, after its text (e.g. a choice's value box) */
+	extra?: (value: string) => ReactNode;
 }) {
 	const [text, setText] = useState("");
 	const [dragFrom, setDragFrom] = useState<number | null>(null);
@@ -206,6 +209,7 @@ export function ChipsInput({
 				>
 					{onColor && <ColorDot value={v} color={colors?.[v] ?? null} tone={toneOf?.(v)} onPick={(c) => onColor(v, c)} />}
 					{v}
+					{extra?.(v)}
 					<button className="oe-tm-chip-x clickable-icon" aria-label={`Remove ${v}`} onClick={() => onChange(values.filter((x) => x !== v))}>
 						<Icon name="x" />
 					</button>
@@ -221,6 +225,30 @@ export function ChipsInput({
 				onBlur={add}
 			/>
 		</div>
+	);
+}
+
+/** A small number box on a chip (a choice's value): typed freely, kept when it reads as a number, cleared when emptied. */
+export function ChipNumber({ label, value, onChange }: { label: string; value: number | undefined; onChange: (v: number | undefined) => void }) {
+	const [text, setText] = useState(value === undefined ? "" : String(value));
+	useEffect(() => setText((t) => (Number(t) === value && t.trim() !== "" ? t : value === undefined ? "" : String(value))), [value]);
+	const bad = text.trim() !== "" && !Number.isFinite(Number(text));
+	return (
+		<input
+			type="text"
+			inputMode="decimal"
+			className={`oe-tm-chip-value${bad ? " is-invalid" : ""}`}
+			aria-label={label}
+			placeholder="–"
+			value={text}
+			draggable={false}
+			onChange={(e) => {
+				const t = e.target.value;
+				setText(t);
+				if (!t.trim()) onChange(undefined);
+				else if (Number.isFinite(Number(t))) onChange(Number(t));
+			}}
+		/>
 	);
 }
 

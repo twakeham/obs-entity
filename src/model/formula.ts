@@ -257,6 +257,16 @@ export const FUNCTIONS: FnDef[] = [
 	{ name: "sqrt", cat: "Maths", sig: "sqrt(number)", desc: "The square root.", example: "sqrt([Area])", min: 1, max: 1, ret: "number" },
 	{ name: "mod", cat: "Maths", sig: "mod(number, divisor)", desc: "The remainder after dividing (also written a % b).", example: "mod([Order], 2)", min: 2, max: 2, ret: "number" },
 	{ name: "number", cat: "Maths", sig: "number(value)", desc: "Converts text (or true/false) to a number; empty if it isn't one.", example: 'number("42")', min: 1, max: 1, ret: "number" },
+	{
+		name: "value",
+		cat: "Maths",
+		sig: "value([Choice field])",
+		desc: "The number a choice stands for (the field's values, set on its Choices tab); for multiple choice, the total of the chosen values. Empty when the choice has no value.",
+		example: "value([Likelihood]) * value([Impact])",
+		min: 1,
+		max: 1,
+		ret: "number",
+	},
 	// Text
 	{ name: "concat", cat: "Text", sig: "concat(a, b, …)", desc: "Joins values into one text (also written a & b).", example: 'concat([Name], " (", [Status], ")")', min: 1, max: Infinity, ret: "text" },
 	{ name: "text", cat: "Text", sig: "text(value)", desc: "The value as text.", example: "text([Budget])", min: 1, max: 1, ret: "text" },
@@ -380,6 +390,8 @@ export function compile(src: string, columns: RefColumn[]): Compiled {
 					throw new FormulaError(`${f.sig.split("(")[0]}() needs ${want} argument${f.min === 1 && f.max === 1 ? "" : "s"}: ${f.sig}.`, n.from, n.to);
 				}
 				const lambda = f.name === "map" || f.name === "filter";
+				// value() reads the field behind a column, so it needs a column itself.
+				if (f.name === "value" && n.args[0]?.k !== "ref") throw new FormulaError("value() needs a column, e.g. value([Priority]).", n.from, n.to);
 				const args = n.args.map((x, i) => typeOf(x, inLambda || (lambda && i === 1)));
 				if (f.name === "map") return "list";
 				return typeof f.ret === "function" ? f.ret(args) : f.ret;
@@ -422,6 +434,8 @@ export const toDisplay = (src: string, columns: RefColumn[]) =>
 export interface EvalEnv {
 	/** a referenced column's value for the current row */
 	col: (id: string) => FValue;
+	/** value([Column]): a choice's number (choices with values), else the column's number; null when there's none */
+	value?: (id: string) => FValue;
 	/** today, in days */
 	today: number;
 	/** a field of a linked note, by label or key */
@@ -639,6 +653,14 @@ export function evaluate(ast: Node, env: EvalEnv): FValue {
 				return null;
 			}
 			// maths
+			case "value": {
+				const ref = A[0];
+				if (ref.k !== "ref") return null;
+				const id = ref.id ?? ref.name;
+				if (env.value) return env.value(id);
+				const v = env.col(id);
+				return typeof v === "number" ? v : null;
+			}
 			case "round": {
 				const x = number(0);
 				if (x === null) return null;

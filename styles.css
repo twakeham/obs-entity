@@ -413,6 +413,14 @@ select.oe-status {
 	padding: 3px var(--size-4-3);
 }
 
+/* A choice's value beside its pill in the dropdown */
+.oe-choice-value {
+	margin-left: var(--size-4-2);
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+	font-variant-numeric: tabular-nums;
+}
+
 /* Statuses with a set colour (others are coloured by name, .oe-tone-*) */
 .oe-status-pill.has-color,
 select.oe-status.has-color {
@@ -1626,6 +1634,22 @@ select.oe-status.has-color {
 .oe-tm-relrow .oe-tm-chip,
 .oe-tm-targetchips .oe-tm-chip {
 	padding-right: 8px;
+}
+
+/* A choice's value box, on its chip */
+.oe-tm-chip input.oe-tm-chip-value {
+	width: 4.5em;
+	height: 20px;
+	padding: 0 4px;
+	font-size: var(--font-ui-smaller);
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+	border-radius: 8px;
+	background-color: var(--background-primary);
+}
+
+.oe-tm-chip input.oe-tm-chip-value.is-invalid {
+	border-color: var(--text-error);
 }
 
 .oe-tm .oe-tm-chip-x {

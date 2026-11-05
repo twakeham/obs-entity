@@ -136,6 +136,7 @@ Opened from:
   - **General:** kind (at the top), label, key, description, default, and show in the create dialog.
   - **Choices**, **Relation**, **Roll-up** or **Formula** (only for those kinds): the kind's own settings: the choices; what a relation links to and how; or what a calculated field works out, with its result and a preview.
   - **Coloured choices:** on the Choices tab, click a choice's dot to give it a colour (red, orange, yellow, green, blue, purple, pink or grey; they follow the light / dark theme), or **Default** for a darker grey. Choices always show as pills, tinted with their colour (or grey): in tables, board cards, bucket and group headings, the properties form and Reading view, and in filter and highlight panels.
+  - **Choices with values:** turn on **Each choice has a value** on the Choices tab and type a number in each choice's box (e.g. Low 1, Medium 2, High 3). Notes still store the choice ("High"); the number is used by formulas (`value([Priority])`; for multiple choice, the total of the chosen values), roll-ups (sum, average, smallest, largest), sorting (by value rather than choice order) and the summary row (sum, average, median…). Changing a value needs no note changes. The value shows in the choice dropdown and in each pill's tooltip ("High = 3"); **Show values on pills** makes pills read "High: 3".
   - **Display:** the **display format** (numbers, dates, checkboxes, URLs, and calculated fields that give one of those; each preset shows an example from your notes).
   - **Validation:** required, and the validation rules below. The tab shows how many are set.
   - **Default:** a fixed value, or a smarter one:
@@ -336,7 +337,7 @@ The editor:
 
 In the table, formulas sort, filter, group, highlight, summarise and format like any other column. A row whose formula fails shows "–" with the reason in a tooltip. Double-click a formula cell, or right-click its header → **Edit formula…**, to change it.
 
-Functions: logic (`if`, `ifs`, `and`, `or`, `not`, `empty`, `coalesce`), maths (`round`, `floor`, `ceil`, `abs`, `min`, `max`, `sum`, `avg`, `pow`, `sqrt`, `mod`, `number`), text (`concat`, `text`, `upper`, `lower`, `trim`, `len`, `left`, `right`, `mid`, `replace`, `contains`, `startsWith`, `format`), dates (`today`, `date`, `year`, `month`, `day`, `weekday`, `dateAdd`, `dateDiff`, `startOf`, `endOf`), lists (`count`, `first`, `last`, `join`, `includes`, `unique`, `sort`, `map`, `filter`) and links (`name`, `prop`).
+Functions: logic (`if`, `ifs`, `and`, `or`, `not`, `empty`, `coalesce`), maths (`round`, `floor`, `ceil`, `abs`, `min`, `max`, `sum`, `avg`, `pow`, `sqrt`, `mod`, `number`, `value`: a choice field's value), text (`concat`, `text`, `upper`, `lower`, `trim`, `len`, `left`, `right`, `mid`, `replace`, `contains`, `startsWith`, `format`), dates (`today`, `date`, `year`, `month`, `day`, `weekday`, `dateAdd`, `dateDiff`, `startOf`, `endOf`), lists (`count`, `first`, `last`, `join`, `includes`, `unique`, `sort`, `map`, `filter`) and links (`name`, `prop`).
 
 **Full-tab views:** opening a view note shows it as an **entity view** tab: the table fills the whole tab, edge to edge, like the Entity types editor.
 - **Open as Markdown** (header button or ⋯) shows the note itself, e.g. to edit the definition or write notes below the block. **Open as entity view** switches back.
@@ -439,6 +440,7 @@ src/
     rules.ts                 field validation rules (ranges, patterns, dates, unique, required when)
     defaults.ts              smarter defaults (relative dates, from a linked note, the next number)
     colors.ts                choice and status colours (the palette, lookups, keeping them in step)
+    choiceValues.ts          choices with values (lookups, totals, pill text)
     links.ts                 wikilink parsing/formatting, labelled links
     relations.ts             edges, groupRelations (inverses), addLink/removeLink
     frontmatter.ts           build/merge frontmatter, value conversion
@@ -477,6 +479,6 @@ src/
   ui/react/board/            Board (buckets, swimlanes, cards, pointer drag and drop, keyboard), Buckets and Swimlanes panels
   ui/react/types/            Entity types view: TypeManager (sidebar, group editor, save), General/Fields/Relationships/Display/Layout tabs, Preview, controls
   ui/views/                  BrowserView (left sidebar), SidePanelView (right sidebar: connections or type preview), TypesView (main area), EntityViewView (view notes as full tabs), viewBlock (renders entity-view blocks in notes)
-tests/                       model, relations, typeEditing, tree, form, views, viewBlock, formats, formula, bulk, board and form layout tests
+tests/                       model, relations, typeEditing, tree, form, views, viewBlock, formats, formula, bulk, board, form layout and choice-value tests
 styles.css                   all classes prefixed `oe-`
 ```

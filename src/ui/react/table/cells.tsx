@@ -9,6 +9,7 @@ import { usePlugin } from "../context";
 import { statusClass } from "../EntityBits";
 import { statusColor } from "../../../model/colors";
 import { choicePillClass } from "../../components/choicePicker";
+import { choiceText, choiceTitle } from "../../../model/choiceValues";
 import { EntityChip } from "../EntityChip";
 import { CheckControl, ListControl, MultiControl, RelationControl, SelectControl, StatusControl, TextControl } from "../EntityForm";
 import { Icon } from "../Icon";
@@ -72,8 +73,8 @@ export function CellView({ col, cell, row, onToggle }: { col: ResolvedColumn; ce
 		return (
 			<span className="oe-cell-pills">
 				{((v as string[]) ?? []).map((s, i) => (
-					<span key={`${s}:${i}`} className={choices ? choicePillClass(field.colors, s) : `oe-pill${tags ? " is-tag" : ""}`}>
-						{tags ? `#${s}` : s}
+					<span key={`${s}:${i}`} className={choices ? choicePillClass(field.colors, s) : `oe-pill${tags ? " is-tag" : ""}`} title={choices ? choiceTitle(field, s) : undefined}>
+						{tags ? `#${s}` : choices ? choiceText(field, s) : s}
 					</span>
 				))}
 			</span>
@@ -81,7 +82,7 @@ export function CellView({ col, cell, row, onToggle }: { col: ResolvedColumn; ce
 	}
 	if (col.kind === "choice" && d.kind === "field" && cell.text) {
 		const field = row.type.fields.find((f) => f.key === d.key);
-		if (field?.kind === "select") return <span className={choicePillClass(field.colors, cell.text)}>{cell.text}</span>;
+		if (field?.kind === "select") return <span className={choicePillClass(field.colors, cell.text)} title={choiceTitle(field, cell.text)}>{choiceText(field, cell.text)}</span>;
 	}
 	if (d.kind === "rollup" && d.rollup.agg === "percent-done" && typeof v === "number") {
 		return (
@@ -160,10 +161,10 @@ export function CellEditor({ col, entity, problems, onWrite }: { col: ResolvedCo
 				control = <CheckControl value={value} editable label={label} onCommit={commit} />;
 				break;
 			case "select":
-				control = <SelectControl options={f.options ?? []} value={value} editable label={label} colors={f.colors} onCommit={commit} />;
+				control = <SelectControl options={f.options ?? []} value={value} editable label={label} field={f} onCommit={commit} />;
 				break;
 			case "multiselect":
-				control = <MultiControl options={f.options ?? []} value={value} editable label={label} colors={f.colors} onCommit={commit} />;
+				control = <MultiControl options={f.options ?? []} value={value} editable label={label} field={f} onCommit={commit} />;
 				break;
 			case "list":
 				control = <ListControl value={value} editable label={label} onCommit={commit} />;

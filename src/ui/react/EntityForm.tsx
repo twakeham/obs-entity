@@ -15,8 +15,9 @@ import { CalendarPopover } from "./Calendar";
 import { EntitySuggest, TypePickerModal } from "../components/entityPicker";
 import { usePlugin, useRelationsVersion } from "./context";
 import { statusClass } from "./EntityBits";
-import { statusColor, type ColorMap } from "../../model/colors";
-import { ChoiceSuggest, choicePillClass } from "../components/choicePicker";
+import { statusColor } from "../../model/colors";
+import { ChoiceSuggest, choicePillClass, type ChoiceField } from "../components/choicePicker";
+import { choiceText, choiceTitle } from "../../model/choiceValues";
 import { EntityChip } from "./EntityChip";
 import { Icon } from "./Icon";
 import { KIND_INFO } from "./types/editor";
@@ -141,9 +142,9 @@ export function fieldControl(
 			// Worked out by the properties form (FormView); elsewhere (the create dialog) there's nothing to show yet.
 			return <Empty />;
 		case "select":
-			return <SelectControl options={f.options ?? []} value={o.value} editable={o.editable} label={label} placeholder={o.placeholder} colors={f.colors} onCommit={o.onCommit} />;
+			return <SelectControl options={f.options ?? []} value={o.value} editable={o.editable} label={label} placeholder={o.placeholder} field={f} onCommit={o.onCommit} />;
 		case "multiselect":
-			return <MultiControl options={f.options ?? []} value={o.value} editable={o.editable} label={label} colors={f.colors} onCommit={o.onCommit} />;
+			return <MultiControl options={f.options ?? []} value={o.value} editable={o.editable} label={label} field={f} onCommit={o.onCommit} />;
 		case "list":
 			return <ListControl value={o.value} editable={o.editable} label={label} placeholder={o.placeholder} onCommit={o.onCommit} />;
 		default:
@@ -1134,7 +1135,7 @@ export function CheckControl({ value, editable, label, format, onCommit }: { val
 	}
 	return <input type="checkbox" className="oe-prop-check" aria-label={label} checked={value === true} onChange={(e) => onCommit(e.target.checked)} />;
 }
-type ChoiceProps = { options: string[]; value: unknown; editable: boolean; label: string; placeholder?: string; colors?: ColorMap; onCommit: (v: unknown) => void };
+type ChoiceProps = { options: string[]; value: unknown; editable: boolean; label: string; placeholder?: string; field?: ChoiceField; onCommit: (v: unknown) => void };
 
 /** A choice field: its value as a pill, with a dropdown of the choices (see ChoiceControl). */
 export const SelectControl = (p: ChoiceProps) => <ChoiceControl {...p} multiple={false} />;
@@ -1146,16 +1147,17 @@ export const MultiControl = (p: ChoiceProps) => <ChoiceControl {...p} multiple /
  * grey; × removes), and a box that opens the choices as pills ("Choose…" when empty, "Add…" for more). A single
  * choice's pill opens the list to pick another. Values that aren't choices show as invalid pills.
  */
-export function ChoiceControl({ options, value, editable, label, placeholder, colors, multiple, onCommit }: ChoiceProps & { multiple: boolean }) {
+export function ChoiceControl({ options, value, editable, label, placeholder, field, multiple, onCommit }: ChoiceProps & { multiple: boolean }) {
 	const plugin = usePlugin();
+	const colors = field?.colors;
 	const chosen = (multiple ? asArray(value) : isEmptyValue(value) ? [] : [Array.isArray(value) ? value[0] : value]).map((v) => String(v ?? "")).filter(Boolean);
 	const inputRef = useRef<HTMLInputElement>(null);
 	/** a single choice being changed: the box replaces its pill */
 	const [picking, setPicking] = useState(false);
 	const latest = useRef(chosen);
 	latest.current = chosen;
-	const cfg = useRef({ options, colors, multiple, onCommit });
-	cfg.current = { options, colors, multiple, onCommit };
+	const cfg = useRef({ options, field, multiple, onCommit });
+	cfg.current = { options, field, multiple, onCommit };
 	const focusPicker = useRef(false);
 	const picked = useRef(false);
 	const showPicker = editable && (multiple || chosen.length === 0 || picking);
@@ -1164,7 +1166,7 @@ export function ChoiceControl({ options, value, editable, label, placeholder, co
 		const suggest = new ChoiceSuggest(plugin.app, inputRef.current, {
 			options: () => cfg.current.options,
 			exclude: () => new Set(latest.current),
-			colors: () => cfg.current.colors,
+			field: () => cfg.current.field,
 			onPick: (v) => {
 				const { multiple: many, options: opts, onCommit: commit } = cfg.current;
 				picked.current = true;
@@ -1207,18 +1209,19 @@ export function ChoiceControl({ options, value, editable, label, placeholder, co
 			{!picking &&
 				chosen.map((c, i) => {
 					const invalid = !options.includes(c);
+					const valueTitle = choiceTitle(field, c);
 					return (
 						<span
 							key={`${i}:${c}`}
 							className={`${choicePillClass(colors, c)}${editable ? " is-removable" : ""}${invalid ? " is-invalid" : ""}${editable && !multiple ? " is-clickable" : ""}`}
 							data-chip={i}
 							tabIndex={editable ? 0 : undefined}
-							title={invalid ? `“${c}” isn't one of the choices` : undefined}
+							title={invalid ? `“${c}” isn't one of the choices` : valueTitle}
 							aria-label={editable ? `${c}${multiple ? "" : ". Press Enter to change it"}. Press Delete to remove.` : undefined}
 							onClick={editable && !multiple ? () => setPicking(true) : undefined}
 							onKeyDown={editable && !multiple ? (e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setPicking(true)) : undefined}
 						>
-							{c}
+							{choiceText(field, c)}
 							{editable && (
 								<span
 									className="oe-pill-x"

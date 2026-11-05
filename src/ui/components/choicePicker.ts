@@ -1,5 +1,10 @@
 import { AbstractInputSuggest, type App } from "obsidian";
 import { choiceColor, type ColorMap } from "../../model/colors";
+import { choiceText, choiceTitle, choiceValue } from "../../model/choiceValues";
+import type { FieldDef } from "../../model/types";
+
+/** What a choice control needs from its field: colours, and the choices' values. */
+export type ChoiceField = Pick<FieldDef, "kind" | "colors" | "valued" | "values" | "showValues">;
 
 /** Classes for a choice's pill: tinted with its colour, else the darker grey pill. */
 export const choicePillClass = (colors: ColorMap | undefined, value: string): string => {
@@ -12,7 +17,7 @@ export interface ChoiceSuggestOptions {
 	options: () => string[];
 	/** choices not to offer (already picked, for multiple choice; the current one) */
 	exclude: () => Set<string>;
-	colors: () => ColorMap | undefined;
+	field: () => ChoiceField | undefined;
 	onPick: (value: string) => void;
 }
 
@@ -35,7 +40,12 @@ export class ChoiceSuggest extends AbstractInputSuggest<string> {
 
 	renderSuggestion(value: string, el: HTMLElement): void {
 		el.addClass("oe-choice-suggestion");
-		el.createSpan({ cls: choicePillClass(this.opts.colors(), value), text: value });
+		const f = this.opts.field();
+		const title = choiceTitle(f, value);
+		el.createSpan({ cls: choicePillClass(f?.colors, value), text: choiceText(f, value), attr: title ? { title } : {} });
+		// The value, faintly (unless the pill already shows it).
+		const n = f?.showValues ? null : choiceValue(f, value);
+		if (n !== null) el.createSpan({ cls: "oe-choice-value", text: String(n) });
 	}
 
 	selectSuggestion(value: string): void {

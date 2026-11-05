@@ -6,6 +6,7 @@ import { formatDate, formatNumber, RELATIVE, type MomentLike } from "./formats";
 import { fieldFormatIssue, formatValue, type FormatEnv } from "./fieldFormats";
 import { compile, DateVal, evaluate, FormulaError, FTYPES, isLink, toText, truthy, type Compiled, type EvalEnv, type FType, type FValue, type RefColumn } from "./formula";
 import { COMMON_KEYS, isCalculated, statusesFor, toKey, typeMatchesTarget, type EntityTypeDef, type FieldDef, type GroupDef } from "./types";
+import { choiceValue, choiceValueOf, hasValues } from "./choiceValues";
 
 // ---------------------------------------------------------------- definition
 
@@ -1141,6 +1142,8 @@ export interface Cell {
 	error?: string;
 	/** a roll-up shown as a share: the roll-up's own value (the count or sum) */
 	raw?: number | null;
+	/** a choice field with values: the choice's number (multiple choice: the total), for sorting and summaries */
+	num?: number | null;
 }
 
 const EMPTY: Cell = { value: null, text: "", sort: null };
@@ -1208,7 +1211,15 @@ function rollupCell(row: ViewRow, r: RollupDef, ctx: ViewContext): Cell {
 	// Filtered: only linked notes that exist and match (links to missing notes can't be checked).
 	const rows = r.where && isFiltered(r) ? linked.rows.filter((x) => passesWhere(x, r.where!, ctx)) : linked.rows;
 	const count = r.where && isFiltered(r) ? rows.length : linked.count;
-	const numbers = () => rows.map((x) => toNumber(fieldValue(x, r.field ?? "", ctx).raw)).filter((n): n is number => n !== null);
+	// A choice field with values counts as its numbers (sum, average, min, max).
+	const numbers = () =>
+		rows
+			.map((x) => {
+				const raw = fieldValue(x, r.field ?? "", ctx).raw;
+				const f = x.type.fields.find((ff) => ff.key === r.field);
+				return hasValues(f) ? choiceValueOf(f, raw) : toNumber(raw);
+			})
+			.filter((n): n is number => n !== null);
 	const num = (n: number | null): Cell => (n === null ? EMPTY : { value: n, text: String(Math.round(n * 100) / 100), sort: n });
 	switch (r.agg) {
 		case "count":
@@ -1340,11 +1351,20 @@ export function cellOf(row: ViewRow, col: ResolvedColumn, ctx: ViewContext): Cel
 					return { value: s, text: formatValue(field, s, formatEnvOfView(ctx)), sort: s.toLowerCase() };
 				}
 				case "multiselect":
-				case "list":
-					return multiCell(asArray(raw).filter((v) => !isEmptyValue(v)).map(String));
+				case "list": {
+					const cell = multiCell(asArray(raw).filter((v) => !isEmptyValue(v)).map(String));
+					if (!hasValues(field)) return cell;
+					// Choices with values sort by the total of the chosen values.
+					const n = choiceValueOf(field, raw);
+					return { ...cell, num: n, sort: n };
+				}
 				case "select": {
 					if (isEmptyValue(raw)) return EMPTY;
 					const s = String(Array.isArray(raw) ? raw[0] : raw);
+					if (hasValues(field)) {
+						const n = choiceValue(field, s);
+						return { value: s, text: s, sort: n, num: n };
+					}
 					const i = (field.options ?? []).indexOf(s);
 					return { value: s, text: s, sort: i >= 0 ? i : s.toLowerCase() };
 				}
@@ -1451,6 +1471,15 @@ function evalFormula(row: ViewRow, f: { compiled: Compiled; refs: Map<string, Re
 		},
 		today: ctx.today,
 		prop: (link, name) => propOf(link, name, ctx),
+		// value([Priority]): a choice's number (the field's values), else the column's number
+		value: (id) => {
+			const c = f.refs.get(id);
+			if (!c) return null;
+			const fd = c.def.kind === "field" ? row.type.fields.find((x) => x.key === (c.def as { key: string }).key) : undefined;
+			if (hasValues(fd)) return choiceValueOf(fd, row.frontmatter[fd!.key]);
+			const v = cellValue(cellOf(row, c, ctx), c);
+			return typeof v === "number" ? v : null;
+		},
 		dateText: (d) => ctx.dates.format(d, "short"),
 		parseDate: (s) => {
 			const p = ctx.dates.parse(s);

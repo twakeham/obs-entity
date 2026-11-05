@@ -71,6 +71,12 @@ export interface FieldDef {
 	defaultFrom?: DefaultFrom;
 	/** choice / multiple-choice fields: a colour per choice (unset choices keep the standard look) */
 	colors?: ColorMap;
+	/** choice / multiple-choice fields: each choice has a number (`values`), used by calculations */
+	valued?: boolean;
+	/** the choices' numbers, by label (with `valued`) */
+	values?: Record<string, number>;
+	/** show "High: 3" on the choices' pills (with `valued`) */
+	showValues?: boolean;
 }
 
 export type FolderMode = "type" | "parent" | "own";

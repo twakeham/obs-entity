@@ -8,13 +8,14 @@ import { FormulaModal } from "../../modals/formulaModal";
 import { BOOLEAN_FORMATS, datePresetLabels, FIELD_DATE_PRESETS, FIELD_NUMBER_PRESETS, formattedKind, formatValue, showDate, urlText } from "../../../model/fieldFormats";
 import { usePlugin } from "../context";
 import { pruneColors, withColor } from "../../../model/colors";
+import { hasValues, pruneValues } from "../../../model/choiceValues";
 import { autoText, defaultKinds, linkedTypes, nextAutoNumber, type DefaultFrom } from "../../../model/defaults";
 import { boundDays, boundText, DATE_COMPARE_LABELS, pruneRules, ruleGroups, takesUnique, type DateCompareOp, type FieldRules } from "../../../model/rules";
 import { todayDays, whenColumns, whenText } from "../../../model/formConditions";
 import { whenParts } from "../../../model/formLayout";
 import { FiltersPanel, type ColumnChoice } from "../table/popovers";
 import { Icon } from "../Icon";
-import { ChipsInput, DateInput, Issues, Row, Segmented, TargetPicker, TextInput, Toggle } from "./controls";
+import { ChipNumber, ChipsInput, DateInput, Issues, Row, Segmented, TargetPicker, TextInput, Toggle } from "./controls";
 import { KIND_INFO, KIND_ORDER, useEditor } from "./editor";
 
 /** A new (or newly re-kinded) calculated field's starting set-up: a count of the first linked notes, or an empty formula. */
@@ -326,7 +327,12 @@ function FieldDetails({ index }: { index: number }) {
 									if ((x.kind === "select" || x.kind === "multiselect") && !x.options) x.options = [];
 									startCalc(x, t, allTypes, groups);
 									pruneRules(x);
-									if (x.kind !== "select" && x.kind !== "multiselect") delete x.colors;
+									if (x.kind !== "select" && x.kind !== "multiselect") {
+										delete x.colors;
+										delete x.valued;
+										delete x.values;
+										delete x.showValues;
+									}
 									if (x.defaultFrom && !defaultKinds(x).includes(x.defaultFrom.kind)) delete x.defaultFrom;
 									// Relation fields can't be part of the subtitle.
 									if (x.kind === "relation" && t.card?.subtitle) t.card.subtitle = t.card.subtitle.filter((k) => k !== x.key);
@@ -394,14 +400,59 @@ function FieldDetails({ index }: { index: number }) {
 								invalid={issuesAt(`field:${index}:options`).length > 0}
 								colors={f.colors}
 								onColor={(v, c) => set((x) => (x.colors = withColor(x.colors, v, c)))}
+								extra={
+									f.valued
+										? (v) => (
+												<ChipNumber
+													label={`Value of ${v}`}
+													value={f.values?.[v]}
+													onChange={(n) =>
+														set((x) => {
+															const next = { ...(x.values ?? {}) };
+															if (n === undefined) delete next[v];
+															else next[v] = n;
+															x.values = Object.keys(next).length ? next : undefined;
+														})
+													}
+												/>
+										  )
+										: undefined
+								}
 								onChange={(v) =>
 									set((x) => {
 										x.options = v;
-										// A removed choice loses its colour.
+										// A removed choice loses its colour and value.
 										x.colors = pruneColors(x.colors, v);
+										x.values = pruneValues(x.values, v);
 									})
 								}
 							/>
+						</Row>
+					)}
+					{(f.kind === "select" || f.kind === "multiselect") && (
+						<Row
+							label="Each choice has a value"
+							desc={
+								f.kind === "select"
+									? "Give each choice a number (e.g. Low 1, Medium 2, High 3). Notes keep the choice; formulas (value()), roll-ups, sorting and summaries use the number."
+									: "Give each choice a number. Notes keep the choices; formulas (value()), roll-ups, sorting and summaries use the total of the chosen values."
+							}
+						>
+							<Toggle
+								label="Each choice has a value"
+								value={!!f.valued}
+								onChange={(v) =>
+									set((x) => {
+										x.valued = v || undefined;
+										if (!v) x.showValues = undefined;
+									})
+								}
+							/>
+						</Row>
+					)}
+					{hasValues(f) && (
+						<Row label="Show values on pills" desc="Pills read “High: 3” rather than “High”.">
+							<Toggle label="Show values on pills" value={!!f.showValues} onChange={(v) => set((x) => (x.showValues = v || undefined))} />
 						</Row>
 					)}
 
@@ -1079,7 +1130,8 @@ function CalcRows({ field: f, index, part }: { field: FieldDef; index: number; p
 		const fields: { key: string; label: string }[] = [];
 		for (const lt of source?.linked ?? [])
 			for (const lf of lt.fields) {
-				const kind = isCalculated(lf) ? calcInfo(lt, lf, lookup).kind : lf.kind;
+				// Choice fields with values count as numbers.
+				const kind = isCalculated(lf) ? calcInfo(lt, lf, lookup).kind : hasValues(lf) ? "number" : lf.kind;
 				if ((need === "any" || (need && need.includes(kind))) && !fields.some((x) => x.key === lf.key)) fields.push({ key: lf.key, label: `${lf.label || lf.key}${(source?.linked.length ?? 0) > 1 ? ` (${lt.name})` : ""}` });
 			}
 		const setRollup = (next: Partial<RollupDef>) => set((x) => (x.rollup = { ...r, ...next }));

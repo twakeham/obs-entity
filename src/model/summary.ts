@@ -1,4 +1,5 @@
 import { formatNumber } from "./formats";
+import { hasValues } from "./choiceValues";
 import { defaultFormat, formatCell, type Cell, type LinkValue, type ResolvedColumn, type ResultRow, type ViewContext } from "./views";
 
 /** A summary for one column over some rows: a short label ("Sum") and the value text ("$1,240.00"). */
@@ -49,10 +50,11 @@ export function summaryOptions(col: ResolvedColumn, values: string[] = []): Summ
 		case "bool":
 			return [...BOOL, { key: "count", label: "Count" }];
 		case "choice":
-			return [{ key: "values", label: "Count each value" }, ...values.map((v) => ({ key: `percent:${v}`, label: `% ${v}` })), ...COMMON];
+			// Choices with values add up too.
+			return [{ key: "values", label: "Count each value" }, ...values.map((v) => ({ key: `percent:${v}`, label: `% ${v}` })), ...(hasValues(col.field) ? NUMBER : []), ...COMMON];
 		case "multi":
 		case "links":
-			return [{ key: "links", label: "Total values" }, ...COMMON];
+			return [{ key: "links", label: "Total values" }, ...(hasValues(col.field) ? NUMBER : []), ...COMMON];
 		default:
 			return COMMON;
 	}
@@ -108,7 +110,8 @@ export function summarize(
 		return isPercentRollup ? `${Math.round(n)}%` : plain(n);
 	};
 	const date = (d: number) => (fmt ? formatCell({ value: d, text: "", sort: d }, col, fmt, ctx).text : ctx.dates.format(d, "short"));
-	const numbers = values.filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+	// A choice field with values: its numbers (each note's choice value, or total for multiple choice).
+	const numbers = (hasValues(col.field) ? cells.map((c) => c.num) : values).filter((v): v is number => typeof v === "number" && Number.isFinite(v));
 	const sorted = [...numbers].sort((a, b) => a - b);
 
 	if (agg.startsWith("percent:")) {
