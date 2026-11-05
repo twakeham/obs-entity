@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { choiceColor, type PaletteColor } from "../../model/colors";
 import type { RelationGroup } from "../../model/relations";
+import type { FieldDef } from "../../model/types";
 import { EntityChip } from "./EntityChip";
 import { Icon } from "./Icon";
 
@@ -26,6 +28,18 @@ const STATUS_TONES: Record<string, string> = {
 /** Colour family for a status word (draft/idea and unknown words are neutral). */
 export function statusTone(status: string | null): string {
 	return (status && STATUS_TONES[status.toLowerCase()]) || "neutral";
+}
+
+/** Classes for a value with a palette colour (none without one). */
+export const colorClass = (c: PaletteColor | null | undefined): string => (c ? ` has-color oe-c-${c}` : "");
+
+/** A status's colour classes: its set colour (group or type), else its tone by name. */
+export const statusClass = (status: string | null, color: PaletteColor | null): string => (color ? `has-color oe-c-${color}` : `oe-tone-${statusTone(status)}`);
+
+/** A group or swimlane heading's value: a coloured pill for a choice with a colour, else the plain text. */
+export function GroupValue({ col, text }: { col: { kind: string; field?: FieldDef } | null | undefined; text: string }) {
+	const c = col?.field && (col.kind === "choice" || col.kind === "multi") ? choiceColor(col.field, text) : null;
+	return c ? <span className={`oe-pill oe-choice${colorClass(c)}`}>{text}</span> : <>{text}</>;
 }
 
 /** Groups keyed by a link label ("Mentor", "Mentor of") already show the label as their title. */

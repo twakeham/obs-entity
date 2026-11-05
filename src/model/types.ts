@@ -2,6 +2,7 @@ import type { FormLayout } from "./formLayout";
 import type { FType } from "./formula";
 import type { FieldRules } from "./rules";
 import type { DefaultFrom } from "./defaults";
+import type { ColorMap } from "./colors";
 import type { RollupDef } from "./views";
 
 export type FieldKind =
@@ -68,6 +69,8 @@ export interface FieldDef {
 	rules?: FieldRules;
 	/** a smarter default for new notes (relative date, from a linked note, auto number); replaces `default` */
 	defaultFrom?: DefaultFrom;
+	/** choice / multiple-choice fields: a colour per choice (unset choices keep the standard look) */
+	colors?: ColorMap;
 }
 
 export type FolderMode = "type" | "parent" | "own";
@@ -109,6 +112,8 @@ export interface EntityTypeDef {
 	shortcuts?: string[];
 	/** overrides the group's statuses */
 	statuses?: string[];
+	/** with its own statuses: a colour per status (over the group's; unset: coloured by name) */
+	statusColors?: ColorMap;
 	/** relation field keys that point at this entity's parent, in priority order */
 	parentFields?: string[];
 	card?: CardConfig;
@@ -126,6 +131,8 @@ export interface GroupDef {
 	icon: string;
 	/** first status = draft / not started */
 	statuses: string[];
+	/** a colour per status (unset: coloured by name) */
+	statusColors?: ColorMap;
 }
 
 /** Fixed frontmatter keys managed for every entity regardless of type. */

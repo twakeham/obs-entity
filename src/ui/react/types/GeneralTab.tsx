@@ -5,6 +5,8 @@ import { defaultTemplate } from "../../../model/templates";
 import { finaliseType, newUid } from "../../../model/typeEditing";
 import { cloneType, statusesFor, toKey, type FolderMode } from "../../../model/types";
 import { usePlugin } from "../context";
+import { pruneColors, withColor } from "../../../model/colors";
+import { statusTone } from "../EntityBits";
 import { Icon } from "../Icon";
 import { ChipsInput, ColorPicker, IconPicker, Row, Section, Segmented, TextInput } from "./controls";
 import { useEditor } from "./editor";
@@ -132,9 +134,36 @@ export function GeneralTab({ onDuplicate, onExport, onDelete }: { onDuplicate: (
 								{ value: "group", label: "Group's" },
 								{ value: "own", label: "Custom" },
 							]}
-							onChange={(v) => update((x) => (v === "own" ? (x.statuses = [...groupStatuses]) : delete x.statuses))}
+							onChange={(v) =>
+								update((x) => {
+									if (v === "own") {
+										// Start from the group's statuses and their colours.
+										x.statuses = [...groupStatuses];
+										if (group?.statusColors) x.statusColors = { ...group.statusColors };
+									} else {
+										delete x.statuses;
+										delete x.statusColors;
+									}
+								})
+							}
 						/>
-						{t.statuses && <ChipsInput label="Statuses" placeholder="e.g. open, closed" values={t.statuses} invalid={issuesAt("statuses").length > 0} onChange={(v) => update((x) => (x.statuses = v))} />}
+						{t.statuses && (
+							<ChipsInput
+								label="Statuses"
+								placeholder="e.g. open, closed"
+								values={t.statuses}
+								invalid={issuesAt("statuses").length > 0}
+								colors={t.statusColors}
+								toneOf={(s) => `oe-tone-${statusTone(s)}`}
+								onColor={(s, c) => update((x) => (x.statusColors = withColor(x.statusColors, s, c)))}
+								onChange={(v) =>
+									update((x) => {
+										x.statuses = v;
+										x.statusColors = pruneColors(x.statusColors, v);
+									})
+								}
+							/>
+						)}
 					</div>
 				</Row>
 			</Section>

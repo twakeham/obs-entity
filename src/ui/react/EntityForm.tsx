@@ -14,7 +14,8 @@ import type { EntityRecord } from "../../services/entityIndex";
 import { CalendarPopover } from "./Calendar";
 import { EntitySuggest, TypePickerModal } from "../components/entityPicker";
 import { usePlugin, useRelationsVersion } from "./context";
-import { statusTone } from "./EntityBits";
+import { colorClass, statusClass } from "./EntityBits";
+import { choiceColor, statusColor, type ColorMap } from "../../model/colors";
 import { EntityChip } from "./EntityChip";
 import { Icon } from "./Icon";
 import { KIND_INFO } from "./types/editor";
@@ -139,9 +140,9 @@ export function fieldControl(
 			// Worked out by the properties form (FormView); elsewhere (the create dialog) there's nothing to show yet.
 			return <Empty />;
 		case "select":
-			return <SelectControl options={f.options ?? []} value={o.value} editable={o.editable} label={label} placeholder={o.placeholder} onCommit={o.onCommit} />;
+			return <SelectControl options={f.options ?? []} value={o.value} editable={o.editable} label={label} placeholder={o.placeholder} colors={f.colors} onCommit={o.onCommit} />;
 		case "multiselect":
-			return <MultiControl options={f.options ?? []} value={o.value} editable={o.editable} label={label} onCommit={o.onCommit} />;
+			return <MultiControl options={f.options ?? []} value={o.value} editable={o.editable} label={label} colors={f.colors} onCommit={o.onCommit} />;
 		case "list":
 			return <ListControl value={o.value} editable={o.editable} label={label} placeholder={o.placeholder} onCommit={o.onCommit} />;
 		default:
@@ -934,16 +935,17 @@ export function StatusControl({ type, value, editable, problem, onCommit }: { ty
 	const options = statusesFor(type, plugin.settings.groups);
 	const current = typeof value === "string" ? value : isEmptyValue(value) ? "" : String(value);
 	const invalid = problem ? " is-invalid" : "";
+	const tone = statusClass(current || null, current ? statusColor(current, type, plugin.settings.groups) : null);
 	if (!editable) {
 		return current ? (
-			<span className={`oe-status-pill oe-tone-${statusTone(current)}${invalid}`} aria-label={problem?.message}>
+			<span className={`oe-status-pill ${tone}${invalid}`} aria-label={problem?.message}>
 				{current}
 			</span>
 		) : null;
 	}
 	const all = current && !options.includes(current) ? [current, ...options] : options;
 	return (
-		<select className={`oe-status dropdown oe-tone-${statusTone(current || null)}${invalid}`} value={current} aria-label={problem ? `Status: ${problem.message}` : "Status"} onChange={(e) => onCommit(e.target.value || null)}>
+		<select className={`oe-status dropdown ${tone}${invalid}`} value={current} aria-label={problem ? `Status: ${problem.message}` : "Status"} onChange={(e) => onCommit(e.target.value || null)}>
 			{!current && <option value="">no status</option>}
 			{all.map((s) => (
 				<option key={s} value={s}>
@@ -1131,12 +1133,13 @@ export function CheckControl({ value, editable, label, format, onCommit }: { val
 	}
 	return <input type="checkbox" className="oe-prop-check" aria-label={label} checked={value === true} onChange={(e) => onCommit(e.target.checked)} />;
 }
-export function SelectControl({ options, value, editable, label, placeholder, onCommit }: { options: string[]; value: unknown; editable: boolean; label: string; placeholder?: string; onCommit: (v: unknown) => void }) {
+export function SelectControl({ options, value, editable, label, placeholder, colors, onCommit }: { options: string[]; value: unknown; editable: boolean; label: string; placeholder?: string; colors?: ColorMap; onCommit: (v: unknown) => void }) {
 	const current = isEmptyValue(value) ? "" : Array.isArray(value) ? String(value[0] ?? "") : String(value);
-	if (!editable) return current ? <span className="oe-prop-text">{current}</span> : <Empty />;
+	const color = current ? choiceColor({ colors }, current) : null;
+	if (!editable) return current ? color ? <span className={`oe-pill oe-choice${colorClass(color)}`}>{current}</span> : <span className="oe-prop-text">{current}</span> : <Empty />;
 	const all = current && !options.includes(current) ? [current, ...options] : options;
 	return (
-		<select className="dropdown oe-prop-select" aria-label={label} value={current} onChange={(e) => onCommit(e.target.value || null)}>
+		<select className={`dropdown oe-prop-select${colorClass(color)}`} aria-label={label} value={current} onChange={(e) => onCommit(e.target.value || null)}>
 			<option value="">{placeholder || "—"}</option>
 			{all.map((o) => (
 				<option key={o} value={o}>
@@ -1147,14 +1150,15 @@ export function SelectControl({ options, value, editable, label, placeholder, on
 	);
 }
 
-export function MultiControl({ options, value, editable, label, onCommit }: { options: string[]; value: unknown; editable: boolean; label: string; onCommit: (v: unknown) => void }) {
+export function MultiControl({ options, value, editable, label, colors, onCommit }: { options: string[]; value: unknown; editable: boolean; label: string; colors?: ColorMap; onCommit: (v: unknown) => void }) {
 	const chosen = asArray(value).map(String);
 	const extra = chosen.filter((c) => !options.includes(c));
+	const tint = (o: string) => colorClass(choiceColor({ colors }, o));
 	if (!editable) {
 		return chosen.length ? (
 			<span className="oe-prop-pills">
 				{chosen.map((c) => (
-					<span key={c} className="oe-pill">
+					<span key={c} className={`oe-pill${tint(c) ? ` oe-choice${tint(c)}` : ""}`}>
 						{c}
 					</span>
 				))}
@@ -1167,7 +1171,7 @@ export function MultiControl({ options, value, editable, label, onCommit }: { op
 	return (
 		<span className="oe-prop-options" role="group" aria-label={label}>
 			{options.map((o) => (
-				<button key={o} type="button" className={`oe-option${chosen.includes(o) ? " is-active" : ""}`} aria-pressed={chosen.includes(o)} onClick={() => toggle(o)}>
+				<button key={o} type="button" className={`oe-option${chosen.includes(o) ? " is-active" : ""}${tint(o)}`} aria-pressed={chosen.includes(o)} onClick={() => toggle(o)}>
 					{o}
 				</button>
 			))}

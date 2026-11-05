@@ -366,6 +366,94 @@ select.oe-status {
 	color: var(--text-faint);
 }
 
+/* ---------- Choice and status colours (a palette that follows the theme) ---------- */
+.oe-c-red { --oe-c: var(--color-red); }
+.oe-c-orange { --oe-c: var(--color-orange); }
+.oe-c-yellow { --oe-c: var(--color-yellow); }
+.oe-c-green { --oe-c: var(--color-green); }
+.oe-c-blue { --oe-c: var(--color-blue); }
+.oe-c-purple { --oe-c: var(--color-purple); }
+.oe-c-pink { --oe-c: var(--color-pink); }
+.oe-c-grey { --oe-c: var(--text-muted); }
+
+/* A coloured choice: a pill tinted with its colour (uncoloured choices keep the standard look) */
+.oe-pill.oe-choice {
+	padding: 0 7px;
+	color: var(--oe-c);
+	background-color: color-mix(in srgb, var(--oe-c) 14%, transparent);
+	border: 1px solid color-mix(in srgb, var(--oe-c) 40%, transparent);
+}
+
+/* Statuses with a set colour (others are coloured by name, .oe-tone-*) */
+.oe-status-pill.has-color,
+select.oe-status.has-color,
+select.oe-prop-select.has-color {
+	color: var(--oe-c);
+}
+
+.oe-dot.has-color {
+	background-color: var(--oe-c);
+}
+
+/* Choice buttons (multiple choice in the form, filter values) */
+.oe-form .oe-option.has-color,
+.oe-popover .oe-option.has-color,
+.oe-filters .oe-option.has-color {
+	color: var(--oe-c);
+}
+
+.oe-form .oe-option.has-color.is-active,
+.oe-popover .oe-option.has-color.is-active,
+.oe-filters .oe-option.has-color.is-active {
+	border-color: var(--oe-c);
+	background-color: color-mix(in srgb, var(--oe-c) 16%, var(--background-primary));
+}
+
+/* The type editor's colour dot on a choice or status: click for the colour menu */
+.oe-tm button.oe-tm-colordot {
+	flex: none;
+	width: 11px;
+	height: 11px;
+	min-height: 0;
+	padding: 0;
+	margin: 0;
+	border-radius: 50%;
+	border: 1px dashed var(--text-faint);
+	background: transparent;
+	box-shadow: none;
+	cursor: var(--cursor);
+}
+
+.oe-tm button.oe-tm-colordot.has-color {
+	border: 1px solid var(--oe-c);
+	background-color: var(--oe-c);
+}
+
+/* A status without a set colour: the dot shows its colour by name */
+.oe-tm button.oe-tm-colordot.oe-tone-done {
+	border: 1px solid var(--color-green);
+	background-color: var(--color-green);
+}
+
+.oe-tm button.oe-tm-colordot.oe-tone-active {
+	border: 1px solid var(--color-blue);
+	background-color: var(--color-blue);
+}
+
+.oe-tm button.oe-tm-colordot.oe-tone-hold {
+	border: 1px solid var(--color-orange);
+	background-color: var(--color-orange);
+}
+
+.oe-tm button.oe-tm-colordot:hover {
+	outline: 2px solid var(--background-modifier-border-hover);
+}
+
+.menu-item.oe-color-item .menu-item-icon svg {
+	color: var(--oe-c);
+	fill: var(--oe-c);
+}
+
 /* ---------- Entity properties form ---------- */
 /* On entity notes the form replaces Obsidian's Properties block (Source mode keeps the raw YAML). */
 .oe-has-form {

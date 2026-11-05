@@ -7,6 +7,7 @@ import { AGG_FIELD_KINDS, calcCell, calcInfo, fieldColumn, filterText, formatCel
 import { FormulaModal } from "../../modals/formulaModal";
 import { BOOLEAN_FORMATS, datePresetLabels, FIELD_DATE_PRESETS, FIELD_NUMBER_PRESETS, formattedKind, formatValue, showDate, urlText } from "../../../model/fieldFormats";
 import { usePlugin } from "../context";
+import { pruneColors, withColor } from "../../../model/colors";
 import { autoText, defaultKinds, linkedTypes, nextAutoNumber, type DefaultFrom } from "../../../model/defaults";
 import { boundDays, boundText, DATE_COMPARE_LABELS, pruneRules, ruleGroups, takesUnique, type DateCompareOp, type FieldRules } from "../../../model/rules";
 import { todayDays, whenColumns, whenText } from "../../../model/formConditions";
@@ -325,6 +326,7 @@ function FieldDetails({ index }: { index: number }) {
 									if ((x.kind === "select" || x.kind === "multiselect") && !x.options) x.options = [];
 									startCalc(x, t, allTypes, groups);
 									pruneRules(x);
+									if (x.kind !== "select" && x.kind !== "multiselect") delete x.colors;
 									if (x.defaultFrom && !defaultKinds(x).includes(x.defaultFrom.kind)) delete x.defaultFrom;
 									// Relation fields can't be part of the subtitle.
 									if (x.kind === "relation" && t.card?.subtitle) t.card.subtitle = t.card.subtitle.filter((k) => k !== x.key);
@@ -384,8 +386,22 @@ function FieldDetails({ index }: { index: number }) {
 			{pane === "kind" && (
 				<>
 					{(f.kind === "select" || f.kind === "multiselect") && (
-						<Row label="Choices" desc="Type a choice and press Enter. Drag to reorder." issues={issuesAt(`field:${index}:options`)} stacked>
-							<ChipsInput label="Choices" placeholder="e.g. small, medium, large" values={f.options ?? []} invalid={issuesAt(`field:${index}:options`).length > 0} onChange={(v) => set((x) => (x.options = v))} />
+						<Row label="Choices" desc="Type a choice and press Enter. Drag to reorder. Click a choice's dot to give it a colour." issues={issuesAt(`field:${index}:options`)} stacked>
+							<ChipsInput
+								label="Choices"
+								placeholder="e.g. small, medium, large"
+								values={f.options ?? []}
+								invalid={issuesAt(`field:${index}:options`).length > 0}
+								colors={f.colors}
+								onColor={(v, c) => set((x) => (x.colors = withColor(x.colors, v, c)))}
+								onChange={(v) =>
+									set((x) => {
+										x.options = v;
+										// A removed choice loses its colour.
+										x.colors = pruneColors(x.colors, v);
+									})
+								}
+							/>
 						</Row>
 					)}
 

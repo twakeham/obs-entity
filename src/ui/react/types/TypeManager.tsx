@@ -31,7 +31,9 @@ import type { EntityRecord } from "../../../services/entityIndex";
 import { usePlugin, useRelationsVersion } from "../context";
 import { Icon } from "../Icon";
 import { DisplayTab } from "./DisplayTab";
-import { IconPicker, PALETTE, Row, Section, TextInput } from "./controls";
+import { ColorDot, IconPicker, PALETTE, Row, Section, TextInput } from "./controls";
+import { pruneColors, renameColor, withColor } from "../../../model/colors";
+import { statusTone } from "../EntityBits";
 import { EditorContext, type EditorApi, type EditorTab } from "./editor";
 import { FieldsTab } from "./FieldsTab";
 import { GeneralTab } from "./GeneralTab";
@@ -749,7 +751,12 @@ function GroupEditor({
 			new Notice(`Fix ${issues.length === 1 ? "this problem" : `these ${issues.length} problems`} before saving.`);
 			return;
 		}
-		const fin: GroupDef = { ...cloneGroup(g), name: g.name.trim(), statuses: g.statuses.map((s) => s.trim()) };
+		const statuses = g.statuses.map((s) => s.trim());
+		const fin: GroupDef = { ...cloneGroup(g), name: g.name.trim(), statuses };
+		// Colours of statuses that were trimmed or removed.
+		const colors = pruneColors(Object.fromEntries(Object.entries(g.statusColors ?? {}).map(([k, c]) => [k.trim(), c])), statuses);
+		if (colors) fin.statusColors = colors;
+		else delete fin.statusColors;
 		const list = settings.groups;
 		const i = draft.original ? list.findIndex((x) => x.key === draft.original!.key) : -1;
 		if (i >= 0) list[i] = fin;
@@ -864,7 +871,19 @@ function GroupEditor({
 								}}
 							>
 								<Icon name="grip-vertical" className="oe-tm-grip" />
-								<TextInput label={`Status ${i + 1}`} value={s} invalid={!s.trim() && attempted} onChange={(v) => edit((x) => (x.statuses[i] = v))} />
+								<ColorDot value={s || `status ${i + 1}`} color={(s && g.statusColors?.[s]) || null} tone={`oe-tone-${statusTone(s)}`} onPick={(c) => edit((x) => (x.statusColors = withColor(x.statusColors, s, c)))} />
+								<TextInput
+									label={`Status ${i + 1}`}
+									value={s}
+									invalid={!s.trim() && attempted}
+									onChange={(v) =>
+										edit((x) => {
+											// The colour follows the name as it's renamed.
+											x.statusColors = renameColor(x.statusColors, x.statuses[i], v);
+											x.statuses[i] = v;
+										})
+									}
+								/>
 								{i === 0 && <span className="oe-tm-badge">starting</span>}
 								{draft.statusOrig[i] && draft.statusOrig[i] !== s && s.trim() && <span className="oe-tm-muted">was {draft.statusOrig[i]}</span>}
 								<button
@@ -875,6 +894,7 @@ function GroupEditor({
 										edit((x, orig) => {
 											x.statuses.splice(i, 1);
 											orig.splice(i, 1);
+											x.statusColors = pruneColors(x.statusColors, x.statuses);
 										})
 									}
 								>

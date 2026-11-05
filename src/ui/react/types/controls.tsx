@@ -1,7 +1,8 @@
-import { getIconIds, Scope } from "obsidian";
-import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { getIconIds, Menu, Scope } from "obsidian";
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { DateAdapter } from "../../../model/dates";
+import { PALETTE as COLOR_PALETTE, PALETTE_LABELS, type ColorMap, type PaletteColor } from "../../../model/colors";
 import { targetName } from "../../../model/typeEditing";
 import { CalendarPopover } from "../Calendar";
 import type { TypeIssue } from "../../../model/validation";
@@ -132,19 +133,40 @@ export function Segmented<T extends string>({
 	);
 }
 
-/** Editable list of short strings shown as chips (select options, shortcuts). Drag chips to reorder. */
+/** Pick a palette colour for a value (Default: none), from a menu at the mouse. */
+export function colorMenu(evt: ReactMouseEvent<HTMLElement>, current: PaletteColor | null, pick: (c: PaletteColor | null) => void, defaultText = "Default") {
+	const m = new Menu();
+	m.addItem((i) => i.setTitle(defaultText).setIcon("circle-off").setChecked(!current).onClick(() => pick(null)));
+	for (const c of COLOR_PALETTE)
+		m.addItem((i) => {
+			i.setTitle(PALETTE_LABELS[c]).setIcon("circle").setChecked(current === c).onClick(() => pick(c));
+			(i as unknown as { dom?: HTMLElement }).dom?.addClass("oe-color-item", `oe-c-${c}`);
+		});
+	m.showAtMouseEvent(evt.nativeEvent);
+}
+
+/**
+ * Editable list of short strings shown as chips (select options, shortcuts). Drag chips to reorder. With `onColor`,
+ * each chip has a colour dot (`colors`; `toneOf` gives the look without one, e.g. a status's tone).
+ */
 export function ChipsInput({
 	values,
 	onChange,
 	placeholder,
 	label,
 	invalid,
+	colors,
+	onColor,
+	toneOf,
 }: {
 	values: string[];
 	onChange: (v: string[]) => void;
 	placeholder: string;
 	label: string;
 	invalid?: boolean;
+	colors?: ColorMap;
+	onColor?: (value: string, color: PaletteColor | null) => void;
+	toneOf?: (value: string) => string;
 }) {
 	const [text, setText] = useState("");
 	const [dragFrom, setDragFrom] = useState<number | null>(null);
@@ -182,6 +204,7 @@ export function ChipsInput({
 						setDragFrom(null);
 					}}
 				>
+					{onColor && <ColorDot value={v} color={colors?.[v] ?? null} tone={toneOf?.(v)} onPick={(c) => onColor(v, c)} />}
 					{v}
 					<button className="oe-tm-chip-x clickable-icon" aria-label={`Remove ${v}`} onClick={() => onChange(values.filter((x) => x !== v))}>
 						<Icon name="x" />
@@ -198,6 +221,18 @@ export function ChipsInput({
 				onBlur={add}
 			/>
 		</div>
+	);
+}
+
+/** A value's colour dot: shows its colour (or its standard look) and opens the colour menu. */
+export function ColorDot({ value, color, tone, onPick }: { value: string; color: PaletteColor | null; tone?: string; onPick: (c: PaletteColor | null) => void }) {
+	return (
+		<button
+			type="button"
+			className={`oe-tm-colordot${color ? ` has-color oe-c-${color}` : tone ? ` ${tone}` : ""}`}
+			aria-label={`Colour of ${value}: ${color ? PALETTE_LABELS[color] : "default"}`}
+			onClick={(e) => colorMenu(e, color, onPick)}
+		/>
 	);
 }
 

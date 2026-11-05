@@ -134,6 +134,7 @@ Opened from:
 - **Fields:** a field list (drag to reorder) and a details panel for the selected field, in three tabs (a field always opens on General):
   - **General:** kind (at the top), label, key, description, default, and show in the create dialog.
   - **Choices**, **Relation**, **Roll-up** or **Formula** (only for those kinds): the kind's own settings: the choices; what a relation links to and how; or what a calculated field works out, with its result and a preview.
+  - **Coloured choices:** on the Choices tab, click a choice's dot to give it a colour (red, orange, yellow, green, blue, purple, pink or grey; they follow the light / dark theme), or **Default** for the standard look. A coloured choice shows as a tinted pill in tables, board cards, bucket and group headings, the properties form and Reading view (the dropdown's text takes the colour too), and in filter and highlight panels. Uncoloured choices look as before.
   - **Display:** the **display format** (numbers, dates, checkboxes, URLs, and calculated fields that give one of those; each preset shows an example from your notes).
   - **Validation:** required, and the validation rules below. The tab shows how many are set.
   - **Default:** a fixed value, or a smarter one:
@@ -181,6 +182,7 @@ Opened from:
 
 **Groups:**
 - You can edit the name, icon and statuses. Statuses can be reordered by dragging, and the first is the starting status.
+- **Status colours:** statuses are coloured by name by default (done green, active / in-progress blue, on-hold / blocked orange, archived faint). Click the dot next to a status (in the group editor, or a type's own statuses on its General tab) to pick another colour, or **Default** to go back. A type's own colours win over its group's. They show wherever statuses do: pills in tables and on boards, the properties form's status, and the browser's dots.
 - Renaming a status offers to update the notes that use it.
 - A group can only be deleted once it has no types.
 
@@ -435,6 +437,7 @@ src/
     validation.ts            typeIssues(): located problems
     rules.ts                 field validation rules (ranges, patterns, dates, unique, required when)
     defaults.ts              smarter defaults (relative dates, from a linked note, the next number)
+    colors.ts                choice and status colours (the palette, lookups, keeping them in step)
     links.ts                 wikilink parsing/formatting, labelled links
     relations.ts             edges, groupRelations (inverses), addLink/removeLink
     frontmatter.ts           build/merge frontmatter, value conversion

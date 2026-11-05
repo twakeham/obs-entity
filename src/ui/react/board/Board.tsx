@@ -1,9 +1,10 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent as RPointerEvent, type ReactNode, type UIEvent } from "react";
 import { BUCKET_NONE, BUCKET_PAGE, bucketsOf, boardOf, cardFieldIds, cardWidth, isBucketColumn, orderRows, reorder, type Bucket } from "../../../model/board";
-import { highlightOf, ROW_TARGET, type Cell, type GroupBy, type ResolvedColumn, type ResultGroup, type ResultRow, type ViewContext, type ViewDef, type ViewResult } from "../../../model/views";
+import { highlightOf, ROW_TARGET, sourceTypes, type Cell, type GroupBy, type ResolvedColumn, type ResultGroup, type ResultRow, type ViewContext, type ViewDef, type ViewResult } from "../../../model/views";
 import type { SummaryResult } from "../../../model/summary";
 import { usePlugin } from "../context";
-import { statusTone } from "../EntityBits";
+import { colorClass, GroupValue, statusClass } from "../EntityBits";
+import { choiceColor, statusColorAmong } from "../../../model/colors";
 import { Icon } from "../Icon";
 import { CellView } from "../table/cells";
 import { cssColor, hlClasses, scaleFill, type ColumnChoice } from "../table/popovers";
@@ -573,7 +574,7 @@ export function Board(p: BoardProps) {
 	const bucketTitle = (b: Bucket) => (b.key === BUCKET_NONE ? `No ${bucketCol.label.toLowerCase()}` : bucketCol.kind === "bool" ? `${bucketCol.label}: ${b.label}` : b.label);
 	const bucketLabel = (b: Bucket) => {
 		if (b.key === BUCKET_NONE) return <span className="oe-bucket-none">{bucketTitle(b)}</span>;
-		if (bucketCol.def.kind === "builtin") return <span className={`oe-status-pill oe-tone-${statusTone(b.label)}`}>{b.label}</span>;
+		if (bucketCol.def.kind === "builtin") return <span className={`oe-status-pill ${statusClass(b.label, statusColorAmong(b.label, sourceTypes(def, ctx.types), ctx.groups))}`}>{b.label}</span>;
 		if (bucketCol.kind === "bool")
 			return (
 				<span className="oe-bucket-bool">
@@ -590,7 +591,8 @@ export function Board(p: BoardProps) {
 				</span>
 			);
 		}
-		return <span className="oe-pill">{b.label}</span>;
+		const tint = bucketCol.field ? colorClass(choiceColor(bucketCol.field, b.label)) : "";
+		return <span className={`oe-pill${tint ? ` oe-choice${tint}` : ""}`}>{b.label}</span>;
 	};
 	const count = (b: Bucket) => {
 		const limit = board.limits[b.key];
@@ -878,10 +880,10 @@ function LaneLabel({ def, col, lane, by }: { def: ViewDef; col: ResolvedColumn |
 	const label = col?.label ?? by.by;
 	return def.groupFieldNames !== false ? (
 		<span className="oe-group-label">
-			<span className="oe-group-field">{label}:</span> {lane.label || <span className="oe-group-none">none</span>}
+			<span className="oe-group-field">{label}:</span> {lane.label ? <GroupValue col={col} text={lane.label} /> : <span className="oe-group-none">none</span>}
 		</span>
 	) : (
-		<span className="oe-group-label">{lane.label || `No ${label.toLowerCase()}`}</span>
+		<span className="oe-group-label">{lane.label ? <GroupValue col={col} text={lane.label} /> : `No ${label.toLowerCase()}`}</span>
 	);
 }
 

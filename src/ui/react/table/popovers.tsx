@@ -30,6 +30,8 @@ import {
 import type { EntityRecord } from "../../../services/entityIndex";
 import { DATE_PRESETS, formatDate, formatIssue, formatNumber, NUMBER_PRESETS, type MomentLike } from "../../../model/formats";
 import { EntitySuggest } from "../../components/entityPicker";
+import { choiceColor, statusColorAmong } from "../../../model/colors";
+import { colorClass } from "../EntityBits";
 import { usePlugin } from "../context";
 import { Icon } from "../Icon";
 
@@ -286,12 +288,15 @@ function ValueEditor({ kind, col, value, ctx, valuesOf, thisNote, onChange }: { 
 			const chosen = (Array.isArray(value) ? value : value === undefined || value === "" ? [] : [value]).map(String);
 			const options = col.options?.length ? col.options : valuesOf(col.id);
 			const label = (o: string) => (col.def.kind === "builtin" && col.def.key === "type" ? (plugin.getType(o)?.name ?? o) : o);
+			// Coloured choices and statuses keep their colour here too.
+			const tint = (o: string) =>
+				colorClass(col.def.kind === "builtin" && col.def.key === "status" ? statusColorAmong(o, ctx.types, ctx.groups) : col.field?.kind === "select" || col.field?.kind === "multiselect" ? choiceColor(col.field, o) : null);
 			const all = [...options, ...chosen.filter((c) => !options.includes(c))];
 			return (
 				<span className="oe-pop-pills" role="group" aria-label="Values">
 					{all.length === 0 && <span className="oe-pop-empty">No values yet.</span>}
 					{all.map((o) => (
-						<button key={o} className={`oe-option${chosen.includes(o) ? " is-active" : ""}`} aria-pressed={chosen.includes(o)} onClick={() => onChange(chosen.includes(o) ? chosen.filter((x) => x !== o) : [...chosen, o])}>
+						<button key={o} className={`oe-option${chosen.includes(o) ? " is-active" : ""}${tint(o)}`} aria-pressed={chosen.includes(o)} onClick={() => onChange(chosen.includes(o) ? chosen.filter((x) => x !== o) : [...chosen, o])}>
 							{label(o)}
 						</button>
 					))}

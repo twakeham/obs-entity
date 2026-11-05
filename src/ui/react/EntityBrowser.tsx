@@ -17,7 +17,8 @@ import type { EntityRecord } from "../../services/entityIndex";
 import { TypePickerModal } from "../components/entityPicker";
 import { usePlugin, useRelationsVersion } from "./context";
 import { HOVER_SOURCE } from "./EntityChip";
-import { statusTone } from "./EntityBits";
+import { statusClass } from "./EntityBits";
+import { statusColor, type PaletteColor } from "../../model/colors";
 import { Icon } from "./Icon";
 import { BOARD_ICON } from "../../model/board";
 
@@ -38,8 +39,8 @@ const INDENT = 14;
 const sKey = (s: BrowserSection) => `s:${s.key}`;
 const bKey = (b: BrowserBlock) => `b:${b.key}`;
 
-export function StatusDot({ status }: { status: string | null }) {
-	return <span className={`oe-dot oe-tone-${status ? statusTone(status) : "none"}`} aria-label={status ?? "no status"} />;
+export function StatusDot({ status, color = null }: { status: string | null; color?: PaletteColor | null }) {
+	return <span className={`oe-dot ${status ? statusClass(status, color) : "oe-tone-none"}`} aria-label={status ?? "no status"} />;
 }
 
 export function EntityBrowser({ state, setState, activePath }: { state: BrowserState; setState: (patch: Partial<BrowserState>) => void; activePath: string | null }) {
@@ -487,7 +488,7 @@ function TreeRow({
 				<Icon name={e.type.icon} className="oe-tree-icon" />
 				<span className="oe-tree-name">{e.name}</span>
 				{hasKids && !open && <span className="oe-tree-count">{node.size}</span>}
-				<StatusDot status={e.status} />
+				<StatusDot status={e.status} color={e.status ? statusColor(e.status, e.type, plugin.settings.groups) : null} />
 			</div>
 			{open && node.children.map((c) => <TreeRow key={c.entity.path} node={c} depth={depth + 1} isOpen={isOpen} activePath={activePath} onToggle={onToggle} />)}
 		</>

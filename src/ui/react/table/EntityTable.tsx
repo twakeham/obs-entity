@@ -50,6 +50,7 @@ import { PluginContext, usePlugin, useRelationsVersion } from "../context";
 import { HOVER_SOURCE } from "../EntityChip";
 import { Icon } from "../Icon";
 import { CellEditor, CellView, editTarget } from "./cells";
+import { GroupValue } from "../EntityBits";
 import { summarize, summaryOptions, type SummaryResult } from "../../../model/summary";
 import { ColumnsPanel, cssColor, FiltersPanel, FormatPanel, GroupPanel, HighlightPanel, hlClasses, newHighlightRule, newVizRule, Popover, scaleFill, SortPanel, type ColumnChoice } from "./popovers";
 import { BOARD_ICON, BUCKET_NONE, boardOf, boardRunDef, bucketColumn, bucketColumns, bucketsOf, bucketStep, cardFieldIds, defaultBuckets, moveBucketOrder, type Bucket } from "../../../model/board";
@@ -1513,10 +1514,10 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 										<Icon name={it.open ? "chevron-down" : "chevron-right"} />
 										{def.groupFieldNames !== false ? (
 											<span className="oe-group-label">
-												<span className="oe-group-field">{col?.label ?? it.by}:</span> {it.label || <span className="oe-group-none">none</span>}
+												<span className="oe-group-field">{col?.label ?? it.by}:</span> {it.label ? <GroupValue col={col} text={it.label} /> : <span className="oe-group-none">none</span>}
 											</span>
 										) : (
-											<span className="oe-group-label">{it.label || `No ${(col?.label ?? "value").toLowerCase()}`}</span>
+											<span className="oe-group-label">{it.label ? <GroupValue col={col} text={it.label} /> : `No ${(col?.label ?? "value").toLowerCase()}`}</span>
 										)}
 										<span className="oe-group-count">{it.count}</span>
 									</span>

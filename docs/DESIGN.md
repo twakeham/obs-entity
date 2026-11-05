@@ -223,6 +223,7 @@ Options common to all kinds:
 | `defaultFrom` | A smarter default instead of `default`: a date relative to today, a linked note's value, or the next number (§4.9). |
 | `rules` | Validation rules: ranges, lengths, a pattern, dates, item counts, unique, required when (§4.8). |
 | `format` | Display format (number, date, checkbox and URL fields only; §4.6). The stored value never changes. |
+| `colors` | Choice and multiple-choice fields: a palette colour per choice, e.g. `{ High: "red" }` (§4.3.1). Unset choices keep the standard look. |
 
 Relation options:
 
@@ -237,7 +238,7 @@ Relation options:
 ### 4.3 Groups
 
 ```ts
-interface GroupDef { key: string; name: string; icon: string; statuses: string[]; }
+interface GroupDef { key: string; name: string; icon: string; statuses: string[]; statusColors?: Record<string, PaletteColor>; }
 ```
 
 Groups give:
@@ -247,6 +248,15 @@ Groups give:
 - `@group` relation targets
 
 There's always at least one group. If every group is removed, an "Entities" group with statuses `draft, active, done` is added back. A fresh install gets the starter pack's groups (Directory, Work).
+
+### 4.3.1 Choice and status colours
+
+Choices and statuses can have a colour from a small palette that follows the theme: `red`, `orange`, `yellow`, `green`, `blue`, `purple`, `pink`, `grey` (Obsidian's `--color-*` variables; `model/colors.ts`). Unset means the standard look.
+
+- **Choices:** `FieldDef.colors` (`{ High: "red" }`), set on the field's Choices tab: each choice chip has a colour dot that opens a menu (Default, then the colours with swatches). Removing a choice drops its colour (`pruneColors`), changing the field's kind away from a choice drops them all. Lookups (`choiceColor`) match the name exactly, else ignoring case.
+  - **Shown** as a tinted pill (`.oe-pill.oe-choice.oe-c-<colour>`: a light background, the text and border in the colour) in table cells, board cards, bucket headings, table group and swimlane headings (`GroupValue`), the properties form and Reading view (read-only values; an editable single choice's dropdown text takes the colour; multiple-choice buttons are tinted), and the filter and highlight panels' value pills. Not in subtitles or link pickers. Uncoloured choices: plain text (single) or a grey pill (multiple), as before.
+- **Statuses:** `GroupDef.statusColors` and, for types with their own statuses, `EntityTypeDef.statusColors` (`statusColor(status, type, groups)`: the type's, else its group's). Without one a status keeps its colour by name (`statusTone`: done green, active blue, on-hold orange, closed faint, others neutral). Set with the dot next to each status in the group editor (renaming moves the colour, removing drops it, saving tidies) or on a type's General tab (switching to its own statuses copies the group's colours; back to the group's drops them).
+  - **Shown** wherever statuses are (`statusClass`): pills in tables and boards (bucket headings use the first source type with a colour, `statusColorAmong`), the properties form's status dropdown and pill, the browser's status dots, and filter pills.
 
 ### 4.4 Date adapter (extension point)
 
@@ -478,6 +488,7 @@ src/
     validation.ts               typeIssues() → located problems; validateType()
     rules.ts                    field validation rules: what each kind offers, messages, type problems
     defaults.ts                 smarter defaults: relative dates, linked values, the next number; emptyFormValues
+    colors.ts                   choice and status colours: PALETTE, choiceColor, statusColor, keeping maps in step
     links.ts                    parseLink, parseLabelledEntry, toWikilink, toLabelledWikilink, asArray
     relations.ts                extractEdges, groupRelations, addLink, removeLink
     frontmatter.ts              buildFrontmatter, mergeFrontmatter, fieldDisplay, toYamlValue
@@ -668,7 +679,7 @@ Big icon, name, a "group · N notes · starter/custom · `key`" line, and the ta
 
   It shows only the options that apply to the field's kind:
   - **All kinds:** label, key ("Was `old_key`. You can update existing notes when you save."), kind, description, default.
-  - **Choice / multichoice:** options as chips, reorderable by drag, added with Enter or a comma.
+  - **Choice / multichoice:** options as chips, reorderable by drag, added with Enter or a comma. Each chip has a colour dot (§4.3.1).
   - **Relation:**
     - targets, from type chips and an "+ Add…" dropdown grouped by group, with "Any entity" / "Any <group>"
     - the name on the other note (inverse)
@@ -1829,6 +1840,7 @@ These cover all of `model/`, with no Obsidian dependency:
 - **this note:** `{this}` in filters and highlight rules becomes the note's path (saved definition unchanged), + New prefills it, and with no note it's dropped or reported as ignored.
 - **viewEmbed:** reading options (`wide`, `bare`; ordinary display text gives none), keeping `bare` when toggling `wide`, finding a note's embeds of a link, turning wide on and off, picking the nearest or n-th embed, and escaping the pipe in tables.
 - **rules:** which rules each kind offers and pruning on a kind change, date bounds (today ± d / w / m / y, fixed dates, unreadable specs), every rule's message (ranges, whole numbers, lengths, patterns with their own message, dates and comparisons, item counts, unique), type problems with rules, and renames.
+- **colors:** choice colours (ignoring case, unknown colours ignored), status colours from the type then the group (and among several types), setting, clearing, pruning and renaming.
 - **defaults:** which kinds each field offers, relative dates in a new note's values, the next number (padding, patterns, gaps, numbers), copying from a linked note only into empty fields, default problems, and renamed relation fields.
 - **card:** subtitle composition (several fields, empty values skipped, first line of a textarea); renaming or deleting a field updates `card.subtitle` and `parentFields` in the draft.
 - **formConditions:** reading conditions on frames, tabs and slots; the view operators on the note's own values (choices, numbers, status, tags, relative dates, links, checkboxes); unusable conditions ignored; which fields a layout hides; a hidden required field isn't required (other problems still count); renames and deleted fields; conditions in words.

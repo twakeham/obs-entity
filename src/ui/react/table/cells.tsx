@@ -6,7 +6,8 @@ import { isListValued, type FieldDef } from "../../../model/types";
 import type { Cell, LinkValue, ResolvedColumn, ViewRow } from "../../../model/views";
 import type { EntityRecord } from "../../../services/entityIndex";
 import { usePlugin } from "../context";
-import { statusTone } from "../EntityBits";
+import { colorClass, statusClass } from "../EntityBits";
+import { choiceColor, statusColor } from "../../../model/colors";
 import { EntityChip } from "../EntityChip";
 import { CheckControl, ListControl, MultiControl, RelationControl, SelectControl, StatusControl, TextControl } from "../EntityForm";
 import { Icon } from "../Icon";
@@ -52,7 +53,7 @@ export function CellView({ col, cell, row, onToggle }: { col: ResolvedColumn; ce
 		if (field.format === "yesno" || field.format === "check") return <span className="oe-cell-text">{cell.text}</span>;
 		return <input type="checkbox" className="oe-cell-check" checked={v === true} disabled={!onToggle} aria-label={col.label} onChange={(e) => onToggle?.(e.target.checked)} onClick={(e) => e.stopPropagation()} />;
 	}
-	if (d.kind === "builtin" && d.key === "status") return cell.text ? <span className={`oe-status-pill oe-tone-${statusTone(cell.text)}`}>{cell.text}</span> : null;
+	if (d.kind === "builtin" && d.key === "status") return cell.text ? <span className={`oe-status-pill ${statusClass(cell.text, statusColor(cell.text, row.type, plugin.settings.groups))}`}>{cell.text}</span> : null;
 	if (d.kind === "builtin" && d.key === "type") {
 		const t = row.type;
 		return (
@@ -64,15 +65,24 @@ export function CellView({ col, cell, row, onToggle }: { col: ResolvedColumn; ce
 	}
 	if (col.kind === "multi") {
 		const tags = d.kind === "builtin" && d.key === "tags";
+		// A multiple-choice field's choices can have colours (the row's own type's field).
+		const field = d.kind === "field" ? row.type.fields.find((f) => f.key === d.key) : undefined;
 		return (
 			<span className="oe-cell-pills">
-				{((v as string[]) ?? []).map((s, i) => (
-					<span key={`${s}:${i}`} className={`oe-pill${tags ? " is-tag" : ""}`}>
-						{tags ? `#${s}` : s}
-					</span>
-				))}
+				{((v as string[]) ?? []).map((s, i) => {
+					const tint = colorClass(choiceColor(field, s));
+					return (
+						<span key={`${s}:${i}`} className={`oe-pill${tags ? " is-tag" : ""}${tint ? ` oe-choice${tint}` : ""}`}>
+							{tags ? `#${s}` : s}
+						</span>
+					);
+				})}
 			</span>
 		);
+	}
+	if (col.kind === "choice" && d.kind === "field" && cell.text) {
+		const tint = colorClass(choiceColor(row.type.fields.find((f) => f.key === d.key), cell.text));
+		if (tint) return <span className={`oe-pill oe-choice${tint}`}>{cell.text}</span>;
 	}
 	if (d.kind === "rollup" && d.rollup.agg === "percent-done" && typeof v === "number") {
 		return (
