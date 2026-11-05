@@ -2097,10 +2097,10 @@ function ToolButton({
 		>
 			<Icon name={icon} />
 			<span className="oe-view-tool-label">{label}</span>
-			{count > 0 && (
-				<span className="oe-view-tool-count">
+			{(count > 0 || warning) && (
+				<span className={`oe-view-tool-count${count > 0 ? "" : " is-icon-only"}`}>
 					{warning && <Icon name="alert-triangle" />}
-					{count}
+					{count > 0 && count}
 				</span>
 			)}
 		</button>

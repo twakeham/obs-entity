@@ -5393,6 +5393,11 @@ td.is-wrap .oe-bar-value {
 	background-color: color-mix(in srgb, var(--color-orange) 20%, transparent);
 }
 
+/* A warning without a count (e.g. a read-only board's Buckets): just the icon */
+.oe-view-tool-count.is-icon-only {
+	padding: 0 4px;
+}
+
 .oe-view-tool-count svg {
 	width: 11px;
 	height: 11px;
