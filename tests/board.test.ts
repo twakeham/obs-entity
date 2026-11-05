@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { isoDateAdapter } from "../src/model/dates";
 import { CRM_PACK, STARTER_PACK } from "../src/model/packs";
 import { extractEdges } from "../src/model/relations";
-import { applyBucketOrder, boardRunDef, bucketColumn, bucketStep, moveBucketOrder, bucketColumns, bucketsOf, BUCKET_NONE, cardFieldIds, cardWidth, defaultBuckets, isBucketColumn, orderRows, reorder, typesWithField } from "../src/model/board";
+import { applyBucketOrder, boardRunDef, bucketColumn, bucketStep, moveBucketOrder, bucketColumns, bucketsOf, BUCKET_NONE, cardFieldIds, cardWidth, defaultBuckets, isBucketColumn, isReadonlyBucket, orderRows, reorder, typesWithField } from "../src/model/board";
 import { emptyBoard, parseView, resolveColumn, runView, serializeView, columnFromId, type ViewContext, type ViewDef, type ViewRow } from "../src/model/views";
 
 const TYPES = [...STARTER_PACK.types, ...CRM_PACK.types];
@@ -129,12 +129,22 @@ describe("board definition", () => {
 
 describe("bucket fields", () => {
 	it("offers status and the entity's own single-value choice, checkbox and link fields", () => {
-		const ids = (types: string[]) => bucketColumns(view({ types }), ctx).map((c) => c.id);
+		const ids = (types: string[]) => bucketColumns(view({ types }), ctx).filter(isBucketColumn).map((c) => c.id);
 		expect(ids(["project"])).toEqual(["status", "owner", "client", "parent_project"]);
 		expect(ids(["organisation"])).toEqual(["status", "kind", "located_in", "part_of"]);
 		// lists, multi-links, text, numbers and dates aren't offered
 		expect(ids(["deal"])).toEqual(["status", "company"]);
 		expect(defaultBuckets(view({ types: ["project"] }), ctx)).toBe("status");
+	});
+
+	it("then offers the single-valued built-ins as read-only buckets (hierarchy ones with parent fields)", () => {
+		const all = (types: string[]) => bucketColumns(view({ types }), ctx);
+		const ro = (types: string[]) => all(types).filter((c) => !isBucketColumn(c)).map((c) => c.id);
+		expect(ro(["deal"])).toEqual(["type", "folder", "created", "modified"]);
+		const withParents = TYPES.find((t) => t.parentFields?.length)!;
+		expect(ro([withParents.key])).toEqual(["type", "folder", "created", "modified", "tree-parent", "tree-root", "tree-path"]);
+		expect(all(["deal"]).every((c) => isBucketColumn(c) || isReadonlyBucket(c))).toBe(true);
+		for (const id of ["tags", "aliases", "related"]) expect(isReadonlyBucket(resolveColumn(columnFromId(id), view({ types: ["deal"] }), ctx))).toBe(false);
 	});
 
 	it("never accepts read-only columns", () => {
@@ -193,6 +203,35 @@ describe("buckets", () => {
 		const rows = [true, false, undefined].map((v, i) => ({ row: row(`T${i}`, "project", null), cells: { status: { value: v ?? null, text: "", sort: 0 } } }));
 		const bs = bucketsOf(col, rows, emptyBoard());
 		expect(bs.map((b) => `${b.key}/${b.label}/${String(b.value)}:${b.rows.map((r) => r.row.name)}`)).toEqual(["no/No/false:T1,T2", "yes/Yes/true:T0"]);
+	});
+
+	it("by type (read-only): only the types in use, in type order, with their names; no empty bucket", () => {
+		const { buckets, col } = board({ types: ["*"], board: { buckets: "type" } });
+		expect(isBucketColumn(col)).toBe(false);
+		const order = TYPES.map((t) => t.key).filter((k) => ROWS.some((r) => r.type.key === k));
+		expect(buckets.map((b) => b.key)).toEqual(order);
+		expect(buckets.find((b) => b.key === "organisation")!.label).toBe(T("organisation").name);
+		expect(summary(buckets).person).toBe("Ada,Grace");
+	});
+
+	it("by folder, date and ancestors (read-only)", () => {
+		const def = view({ types: ["project"] });
+		const cell = (value: unknown, text = "") => ({ value, text, sort: 0 });
+		const rows = (cells: unknown[]) => cells.map((c, i) => ({ row: row(`R${i}`, "project", null), cells: { x: c as ReturnType<typeof cell> } }));
+		const as = (id: string) => ({ ...resolveColumn(columnFromId(id), def, ctx), id: "x" });
+		const show = (bs: ReturnType<typeof bucketsOf>) => bs.map((b) => `${b.key}=${b.label}:${b.rows.map((r) => r.row.name)}`);
+		expect(show(bucketsOf(as("folder"), rows([cell("Work"), cell(""), cell("Archive"), cell("Work")]), emptyBoard()))).toEqual(["Archive=Archive:R2", "/=Vault root:R1", "Work=Work:R0,R3"]);
+		const day = (iso: string) => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) / 86_400_000;
+		expect(show(bucketsOf(as("modified"), rows([cell(day("2026-10-03")), cell(day("2026-11-20")), cell(day("2026-10-30")), cell(null)]), emptyBoard()))).toEqual([
+			"2026-11=November 2026:R1",
+			"2026-10=October 2026:R0,R2",
+			`${BUCKET_NONE}=:R3`,
+		]);
+		expect(show(bucketsOf(as("tree-path"), rows([cell("B › C", "B › C"), cell("A", "A"), cell(null)]), emptyBoard()))).toEqual(["A=A:R1", "B › C=B › C:R0", `${BUCKET_NONE}=:R2`]);
+		const link = (name: string) => [{ path: `${name}.md`, linktext: name, name }];
+		expect(show(bucketsOf(as("tree-parent"), rows([cell(link("Zed")), cell(link("Amy")), cell([])]), emptyBoard()))).toEqual(["Amy.md=Amy:R1", "Zed.md=Zed:R0", `${BUCKET_NONE}=:R2`]);
+		// Read-only built-ins get no empty bucket when nothing's in it.
+		expect(show(bucketsOf(as("tree-parent"), rows([cell(link("Amy"))]), emptyBoard()))).toEqual(["Amy.md=Amy:R0"]);
 	});
 
 	it("flags hidden buckets and can leave out empty ones", () => {

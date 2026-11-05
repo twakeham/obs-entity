@@ -32,8 +32,8 @@ export const boardOf = (def: ViewDef): BoardDef => def.board ?? emptyBoard();
 export const cardWidth = (def: ViewDef) => CARD_WIDTH[boardOf(def).cardSize ?? "medium"];
 
 /**
- * Whether a column can be a board's buckets (or a swimlane cards can be dropped into): status, or one of the
- * entity's own fields holding one value from a known set — a choice, a checkbox or a single link.
+ * Whether a column can be a board's buckets that cards are dragged between (or a swimlane cards can be dropped into):
+ * status, or one of the entity's own fields holding one value from a known set — a choice, a checkbox or a single link.
  */
 export function isBucketColumn(col: ResolvedColumn): boolean {
 	if (col.invalid) return false;
@@ -43,11 +43,23 @@ export function isBucketColumn(col: ResolvedColumn): boolean {
 	return f.kind === "select" || f.kind === "boolean" || (f.kind === "relation" && !isListValued(f));
 }
 
-/** Columns a board can use as buckets: status, then the source types' choice, checkbox and single-link fields. */
+/** Built-ins that can be buckets but not changed from the board (a read-only board: cards stay in their bucket). */
+export const READONLY_BUCKET_BUILTINS = ["type", "folder", "tree-parent", "tree-root", "tree-path", "created", "modified"] as const;
+
+/** Whether a column can be read-only buckets (a single-valued built-in the board can't write). */
+export const isReadonlyBucket = (col: ResolvedColumn): boolean =>
+	!col.invalid && col.def.kind === "builtin" && (READONLY_BUCKET_BUILTINS as readonly string[]).includes(col.def.key);
+
+/**
+ * Columns a board can use as buckets: status, then the source types' choice, checkbox and single-link fields, then
+ * the read-only built-ins (type, folder, parent, top-level parent, ancestors, created, modified).
+ */
 export function bucketColumns(def: ViewDef, lookup: Lookup): ResolvedColumn[] {
 	const avail = availableColumns(def, lookup);
 	const status = avail.builtins.filter((c) => c.id === "status");
-	return [...status, ...avail.fields].map((c) => resolveColumn(c, def, lookup)).filter(isBucketColumn);
+	const writable = [...status, ...avail.fields].map((c) => resolveColumn(c, def, lookup)).filter(isBucketColumn);
+	const readonly = avail.builtins.map((c) => resolveColumn(c, def, lookup)).filter(isReadonlyBucket);
+	return [...writable, ...readonly];
 }
 
 /** The bucket column a board starts with: status when the types have statuses, else the first usable field. */
@@ -100,7 +112,7 @@ export interface Bucket {
 	hidden: boolean;
 }
 
-/** The bucket a cell puts its card in. */
+/** The bucket a cell puts its card in. Dates go in their month ("2026-11"); the vault root folder is "/". */
 export function bucketKeyOf(cell: Cell | undefined, col: ResolvedColumn): string {
 	const v = cell?.value;
 	if (col.kind === "bool") return v === true ? "yes" : "no";
@@ -108,13 +120,24 @@ export function bucketKeyOf(cell: Cell | undefined, col: ResolvedColumn): string
 		const l = (Array.isArray(v) ? v : [])[0] as LinkValue | undefined;
 		return l ? (l.path ?? `?${l.linktext}`) : BUCKET_NONE;
 	}
+	if (col.kind === "date") {
+		if (typeof v !== "number") return BUCKET_NONE;
+		const d = new Date(v * 86_400_000);
+		return `${String(d.getUTCFullYear()).padStart(4, "0")}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+	}
+	if (col.kind === "folder") return typeof v === "string" ? v || "/" : BUCKET_NONE;
 	return v === null || v === undefined || v === "" ? BUCKET_NONE : String(v);
 }
 
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+/** A month bucket's label: "November 2026". */
+const monthLabel = (key: string) => `${MONTHS[Number(key.slice(5, 7)) - 1] ?? ""} ${Number(key.slice(0, 4))}`.trim();
+
 /**
  * The buckets for a board's cards, in the field's order: statuses and choices in their defined order (every one,
- * empty or not), then values in use that aren't defined; No then Yes for checkboxes; links A→Z by name. The empty
- * bucket comes last: always for choices and links (dropping there clears the field), for status only when used.
+ * empty or not), then values in use that aren't defined; No then Yes for checkboxes; links A→Z by name; types in
+ * type order; months newest first; folders and ancestors A→Z. The empty bucket comes last: always for choices and
+ * links (dropping there clears the field), for built-ins only when used.
  * Rows keep their order. Hidden buckets are flagged; with `hideEmpty`, empty buckets are left out.
  */
 export function bucketsOf(col: ResolvedColumn, rows: ResultRow[], board: BoardDef): Bucket[] {
@@ -124,18 +147,30 @@ export function bucketsOf(col: ResolvedColumn, rows: ResultRow[], board: BoardDe
 		const cell = r.cells[col.id];
 		const key = bucketKeyOf(cell, col);
 		(byKey.get(key) ?? byKey.set(key, []).get(key)!).push(r);
-		if (col.kind === "links" && key !== BUCKET_NONE) labels.set(key, ((cell?.value as LinkValue[])[0]?.name ?? key) as string);
+		if (key === BUCKET_NONE || labels.has(key)) continue;
+		if (col.kind === "links") labels.set(key, ((cell?.value as LinkValue[])[0]?.name ?? key) as string);
+		else if (col.kind === "date") labels.set(key, monthLabel(key));
+		else if (col.kind === "folder") labels.set(key, key === "/" ? "Vault root" : key);
+		// A type's name (its key is the bucket key).
+		else if (col.def.kind === "builtin" && col.def.key === "type" && cell?.text) labels.set(key, cell.text);
 	}
 	const keys: string[] = [];
+	const used = [...byKey.keys()].filter((k) => k !== BUCKET_NONE);
 	if (col.kind === "bool") keys.push("no", "yes");
-	else if (col.kind === "links") keys.push(...[...byKey.keys()].filter((k) => k !== BUCKET_NONE).sort((a, b) => natural(labels.get(a) ?? a, labels.get(b) ?? b)));
-	else {
+	else if (col.kind === "links" || col.kind === "folder") keys.push(...used.sort((a, b) => natural(labels.get(a) ?? a, labels.get(b) ?? b)));
+	else if (col.kind === "date") keys.push(...used.sort().reverse());
+	else if (isReadonlyBucket(col)) {
+		// Read-only buckets: only values in use (nothing can be dropped into an empty one), types in type order.
 		const defined = col.options ?? [];
-		keys.push(...defined, ...[...byKey.keys()].filter((k) => k !== BUCKET_NONE && !defined.includes(k)).sort(natural));
+		keys.push(...defined.filter((k) => used.includes(k)), ...used.filter((k) => !defined.includes(k)).sort((a, b) => natural(labels.get(a) ?? a, labels.get(b) ?? b)));
+	} else {
+		const defined = col.options ?? [];
+		keys.push(...defined, ...used.filter((k) => !defined.includes(k)).sort(natural));
 	}
-	const isStatus = col.def.kind === "builtin";
+	// Built-ins (status and the read-only ones) only get an empty bucket when something's in it.
+	const isBuiltin = col.def.kind === "builtin";
 	const ordered = applyBucketOrder(keys, board.bucketOrder);
-	if (col.kind !== "bool" && (!isStatus || byKey.has(BUCKET_NONE))) ordered.push(BUCKET_NONE);
+	if (col.kind !== "bool" && (!isBuiltin || byKey.has(BUCKET_NONE))) ordered.push(BUCKET_NONE);
 	const out: Bucket[] = ordered.map((key) => ({
 		key,
 		label: key === BUCKET_NONE ? "" : col.kind === "bool" ? (key === "yes" ? "Yes" : "No") : (labels.get(key) ?? key),

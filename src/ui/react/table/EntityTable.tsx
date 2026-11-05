@@ -54,7 +54,7 @@ import { CellEditor, CellView, editTarget } from "./cells";
 import { GroupValue } from "../EntityBits";
 import { summarize, summaryOptions, type SummaryResult } from "../../../model/summary";
 import { ColumnsPanel, cssColor, FiltersPanel, FormatPanel, GroupPanel, HighlightPanel, hlClasses, newHighlightRule, newVizRule, Popover, scaleFill, SortPanel, type ColumnChoice } from "./popovers";
-import { BOARD_ICON, BUCKET_NONE, boardOf, boardRunDef, bucketColumn, bucketColumns, bucketsOf, bucketStep, cardFieldIds, defaultBuckets, moveBucketOrder, type Bucket } from "../../../model/board";
+import { BOARD_ICON, BUCKET_NONE, boardOf, boardRunDef, bucketColumn, bucketColumns, bucketsOf, bucketStep, cardFieldIds, defaultBuckets, isBucketColumn, isReadonlyBucket, moveBucketOrder, type Bucket } from "../../../model/board";
 import { applyChange } from "../../../model/bulk";
 import { toWikilink } from "../../../model/links";
 import { COMMON_KEYS } from "../../../model/types";
@@ -839,9 +839,27 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					),
 			);
 	};
-	/** A bucket key as shown (link buckets show the note's name). */
+	/**
+	 * Add card in a bucket (and swimlane): the new note gets the bucket's value. Read-only buckets can't set theirs,
+	 * except a Type bucket, which offers only that type.
+	 */
+	const addCard = (b: Bucket, lane: LaneTarget | null) => {
+		const among = bucketCol?.def.kind === "builtin" && bucketCol.def.key === "type" ? sources.filter((t) => t.key === b.key) : sources;
+		newEntity([...(bucketCol && isBucketColumn(bucketCol) ? [{ col: bucketCol, value: b.value }] : []), ...(lane ? [lane] : [])], undefined, among);
+	};
+	/** A bucket key as shown (link buckets show the note's name, type buckets the type's, month buckets the month). */
 	const bucketName = (key: string) =>
-		key === BUCKET_NONE ? `No ${(bucketCol?.label ?? "value").toLowerCase()}` : bucketCol?.kind === "links" ? (ctx.row(key)?.name ?? key) : bucketCol?.kind === "bool" ? (key === "yes" ? "Yes" : "No") : key;
+		key === BUCKET_NONE
+			? `No ${(bucketCol?.label ?? "value").toLowerCase()}`
+			: bucketCol?.kind === "links"
+				? (ctx.row(key)?.name ?? key)
+				: bucketCol?.kind === "bool"
+					? key === "yes"
+						? "Yes"
+						: "No"
+					: bucketCol && isReadonlyBucket(bucketCol)
+						? (allBuckets().find((b) => b.key === key)?.label ?? key)
+						: key;
 
 	/** ⋯ in a table: row density and wrapped lines. */
 	const tableMoreItems = (m: Menu, at: { x: number; y: number }) => {
@@ -894,7 +912,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 	const newEntity = (extra: LaneTarget[] = [], perType?: (t: EntityTypeDef) => Record<string, FieldValue>, among: EntityTypeDef[] = sources) => {
 		const pre = prefillFromFilters(hereDef, result.known);
 		for (const { col, value } of extra) {
-			const key = col.def.kind === "builtin" ? COMMON_KEYS.status : col.def.kind === "field" ? col.def.key : null;
+			const key = col.def.kind === "builtin" ? (col.def.key === "status" ? COMMON_KEYS.status : null) : col.def.kind === "field" ? col.def.key : null;
 			if (!key) continue;
 			if (key === COMMON_KEYS.status) {
 				if (typeof value === "string") pre.status = value;
@@ -941,7 +959,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		update(next);
 	};
 	/** The frontmatter key a bucket or swimlane column writes. */
-	const keyOf = (col: ResolvedColumn) => (col.def.kind === "builtin" ? COMMON_KEYS.status : col.def.kind === "field" ? col.def.key : null);
+	const keyOf = (col: ResolvedColumn) => (col.def.kind === "builtin" ? (col.def.key === "status" ? COMMON_KEYS.status : null) : col.def.kind === "field" ? col.def.key : null);
 	/**
 	 * Drop cards into a bucket (and swimlane): set the fields that differ, and the bucket's manual order. One
 	 * Ctrl/Cmd+Z step undoes both. Cards whose type lacks the field, or can't have that status, stay put.
@@ -953,7 +971,8 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 			update({ ...prev, board: { ...b, order: { ...b.order, [mv.order.bucket]: mv.order.paths } } });
 		}
 		const writes: LaneTarget[] = [];
-		if (bucketCol) writes.push({ col: bucketCol, value: mv.bucket.value });
+		// Read-only buckets (type, folder, parent…) never write: their cards only reorder within the bucket.
+		if (bucketCol && isBucketColumn(bucketCol)) writes.push({ col: bucketCol, value: mv.bucket.value });
 		if (mv.lane) writes.push(mv.lane);
 		const refused: string[] = [];
 		const undoFm = await plugin.bulk.updateFrontmatter(
@@ -1139,7 +1158,9 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		};
 		const isCollapsed = cur.collapsedBuckets.includes(b.key);
 		const m = new Menu();
-		m.addItem((i) => i.setSection("add").setTitle("Add card").setIcon("plus").onClick(() => newEntity(bucketCol ? [{ col: bucketCol, value: b.value }] : [])));
+		// A new card only lands in a read-only bucket when it's a Type bucket.
+		if (!bucketCol || isBucketColumn(bucketCol) || (bucketCol.def.kind === "builtin" && bucketCol.def.key === "type"))
+			m.addItem((i) => i.setSection("add").setTitle("Add card").setIcon("plus").onClick(() => addCard(b, null)));
 		const left = bucketStep(shownBucketKeys(), b.key, -1);
 		const right = bucketStep(shownBucketKeys(), b.key, 1);
 		m.addItem((i) => i.setSection("order").setTitle("Move left").setIcon("arrow-left").setDisabled(left === undefined).onClick(() => left !== undefined && moveBucket(b.key, left)));
@@ -1512,7 +1533,17 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 							warning={ignored.length ? `${ignored.length} ${ignored.length === 1 ? "condition" : "conditions"} ignored` : undefined}
 						/>
 						<ToolButton name="sort" icon="arrow-up-down" label="Sort" count={def.sort.length} active={pop?.name === "sort"} onClick={openPop} />
-						{isBoard && <ToolButton name="buckets" icon={BOARD_ICON} label={bucketCol ? `Buckets: ${bucketCol.label}` : "Buckets"} count={0} active={pop?.name === "buckets"} onClick={openPop} />}
+						{isBoard && (
+							<ToolButton
+								name="buckets"
+								icon={BOARD_ICON}
+								label={bucketCol ? `Buckets: ${bucketCol.label}` : "Buckets"}
+								count={0}
+								active={pop?.name === "buckets"}
+								onClick={openPop}
+								warning={bucketCol && isReadonlyBucket(bucketCol) ? "Read-only board: cards can't be moved to another bucket" : undefined}
+							/>
+						)}
 						{isCalendar && <ToolButton name="dates" icon={CALENDAR_ICON} label={datesButtonLabel()} count={0} active={pop?.name === "dates"} onClick={openPop} />}
 						{(!isCalendar || layoutOf(def) === "week") && (
 							<ToolButton
@@ -1566,7 +1597,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					move={moveCards}
 					moveBucket={moveBucket}
 					stepBucket={stepBucket}
-					newCard={(b, lane) => newEntity([...(bucketCol ? [{ col: bucketCol, value: b.value }] : []), ...(lane ? [lane] : [])])}
+					newCard={addCard}
 					onCommonKey={(e) => !pop && !editing && commonKey(e)}
 					chooseBuckets={(el) => setPop({ name: "buckets", anchor: el.getBoundingClientRect() })}
 					memory={boardMem.current}

@@ -7330,3 +7330,23 @@ button.oe-calv-more:hover {
 .oe-cell-chain-sep {
 	color: var(--text-faint);
 }
+/* Buckets panel: the read-only built-ins, and the warning when one is picked (like a filter condition's) */
+.oe-bucketspanel .oe-bucketspanel-sub {
+	margin-top: var(--size-4-2);
+}
+
+.oe-bucketspanel .oe-condition-issue {
+	display: flex;
+	align-items: flex-start;
+	gap: 4px;
+	max-width: 300px;
+	margin: var(--size-4-1) var(--size-4-2) var(--size-4-1);
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-bucketspanel .oe-condition-issue svg {
+	flex: none;
+	width: 13px;
+	height: 13px;
+	margin-top: 1px;
+}

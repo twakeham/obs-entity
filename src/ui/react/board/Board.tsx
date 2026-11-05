@@ -103,6 +103,11 @@ export function Board(p: BoardProps) {
 		[result],
 	);
 	const buckets = useMemo(() => (bucketCol ? bucketsOf(bucketCol, result.rows, board).filter((b) => !b.hidden) : []), [bucketCol, result, board]);
+	/** Whether dragging a card to another bucket can write its bucket field (read-only buckets: type, folder, parent…). */
+	const bucketsWritable = !!bucketCol && isBucketColumn(bucketCol);
+	/** A new card lands in its bucket: writable buckets, and Type buckets (the new note is of that type). */
+	const canAdd = bucketsWritable || (bucketCol?.def.kind === "builtin" && bucketCol.def.key === "type");
+	const bucketOfPath = useMemo(() => new Map(buckets.flatMap((b) => b.rows.map((r) => [r.row.path, b.key] as const))), [buckets]);
 	/** a bucket's cards (every lane) in their shown order */
 	const bucketOrder = (b: Bucket) => (sorted ? b.rows : orderRows(b.rows, board.order[b.key]));
 	const cells = useMemo(() => {
@@ -198,8 +203,11 @@ export function Board(p: BoardProps) {
 					break;
 				}
 			}
-		const ok = lane === d.lane || laneWritable;
-		return { lane, bucket, before, ok, ...(ok ? {} : { why: `Cards can't be dragged to another ${laneCol?.label ?? "swimlane"}` }) };
+		const laneOk = lane === d.lane || laneWritable;
+		// Read-only buckets: cards only move within their own bucket.
+		const bucketOk = bucketsWritable || d.paths.every((p) => bucketOfPath.get(p) === bucket);
+		const ok = laneOk && bucketOk;
+		return { lane, bucket, before, ok, ...(ok ? {} : { why: !bucketOk ? `Cards can't be moved to another ${bucketCol?.label ?? "bucket"}: the board can't change it` : `Cards can't be dragged to another ${laneCol?.label ?? "swimlane"}` }) };
 	};
 	const setTarget = (t: DropTarget | null) => setDrop((cur) => (cur?.lane === t?.lane && cur?.bucket === t?.bucket && cur?.before === t?.before && cur?.ok === t?.ok ? cur : t));
 
@@ -505,6 +513,10 @@ export function Board(p: BoardProps) {
 			const from = buckets.findIndex((b) => b.key === openBuckets[at.bi].key);
 			const to = buckets[from + (e.key === "ArrowLeft" ? -1 : 1)];
 			if (!to) return;
+			if (!bucketsWritable) {
+				setAnnounce(`Cards can't be moved to another ${bucketCol?.label.toLowerCase() ?? "bucket"}: the board can't change it.`);
+				return;
+			}
 			const paths = movingFor(at.r.row.path);
 			void dropOn(paths, at.lane, { lane: at.lane, bucket: to.key, before: null, ok: true }).then(() =>
 				setAnnounce(`Moved ${paths.length > 1 ? `${paths.length} cards` : at.r.row.name} to ${to.key === BUCKET_NONE ? `no ${bucketCol?.label.toLowerCase() ?? "value"}` : to.label}.`),
@@ -576,7 +588,24 @@ export function Board(p: BoardProps) {
 	const bucketTitle = (b: Bucket) => (b.key === BUCKET_NONE ? `No ${bucketCol.label.toLowerCase()}` : bucketCol.kind === "bool" ? `${bucketCol.label}: ${b.label}` : b.label);
 	const bucketLabel = (b: Bucket) => {
 		if (b.key === BUCKET_NONE) return <span className="oe-bucket-none">{bucketTitle(b)}</span>;
-		if (bucketCol.def.kind === "builtin") return <span className={`oe-status-pill ${statusClass(b.label, statusColorAmong(b.label, sourceTypes(def, ctx.types), ctx.groups))}`}>{b.label}</span>;
+		const builtin = bucketCol.def.kind === "builtin" ? bucketCol.def.key : null;
+		if (builtin === "status") return <span className={`oe-status-pill ${statusClass(b.label, statusColorAmong(b.label, sourceTypes(def, ctx.types), ctx.groups))}`}>{b.label}</span>;
+		if (builtin === "type") {
+			const t = ctx.types.find((x) => x.key === b.key);
+			return (
+				<span className="oe-bucket-link" style={t ? ({ "--oe-type-color": t.color } as CSSProperties) : undefined}>
+					{t && <Icon name={t.icon} className="oe-chip-icon" />}
+					{b.label}
+				</span>
+			);
+		}
+		if (builtin === "folder" || bucketCol.kind === "date")
+			return (
+				<span className="oe-bucket-link">
+					<Icon name={builtin === "folder" ? "folder" : "calendar"} className="oe-chip-icon" />
+					{b.label}
+				</span>
+			);
 		if (bucketCol.kind === "bool")
 			return (
 				<span className="oe-bucket-bool">
@@ -656,9 +685,11 @@ export function Board(p: BoardProps) {
 					{bucketLabel(b)}
 					{count(b)}
 					<span className="oe-spacer" />
-					<button className="clickable-icon" aria-label={`Add a card to ${bucketTitle(b)}`} onClick={() => p.newCard(b, null)}>
-						<Icon name="plus" />
-					</button>
+					{canAdd && (
+						<button className="clickable-icon" aria-label={`Add a card to ${bucketTitle(b)}`} onClick={() => p.newCard(b, null)}>
+							<Icon name="plus" />
+						</button>
+					)}
 					<button className="clickable-icon" aria-label={`${bucketTitle(b)} options`} onClick={(e) => menuAt(e, b)}>
 						<Icon name="more-horizontal" />
 					</button>
@@ -758,9 +789,11 @@ export function Board(p: BoardProps) {
 						Show {Math.min(BUCKET_PAGE, list.length - shown.length)} more… <span className="oe-bucket-more-n">({list.length - shown.length} not shown)</span>
 					</button>
 				)}
-				<button className="oe-bucket-add" onClick={() => p.newCard(b, laneTarget)}>
-					<Icon name="plus" /> Add card
-				</button>
+				{canAdd && (
+					<button className="oe-bucket-add" onClick={() => p.newCard(b, laneTarget)}>
+						<Icon name="plus" /> Add card
+					</button>
+				)}
 			</div>
 		);
 	};
@@ -905,19 +938,36 @@ function LaneLabel({ def, col, lane, by }: { def: ViewDef; col: ResolvedColumn |
 
 // ---------------------------------------------------------------- panels
 
-/** Toolbar → Buckets: which field the buckets come from. */
+/** Toolbar → Buckets: which field the buckets come from (writable ones first, then the read-only built-ins). */
 export function BucketsPanel({ value, choices, onChange }: { value: string | undefined; choices: ResolvedColumn[]; onChange: (id: string) => void }) {
+	const writable = choices.filter(isBucketColumn);
+	const readonly = choices.filter((c) => !isBucketColumn(c));
+	const current = choices.find((c) => c.id === value);
+	const item = (c: ResolvedColumn) => (
+		<label key={c.id} className="oe-columns-item">
+			<input type="radio" name="oe-buckets" checked={value === c.id} onChange={() => onChange(c.id)} />
+			<span className="oe-columns-label">{c.label}</span>
+			<span className="oe-bucketspanel-kind">
+				{c.def.kind === "builtin" ? (isBucketColumn(c) ? "status" : "read-only") : c.kind === "bool" ? "checkbox" : c.kind === "links" ? "link" : "choice"}
+			</span>
+		</label>
+	);
 	return (
 		<div className="oe-bucketspanel" role="radiogroup" aria-label="Buckets">
 			<div className="oe-pop-heading">Buckets by</div>
-			{choices.map((c) => (
-				<label key={c.id} className="oe-columns-item">
-					<input type="radio" name="oe-buckets" checked={value === c.id} onChange={() => onChange(c.id)} />
-					<span className="oe-columns-label">{c.label}</span>
-					<span className="oe-bucketspanel-kind">{c.def.kind === "builtin" ? "status" : c.kind === "bool" ? "checkbox" : c.kind === "links" ? "link" : "choice"}</span>
-				</label>
-			))}
-			<div className="oe-pop-hint">Dragging a card to another bucket changes this field. Only the entities' own status, choice, checkbox and single-link fields can be buckets.</div>
+			{writable.map(item)}
+			{readonly.length > 0 && <div className="oe-pop-heading oe-bucketspanel-sub">Built-in (read-only)</div>}
+			{readonly.map(item)}
+			{current && !isBucketColumn(current) ? (
+				<div className="oe-condition-issue" role="note">
+					<Icon name="alert-triangle" />
+					<span>
+						{current.label} can't be changed from the board, so this is a read-only board: cards can't be dragged to another bucket (they can still be reordered within one).
+					</span>
+				</div>
+			) : (
+				<div className="oe-pop-hint">Dragging a card to another bucket changes this field. The entities' own status, choice, checkbox and single-link fields can be changed this way; built-ins like Type and Parent make a read-only board.</div>
+			)}
 		</div>
 	);
 }
