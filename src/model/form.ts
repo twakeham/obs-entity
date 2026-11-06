@@ -314,11 +314,15 @@ export function retype(fm: Record<string, unknown>, to: EntityTypeDef, groups: G
 	return { statusReset: false };
 }
 
-/** One form edit: a key's value before and after (undefined = the key didn't exist). */
+/**
+ * One form edit: a key's value before and after (undefined = the key didn't exist). A workflow run caused by an
+ * edit is an entry too: `undo` restores every note it changed (the key is "").
+ */
 export interface FormEdit {
 	key: string;
 	before: unknown;
 	after: unknown;
+	undo?: () => Promise<void>;
 }
 
 const copy = (v: unknown) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
@@ -329,9 +333,9 @@ export class EditHistory {
 	constructor(private limit = 20) {}
 
 	push(path: string, edit: FormEdit): void {
-		if (JSON.stringify(edit.before) === JSON.stringify(edit.after)) return;
+		if (!edit.undo && JSON.stringify(edit.before) === JSON.stringify(edit.after)) return;
 		const stack = this.stacks.get(path) ?? [];
-		stack.push({ key: edit.key, before: copy(edit.before), after: copy(edit.after) });
+		stack.push(edit.undo ? { key: "", before: undefined, after: undefined, undo: edit.undo } : { key: edit.key, before: copy(edit.before), after: copy(edit.after) });
 		if (stack.length > this.limit) stack.splice(0, stack.length - this.limit);
 		this.stacks.set(path, stack);
 	}

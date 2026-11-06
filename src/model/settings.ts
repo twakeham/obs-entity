@@ -3,6 +3,7 @@ import { readComponents, type SavedComponent } from "./layoutClipboard";
 import { STARTER_PACK } from "./packs";
 import { DEFAULT_FOLDER_PATTERN } from "./paths";
 import { cloneGroup, cloneType, DEFAULT_STATUSES, type EntityTypeDef, type GroupDef } from "./types";
+import { readWorkflows, type WorkflowDef } from "./workflows";
 
 export interface EntitiesSettings {
 	settingsVersion: number;
@@ -32,6 +33,10 @@ export interface EntitiesSettings {
 	types: EntityTypeDef[];
 	/** Starter-pack type keys the user deleted, so newer plugin versions don't add them back. */
 	deletedPackTypes: string[];
+	/** Workflows (DESIGN §8.11). */
+	workflows: WorkflowDef[];
+	/** The master switch: no workflow runs while paused. */
+	workflowsPaused: boolean;
 }
 
 export const SETTINGS_VERSION = 3;
@@ -53,6 +58,8 @@ export function defaultSettings(): EntitiesSettings {
 		groups: (STARTER_PACK.groups ?? []).map(cloneGroup),
 		types: STARTER_PACK.types.map((t) => ({ ...cloneType(t), pack: STARTER_PACK.id })),
 		deletedPackTypes: [],
+		workflows: [],
+		workflowsPaused: false,
 	};
 }
 
@@ -74,6 +81,8 @@ export function mergeSettings(saved: Partial<EntitiesSettings> | null | undefine
 	};
 	merged.groups = Array.isArray(saved.groups) ? saved.groups.map(cloneGroup) : base.groups;
 	merged.types = Array.isArray(saved.types) ? saved.types.map(cloneType) : base.types;
+	merged.workflows = readWorkflows(saved.workflows);
+	merged.workflowsPaused = saved.workflowsPaused === true;
 	// Version 3: the properties form replaced the info card (whose settings are dropped).
 	const legacy = merged as EntitiesSettings & { showCard?: unknown; cardCollapsed?: unknown };
 	delete legacy.showCard;

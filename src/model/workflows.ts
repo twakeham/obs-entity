@@ -176,8 +176,8 @@ export function changeMatches(trigger: Extract<WorkflowTrigger, { kind: "changed
 	if (a === b) return false;
 	if (trigger.from?.length && !inList(a, trigger.from)) return false;
 	const to = trigger.to;
-	if (to === "filled") return b !== null;
-	if (to === "empty") return b === null || (kind === "boolean" && b === "false");
+	if (to === "filled") return a === null && b !== null && !(kind === "boolean" && b === "false");
+	if (to === "empty") return (b === null || (kind === "boolean" && b === "false")) && a !== null;
 	if (Array.isArray(to) && to.length && !inList(b, to)) return false;
 	return true;
 }

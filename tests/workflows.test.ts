@@ -103,6 +103,7 @@ describe("matching changes", () => {
 
 	it("other fields: filled, emptied or any change; unknown fields never match", () => {
 		expect(changeMatches(t("filled", undefined, "due"), { due: null }, { due: "2026-11-06" }, TASK)).toBe(true);
+		expect(changeMatches(t("filled", undefined, "due"), { due: "2026-11-01" }, { due: "2026-11-06" }, TASK)).toBe(false);
 		expect(changeMatches(t("filled", undefined, "due"), { due: "2026-11-05" }, { due: "" }, TASK)).toBe(false);
 		expect(changeMatches(t("empty", undefined, "due"), { due: "2026-11-05" }, { due: "" }, TASK)).toBe(true);
 		expect(changeMatches(t(undefined, undefined, "labels"), { labels: ["bug"] }, { labels: ["bug", "feature"] }, TASK)).toBe(true);

@@ -494,8 +494,9 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 		e.preventDefault();
 		e.stopPropagation();
 		const edit = plugin.undoProperty(file.path);
-		if (edit) hold(edit.key, edit.before);
-		else new Notice("Nothing to undo in the properties form.");
+		if (edit) {
+			if (!edit.undo) hold(edit.key, edit.before);
+		} else new Notice("Nothing to undo in the properties form.");
 	};
 
 

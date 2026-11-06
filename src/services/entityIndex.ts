@@ -12,11 +12,17 @@ export interface EntityRecord extends EntityInfo {
 
 /**
  * Tracks every note whose frontmatter `entity` names a known type.
- * Emits "updated" (debounced) whenever the set of entities or their metadata changes.
+ * Emits "updated" (debounced) whenever the set of entities or their metadata changes, and, once ready, per note:
+ * "entity-created" (a note became an entity of a type: new, synced in or converted; not renames or rebuilds) and
+ * "entity-changed" (its metadata was re-read; with the frontmatter before).
  */
 export class EntityIndex extends Events {
 	private byPath = new Map<string, EntityRecord>();
 	private ready = false;
+	/** rebuilding: no per-note events */
+	private quiet = false;
+	/** new paths of renamed notes, so the re-index there isn't taken for a new note */
+	private renamed = new Set<string>();
 	private notify = debounce(() => this.trigger("updated"), 150, true);
 
 	constructor(private plugin: EntitiesPlugin) {
@@ -40,7 +46,10 @@ export class EntityIndex extends Events {
 				const old = this.byPath.get(oldPath);
 				const had = this.byPath.delete(oldPath);
 				if (file instanceof TFile) {
-					if (this.update(file)) return this.notify();
+					if (old) this.renamed.add(file.path);
+					const indexed = this.update(file);
+					this.renamed.delete(file.path);
+					if (indexed) return this.notify();
 					// The metadata cache may not have the new path yet: keep the entity (a rename doesn't change its
 					// frontmatter) under its new path, and read it again shortly.
 					if (old && file.extension === "md") {
@@ -64,8 +73,10 @@ export class EntityIndex extends Events {
 	}
 
 	rebuild(): void {
+		this.quiet = true;
 		this.byPath.clear();
 		for (const file of this.plugin.app.vault.getMarkdownFiles()) this.update(file);
+		this.quiet = false;
 		this.ready = true;
 		this.trigger("updated");
 	}
@@ -79,7 +90,8 @@ export class EntityIndex extends Events {
 		const type = typeof typeKey === "string" ? this.plugin.getType(typeKey) : undefined;
 		if (!fm || !type) return this.byPath.delete(file.path);
 		const status = fm[COMMON_KEYS.status];
-		this.byPath.set(file.path, {
+		const before = this.byPath.get(file.path);
+		const record: EntityRecord = {
 			file,
 			path: file.path,
 			name: file.basename,
@@ -92,7 +104,13 @@ export class EntityIndex extends Events {
 			ctime: file.stat.ctime,
 			order: toOrder(fm[COMMON_KEYS.order]),
 			frontmatter: fm,
-		});
+		};
+		this.byPath.set(file.path, record);
+		if (this.ready && !this.quiet) {
+			if (!before || before.type.key !== type.key) {
+				if (!this.renamed.has(file.path)) this.trigger("entity-created", record);
+			} else this.trigger("entity-changed", record, before.frontmatter);
+		}
 		return true;
 	}
 

@@ -27,6 +27,9 @@ import { TYPES_VIEW, TypesView } from "./ui/views/TypesView";
 import type { GroupDraft, TypeDraft } from "./model/typeEditing";
 import { calcCell, emptyBoard, emptyView, fieldColumn, formatCell, resolveColumn, serializeView, sourceTypes, typeViewDef, type ViewContext, type ViewDef, type ViewKind, type ViewRow, columnFromId } from "./model/views";
 import { defaultBuckets } from "./model/board";
+import type { WorkflowDef } from "./model/workflows";
+import { WorkflowEngine } from "./services/workflows";
+import { confirmRun, WorkflowPickerModal } from "./ui/modals/workflowModals";
 import { initialDates } from "./model/calendarView";
 import { VIEW_BLOCK, ViewIndex } from "./services/viewIndex";
 import { NewViewModal, OpenViewModal } from "./ui/modals/viewModals";
@@ -66,6 +69,8 @@ export default class EntitiesPlugin extends Plugin {
 	private form!: FormManager;
 	/** View notes (notes with an `entity-view` block in the views folder). */
 	views!: ViewIndex;
+	/** Runs workflows (DESIGN §8.11). */
+	workflows!: WorkflowEngine;
 	/** Ctrl/Cmd+Z history for properties-form edits, per note. */
 	formHistory = new EditHistory(20);
 	/** Date handling for date fields (ISO for now; a custom calendar can replace it). */
@@ -83,8 +88,10 @@ export default class EntitiesPlugin extends Plugin {
 		this.bulk = new BulkActions(this);
 		this.form = new FormManager(this);
 		this.views = new ViewIndex(this);
+		this.workflows = new WorkflowEngine(this);
 		this.relations.load();
 		this.index.load();
+		this.workflows.load();
 		// Subtitles with calculated fields need every note indexed; fill them in once the index settles.
 		const calcSubtitles = debounce(() => this.refreshCalcSubtitles(), 300, true);
 		this.registerEvent(this.index.on("updated", calcSubtitles));
@@ -192,6 +199,30 @@ export default class EntitiesPlugin extends Plugin {
 			callback: () => {
 				this.index.rebuild();
 				new Notice(`Indexed ${this.index.all().length} entities.`);
+			},
+		});
+		this.addCommand({
+			id: "run-workflow",
+			name: "Run workflow on this note…",
+			checkCallback: (checking) => {
+				const entity = this.index.getByFile(this.app.workspace.getActiveFile());
+				const list = this.workflows.manualFor(entity);
+				if (!entity || !list.length) return false;
+				if (!checking) new WorkflowPickerModal(this, list, (wf) => void this.runWorkflow(wf, [entity.path])).open();
+				return true;
+			},
+		});
+		this.addCommand({
+			id: "undo-workflow-run",
+			name: "Undo last workflow run",
+			callback: () => void this.workflows.undoLast(),
+		});
+		this.addCommand({
+			id: "toggle-workflows",
+			name: "Pause or resume workflows",
+			callback: async () => {
+				await this.workflows.setPaused(!this.workflows.paused);
+				new Notice(this.workflows.paused ? "Workflows paused." : "Workflows resumed.");
 			},
 		});
 		this.registerTypeCommands();
@@ -323,12 +354,16 @@ export default class EntitiesPlugin extends Plugin {
 		if (record) this.formHistory.push(file.path, { key, before, after: value });
 	}
 
-	/** Undo the last properties-form edit on a note: starts writing the old value and returns the edit (null when there's nothing to undo). */
+	/** Undo the last properties-form edit on a note: starts writing the old value (or undoing a workflow run) and returns the edit (null when there's nothing to undo). */
 	undoProperty(path: string): FormEdit | null {
 		const file = this.app.vault.getAbstractFileByPath(path);
 		if (!(file instanceof TFile)) return null;
 		const edit = this.formHistory.pop(path);
 		if (!edit) return null;
+		if (edit.undo) {
+			edit.undo().catch((e: Error) => new Notice(`Couldn't undo the workflow: ${e.message}`));
+			return edit;
+		}
 		this.writeProperty(file, edit.key, edit.before, false).catch((e: Error) => new Notice(`Couldn't undo: ${e.message}`));
 		return edit;
 	}
@@ -532,6 +567,14 @@ export default class EntitiesPlugin extends Plugin {
 		this.syncPropertyTypes();
 		// Type definitions may have changed; re-resolve every entity against them.
 		if (this.index?.isReady()) this.index.rebuild();
+	}
+
+	/** Run a manual workflow on notes, asking first when it has a confirmation. */
+	async runWorkflow(wf: WorkflowDef, paths: string[]): Promise<void> {
+		if (wf.trigger.kind === "manual" && wf.trigger.confirm) {
+			if (!(await confirmRun(this.app, wf.trigger.label || wf.name, wf.trigger.confirm))) return;
+		}
+		await this.workflows.runOn(wf, paths);
 	}
 
 	getType(key: string): EntityTypeDef | undefined {
