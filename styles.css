@@ -7770,6 +7770,7 @@ button.oe-calv-more:hover {
 
 /* [ ], ƒx and ↺: buttons that look like the field picker */
 .oe-tm button.oe-wf-fxbtn,
+.oe-tm span.oe-wf-insert,
 .oe-wf button.oe-datebox-pick {
 	flex: none;
 	height: 26px;
@@ -7786,12 +7787,14 @@ button.oe-calv-more:hover {
 }
 
 .oe-tm button.oe-wf-fxbtn:hover,
+.oe-tm span.oe-wf-insert:hover,
 .oe-wf button.oe-datebox-pick:hover {
 	background-color: var(--dropdown-background-hover, var(--interactive-hover));
 	box-shadow: var(--input-shadow-hover);
 }
 
 .oe-tm button.oe-wf-fxbtn .oe-icon svg,
+.oe-tm span.oe-wf-insert .oe-icon svg,
 .oe-wf button.oe-datebox-pick .oe-icon svg {
 	width: 14px;
 	height: 14px;
@@ -7857,4 +7860,27 @@ button.oe-calv-more:hover {
 
 .oe-wf-step.drop-after {
 	box-shadow: 0 5px 0 -2px var(--interactive-accent);
+}
+
+/* [ ]: the brackets icon, with the grouped field dropdown laid over it (invisible until it opens) */
+.oe-tm span.oe-wf-insert {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	cursor: pointer;
+}
+
+.oe-tm span.oe-wf-insert select {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	opacity: 0;
+	cursor: pointer;
+}
+
+.oe-tm span.oe-wf-insert:focus-within {
+	box-shadow: 0 0 0 2px var(--background-modifier-border-focus);
 }

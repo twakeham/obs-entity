@@ -818,28 +818,52 @@ function valueHint(f: WorkflowField | undefined): string {
 	}
 }
 
-/** The [ ] menu: a field of the scoped types, picked by its label. */
-function fieldMenu(e: ReactMouseEvent, wf: WorkflowDef, lookup: { types: EntityTypeDef[]; groups: GroupDef[] }, pick: (label: string) => void) {
-	const m = new Menu();
+/** The fields [ ] offers, grouped like the field pickers: Built-in (Name, Status, Type, Created…) and Fields. */
+function insertableFields(wf: WorkflowDef, lookup: { types: EntityTypeDef[]; groups: GroupDef[] }): { group: string; labels: string[] }[] {
 	const def = workflowDef(wf);
 	const cols = availableColumns(def, lookup);
-	for (const c of [{ kind: "builtin", id: "name", key: "name" } as ColumnDef, ...cols.fields, ...cols.builtins]) {
-		const label = resolveColumn(c, def, lookup).label;
-		m.addItem((i) => i.setTitle(label).onClick(() => pick(label)));
-	}
-	const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-	m.showAtPosition({ x: r.left, y: r.bottom + 4 });
+	const labels = (list: ColumnDef[]) => [...new Set(list.map((c) => resolveColumn(c, def, lookup).label))];
+	return [
+		{ group: "Built-in", labels: labels([{ kind: "builtin", id: "name", key: "name" } as ColumnDef, ...cols.builtins]) },
+		{ group: "Fields", labels: labels(cols.fields) },
+	].filter((g) => g.labels.length);
 }
 
-/** The [ ] button: styled like the field picker, it opens a menu of fields. */
-function InsertFieldButton({ onClick }: { onClick: (e: ReactMouseEvent) => void }) {
+/**
+ * The [ ] button: looks like the field pickers and opens the same grouped dropdown (a native select laid over the
+ * icon); picking a field calls `onPick` with its label.
+ */
+function InsertFieldButton({ wf, onPick }: { wf: WorkflowDef; onPick: (label: string) => void }) {
+	const plugin = usePlugin();
+	const groups = insertableFields(wf, { types: plugin.settings.types, groups: plugin.settings.groups });
 	return (
-		<button className="oe-wf-fxbtn" aria-label="Insert a field" onClick={onClick}>
+		<span className="oe-wf-fxbtn oe-wf-insert" title="Insert a field">
 			<Icon name="brackets" />
-		</button>
+			<select
+				className="dropdown"
+				aria-label="Insert a field"
+				value=""
+				onChange={(e) => {
+					const v = e.target.value;
+					if (v) onPick(v);
+				}}
+			>
+				<option value="" hidden>
+					Insert a field
+				</option>
+				{groups.map((g) => (
+					<optgroup key={g.group} label={g.group}>
+						{g.labels.map((l) => (
+							<option key={l} value={l}>
+								{l}
+							</option>
+						))}
+					</optgroup>
+				))}
+			</select>
+		</span>
 	);
 }
-
 /**
  * A step's value: picked like a filter's value (pills, a date, a number, notes…) for the field's kind, or a formula.
  * [ ] puts a field in (as a formula); ƒx opens the formula editor; ↺ goes back to a picked value.
@@ -883,7 +907,7 @@ function StepValue({
 			<div className="oe-wf-value">
 				<FixedInput wf={wf} field={field} value={fixed} multiple={multiple} onChange={(v) => onChange({ fixed: v })} />
 				<span className="oe-wf-value-btns">
-					<InsertFieldButton onClick={(e) => fieldMenu(e, wf, lookup, (label) => onChange({ formula: `[${label}]` }))} />
+					<InsertFieldButton wf={wf} onPick={(label) => onChange({ formula: `[${label}]` })} />
 					{fxButton(formulaFromFixed(fixed, field), false)}
 				</span>
 			</div>
@@ -1009,24 +1033,23 @@ function FormulaBox({ wf, value, placeholder, template, onChange, children }: { 
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 		}
-	const insert = (e: ReactMouseEvent) => {
+	// The box keeps its cursor when the dropdown takes focus: insert there.
+	const insert = (label: string) => {
 		const el = ref.current;
 		const from = el?.selectionStart ?? value.length;
 		const to = el?.selectionEnd ?? value.length;
-		fieldMenu(e, wf, lookup, (label) => {
-			const text = template ? `{[${label}]}` : `[${label}]`;
-			onChange(value.slice(0, from) + text + value.slice(to));
-			window.setTimeout(() => {
-				el?.focus();
-				el?.setSelectionRange(from + text.length, from + text.length);
-			}, 0);
-		});
+		const text = template ? `{[${label}]}` : `[${label}]`;
+		onChange(value.slice(0, from) + text + value.slice(to));
+		window.setTimeout(() => {
+			el?.focus();
+			el?.setSelectionRange(from + text.length, from + text.length);
+		}, 0);
 	};
 	return (
 		<div className={`oe-wf-formula${error ? " is-invalid" : ""}`}>
 			<div className="oe-wf-formula-row">
 				<input ref={ref} type="text" className="oe-wf-formula-input" aria-label={template ? "Text" : "Formula"} value={value} placeholder={placeholder} spellCheck={false} onChange={(e) => onChange(e.target.value)} />
-				<InsertFieldButton onClick={insert} />
+				<InsertFieldButton wf={wf} onPick={insert} />
 				{children}
 			</div>
 			{error && <div className="oe-wf-formula-error">{error}</div>}
