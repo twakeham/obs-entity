@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
 	HIGHLIGHT_COLORS,
@@ -33,6 +33,7 @@ import { EntitySuggest } from "../../components/entityPicker";
 import { choiceColor, statusColorAmong } from "../../../model/colors";
 import { colorClass } from "../EntityBits";
 import { usePlugin } from "../context";
+import { CalendarPopover } from "../Calendar";
 import { Icon } from "../Icon";
 
 /** A floating panel under an anchor. Closes on outside click, Esc or scrolling the page behind it. */
@@ -240,14 +241,64 @@ function ConditionEditor({ cond, onChange, onRemove, choices, ctx, valuesOf, thi
 	);
 }
 
-/** A date as in filters: a date, or relative to today ("today", "-7d", "+1m"), with what it means now. */
-export function DateBox({ value, ctx, onChange, label }: { value: unknown; ctx: Pick<ViewContext, "dates" | "today">; onChange: (v: string) => void; label: string }) {
+/**
+ * A date as in filters: a date, or relative to today ("today", "-7d", "+1m"), with what it means now. With `picker`,
+ * a button opens a calendar (dates the adapter can show in one); typing carries on while it's open.
+ */
+export function DateBox({ value, ctx, onChange, label, picker }: { value: unknown; ctx: Pick<ViewContext, "dates" | "today">; onChange: (v: string) => void; label: string; picker?: boolean }) {
 	const text = value === undefined || value === null ? "" : String(value);
 	const d = dateValue(text, ctx);
+	const inputRef = useRef<HTMLInputElement>(null);
+	const [open, setOpen] = useState(false);
+	const { toPicker, fromPicker } = ctx.dates;
+	const canPick = picker && !!toPicker && !!fromPicker;
+	const iso = d === null ? null : new Date(d * 86_400_000).toISOString().slice(0, 10);
 	return (
 		<span className="oe-datebox">
-			<input type="text" className="oe-pop-input" value={text} placeholder="2026-01-31, today, -7d, +1m" aria-label={label} onChange={(e) => onChange(e.target.value)} />
+			<input
+				ref={inputRef}
+				type="text"
+				className="oe-pop-input"
+				value={text}
+				placeholder="2026-01-31, today, -7d, +1m"
+				aria-label={label}
+				onChange={(e) => onChange(e.target.value)}
+				onBlur={() => setOpen(false)}
+				onKeyDown={(e) => {
+					if (e.key === "Enter" && open) setOpen(false);
+				}}
+			/>
+			{canPick && (
+				<button
+					type="button"
+					className={`oe-datebox-pick${open ? " is-active" : ""}`}
+					aria-label="Pick a date"
+					// Keep focus in the box, so the calendar stays open while typing.
+					onMouseDown={(e) => e.preventDefault()}
+					onClick={() => {
+						inputRef.current?.focus();
+						setOpen(!open);
+					}}
+				>
+					<Icon name="calendar" />
+				</button>
+			)}
 			{text && <span className={`oe-datebox-hint${d === null ? " is-invalid" : ""}`}>{d === null ? "not a date" : ctx.dates.format(d, "short")}</span>}
+			{canPick && open && inputRef.current && (
+				<CalendarPopover
+					anchor={inputRef.current}
+					value={iso}
+					onPick={(day) => {
+						onChange(fromPicker!.call(ctx.dates, day));
+						setOpen(false);
+					}}
+					onClear={() => {
+						onChange("");
+						setOpen(false);
+					}}
+					onClose={() => setOpen(false)}
+				/>
+			)}
 		</span>
 	);
 }
@@ -319,6 +370,7 @@ export function LinkValues({
 	value,
 	thisNote,
 	single,
+	chips,
 	onChange,
 }: {
 	targets: string[] | undefined;
@@ -326,6 +378,8 @@ export function LinkValues({
 	thisNote?: string | null;
 	/** one note: picking another replaces it */
 	single?: boolean;
+	/** show the notes as the properties form's entity chips (type icon and colour) */
+	chips?: boolean;
 	onChange: (v: string[]) => void;
 }) {
 	const plugin = usePlugin();
@@ -363,8 +417,24 @@ export function LinkValues({
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 	return (
-		<span className="oe-pop-links">
-			{paths.map((p) => (
+		<span className={chips ? "oe-prop-chips oe-pop-links" : "oe-pop-links"}>
+			{chips &&
+				paths.map((p) => {
+					const e = plugin.index.get(p);
+					const name = e?.name ?? p.split("/").pop()?.replace(/\.md$/, "") ?? p;
+					return (
+						<span key={p} className="oe-prop-chip">
+							<span className={`oe-chip oe-chip-link${e ? "" : " is-unresolved"}`} style={e ? ({ "--oe-type-color": e.type.color } as CSSProperties) : undefined} data-path={p}>
+								<Icon name={e ? e.type.icon : "file-question"} className="oe-chip-icon" />
+								<span className="oe-chip-text">{name}</span>
+								<span className="oe-chip-remove" role="button" aria-label={`Remove ${name}`} onClick={() => onChange(paths.filter((x) => x !== p))}>
+									<Icon name="x" />
+								</span>
+							</span>
+						</span>
+					);
+				})}
+			{!chips && paths.map((p) => (
 				<span key={p} className={`oe-pill is-removable${p === THIS_NOTE ? " is-this-note" : ""}`} title={p === THIS_NOTE ? (thisName ? `Here: ${thisName}` : "The note the view is on") : undefined}>
 					{p === THIS_NOTE ? (
 						<>
@@ -378,7 +448,7 @@ export function LinkValues({
 					</span>
 				</span>
 			))}
-			<input ref={ref} type="text" className="oe-pop-input" placeholder={single && paths.length ? "Change…" : "Choose…"} aria-label="Choose a note" />
+			<input ref={ref} type="text" className={chips ? "oe-prop-add" : "oe-pop-input"} placeholder={single && paths.length ? "Change…" : chips && paths.length ? "Add…" : "Choose…"} aria-label="Choose a note" />
 		</span>
 	);
 }

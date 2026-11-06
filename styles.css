@@ -731,7 +731,8 @@ select.oe-status.has-color {
 /* Values look like text until hovered or focused, as in Obsidian's Properties block. */
 .oe-form input.oe-prop-input,
 .oe-form textarea.oe-prop-input,
-.oe-form input.oe-prop-add {
+.oe-form input.oe-prop-add,
+.oe-wf input.oe-prop-add {
 	flex: 1 1 6em;
 	min-width: 6em;
 	width: 100%;
@@ -754,19 +755,22 @@ select.oe-status.has-color {
 }
 
 .oe-form .oe-prop-input:hover,
-.oe-form .oe-prop-add:hover {
+.oe-form .oe-prop-add:hover,
+.oe-wf .oe-prop-add:hover {
 	background-color: var(--background-modifier-hover);
 }
 
 .oe-form .oe-prop-input:focus,
-.oe-form .oe-prop-add:focus {
+.oe-form .oe-prop-add:focus,
+.oe-wf .oe-prop-add:focus {
 	border-color: var(--background-modifier-border-focus);
 	background-color: var(--background-primary);
 	box-shadow: none;
 }
 
 .oe-form .oe-prop-input::placeholder,
-.oe-form .oe-prop-add::placeholder {
+.oe-form .oe-prop-add::placeholder,
+.oe-wf .oe-prop-add::placeholder {
 	color: var(--text-faint);
 }
 
@@ -1675,6 +1679,25 @@ select.oe-status.has-color {
 	box-shadow: none;
 	background-color: transparent;
 	color: var(--text-accent);
+}
+
+/*
+ * Native dropdown lists in the editors and popovers: headings as a dark band in bold, options in normal text. The list
+ * otherwise takes the closed select's look, so a transparent or accent-coloured select (e.g. "+ Add…") gave white
+ * heading bands and coloured options.
+ */
+.oe-tm select optgroup,
+.oe-popover select optgroup {
+	background-color: color-mix(in srgb, var(--text-normal) 10%, var(--background-primary));
+	color: var(--text-normal);
+	font-weight: var(--font-bold);
+}
+
+.oe-tm select option,
+.oe-popover select option {
+	background-color: var(--background-primary);
+	color: var(--text-normal);
+	font-weight: var(--font-normal);
 }
 
 /* colours */
@@ -7495,27 +7518,9 @@ button.oe-calv-more:hover {
 
 .oe-wf-pills {
 	display: flex;
-	flex-wrap: wrap;
-	gap: var(--size-4-1);
-	justify-content: flex-end;
-}
-
-.oe-tm button.oe-wf-pill {
-	height: auto;
-	padding: 2px 10px;
-	border-radius: 12px;
-	font-size: var(--font-ui-smaller);
-	font-weight: var(--font-normal);
-	box-shadow: none;
-	border: 1px solid var(--background-modifier-border);
-	background-color: transparent;
-	color: var(--text-muted);
-}
-
-.oe-tm button.oe-wf-pill.is-active {
-	border-color: var(--interactive-accent);
-	background-color: var(--interactive-accent);
-	color: var(--text-on-accent);
+	flex: 1;
+	min-width: 12em;
+	max-width: 32em;
 }
 
 .oe-wf-when {
@@ -7764,7 +7769,8 @@ button.oe-calv-more:hover {
 }
 
 /* [ ], ƒx and ↺: buttons that look like the field picker */
-.oe-tm button.oe-wf-fxbtn {
+.oe-tm button.oe-wf-fxbtn,
+.oe-wf button.oe-datebox-pick {
 	flex: none;
 	height: 26px;
 	min-width: 30px;
@@ -7779,12 +7785,14 @@ button.oe-calv-more:hover {
 	box-shadow: var(--input-shadow);
 }
 
-.oe-tm button.oe-wf-fxbtn:hover {
+.oe-tm button.oe-wf-fxbtn:hover,
+.oe-wf button.oe-datebox-pick:hover {
 	background-color: var(--dropdown-background-hover, var(--interactive-hover));
 	box-shadow: var(--input-shadow-hover);
 }
 
-.oe-tm button.oe-wf-fxbtn .oe-icon svg {
+.oe-tm button.oe-wf-fxbtn .oe-icon svg,
+.oe-wf button.oe-datebox-pick .oe-icon svg {
 	width: 14px;
 	height: 14px;
 }
@@ -7806,4 +7814,47 @@ button.oe-calv-more:hover {
 	height: 26px;
 	font-size: var(--font-ui-small);
 	color: var(--text-muted);
+}
+
+.oe-wf {
+	--oe-row-height: 26px;
+}
+
+.oe-wf-pick {
+	display: flex;
+	flex: 1;
+	min-width: 10em;
+}
+
+.oe-wf .oe-prop-chips {
+	padding: 0;
+	min-height: 26px;
+}
+
+.oe-wf button.oe-datebox-pick.is-active {
+	color: var(--text-accent);
+}
+
+/* Dragging steps by their handle */
+.oe-wf-step-grip {
+	display: inline-flex;
+	padding: 4px 2px;
+	color: var(--text-faint);
+	cursor: grab;
+}
+
+.oe-wf-step-grip:hover {
+	color: var(--text-muted);
+}
+
+.oe-wf-step.is-dragging {
+	opacity: 0.4;
+}
+
+.oe-wf-step.drop-before {
+	box-shadow: 0 -5px 0 -2px var(--interactive-accent);
+}
+
+.oe-wf-step.drop-after {
+	box-shadow: 0 5px 0 -2px var(--interactive-accent);
 }

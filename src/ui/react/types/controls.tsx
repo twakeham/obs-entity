@@ -307,7 +307,9 @@ export function TargetPicker({
 					onChange(v === "*" ? ["*"] : [...values.filter((x) => x !== "*"), v]);
 				}}
 			>
-				<option value="">+ Add…</option>
+				<option value="" hidden>
+					+ Add…
+				</option>
 				<optgroup label="Any">
 					{avail(anyOf).map((g) => (
 						<option key={g.key} value={g.key}>

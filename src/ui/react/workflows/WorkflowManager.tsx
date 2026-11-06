@@ -1,7 +1,7 @@
 import { Menu, Notice } from "obsidian";
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { statusUnion } from "../../../model/bulk";
-import { choiceColor, statusColorAmong } from "../../../model/colors";
+import { statusColorAmong, type ColorMap } from "../../../model/colors";
 import { todayDays } from "../../../model/formConditions";
 import { COMMON_KEYS, isListValued, type EntityTypeDef, type GroupDef } from "../../../model/types";
 import { availableColumns, compileFormula, resolveColumn, type ColumnDef } from "../../../model/views";
@@ -32,7 +32,7 @@ import type { RunRecord } from "../../../services/workflows";
 import { usePlugin } from "../context";
 import { Icon } from "../Icon";
 import { FormulaModal } from "../../modals/formulaModal";
-import { colorClass } from "../EntityBits";
+import { ChoiceControl } from "../EntityForm";
 import { DateBox, FiltersPanel, LinkValues, type ColumnChoice } from "../table/popovers";
 import { ConfirmModal, SaveActions } from "../types/TypeManager";
 import { IconPicker, Row, Section, Segmented, TargetPicker, TextInput, Toggle } from "../types/controls";
@@ -345,10 +345,22 @@ function WorkflowEditor({
 		if (f.kind === "status") return statusUnion(scopeTypes(wf, settings.types), settings.groups).map((s) => ({ value: s, label: s }));
 		return (f.field?.options ?? []).map((o) => ({ value: o, label: o }));
 	};
+	const valueColors = (f: WorkflowField | undefined): ColorMap | undefined =>
+		f?.kind === "status" ? statusColors(statusUnion(scopeTypes(wf, settings.types), settings.groups), settings.types, settings.groups) : f?.field?.colors;
 	const editChanged = (fn: (tr: Extract<WorkflowDef["trigger"], { kind: "changed" }>) => void) => edit((x) => x.trigger.kind === "changed" && fn(x.trigger));
 	const editManual = (fn: (tr: Extract<WorkflowDef["trigger"], { kind: "manual" }>) => void) => edit((x) => x.trigger.kind === "manual" && fn(x.trigger));
 
 	const recent = plugin.workflows.log.filter((r) => r.workflow === id).slice(0, 10);
+
+	// Dragging a step by its handle: `over` is the gap it would go into (0 … steps).
+	const [drag, setDrag] = useState<{ from: number; over: number | null } | null>(null);
+	const moveStep = (from: number, to: number) => {
+		if (from === to || from + 1 === to) return;
+		edit((x) => {
+			const [m] = x.steps.splice(from, 1);
+			x.steps.splice(to > from ? to - 1 : to, 0, m);
+		});
+	};
 
 	return (
 		<main className="oe-tm-main oe-wf-editor" data-workflow-id={id}>
@@ -413,10 +425,10 @@ function WorkflowEditor({
 							{listsValues(watched) ? (
 								<>
 									<Row label="From" desc="Only when the old value is one of these. None picked: any.">
-										<ValuePills label="From" options={valueChoices(watched)} value={t.from ?? []} onChange={(v) => editChanged((tr) => (v.length ? (tr.from = v) : delete tr.from))} />
+										<ValuePills label="From" options={valueChoices(watched)} colors={valueColors(watched)} value={t.from ?? []} onChange={(v) => editChanged((tr) => (v.length ? (tr.from = v) : delete tr.from))} />
 									</Row>
 									<Row label="To" desc="Only when the new value is one of these. None picked: any.">
-										<ValuePills label="To" options={valueChoices(watched)} value={Array.isArray(t.to) ? t.to : []} onChange={(v) => editChanged((tr) => (v.length ? (tr.to = v) : delete tr.to))} />
+										<ValuePills label="To" options={valueChoices(watched)} colors={valueColors(watched)} value={Array.isArray(t.to) ? t.to : []} onChange={(v) => editChanged((tr) => (v.length ? (tr.to = v) : delete tr.to))} />
 									</Row>
 								</>
 							) : (
@@ -473,12 +485,25 @@ function WorkflowEditor({
 							<Icon name="alert-circle" /> {p.message}
 						</div>
 					))}
-					<div className="oe-wf-steps">
+					<div className="oe-wf-steps" onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && drag && setDrag({ ...drag, over: null })}>
 						{wf.steps.map((s, i) => (
 							<StepCard
 								key={i}
 								index={i}
 								count={wf.steps.length}
+								drag={{
+									dragging: drag?.from === i,
+									before: !!drag && drag.over === i && drag.from !== i && drag.from !== i - 1,
+									after: !!drag && drag.over === i + 1 && i === wf.steps.length - 1 && drag.from !== i,
+									active: !!drag,
+									start: () => setDrag({ from: i, over: null }),
+									over: (at) => drag && at !== drag.over && setDrag({ ...drag, over: at }),
+									drop: () => {
+										if (drag && drag.over !== null) moveStep(drag.from, drag.over);
+										setDrag(null);
+									},
+									end: () => setDrag(null),
+								}}
 								step={s}
 								wf={wf}
 								fields={fields}
@@ -538,23 +563,50 @@ function blankStep(kind: StepKind, fields: WorkflowField[]): WorkflowStep {
 	}
 }
 
-/** Toggle pills for from / to values. */
-function ValuePills({ label, options, value, onChange }: { label: string; options: { value: string; label: string }[]; value: string[]; onChange: (v: string[]) => void }) {
-	const lower = value.map((v) => v.toLowerCase());
-	const extra = value.filter((v) => !options.some((o) => o.value.toLowerCase() === v.toLowerCase()));
+/**
+ * From / to values: the chosen ones as the form's choice pills (in their colours), with a dropdown to add more, like
+ * a multiple-choice field. `options` value / label pairs (checkboxes show Ticked / Unticked).
+ */
+function ValuePills({ label, options, colors, value, onChange }: { label: string; options: { value: string; label: string }[]; colors?: ColorMap; value: string[]; onChange: (v: string[]) => void }) {
+	const labelOf = (v: string) => options.find((o) => o.value.toLowerCase() === v.toLowerCase())?.label ?? v;
+	const valueOf = (l: string) => options.find((o) => o.label === l)?.value ?? l;
 	return (
-		<div className="oe-wf-pills" role="group" aria-label={label}>
-			{[...options, ...extra.map((v) => ({ value: v, label: v }))].map((o) => {
-				const on = lower.includes(o.value.toLowerCase());
-				return (
-					<button key={o.value} className={`oe-pill oe-wf-pill${on ? " is-active" : ""}`} aria-pressed={on} onClick={() => onChange(on ? value.filter((v) => v.toLowerCase() !== o.value.toLowerCase()) : [...value, o.value])}>
-						{o.label}
-					</button>
-				);
-			})}
-			{!options.length && !extra.length && <span className="oe-tm-muted">No values to choose from.</span>}
-		</div>
+		<span className="oe-wf-pills" role="group" aria-label={label}>
+			<ChoiceControl
+				options={options.map((o) => o.label)}
+				value={value.map(labelOf)}
+				editable
+				multiple
+				label={label}
+				placeholder="Any"
+				field={{ kind: "multiselect", colors }}
+				onCommit={(v) => onChange((Array.isArray(v) ? v : v === null || v === undefined || v === "" ? [] : [v]).map((x) => valueOf(String(x))))}
+			/>
+		</span>
 	);
+}
+
+/** Status colours as a choice field's colour map (for the form's pills). */
+const statusColors = (statuses: string[], types: EntityTypeDef[], groups: GroupDef[]): ColorMap => {
+	const out: ColorMap = {};
+	for (const s of statuses) {
+		const c = statusColorAmong(s, types, groups);
+		if (c) out[s] = c;
+	}
+	return out;
+};
+/** A step card's part in dragging steps to reorder them. */
+interface StepDrag {
+	dragging: boolean;
+	/** the drop line above / below this card */
+	before: boolean;
+	after: boolean;
+	/** a step is being dragged */
+	active: boolean;
+	start: () => void;
+	over: (gap: number) => void;
+	drop: () => void;
+	end: () => void;
 }
 
 /** A field picker like the views' column pickers: Built-in (Status, Tags) and Fields. */
@@ -580,6 +632,7 @@ function FieldSelect({ value, fields, label, onChange }: { value: string; fields
 function StepCard({
 	index,
 	count,
+	drag,
 	step,
 	wf,
 	fields,
@@ -590,6 +643,7 @@ function StepCard({
 }: {
 	index: number;
 	count: number;
+	drag: StepDrag;
 	step: WorkflowStep;
 	wf: WorkflowDef;
 	fields: WorkflowField[];
@@ -687,12 +741,44 @@ function StepCard({
 			break;
 	}
 	return (
-		<div className={`oe-wf-step${problems.length ? " has-issue" : ""}`} data-step={index}>
+		<div
+			className={`oe-wf-step${problems.length ? " has-issue" : ""}${drag.dragging ? " is-dragging" : ""}${drag.before ? " drop-before" : ""}${drag.after ? " drop-after" : ""}`}
+			data-step={index}
+			onDragOver={(e) => {
+				if (!drag.active) return;
+				e.preventDefault();
+				e.dataTransfer.dropEffect = "move";
+				const r = e.currentTarget.getBoundingClientRect();
+				drag.over(e.clientY < r.top + r.height / 2 ? index : index + 1);
+			}}
+			onDrop={(e) => {
+				if (!drag.active) return;
+				e.preventDefault();
+				drag.drop();
+			}}
+		>
 			<div className="oe-wf-step-head">
 				<span className="oe-wf-step-n">{index + 1}</span>
 				<Icon name={STEP_ICONS[step.kind]} />
 				<span className="oe-wf-step-title">{STEP_LABELS[step.kind]}</span>
 				<span className="oe-spacer" />
+				<span
+					className="oe-wf-step-grip"
+					draggable
+					role="button"
+					aria-label="Drag to reorder"
+					title="Drag to reorder"
+					onDragStart={(e) => {
+						e.dataTransfer.effectAllowed = "move";
+						e.dataTransfer.setData("text/plain", String(index));
+						const card = e.currentTarget.closest(".oe-wf-step");
+						if (card instanceof HTMLElement) e.dataTransfer.setDragImage(card, 24, 16);
+						drag.start();
+					}}
+					onDragEnd={drag.end}
+				>
+					<Icon name="grip-vertical" />
+				</span>
 				<button className="clickable-icon" aria-label="Move up" disabled={index === 0} onClick={() => onMove(-1)}>
 					<Icon name="arrow-up" />
 				</button>
@@ -827,24 +913,21 @@ function FixedInput({ wf, field, value, multiple, onChange }: { wf: WorkflowDef;
 		case "status":
 		case "select":
 		case "multiselect": {
+			// The properties form's choice control: the value as a pill in its colour, a dropdown of the choices.
 			const many = field.kind === "multiselect";
 			const options = field.kind === "status" ? statusUnion(scopeTypes(wf, types), groups) : (field.field?.options ?? []);
-			const tint = (o: string) => colorClass(field.kind === "status" ? statusColorAmong(o, types, groups) : field.field ? choiceColor(field.field, o) : null);
-			const all = [...options, ...list.filter((v) => !options.some((o) => o.toLowerCase() === v.toLowerCase()))];
-			const on = (o: string) => list.some((v) => v.toLowerCase() === o.toLowerCase());
+			const choice = field.kind === "status" ? { kind: "select" as const, colors: statusColors(options, types, groups) } : field.field;
 			return (
-				<span className="oe-pop-pills oe-wf-pick" role="group" aria-label="Value">
-					{all.length === 0 && <span className="oe-pop-empty">No choices.</span>}
-					{all.map((o) => (
-						<button
-							key={o}
-							className={`oe-option${on(o) ? " is-active" : ""}${tint(o)}`}
-							aria-pressed={on(o)}
-							onClick={() => onChange(many ? (on(o) ? list.filter((v) => v.toLowerCase() !== o.toLowerCase()) : [...list, o]) : on(o) ? "" : o)}
-						>
-							{o}
-						</button>
-					))}
+				<span className="oe-wf-pick" role="group" aria-label="Value">
+					<ChoiceControl
+						options={options}
+						value={many ? list : (list[0] ?? null)}
+						editable
+						multiple={many}
+						label={field.label}
+						field={choice}
+						onCommit={(v) => onChange(many ? (Array.isArray(v) ? v.map(String) : []) : v === null || v === undefined ? "" : String(v))}
+					/>
 				</span>
 			);
 		}
@@ -870,9 +953,9 @@ function FixedInput({ wf, field, value, multiple, onChange }: { wf: WorkflowDef;
 				/>
 			);
 		case "date":
-			return <DateBox label="Date" value={value} ctx={{ dates: plugin.dates, today: todayDays() }} onChange={onChange} />;
+			return <DateBox label="Date" picker value={value} ctx={{ dates: plugin.dates, today: todayDays() }} onChange={onChange} />;
 		case "relation":
-			return <LinkValues targets={field.field?.targets} value={list} single={!multiple && !!field.field && !isListValued(field.field)} onChange={onChange} />;
+			return <LinkValues chips targets={field.field?.targets} value={list} single={!multiple && !!field.field && !isListValued(field.field)} onChange={onChange} />;
 		case "list":
 			return <ListInput value={list} onChange={onChange} />;
 		default:
@@ -883,6 +966,16 @@ function FixedInput({ wf, field, value, multiple, onChange }: { wf: WorkflowDef;
 /** A text list typed with commas ("a, b"). */
 function ListInput({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
 	const [text, setText] = useState(value.join(", "));
+	const split = (s: string) =>
+		s
+			.split(",")
+			.map((x) => x.trim())
+			.filter(Boolean);
+	// Follow the value when it changes from outside (e.g. steps reordered), keeping a half-typed list otherwise.
+	useEffect(() => {
+		if (split(text).join("\n") !== value.join("\n")) setText(value.join(", "));
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [value.join("\n")]);
 	return (
 		<input
 			type="text"
@@ -892,12 +985,7 @@ function ListInput({ value, onChange }: { value: string[]; onChange: (v: string[
 			value={text}
 			onChange={(e) => {
 				setText(e.target.value);
-				onChange(
-					e.target.value
-						.split(",")
-						.map((s) => s.trim())
-						.filter(Boolean),
-				);
+				onChange(split(e.target.value));
 			}}
 		/>
 	);
