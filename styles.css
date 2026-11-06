@@ -7349,3 +7349,369 @@ button.oe-calv-more:hover {
 	height: 13px;
 	margin-top: 1px;
 }
+/* ---------- Workflows view (DESIGN §8.11) ---------- */
+.oe-wf-pause {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	padding: var(--size-4-2) var(--size-4-3);
+	border-bottom: 1px solid var(--background-modifier-border);
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+}
+
+.oe-wf-pause.is-paused {
+	color: var(--color-orange);
+	background-color: color-mix(in srgb, var(--color-orange) 10%, transparent);
+}
+
+.oe-wf-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	flex-shrink: 0;
+	background-color: var(--background-modifier-border-hover);
+}
+
+.oe-wf-dot.is-on {
+	background-color: var(--color-green);
+}
+
+.oe-tm .oe-wf-item.is-off .oe-tm-typename {
+	color: var(--text-muted);
+}
+
+.oe-wf-item-text {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	flex: 1;
+}
+
+.oe-wf-item-text > span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.oe-wf-item-scope {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+
+.oe-wf-item-warn {
+	color: var(--color-orange);
+}
+
+.oe-wf-item-warn svg {
+	width: 14px;
+	height: 14px;
+}
+
+.oe-tm .oe-wf-runs-item {
+	margin: var(--size-4-2);
+	width: auto;
+	border-top: 1px solid var(--background-modifier-border);
+	border-radius: 0;
+	padding-top: var(--size-4-2);
+}
+
+.oe-tm .oe-wf-runs-item .oe-tm-typename {
+	flex: 1;
+}
+
+.oe-tm-main.oe-tm-empty {
+	padding: 0;
+}
+
+.oe-wf-intro {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: var(--size-4-3);
+	height: 100%;
+	max-width: 440px;
+	margin: 0 auto;
+	padding: var(--size-4-12) var(--size-4-6);
+	text-align: center;
+	color: var(--text-muted);
+	font-size: var(--font-ui-medium);
+}
+
+.oe-wf-intro h2 {
+	margin: 0;
+	color: var(--text-normal);
+}
+
+.oe-wf-intro p {
+	margin: 0;
+}
+
+.oe-wf-intro > .oe-icon svg {
+	width: 32px;
+	height: 32px;
+	color: var(--text-faint);
+}
+
+.oe-wf-intro button {
+	gap: var(--size-4-1);
+}
+
+.oe-wf-onoff {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+}
+
+.oe-wf-banner {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	margin-bottom: var(--size-4-4);
+	padding: var(--size-4-2) var(--size-4-3);
+	border-radius: var(--radius-m);
+	color: var(--color-orange);
+	background-color: color-mix(in srgb, var(--color-orange) 10%, transparent);
+	font-size: var(--font-ui-small);
+}
+
+.oe-wf-help {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-wf-button-row {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+.oe-wf-pills {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--size-4-1);
+	justify-content: flex-end;
+}
+
+.oe-tm button.oe-wf-pill {
+	height: auto;
+	padding: 2px 10px;
+	border-radius: 12px;
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-normal);
+	box-shadow: none;
+	border: 1px solid var(--background-modifier-border);
+	background-color: transparent;
+	color: var(--text-muted);
+}
+
+.oe-tm button.oe-wf-pill.is-active {
+	border-color: var(--interactive-accent);
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+.oe-wf-when {
+	font-size: var(--font-ui-small);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	padding: var(--size-4-2);
+}
+
+.oe-wf-steps {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+}
+
+.oe-wf-step {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	background-color: var(--background-primary);
+	padding: var(--size-4-2) var(--size-4-3) var(--size-4-3);
+}
+
+.oe-wf-step.has-issue {
+	border-color: color-mix(in srgb, var(--text-error) 50%, var(--background-modifier-border));
+}
+
+.oe-wf-step-head {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	color: var(--text-muted);
+	margin-bottom: var(--size-4-2);
+}
+
+.oe-wf-step-head .oe-icon svg {
+	width: 14px;
+	height: 14px;
+}
+
+.oe-wf-step-n {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 20px;
+	height: 20px;
+	border-radius: 50%;
+	font-size: var(--font-ui-smaller);
+	font-variant-numeric: tabular-nums;
+	color: var(--text-on-accent);
+	background-color: var(--interactive-accent);
+	flex-shrink: 0;
+}
+
+.oe-wf-step-title {
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
+}
+
+.oe-wf-step-head .clickable-icon[disabled] {
+	opacity: 0.3;
+	pointer-events: none;
+}
+
+.oe-wf-step-body {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-start;
+	gap: var(--size-4-2);
+}
+
+.oe-wf-step-body > select,
+.oe-wf-step-body > input {
+	flex: 0 0 auto;
+}
+
+.oe-wf-to {
+	line-height: var(--input-height);
+	color: var(--text-muted);
+}
+
+.oe-wf-formula {
+	flex: 1;
+	min-width: 220px;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.oe-wf-formula-row {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+}
+
+.oe-tm input.oe-wf-formula-input {
+	flex: 1;
+	min-width: 0;
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-small);
+}
+
+.oe-wf-formula.is-invalid input.oe-wf-formula-input {
+	border-color: var(--text-error);
+}
+
+.oe-wf-formula-error {
+	color: var(--text-error);
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-tm button.oe-wf-add-step {
+	margin-top: var(--size-4-2);
+	gap: var(--size-4-1);
+	box-shadow: none;
+	border: 1px dashed var(--background-modifier-border-hover);
+	background: transparent;
+	color: var(--text-muted);
+	width: 100%;
+}
+
+.oe-tm button.oe-wf-add-step:hover {
+	color: var(--text-normal);
+	border-color: var(--interactive-accent);
+}
+
+.oe-wf-runs {
+	display: flex;
+	flex-direction: column;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	overflow: hidden;
+}
+
+.oe-wf-run {
+	display: flex;
+	align-items: baseline;
+	gap: var(--size-4-3);
+	padding: var(--size-4-2) var(--size-4-3);
+	font-size: var(--font-ui-small);
+}
+
+.oe-wf-run + .oe-wf-run {
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.oe-wf-run-time {
+	flex: 0 0 auto;
+	min-width: 5.5em;
+	color: var(--text-faint);
+	font-variant-numeric: tabular-nums;
+}
+
+.oe-wf-run-what {
+	flex: 1;
+	min-width: 0;
+}
+
+.oe-wf-run-name {
+	font-weight: var(--font-semibold);
+}
+
+.oe-wf-run-detail {
+	color: var(--text-muted);
+}
+
+.oe-wf-run.is-error .oe-wf-run-detail {
+	color: var(--text-error);
+}
+
+.oe-wf-run.is-stopped .oe-wf-run-detail {
+	color: var(--color-orange);
+}
+
+.oe-wf-run.is-undone .oe-wf-run-what {
+	text-decoration: line-through;
+	opacity: 0.6;
+}
+
+.oe-tm button.oe-wf-run-undo {
+	height: auto;
+	padding: 2px 8px;
+	font-size: var(--font-ui-smaller);
+}
+
+/* Workflow buttons on the properties form */
+.oe-wf-buttons {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--size-4-2);
+	margin: var(--size-4-2) 0;
+}
+
+.oe-wf-buttons button {
+	gap: var(--size-4-1);
+	height: auto;
+	padding: 4px 10px;
+	font-size: var(--font-ui-small);
+}
+
+.oe-wf-buttons .oe-icon svg {
+	width: 14px;
+	height: 14px;
+}

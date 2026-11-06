@@ -4,6 +4,7 @@ import { subtitleOf, urlHref } from "../../model/card";
 import { entityProblems, otherKeys, otherKind, parseInput, usesOrder, type FieldProblem, type OtherKind } from "../../model/form";
 import { editPattern, editText, formatValue, parseTyped, showDate } from "../../model/fieldFormats";
 import { isEmptyValue } from "../../model/frontmatter";
+import { buttonIcon, buttonLabel } from "../../model/workflows";
 import { asArray, parseLabelledEntry, parseLink } from "../../model/links";
 import { addLink, type Edge, type RelationItem } from "../../model/relations";
 import { calcCell, fieldColumn, formatCell, resolveColumn, typeViewDef, type ViewContext, type ViewRow } from "../../model/views";
@@ -483,6 +484,8 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 				}),
 		);
 		m.addItem((i) => i.setTitle(`Configure the ${type.name} type`).setIcon("shapes").onClick(() => void plugin.activateTypes(type.key)));
+		const rec = plugin.index.get(file.path);
+		if (rec) plugin.addWorkflowItems(m, [rec]);
 		m.showAtMouseEvent(evt.nativeEvent);
 	};
 
@@ -762,6 +765,7 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 	const others = mode === "preview" ? [] : otherKeys(type, values);
 	const subtitle = subtitleOf(type, values, plugin.formatEnv(), (f) => calc.get(f.key)?.text ?? "");
 	const statusProblem = problemsAt(COMMON_KEYS.status)[0];
+	const workflowButtons = mode !== "preview" && file && plugin.index.get(file.path) ? plugin.manualWorkflows([type]) : [];
 
 	return (
 		<div
@@ -808,6 +812,16 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 			</div>
 			{!collapsed && (
 				<div className="oe-form-body">
+					{workflowButtons.length > 0 && (
+						<div className="oe-wf-buttons" role="toolbar" aria-label="Workflows">
+							{workflowButtons.map((wf) => (
+								<button key={wf.id} type="button" data-workflow={wf.id} onClick={() => file && void plugin.runWorkflow(wf, [file.path])}>
+									<Icon name={buttonIcon(wf)} />
+									{buttonLabel(wf)}
+								</button>
+							))}
+						</div>
+					)}
 					{body}
 					{hidden > 0 && (
 						<button type="button" className="oe-form-more" onClick={() => setShowEmpty(true)}>

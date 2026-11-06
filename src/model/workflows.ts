@@ -126,6 +126,10 @@ export const scopeTypes = (wf: Pick<WorkflowDef, "scope">, types: EntityTypeDef[
 /** The view definition a workflow's formulas and conditions are read against (its scope's columns). */
 export const workflowDef = (wf: Pick<WorkflowDef, "scope" | "when">): ViewDef => ({ ...emptyView(wf.scope.length ? wf.scope : ["*"]), filters: wf.when });
 
+/** A button workflow's label and icon (its name and a lightning bolt when not set). */
+export const buttonLabel = (wf: WorkflowDef): string => (wf.trigger.kind === "manual" && wf.trigger.label?.trim()) || wf.name || "Run workflow";
+export const buttonIcon = (wf: WorkflowDef): string => (wf.trigger.kind === "manual" && wf.trigger.icon) || "zap";
+
 /** Triggers that need types (they react to notes of those types). */
 export const needsScope = (k: TriggerKind) => k === "created" || k === "changed";
 

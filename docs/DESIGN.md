@@ -1839,9 +1839,9 @@ Steps use all three: `[Field]` is this note's field, `[Answer]` a form answer (f
 
 **Where manual and form workflows are started** (each workflow chooses where it shows):
 
-- **On a note's properties form:** as buttons in a strip under the form header, or, in a custom layout, as an item placed like a field (`wf:<id>`; unplaced buttons stay in the strip). Also in the form's ⋯ menu. (Stage 1.)
-- **Command palette:** "Run workflow…" (manual ones on the active note; form ones anywhere), and optionally a command of its own per workflow so it can have a hotkey. (Stage 1, form ones stage 2.)
-- **Tables, boards and calendars:** the row / card right-click menu, and the selection bar for the selected notes. (Stage 1: each selected note; "once for the selection", stage 2.)
+- **On a note's properties form:** as buttons in a strip under the form header, or, in a custom layout, as an item placed like a field (`wf:<id>`; unplaced buttons stay in the strip). Also in the form's ⋯ menu. (Stage 1: the strip and the ⋯ menu; placing a button in a layout, later.)
+- **Command palette:** "Run workflow…" (manual ones on the active note; form ones anywhere), and optionally a command of its own per workflow so it can have a hotkey. (Stage 1: "Run workflow on this note…"; form ones and per-workflow commands, stage 2.)
+- **Tables, boards and calendars:** the row / card right-click menu, and the selection bar for the selected notes. (Stage 1: each selected note, from **Run…** on the selection bar and the selection's right-click menu; "once for the selection", stage 2.)
 - **A view's toolbar and the ribbon:** for form workflows (stage 2).
 
 #### Conditions ("Only if")
@@ -1897,12 +1897,14 @@ Its own view (`WorkflowsView`, a main-area tab like Entity types), opened from t
   - **Applies to:** the scope (types and groups, as in relation targets); optional for manual and form workflows.
   - **When:** the trigger kind and its options (field, from / to values as pills; button label, icon, confirm text and where it shows; the form's fields, stage 2).
   - **Only if:** the Filters panel over the scoped types' columns.
-  - **Do:** the steps as cards in order: add (a menu of step kinds), drag to reorder, delete; each with its own fields (field picker, formula box with autocomplete and errors, template box).
-  - **Problems** (like type validation): unknown fields or types, formulas that don't compile, a `changed` trigger on a calculated field, steps setting calculated or missing fields, note steps without a note. A workflow with problems can be saved but is flagged and doesn't run.
+  - **Do:** the steps as numbered cards in order: add (a menu of step kinds), move up / down, delete; each with its own fields (field picker, formula box checked as you type with a button to insert a field, template box).
+  - **Problems** (like type validation): no name, no steps, unknown fields or types, formulas that don't compile, a `changed` trigger on a calculated field, steps setting calculated or missing fields, note steps without a note. A new workflow shows the ones about what it hasn't got yet only once Save is tried. **Save** with problems shows them and saves nothing. A saved workflow that gets problems later (a field or type it uses is removed) is flagged in the sidebar, the type editor and a banner, and doesn't run.
   - **Recent runs** for this workflow at the bottom.
 - **Recent runs** (all workflows): when, workflow, note(s), what changed, errors, with Undo where possible.
 
-**The type editor's Workflows tab** lists the workflows whose scope includes the type (or its group), with their trigger in words ("When Status changes to done", "Button: Start next session") and on/off state; clicking one opens it in the Workflows view. **New workflow for this type** opens the Workflows view with a new workflow scoped to the type.
+**The type editor's Workflows tab** lists the workflows whose scope includes the type (or its group), with their trigger in words ("When Status changes to done", "Button: Start next session") and on/off state, then those for any note; clicking one opens it in the Workflows view. **New workflow for this type** opens the Workflows view with a new workflow scoped to the type (once the type is saved). The tab's count is the type's own workflows.
+
+**Code:** `ui/views/WorkflowsView.tsx` (the ItemView; state `{ selected }` in the layout, unsaved new ones not restored) hosts `ui/react/workflows/WorkflowManager.tsx` (sidebar, editor, step cards, formula box, run list). Edits are drafts in `plugin.workflowDrafts` for the session. `plugin.manualWorkflows(types)` and `plugin.addWorkflowItems(menu, entities)` give the button workflows that apply to every one of some notes, for the form strip and every menu.
 ---
 
 ## 9. Validation rules

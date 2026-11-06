@@ -711,6 +711,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		if (!entity) return;
 		const m = new Menu();
 		extra?.(m);
+		plugin.addWorkflowItems(m, [entity]);
 		m.addItem((i) => i.setSection("open").setTitle("Open in new tab").setIcon("file-plus").onClick(() => plugin.openPath(entity.path, "tab")));
 		m.addItem((i) => i.setSection("open").setTitle("Open to the right").setIcon("separator-vertical").onClick(() => plugin.openPath(entity.path, "split")));
 		m.addItem((i) =>
@@ -1282,6 +1283,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 		if (u) edits.current.push({ kind: "bulk", undo: u });
 	};
 	const bulkOpts = () => ({ plugin, entities: selectedEntities, onUndo: pushUndo });
+	const selWorkflows = plugin.manualWorkflows([...new Set(selectedEntities.map((e) => e.type))]);
 	const paths = () => selectedEntities.map((e) => e.path);
 	const names = (max = 8) => {
 		const ns = selectedEntities.map((e) => e.name);
@@ -1322,6 +1324,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 			m.addItem((i) => i.setSection("bulk").setTitle("Remove link…").setIcon("unlink").onClick(() => openLinks(bulkOpts(), "remove")));
 			m.addItem((i) => i.setSection("bulk").setTitle("Tags…").setIcon("tags").onClick(() => openTags(bulkOpts())));
 			m.addItem((i) => i.setSection("bulk").setTitle("Change type…").setIcon("repeat").onClick(bulkChangeType));
+			plugin.addWorkflowItems(m, selectedEntities);
 		}
 		m.addItem((i) => i.setSection("files").setTitle("Move to folder…").setIcon("folder-input").onClick(bulkMove));
 		m.addItem((i) => i.setSection("files").setTitle("Duplicate").setIcon("copy-plus").onClick(() => void plugin.bulk.duplicate(paths()).then(pushUndo)));
@@ -1513,6 +1516,18 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 						<SelButton icon="link" label="Links…" onClick={(el) => linksMenu(el)} />
 						<SelButton icon="tags" label="Tags…" onClick={() => openTags(bulkOpts())} />
 						<SelButton icon="repeat" label="Change type…" onClick={() => bulkChangeType()} />
+						{selWorkflows.length > 0 && (
+							<SelButton
+								icon="zap"
+								label="Run…"
+								onClick={(el) => {
+									const m = new Menu();
+									plugin.addWorkflowItems(m, selectedEntities);
+									const r = el.getBoundingClientRect();
+									m.showAtPosition({ x: r.left, y: r.bottom + 4 });
+								}}
+							/>
+						)}
 						<SelButton icon="trash-2" label="Delete…" onClick={() => bulkDelete()} warning />
 						<button className="clickable-icon" aria-label="More actions" onClick={(e) => bulkMenu(new Menu(), true).showAtMouseEvent(e.nativeEvent)}>
 							<Icon name="more-horizontal" />

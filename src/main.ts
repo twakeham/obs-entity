@@ -1,4 +1,4 @@
-import { debounce, Keymap, MarkdownView, Notice, Plugin, TFile, WorkspaceLeaf, moment, normalizePath, stringifyYaml, type PaneType, type ViewState } from "obsidian";
+import { debounce, Keymap, MarkdownView, Menu, Notice, Plugin, TFile, WorkspaceLeaf, moment, normalizePath, stringifyYaml, type PaneType, type ViewState } from "obsidian";
 import type { MomentLike } from "./model/formats";
 import { showDate, type FormatEnv } from "./model/fieldFormats";
 import { isoDateAdapter, type DateAdapter } from "./model/dates";
@@ -27,8 +27,10 @@ import { TYPES_VIEW, TypesView } from "./ui/views/TypesView";
 import type { GroupDraft, TypeDraft } from "./model/typeEditing";
 import { calcCell, emptyBoard, emptyView, fieldColumn, formatCell, resolveColumn, serializeView, sourceTypes, typeViewDef, type ViewContext, type ViewDef, type ViewKind, type ViewRow, columnFromId } from "./model/views";
 import { defaultBuckets } from "./model/board";
-import type { WorkflowDef } from "./model/workflows";
+import { buttonIcon, buttonLabel, inScope, type WorkflowDef } from "./model/workflows";
 import { WorkflowEngine } from "./services/workflows";
+import { WORKFLOWS_VIEW, WorkflowsView } from "./ui/views/WorkflowsView";
+import type { WorkflowsRequest } from "./ui/react/workflows/WorkflowManager";
 import { confirmRun, WorkflowPickerModal } from "./ui/modals/workflowModals";
 import { initialDates } from "./model/calendarView";
 import { VIEW_BLOCK, ViewIndex } from "./services/viewIndex";
@@ -78,6 +80,8 @@ export default class EntitiesPlugin extends Plugin {
 	private typeCommandIds = new Set<string>();
 	/** Entity Types view drafts, kept for the session so closing the view doesn't lose edits. */
 	typeDrafts = new Map<string, TypeDraft>();
+	/** Workflows view drafts, kept for the session. */
+	workflowDrafts = new Map<string, WorkflowDef>();
 	groupDrafts = new Map<string, GroupDraft>();
 
 	async onload(): Promise<void> {
@@ -107,6 +111,7 @@ export default class EntitiesPlugin extends Plugin {
 		this.registerView(TYPES_VIEW, (leaf) => new TypesView(leaf, this));
 		this.registerView(BROWSER_VIEW, (leaf) => new BrowserView(leaf, this));
 		this.registerView(ENTITY_VIEW, (leaf) => new EntityViewView(leaf, this));
+		this.registerView(WORKFLOWS_VIEW, (leaf) => new WorkflowsView(leaf, this));
 		this.patchViewNotes();
 		const refresh = () => this.refreshViewActions();
 		this.registerEvent(this.app.workspace.on("file-open", refresh));
@@ -119,6 +124,7 @@ export default class EntitiesPlugin extends Plugin {
 		this.addRibbonIcon("library", "Entities: entity browser", () => void this.activateBrowser());
 		this.addRibbonIcon("waypoints", "Entities: side panel (connections, preview)", () => void this.activateSidePanel());
 		this.addRibbonIcon("shapes", "Entities: entity types", () => void this.activateTypes());
+		this.addRibbonIcon("zap", "Entities: workflows", () => void this.activateWorkflows());
 
 		this.addCommand({
 			id: "create-entity",
@@ -211,6 +217,11 @@ export default class EntitiesPlugin extends Plugin {
 				if (!checking) new WorkflowPickerModal(this, list, (wf) => void this.runWorkflow(wf, [entity.path])).open();
 				return true;
 			},
+		});
+		this.addCommand({
+			id: "open-workflows",
+			name: "Open workflows",
+			callback: () => void this.activateWorkflows(),
 		});
 		this.addCommand({
 			id: "undo-workflow-run",
@@ -334,6 +345,20 @@ export default class EntitiesPlugin extends Plugin {
 		}
 		await loadIfDeferred(leaf);
 		if (typeKey && leaf.view instanceof TypesView) leaf.view.update({ selected: typeKey });
+		await workspace.revealLeaf(leaf);
+		workspace.setActiveLeaf(leaf, { focus: true });
+	}
+
+	/** Open the Workflows view in the main area (reusing an existing tab), optionally on a workflow or a new one for a type. */
+	async activateWorkflows(request: WorkflowsRequest = {}): Promise<void> {
+		const { workspace } = this.app;
+		let leaf = workspace.getLeavesOfType(WORKFLOWS_VIEW)[0];
+		if (!leaf) {
+			leaf = workspace.getLeaf("tab");
+			await leaf.setViewState({ type: WORKFLOWS_VIEW, active: true });
+		}
+		await loadIfDeferred(leaf);
+		if ((request.open || request.newFor) && leaf.view instanceof WorkflowsView) leaf.view.showRequest(request);
 		await workspace.revealLeaf(leaf);
 		workspace.setActiveLeaf(leaf, { focus: true });
 	}
@@ -575,6 +600,26 @@ export default class EntitiesPlugin extends Plugin {
 			if (!(await confirmRun(this.app, wf.trigger.label || wf.name, wf.trigger.confirm))) return;
 		}
 		await this.workflows.runOn(wf, paths);
+	}
+
+	/** Workflows run from buttons that apply to every one of these types (each type once). */
+	manualWorkflows(types: EntityTypeDef[]): WorkflowDef[] {
+		if (!types.length) return [];
+		return this.settings.workflows.filter((w) => w.on && w.trigger.kind === "manual" && types.every((t) => inScope(w, t)));
+	}
+
+	/** Add a "run" item per button workflow that applies to all these notes (row menus, the selection, the form's ⋯). */
+	addWorkflowItems(m: Menu, entities: EntityRecord[], section = "workflows"): void {
+		const list = this.manualWorkflows([...new Set(entities.map((e) => e.type))]);
+		const paths = entities.map((e) => e.path);
+		for (const wf of list)
+			m.addItem((i) =>
+				i
+					.setSection(section)
+					.setTitle(buttonLabel(wf))
+					.setIcon(buttonIcon(wf))
+					.onClick(() => void this.runWorkflow(wf, paths)),
+			);
 	}
 
 	getType(key: string): EntityTypeDef | undefined {

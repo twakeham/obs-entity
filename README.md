@@ -14,6 +14,8 @@ Derived from the Story Forge worldbuilding plugin, made domain-neutral. The full
 | M4 Browser | Grouped, hierarchical entity browser with filters | ✅ Done |
 | M4.5 Properties form | A form that replaces Obsidian's Properties on entity notes, so only values the type allows go in, and problems are flagged | ✅ Done |
 | M4.6 Entity views | Saved, named table and board views over entities, stored as notes: columns, roll-ups, formulas, filters, sorting, grouping, editing in place, kanban boards with drag and drop | ✅ Done |
+| M7.1 Workflows, stage 1 | Automation: when a note is created or a field changes, or from a button, set fields, tags and links or show a notice; the Workflows view, run log and undo | ✅ Done |
+| M7.2–M7.3 Workflows, stages 2–3 | Steps on linked notes, creating notes, form workflows; schedules and date triggers | Planned |
 | M5 Packs & polish | Pack picker on first run, accessibility, docs | Planned |
 
 ## How notes are stored
@@ -378,6 +380,21 @@ Any view can also be shown as a **calendar** of its notes by date: use the **Tab
 - **No date** (button above the calendar) lists the notes without a date; drag one onto a day to give it that date. The footer counts the notes in the period shown: "12 in November · 3 without a date".
 - Dates have no times, and repeating events aren't supported. Calendars need real (Gregorian) dates.
 
+## Workflows
+
+Workflows do things for you: when a note is **created**, when a **field changes** (e.g. Status becomes done), or when you press a **button**, they run a list of steps on the note. Open the **Workflows** view from the ribbon (lightning bolt), the "Open workflows" command, the settings tab, or a type's **Workflows** tab in the Entity types view.
+
+- **Sidebar:** every workflow, grouped by what starts it (When created, When changed, Run on notes), with a green dot when on, the types it applies to, and a ⚠ if it has problems. **+ New**, search, **Pause all workflows**, and **Recent runs** at the bottom.
+- **Editing** works like the type editor: changes are a draft with **Save** / **Discard**; Save with problems lists them and saves nothing. The header has an on/off switch and ⋯ (Duplicate, Delete).
+  - **Applies to:** the types (or groups) of note. Needed for created / changed; for buttons, empty means any note.
+  - **When:** *Field changes* (pick the field; for status, choice and checkbox fields, optionally the **From** and **To** values as pills; for others, "Changes", "Is filled in" or "Is emptied"), *Note created*, or *Run on notes* (a button: its label, icon, and an optional question to confirm first).
+  - **Only if:** conditions on the note after the change, built like a view's filters. None: it always runs.
+  - **Do:** steps in order. **Set a field** (to a formula, e.g. `today()`, `"High"`, `[Estimate] * 2`), **Clear a field**, **Add or remove a tag**, **Add or remove a link**, **Show a notice** (text with `{formula}` parts, e.g. `{[Name]} is done`). Formulas are the view formula language, checked as you type; the **[ ]** button inserts a field. `old([Field])` and `new([Field])` give a changed field's values before and after. Each step sees the ones before; the note is saved once at the end, and if a step fails nothing is saved.
+- **Buttons** (*Run on notes*) show on the note's properties form (a strip at the top, and its ⋯ menu), in the right-click menu of table rows, board cards and calendar entries, in the selection bar (**Run…**, once per selected note), and through "Run workflow on this note…".
+- **Safety:** a workflow's changes can set off others, up to 5 deep, and never the same workflow twice on the same note in one chain. Changes made by undo never set off workflows.
+- **Undo:** a run set off by an edit in the form or a table is one more Ctrl/Cmd+Z there. Button runs show a notice with **Undo**. "Undo last workflow run" undoes the latest, and any run in **Recent runs** can be undone while its notes haven't changed since (undoing a run also undoes the runs it set off).
+- **Recent runs:** the last 200 runs (when, workflow, note, what changed from → to, or why it stopped), kept in `workflow-log.json` in the plugin folder. Each workflow also shows its own at the bottom of the editor.
+
 ## Commands
 
 | Command | Action |
@@ -394,6 +411,10 @@ Any view can also be shown as a **calendar** of its notes by date: use the **Tab
 | Open entity view… | Picker of view notes |
 | Import entity types… | Paste a type pack, single type or list of types (JSON) |
 | Generate template files | Writes editable templates for types without one |
+| Open workflows | The Workflows view (also a ribbon icon and settings button) |
+| Run workflow on this note… | Pick one of the button workflows for the open note |
+| Undo last workflow run | Puts back what the latest run changed |
+| Pause or resume workflows | Stops every workflow running, automatically or from buttons, until resumed |
 | Rebuild entity index | Re-reads every note |
 
 The create dialog:

@@ -39,6 +39,8 @@ import { FieldsTab } from "./FieldsTab";
 import { GeneralTab } from "./GeneralTab";
 import { LayoutTab } from "./LayoutTab";
 import { AddRelationshipDialog, RelationshipsTab } from "./RelationshipsTab";
+import { WorkflowsTab } from "./WorkflowsTab";
+import { inScope } from "../../../model/workflows";
 
 export interface TypesState {
 	/** a saved type's key, "new:<n>" for an unsaved type, "group:<key>" / "group:new:<n>" for groups */
@@ -66,6 +68,7 @@ const TABS: { id: EditorTab; label: string; icon: string }[] = [
 	{ id: "relationships", label: "Relationships", icon: "waypoints" },
 	{ id: "display", label: "Display", icon: "layout-panel-top" },
 	{ id: "layout", label: "Layout", icon: "layout-dashboard" },
+	{ id: "workflows", label: "Workflows", icon: "zap" },
 ];
 
 const GROUP_PREFIX = "group:";
@@ -605,7 +608,7 @@ export function TypeManager({
 							</div>
 							<nav className="oe-tm-tabs" role="tablist">
 								{TABS.map((tab) => {
-									const n = tab.id === "fields" ? draft.type.fields.length : tab.id === "relationships" ? draft.type.fields.filter((f) => f.kind === "relation").length : null;
+									const n = tab.id === "fields" ? draft.type.fields.length : tab.id === "relationships" ? draft.type.fields.filter((f) => f.kind === "relation").length : tab.id === "workflows" ? plugin.settings.workflows.filter((w) => w.scope.length && inScope(w, draft.type)).length : null;
 									const bad = shownIssues.some((i) => tabFor(i.at) === tab.id);
 									return (
 										<button key={tab.id} role="tab" aria-selected={state.tab === tab.id} data-tab={tab.id} className={`oe-tm-tab${state.tab === tab.id ? " is-active" : ""}`} onClick={() => setState({ tab: tab.id })}>
@@ -625,6 +628,7 @@ export function TypeManager({
 							{state.tab === "relationships" && <RelationshipsTab addRelationship={() => setWizard(true)} />}
 							{state.tab === "display" && <DisplayTab />}
 							{state.tab === "layout" && <LayoutTab />}
+							{state.tab === "workflows" && <WorkflowsTab />}
 						</div>
 					</main>
 					{wizard && <AddRelationshipDialog onClose={() => setWizard(false)} />}
@@ -948,7 +952,7 @@ function GroupEditor({
 }
 
 /** Unsaved-changes state, problems link, Discard and Save, shown in the editor header while there are changes. */
-function SaveActions({ label, problems, onProblems, onDiscard, onSave }: { label: string; problems: number; onProblems: () => void; onDiscard: () => void; onSave: () => void }) {
+export function SaveActions({ label, problems, onProblems, onDiscard, onSave }: { label: string; problems: number; onProblems: () => void; onDiscard: () => void; onSave: () => void }) {
 	return (
 		<div className="oe-tm-saveactions" role="region" aria-label="Unsaved changes">
 			<span className="oe-tm-savestate">

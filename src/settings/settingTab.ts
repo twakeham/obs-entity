@@ -237,6 +237,29 @@ export class EntitiesSettingTab extends PluginSettingTab {
 						void this.plugin.activateTypes();
 					}),
 			);
+
+		new Setting(containerEl).setName("Workflows").setHeading();
+		const wfOn = s.workflows.filter((w) => w.on).length;
+		new Setting(containerEl)
+			.setName("Workflows")
+			.setDesc(
+				`${s.workflows.length} workflow${s.workflows.length === 1 ? "" : "s"} (${wfOn} on)${s.workflowsPaused ? ", all paused" : ""}. Set fields, tags and links automatically when notes are created or changed, or from buttons.`,
+			)
+			.addButton((b) =>
+				b.setButtonText("Open workflows").onClick(() => {
+					(this.app as unknown as { setting?: { close(): void } }).setting?.close();
+					void this.plugin.activateWorkflows();
+				}),
+			);
+		new Setting(containerEl)
+			.setName("Pause all workflows")
+			.setDesc("Nothing runs, automatically or from buttons, until you turn this off. Also in the Workflows view and the command palette.")
+			.addToggle((t) =>
+				t.setValue(s.workflowsPaused).onChange(async (v) => {
+					await this.plugin.workflows.setPaused(v);
+					this.display();
+				}),
+			);
 	}
 
 	/** Date display format: presets (shown for today) or a custom moment.js pattern. */
