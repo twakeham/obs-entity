@@ -81,7 +81,7 @@ export function mergeSettings(saved: Partial<EntitiesSettings> | null | undefine
 	};
 	merged.groups = Array.isArray(saved.groups) ? saved.groups.map(cloneGroup) : base.groups;
 	merged.types = Array.isArray(saved.types) ? saved.types.map(cloneType) : base.types;
-	merged.workflows = readWorkflows(saved.workflows);
+	merged.workflows = readWorkflows(saved.workflows, merged.types);
 	merged.workflowsPaused = saved.workflowsPaused === true;
 	// Version 3: the properties form replaced the info card (whose settings are dropped).
 	const legacy = merged as EntitiesSettings & { showCard?: unknown; cardCollapsed?: unknown };

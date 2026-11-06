@@ -296,6 +296,7 @@ export const FUNCTIONS: FnDef[] = [
 	{ name: "startof", cat: "Dates", sig: 'startOf(date, "week|month|year")', desc: "The first day of the date's week (Monday), month or year.", example: 'startOf([Due], "month")', min: 2, max: 2, ret: "date" },
 	{ name: "endof", cat: "Dates", sig: 'endOf(date, "week|month|year")', desc: "The last day of the date's week (Sunday), month or year.", example: 'endOf(today(), "month")', min: 2, max: 2, ret: "date" },
 	// Lists
+	{ name: "list", cat: "Lists", sig: "list(a, b, …)", desc: "A list of the values (lists inside are flattened).", example: 'list("urgent", "design")', min: 0, max: Infinity, ret: "list" },
 	{ name: "count", cat: "Lists", sig: "count(list)", desc: "The number of items (1 for a single value, 0 when empty).", example: "count([Team])", min: 1, max: 1, ret: "number" },
 	{ name: "first", cat: "Lists", sig: "first(list)", desc: "The first item.", example: "first([Tags])", min: 1, max: 1, ret: (a) => (a[0] === "links" ? "links" : "any") },
 	{ name: "last", cat: "Lists", sig: "last(list)", desc: "The last item.", example: "last([Tags])", min: 1, max: 1, ret: (a) => (a[0] === "links" ? "links" : "any") },
@@ -829,6 +830,8 @@ export function evaluate(ast: Node, env: EvalEnv): FValue {
 				return new DateVal(u === "weeks" ? start + 6 : u === "months" ? addMonths(start, 1) - 1 : fromUtc(t.getUTCFullYear() + 1, 0, 1) - 1);
 			}
 			// lists
+			case "list":
+				return A.flatMap((_, i) => asList(arg(i))).filter((v) => !isEmptyV(v));
 			case "count":
 				return asList(arg(0)).filter((v) => !isEmptyV(v)).length;
 			case "first":

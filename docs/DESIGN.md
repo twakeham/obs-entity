@@ -1854,10 +1854,10 @@ Run in order on an in-memory copy of each note's frontmatter, so later steps see
 
 | Step | Stage | Does |
 |---|---|---|
-| `set` | 1 | Sets a field (or `status`) of this note to a **value**: a formula (below), e.g. `today()`, `"High"`, `[Estimate] * 2`, `prop(first([Campaign]), "Current session")`. The result is converted to the field's kind (dates through the date adapter, links as `[[…]]`, lists); a result that doesn't fit (text in a number field, a status the type doesn't have) stops the run with an error. |
+| `set` | 1 | Sets a field (or `status`) of this note to a **value**: picked for the field's kind (`fixed`, below) or a formula (below), e.g. `today()`, `"High"`, `[Estimate] * 2`, `prop(first([Campaign]), "Current session")`. The result is converted to the field's kind (dates through the date adapter, links as `[[…]]`, lists); a result that doesn't fit (text in a number field, a status the type doesn't have) stops the run with an error. |
 | `clear` | 1 | Empties a field. |
 | `tag` | 1 | Adds or removes a tag. |
-| `link` | 1 | Adds or removes links in a relation field: the target is a formula giving a note (a link, or a name). Single-link fields are replaced. |
+| `link` | 1 | Adds or removes links in a relation field: the target is picked notes (`fixed`: paths) or a formula giving a note (a link, or a name). Single-link fields are replaced. |
 | `notice` | 1 | Shows a notice; the text is a template (below). |
 | `linked` | 2 | Runs nested steps on linked notes: outgoing (a relation field) or incoming (`in:<type>.<field>`), like roll-up sources, with their own "Only if" (e.g. "Milestone, if every task on it is done": a roll-up condition). |
 | `create` | 2 | Creates a note of a type: the name (template), field values (formulas), linked to this note through a chosen field, from the type's template, optionally opened. Named (`as`) so later steps can use it. |
@@ -1872,6 +1872,7 @@ Not planned for now: shell commands, scripts, web requests, deleting notes.
 
 #### Values
 
+- **Picked values** (`fixed` on `set` and `link` steps, used instead of the formula when present): chosen with the same inputs as filter values, by the field's kind: pills for status and choices (one, or several for multiple choice), the date box (a date, or relative to the day it runs: `today`, `+7d`, `-1m`), a number, a checkbox, a comma list, notes from the entity picker (one for single-link fields), or text. Stored as the value (`"High"`, `["bug"]`, `5`, `true`, `"+7d"`, note paths). Problems: nothing picked, a status none of the types has, a choice the field doesn't have. Reading saved workflows turns plain-value formulas (`"High"`, `5`, `true`, `today() + 7`, `"2026-01-31"`) into picked values; references and functions stay formulas.
 - **Formulas** are the view formula language (§8.10 Formulas): `[Field]` by label or key, built-ins (`[Status]`, `[Parent]`, `[Ancestors]`), `prop()`, every function. Compiled against the scoped types' columns (plus the form's fields); errors show in the editor as you type.
 - **Trigger values:** `old([Field])` and `new([Field])` on a `changed` trigger (on others both are the current value).
 - **Earlier steps** (stage 2): a named step's result as `[as]`, e.g. the created note.
@@ -1897,7 +1898,7 @@ Its own view (`WorkflowsView`, a main-area tab like Entity types), opened from t
   - **Applies to:** the scope (types and groups, as in relation targets); optional for manual and form workflows.
   - **When:** the trigger kind and its options (field, from / to values as pills; button label, icon, confirm text and where it shows; the form's fields, stage 2).
   - **Only if:** the Filters panel over the scoped types' columns.
-  - **Do:** the steps as numbered cards in order: add (a menu of step kinds), move up / down, delete; each with its own fields (field picker, formula box checked as you type with a button to insert a field, template box).
+  - **Do:** the steps as numbered cards in order: add (a menu of step kinds), move up / down, delete; each with its own fields (field picker, value box, template box). Field pickers are the views' compact column picker (Built-in / Fields). A value box shows the picked-value input for the field's kind, then **[ ]** (a menu of fields: inserts `[Field]` at the cursor, or turns a picked value into that formula) and **ƒx** (opens the formula editor: from a picked value it starts with the value as a formula, e.g. `today() + 7`; Cancel keeps the picked value). In formula mode the box is the formula, checked as you type, with **↺** to go back to a picked value (the formula's value when it's a plain one). The buttons are styled like the field picker. The **formula editor** for a step is the view formula editor without the name and result type, with the Workflows functions (`old`, `new`), and a preview of what the first notes would get (or why the field couldn't take it).
   - **Problems** (like type validation): no name, no steps, unknown fields or types, formulas that don't compile, a `changed` trigger on a calculated field, steps setting calculated or missing fields, note steps without a note. A new workflow shows the ones about what it hasn't got yet only once Save is tried. **Save** with problems shows them and saves nothing. A saved workflow that gets problems later (a field or type it uses is removed) is flagged in the sidebar, the type editor and a banner, and doesn't run.
   - **Recent runs** for this workflow at the bottom.
 - **Recent runs** (all workflows): when, workflow, note(s), what changed, errors, with Undo where possible.

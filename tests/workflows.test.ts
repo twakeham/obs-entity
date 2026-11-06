@@ -6,6 +6,8 @@ import type { EntityTypeDef, FieldDef, GroupDef } from "../src/model/types";
 import type { ViewContext, ViewRow } from "../src/model/views";
 import {
 	changeMatches,
+	fixedFromFormula,
+	formulaFromFixed,
 	newWorkflow,
 	parseTemplate,
 	passesWhen,
@@ -210,5 +212,79 @@ describe("values and steps", () => {
 		const res = run(wf({ steps: [{ kind: "notice", text: "{new([Estimate]) - old([Estimate])} more" }, { kind: "link", op: "remove", field: "project", target: "[Project]" }] }), after, before);
 		expect(res.notices).toEqual(["3 more"]);
 		expect(res.fm.project ?? null).toBeNull();
+	});
+});
+
+describe("fixed values", () => {
+	const fields = Object.fromEntries(workflowFields({ scope: ["task"] }, TYPES).map((x) => [x.key, x]));
+	const r = ROWS[2];
+
+	it("turn plain formulas into fixed values, by the field's kind", () => {
+		expect(fixedFromFormula('"High"', fields.priority)).toBe("High");
+		expect(fixedFromFormula('"bug"', fields.labels)).toEqual(["bug"]);
+		expect(fixedFromFormula("5", fields.estimate)).toBe(5);
+		expect(fixedFromFormula("true", fields.alive)).toBe(true);
+		expect(fixedFromFormula("today()", fields.due)).toBe("today");
+		expect(fixedFromFormula("today() + 7", fields.due)).toBe("+7d");
+		expect(fixedFromFormula("today()-3", fields.due)).toBe("-3d");
+		expect(fixedFromFormula('"2026-12-01"', fields.due)).toBe("2026-12-01");
+		for (const [src, k] of [["[Start] + 7", "due"], ['"5"', "estimate"], ['concat("a", "b")', "priority"], ['"Apollo"', "project"], ["5", "priority"]] as const) expect(fixedFromFormula(src, fields[k])).toBeUndefined();
+	});
+
+	it("write fixed values back as formulas", () => {
+		expect(formulaFromFixed("High", fields.priority)).toBe('"High"');
+		expect(formulaFromFixed(["bug", "feature"], fields.labels)).toBe('list("bug", "feature")');
+		expect(formulaFromFixed(5, fields.estimate)).toBe("5");
+		expect(formulaFromFixed(false, fields.alive)).toBe("false");
+		expect(formulaFromFixed("+7d", fields.due)).toBe("today() + 7");
+		expect(formulaFromFixed("-2w", fields.due)).toBe("today() - 14");
+		expect(formulaFromFixed("1m", fields.due)).toBe('dateAdd(today(), 1, "months")');
+		expect(formulaFromFixed(["Apollo.md"], fields.project)).toBe('"Apollo"');
+		expect(formulaFromFixed("", fields.priority)).toBe("");
+	});
+
+	it("convert plain saved formulas when read with the types", () => {
+		const [w] = readWorkflows(
+			[{ id: "a", name: "A", scope: ["task"], trigger: { kind: "manual" }, steps: [{ kind: "set", field: "priority", value: '"High"' }, { kind: "set", field: "due", value: "[Completed] + 1" }, { kind: "set", field: "estimate", fixed: 4, value: "" }] }],
+			TYPES,
+		);
+		expect(w.steps).toEqual([
+			{ kind: "set", field: "priority", value: "", fixed: "High" },
+			{ kind: "set", field: "due", value: "[Completed] + 1" },
+			{ kind: "set", field: "estimate", value: "", fixed: 4 },
+		]);
+	});
+
+	it("run fixed values: choices, numbers, checkboxes, relative dates, notes", () => {
+		const res = run(
+			wf({
+				steps: [
+					{ kind: "set", field: "priority", value: "", fixed: "high" },
+					{ kind: "set", field: "labels", value: "", fixed: ["bug"] },
+					{ kind: "set", field: "estimate", value: "", fixed: 8 },
+					{ kind: "set", field: "alive", value: "", fixed: false },
+					{ kind: "set", field: "due", value: "", fixed: "+7d" },
+					{ kind: "set", field: "project", value: "", fixed: ["Zeus.md"] },
+					{ kind: "link", op: "add", field: "people", target: "", fixed: ["Apollo.md"] },
+				],
+			}),
+			r,
+		);
+		expect(res.error).toBeUndefined();
+		expect(res.fm).toMatchObject({ priority: "High", labels: ["bug"], estimate: 8, alive: false, due: "2026-11-13", project: "[[Zeus]]", people: ["[[Apollo]]"] });
+	});
+
+	it("report fixed values that don't fit", () => {
+		const at = (steps: WorkflowDef["steps"]) => workflowProblems(wf({ name: "x", steps }), ctx).map((p) => p.message);
+		expect(at([{ kind: "set", field: "priority", value: "", fixed: "" }])).toEqual(["Choose or write the value."]);
+		expect(at([{ kind: "set", field: "priority", value: "", fixed: "Urgent" }])).toEqual(["“Urgent” isn't one of Priority's choices."]);
+		expect(at([{ kind: "set", field: "status", value: "", fixed: "archived" }])).toEqual(["None of these types has the status “archived”."]);
+		expect(at([{ kind: "set", field: "alive", value: "", fixed: false }])).toEqual([]);
+		expect(at([{ kind: "link", op: "add", field: "people", target: "", fixed: [] }])).toEqual(["Choose the note to link."]);
+	});
+
+	it("list() makes a list", () => {
+		const res = run(wf({ steps: [{ kind: "set", field: "labels", value: 'list("bug", "feature")' }] }), r);
+		expect(res.fm.labels).toEqual(["bug", "feature"]);
 	});
 });

@@ -434,13 +434,15 @@ select.oe-status.has-color {
 /* Choice buttons (multiple choice in the form, filter values) */
 .oe-form .oe-option.has-color,
 .oe-popover .oe-option.has-color,
-.oe-filters .oe-option.has-color {
+.oe-filters .oe-option.has-color,
+.oe-wf .oe-option.has-color {
 	color: var(--oe-c);
 }
 
 .oe-form .oe-option.has-color.is-active,
 .oe-popover .oe-option.has-color.is-active,
-.oe-filters .oe-option.has-color.is-active {
+.oe-filters .oe-option.has-color.is-active,
+.oe-wf .oe-option.has-color.is-active {
 	border-color: var(--oe-c);
 	background-color: color-mix(in srgb, var(--oe-c) 16%, var(--background-primary));
 }
@@ -874,7 +876,8 @@ select.oe-status.has-color {
 
 .oe-form .oe-option,
 .oe-popover .oe-option,
-.oe-filters .oe-option {
+.oe-filters .oe-option,
+.oe-wf .oe-option {
 	height: auto;
 	padding: 1px 10px;
 	border: 1px solid var(--background-modifier-border);
@@ -887,7 +890,8 @@ select.oe-status.has-color {
 
 .oe-form .oe-option.is-active,
 .oe-popover .oe-option.is-active,
-.oe-filters .oe-option.is-active {
+.oe-filters .oe-option.is-active,
+.oe-wf .oe-option.is-active {
 	border-color: var(--interactive-accent);
 	background-color: color-mix(in srgb, var(--interactive-accent) 15%, var(--background-primary));
 	color: var(--text-normal);
@@ -7582,13 +7586,9 @@ button.oe-calv-more:hover {
 	gap: var(--size-4-2);
 }
 
-.oe-wf-step-body > select,
-.oe-wf-step-body > input {
-	flex: 0 0 auto;
-}
 
 .oe-wf-to {
-	line-height: var(--input-height);
+	line-height: 26px;
 	color: var(--text-muted);
 }
 
@@ -7609,6 +7609,7 @@ button.oe-calv-more:hover {
 .oe-tm input.oe-wf-formula-input {
 	flex: 1;
 	min-width: 0;
+	height: 26px;
 	font-family: var(--font-monospace);
 	font-size: var(--font-ui-small);
 }
@@ -7714,4 +7715,95 @@ button.oe-calv-more:hover {
 .oe-wf-buttons .oe-icon svg {
 	width: 14px;
 	height: 14px;
+}
+
+/* Workflow fields and values: the views' compact pickers (Group, filter values) */
+.oe-wf select.oe-pop-select {
+	height: 26px;
+	max-width: 14em;
+	font-size: var(--font-ui-small);
+}
+
+.oe-tm-row-control > select.oe-wf-field {
+	width: auto;
+}
+
+.oe-wf input.oe-pop-input,
+.oe-wf input.oe-wf-text {
+	height: 26px;
+	font-size: var(--font-ui-small);
+}
+
+.oe-wf input.oe-pop-input {
+	width: 12em;
+}
+
+.oe-wf input.oe-pop-input.is-number {
+	width: 6em;
+}
+
+.oe-wf-value {
+	flex: 1;
+	min-width: 220px;
+	display: flex;
+	align-items: flex-start;
+	gap: var(--size-4-2);
+}
+
+.oe-wf-value > .oe-pop-pills,
+.oe-wf-value > .oe-pop-links {
+	min-height: 26px;
+	max-width: none;
+}
+
+.oe-wf-value-btns {
+	display: inline-flex;
+	gap: var(--size-4-1);
+	margin-left: auto;
+	flex: none;
+}
+
+/* [ ], ƒx and ↺: buttons that look like the field picker */
+.oe-tm button.oe-wf-fxbtn {
+	flex: none;
+	height: 26px;
+	min-width: 30px;
+	padding: 0 8px;
+	gap: 2px;
+	border: none;
+	border-radius: var(--input-radius);
+	font-size: var(--font-ui-small);
+	font-weight: var(--font-normal);
+	color: var(--text-normal);
+	background-color: var(--dropdown-background, var(--interactive-normal));
+	box-shadow: var(--input-shadow);
+}
+
+.oe-tm button.oe-wf-fxbtn:hover {
+	background-color: var(--dropdown-background-hover, var(--interactive-hover));
+	box-shadow: var(--input-shadow-hover);
+}
+
+.oe-tm button.oe-wf-fxbtn .oe-icon svg {
+	width: 14px;
+	height: 14px;
+}
+
+.oe-wf-fx-label {
+	font-family: var(--font-text);
+	font-style: italic;
+	font-weight: var(--font-semibold);
+}
+
+.oe-tm button.oe-wf-fx.is-active {
+	color: var(--text-accent);
+}
+
+.oe-wf-check {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	height: 26px;
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
 }

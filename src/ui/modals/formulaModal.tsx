@@ -8,9 +8,10 @@ import { Modal } from "obsidian";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type EntitiesPlugin from "../../main";
-import { compile, findColumn, FormulaError, FTYPE_LABEL, FTYPES, FUNCTIONS, functionDef, toDisplay, toStored, type FnCategory, type FnDef, type FType, type RefColumn } from "../../model/formula";
+import { compile, findColumn, FormulaError, FTYPE_LABEL, FTYPES, FUNCTIONS, functionDef, toDisplay, toStored, toText, type FnCategory, type FnDef, type FType, type RefColumn } from "../../model/formula";
+import { storedValue, type WorkflowField } from "../../model/workflows";
 import { toKey, type EntityTypeDef } from "../../model/types";
-import { cellOf, formulaRefColumns, resolveColumn, runView, type ColumnDef, type ViewDef, type ViewRow } from "../../model/views";
+import { cellOf, compileFormula, evaluateFormula, formulaRefColumns, resolveColumn, runView, type ColumnDef, type ViewDef, type ViewRow } from "../../model/views";
 import { PluginContext } from "../react/context";
 import { Icon } from "../react/Icon";
 
@@ -26,6 +27,15 @@ const KEYWORDS = ["and", "or", "not", "true", "false", "item"];
 const CATEGORIES: FnCategory[] = ["Logic", "Maths", "Text", "Dates", "Lists", "Links"];
 /** Functions for view and field formulas (workflow-only ones aren't offered). */
 const VIEW_FUNCTIONS = FUNCTIONS.filter((f) => !f.workflow);
+
+/** A workflow step's formula: no name or result type; old() / new() offered; the preview shows what notes would get. */
+export interface WorkflowFormulaOpts {
+	title: string;
+	value: string;
+	/** the field the result goes in (the preview shows the value it would store, or why it can't) */
+	field?: WorkflowField;
+	done: (src: string) => void;
+}
 
 /** Lenient tokens for colouring (works on unfinished formulas). */
 function highlightRanges(src: string, known: (name: string) => boolean): { from: number; to: number; cls: string }[] {
@@ -67,6 +77,7 @@ function FormulaEditor({
 	onSave,
 	onCancel,
 	field,
+	workflow,
 }: {
 	plugin: EntitiesPlugin;
 	def: ViewDef;
@@ -75,7 +86,11 @@ function FormulaEditor({
 	onCancel: () => void;
 	/** a type's formula field (not a view column): the types as edited, and the field's label (no name box) */
 	field?: FormulaFieldOpts;
+	/** a workflow step's formula (not a column) */
+	workflow?: WorkflowFormulaOpts;
 }) {
+	const functions = workflow ? FUNCTIONS : VIEW_FUNCTIONS;
+	const categories: FnCategory[] = workflow ? [...CATEGORIES, "Workflows"] : CATEGORIES;
 	const lookup = useMemo(() => ({ types: field?.types ?? plugin.settings.types, groups: plugin.settings.groups }), [plugin, field]);
 	const id = useMemo(() => {
 		if (existing) return existing.id;
@@ -86,7 +101,7 @@ function FormulaEditor({
 	}, [def, existing]);
 	const refCols: RefColumn[] = useMemo(() => formulaRefColumns(def, lookup).filter((c) => c.id !== id), [def, lookup, id]);
 	const [name, setName] = useState(existing?.label ?? "");
-	const [text, setText] = useState(() => (existing ? toDisplay(existing.formula, refCols) : ""));
+	const [text, setText] = useState(() => (workflow ? workflow.value : existing ? toDisplay(existing.formula, refCols) : ""));
 	const [type, setType] = useState<FType | "">(existing?.type ?? "");
 	const [search, setSearch] = useState("");
 	const host = useRef<HTMLDivElement>(null);
@@ -112,6 +127,7 @@ function FormulaEditor({
 	/** Problems with the formula: syntax and references (with positions), then resolution problems such as loops. */
 	const check = (src: string, t: FType | "", label: string) => {
 		try {
+			if (workflow) return { inferred: compileFormula(src, def, lookup, { workflow: true }).compiled.type };
 			const c = compile(src, refCols);
 			const { col, tmp } = build(src, t, label);
 			const resolved = resolveColumn(col, tmp, lookup);
@@ -127,6 +143,11 @@ function FormulaEditor({
 	const save = () => {
 		const s = check(latest.current.text, type, name);
 		if (s.error) return;
+		if (workflow) {
+			onCancel();
+			workflow.done(latest.current.text);
+			return;
+		}
 		const col = build(latest.current.text, type, name).col;
 		// A new column's id comes from its name (the editor works with a placeholder id until then).
 		if (!existing) col.id = formulaId(col.label ?? "formula", def.columns.map((c) => c.id));
@@ -176,7 +197,7 @@ function FormulaEditor({
 			const word = cx.matchBefore(/[A-Za-z_]\w*/);
 			if (!word && !cx.explicit) return null;
 			const from = word ? word.from : cx.pos;
-			const fns: Completion[] = VIEW_FUNCTIONS.map((f) => ({
+			const fns: Completion[] = functions.map((f) => ({
 				label: f.sig.split("(")[0],
 				detail: f.sig.slice(f.sig.indexOf("(")),
 				type: "function",
@@ -287,18 +308,34 @@ function FormulaEditor({
 
 	// ---- preview
 	const preview = useMemo(() => {
+		if (workflow) {
+			if (status.error) return [];
+			return sample.map((row) => {
+				try {
+					const v = evaluateFormula(text, row, def, data.ctx, { workflow: true });
+					const shown = toText(v, { dateText: (d) => data.ctx.dates.format(d, "short") });
+					const f = workflow.field;
+					const own = f && row.type.fields.find((x) => x.key === f.key);
+					if (!f || (f.kind !== "status" && !own)) return { name: row.name, cell: { text: shown } };
+					const r = storedValue(own ? { ...f, kind: own.kind, field: own } : f, v, row, data.ctx, (p) => p.replace(/\.md$/, "").split("/").pop() ?? p);
+					return { name: row.name, cell: "error" in r ? { text: shown, error: r.error } : { text: shown } };
+				} catch (e) {
+					return { name: row.name, cell: { text: "", error: e instanceof Error ? e.message : String(e) } };
+				}
+			});
+		}
 		if (!status.resolved) return [];
 		return sample.map((row) => ({ name: row.name, cell: cellOf(row, status.resolved!, data.ctx) }));
-	}, [status, sample, data]);
+	}, [status, sample, data, text]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	const q = search.trim().toLowerCase();
-	const fnList = VIEW_FUNCTIONS.filter((f) => !q || f.name.includes(q) || f.desc.toLowerCase().includes(q));
+	const fnList = functions.filter((f) => !q || f.name.includes(q) || f.desc.toLowerCase().includes(q));
 	const colList = refCols.filter((c) => !q || c.label.toLowerCase().includes(q));
 
 	return (
 		<div className="oe-fx">
 			<div className="oe-fx-main">
-				{!field && (
+				{!field && !workflow && (
 					<label className="oe-fx-field">
 						<span>Name</span>
 						<input type="text" value={name} placeholder="e.g. Days left" onChange={(e) => setName(e.target.value)} aria-label="Column name" />
@@ -321,6 +358,7 @@ function FormulaEditor({
 						</>
 					)}
 				</div>
+				{!workflow && (
 				<label className="oe-fx-field is-inline">
 					<span>Result type</span>
 					<select className="dropdown" value={type} onChange={(e) => setType(e.target.value as FType | "")} aria-label="Result type">
@@ -332,12 +370,13 @@ function FormulaEditor({
 						))}
 					</select>
 				</label>
+				)}
 				<div className="oe-fx-preview">
 					<div className="oe-pop-heading">Preview</div>
-					{!status.resolved ? (
-						<div className="oe-pop-empty">The first rows' results appear here.</div>
+					{(workflow ? !!status.error || !text.trim() : !status.resolved) ? (
+						<div className="oe-pop-empty">{workflow ? "What the first notes would get appears here." : "The first rows' results appear here."}</div>
 					) : sample.length === 0 ? (
-						<div className="oe-pop-empty">The view has no rows to preview.</div>
+						<div className="oe-pop-empty">{workflow ? "No notes of these types to preview." : "The view has no rows to preview."}</div>
 					) : (
 						<table>
 							<tbody>
@@ -374,7 +413,7 @@ function FormulaEditor({
 							))}
 						</div>
 					)}
-					{CATEGORIES.map((cat) => {
+					{categories.map((cat) => {
 						const fs = fnList.filter((f) => f.cat === cat);
 						if (!fs.length) return null;
 						return (
@@ -410,8 +449,14 @@ export class FormulaModal extends Modal {
 		private existing: FormulaCol | null,
 		private done: (col: FormulaCol) => void,
 		private field?: FormulaFieldOpts,
+		private workflow?: WorkflowFormulaOpts,
 	) {
 		super(plugin.app);
+	}
+
+	/** The editor for a workflow step's formula. */
+	static forWorkflow(plugin: EntitiesPlugin, def: ViewDef, opts: WorkflowFormulaOpts): FormulaModal {
+		return new FormulaModal(plugin, def, null, () => {}, undefined, opts);
 	}
 
 	close(): void {
@@ -428,7 +473,7 @@ export class FormulaModal extends Modal {
 	}
 
 	onOpen(): void {
-		this.titleEl.setText(this.field ? `Formula: ${this.field.label || "new field"}` : this.existing ? "Edit formula" : "New formula column");
+		this.titleEl.setText(this.workflow ? this.workflow.title : this.field ? `Formula: ${this.field.label || "new field"}` : this.existing ? "Edit formula" : "New formula column");
 		this.modalEl.addClass("oe-fx-modal");
 		// Capture runs before the editor closes the list (and before Obsidian's Esc handling).
 		this.modalEl.addEventListener(
@@ -450,6 +495,7 @@ export class FormulaModal extends Modal {
 					def={this.def}
 					existing={this.existing}
 					field={this.field}
+					workflow={this.workflow}
 					onCancel={() => this.close()}
 					onSave={(c) => {
 						this.close();

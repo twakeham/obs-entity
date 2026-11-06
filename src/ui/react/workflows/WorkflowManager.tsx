@@ -1,10 +1,15 @@
 import { Menu, Notice } from "obsidian";
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { statusUnion } from "../../../model/bulk";
-import { COMMON_KEYS } from "../../../model/types";
+import { choiceColor, statusColorAmong } from "../../../model/colors";
+import { todayDays } from "../../../model/formConditions";
+import { COMMON_KEYS, isListValued, type EntityTypeDef, type GroupDef } from "../../../model/types";
 import { availableColumns, compileFormula, resolveColumn, type ColumnDef } from "../../../model/views";
 import {
 	cloneWorkflow,
+	defaultFixed,
+	fixedFromFormula,
+	formulaFromFixed,
 	listsValues,
 	needsScope,
 	newWorkflow,
@@ -15,6 +20,7 @@ import {
 	workflowDef,
 	workflowFields,
 	workflowProblems,
+	type FixedValue,
 	type StepKind,
 	type TriggerKind,
 	type WorkflowDef,
@@ -25,7 +31,9 @@ import {
 import type { RunRecord } from "../../../services/workflows";
 import { usePlugin } from "../context";
 import { Icon } from "../Icon";
-import { FiltersPanel, type ColumnChoice } from "../table/popovers";
+import { FormulaModal } from "../../modals/formulaModal";
+import { colorClass } from "../EntityBits";
+import { DateBox, FiltersPanel, LinkValues, type ColumnChoice } from "../table/popovers";
 import { ConfirmModal, SaveActions } from "../types/TypeManager";
 import { IconPicker, Row, Section, Segmented, TargetPicker, TextInput, Toggle } from "../types/controls";
 
@@ -400,14 +408,7 @@ function WorkflowEditor({
 					{t.kind === "changed" && (
 						<>
 							<Row label="Field" desc="Changes from anywhere count: the form, tables, boards, other workflows, or the note edited by hand.">
-								<select className="dropdown" aria-label="Field" value={t.field} onChange={(e) => edit((x) => (x.trigger = { kind: "changed", field: e.target.value }))}>
-									{fields.map((f) => (
-										<option key={f.key} value={f.key}>
-											{f.label}
-										</option>
-									))}
-									{!fields.some((f) => f.key === t.field) && <option value={t.field}>{t.field}</option>}
-								</select>
+								<FieldSelect label="Field" value={t.field} fields={fields} onChange={(k) => edit((x) => (x.trigger = { kind: "changed", field: k }))} />
 							</Row>
 							{listsValues(watched) ? (
 								<>
@@ -525,13 +526,13 @@ function blankStep(kind: StepKind, fields: WorkflowField[]): WorkflowStep {
 	const first = fields.find((f) => f.key !== COMMON_KEYS.tags)?.key ?? COMMON_KEYS.status;
 	switch (kind) {
 		case "set":
-			return { kind, field: first, value: "" };
+			return { kind, field: first, value: "", fixed: defaultFixed(fields.find((f) => f.key === first)) };
 		case "clear":
 			return { kind, field: first };
 		case "tag":
 			return { kind, op: "add", tag: "" };
 		case "link":
-			return { kind, op: "add", field: fields.find((f) => f.kind === "relation")?.key ?? "", target: "" };
+			return { kind, op: "add", field: fields.find((f) => f.kind === "relation")?.key ?? "", target: "", fixed: [] };
 		case "notice":
 			return { kind, text: "" };
 	}
@@ -553,6 +554,25 @@ function ValuePills({ label, options, value, onChange }: { label: string; option
 			})}
 			{!options.length && !extra.length && <span className="oe-tm-muted">No values to choose from.</span>}
 		</div>
+	);
+}
+
+/** A field picker like the views' column pickers: Built-in (Status, Tags) and Fields. */
+function FieldSelect({ value, fields, label, onChange }: { value: string; fields: WorkflowField[]; label: string; onChange: (key: string) => void }) {
+	const builtin = fields.filter((f) => f.key === COMMON_KEYS.status || f.key === COMMON_KEYS.tags);
+	const own = fields.filter((f) => !builtin.includes(f));
+	const opts = (list: WorkflowField[]) =>
+		list.map((f) => (
+			<option key={f.key} value={f.key}>
+				{f.label}
+			</option>
+		));
+	return (
+		<select className="dropdown oe-pop-select oe-wf-field" aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}>
+			{!fields.some((f) => f.key === value) && <option value={value}>{value || "Choose…"}</option>}
+			{builtin.length > 0 && <optgroup label="Built-in">{opts(builtin)}</optgroup>}
+			{own.length > 0 && <optgroup label="Fields">{opts(own)}</optgroup>}
+		</select>
 	);
 }
 
@@ -580,29 +600,40 @@ function StepCard({
 }) {
 	const settable = fields.filter((f) => f.key !== COMMON_KEYS.tags);
 	const relations = fields.filter((f) => f.kind === "relation");
-	const fieldSelect = (value: string, list: WorkflowField[], set: (k: string) => void) => (
-		<select className="dropdown" aria-label="Field" value={value} onChange={(e) => set(e.target.value)}>
-			{!list.some((f) => f.key === value) && <option value={value}>{value || "Choose…"}</option>}
-			{list.map((f) => (
-				<option key={f.key} value={f.key}>
-					{f.label}
-				</option>
-			))}
-		</select>
-	);
 	let body: ReactNode = null;
 	switch (step.kind) {
-		case "set":
+		case "set": {
+			const field = settable.find((f) => f.key === step.field);
 			body = (
 				<>
-					{fieldSelect(step.field, settable, (k) => onChange({ ...step, field: k }))}
+					<FieldSelect
+						label="Field"
+						value={step.field}
+						fields={settable}
+						onChange={(k) => {
+							const next = settable.find((f) => f.key === k);
+							onChange(step.fixed !== undefined ? { ...step, field: k, fixed: defaultFixed(next) } : { ...step, field: k });
+						}}
+					/>
 					<span className="oe-wf-to">to</span>
-					<FormulaBox wf={wf} value={step.value} placeholder={valueHint(settable.find((f) => f.key === step.field))} onChange={(v) => onChange({ ...step, value: v })} />
+					<StepValue
+						wf={wf}
+						field={field}
+						fixed={step.fixed}
+						formula={step.value}
+						title={`Set ${field?.label ?? step.field} to…`}
+						placeholder={valueHint(field)}
+						onChange={(v) => {
+							const { fixed: _drop, ...rest } = step;
+							onChange("fixed" in v ? { ...rest, value: "", fixed: v.fixed } : { ...rest, value: v.formula });
+						}}
+					/>
 				</>
 			);
 			break;
+		}
 		case "clear":
-			body = fieldSelect(step.field, settable, (k) => onChange({ ...step, field: k }));
+			body = <FieldSelect label="Field" value={step.field} fields={settable} onChange={(k) => onChange({ ...step, field: k })} />;
 			break;
 		case "tag":
 			body = (
@@ -616,11 +647,12 @@ function StepCard({
 						]}
 						onChange={(v) => onChange({ ...step, op: v })}
 					/>
-					<TextInput label="Tag" value={step.tag} placeholder="#tag" onChange={(v) => onChange({ ...step, tag: v })} />
+					<TextInput label="Tag" className="oe-wf-text" value={step.tag} placeholder="#tag" onChange={(v) => onChange({ ...step, tag: v })} />
 				</>
 			);
 			break;
-		case "link":
+		case "link": {
+			const field = relations.find((f) => f.key === step.field);
 			body = (
 				<>
 					<Segmented
@@ -632,11 +664,24 @@ function StepCard({
 						]}
 						onChange={(v) => onChange({ ...step, op: v })}
 					/>
-					{relations.length ? fieldSelect(step.field, relations, (k) => onChange({ ...step, field: k })) : <span className="oe-tm-muted">These types have no link fields.</span>}
-					<FormulaBox wf={wf} value={step.target} placeholder={'e.g. "Apollo" or [Project]'} onChange={(v) => onChange({ ...step, target: v })} />
+					{relations.length ? <FieldSelect label="Field" value={step.field} fields={relations} onChange={(k) => onChange({ ...step, field: k })} /> : <span className="oe-tm-muted">These types have no link fields.</span>}
+					<StepValue
+						wf={wf}
+						field={field}
+						multiple
+						fixed={step.fixed}
+						formula={step.target}
+						title={`${step.op === "add" ? "Link" : "Unlink"} ${field?.label ?? "notes"}`}
+						placeholder={'e.g. [Project] or "Apollo"'}
+						onChange={(v) => {
+							const { fixed: _drop, ...rest } = step;
+							onChange("fixed" in v ? { ...rest, target: "", fixed: Array.isArray(v.fixed) ? v.fixed : [] } : { ...rest, target: v.formula });
+						}}
+					/>
 				</>
 			);
 			break;
+		}
 		case "notice":
 			body = <FormulaBox wf={wf} template value={step.text} placeholder="e.g. {[Name]} is done" onChange={(v) => onChange({ ...step, text: v })} />;
 			break;
@@ -687,11 +732,182 @@ function valueHint(f: WorkflowField | undefined): string {
 	}
 }
 
+/** The [ ] menu: a field of the scoped types, picked by its label. */
+function fieldMenu(e: ReactMouseEvent, wf: WorkflowDef, lookup: { types: EntityTypeDef[]; groups: GroupDef[] }, pick: (label: string) => void) {
+	const m = new Menu();
+	const def = workflowDef(wf);
+	const cols = availableColumns(def, lookup);
+	for (const c of [{ kind: "builtin", id: "name", key: "name" } as ColumnDef, ...cols.fields, ...cols.builtins]) {
+		const label = resolveColumn(c, def, lookup).label;
+		m.addItem((i) => i.setTitle(label).onClick(() => pick(label)));
+	}
+	const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+	m.showAtPosition({ x: r.left, y: r.bottom + 4 });
+}
+
+/** The [ ] button: styled like the field picker, it opens a menu of fields. */
+function InsertFieldButton({ onClick }: { onClick: (e: ReactMouseEvent) => void }) {
+	return (
+		<button className="oe-wf-fxbtn" aria-label="Insert a field" onClick={onClick}>
+			<Icon name="brackets" />
+		</button>
+	);
+}
+
 /**
- * A formula (or, with `template`, text with {formula} parts) box: monospace, checked as you type, with a button to
- * insert a field reference at the cursor.
+ * A step's value: picked like a filter's value (pills, a date, a number, notes…) for the field's kind, or a formula.
+ * [ ] puts a field in (as a formula); ƒx opens the formula editor; ↺ goes back to a picked value.
  */
-function FormulaBox({ wf, value, placeholder, template, onChange }: { wf: WorkflowDef; value: string; placeholder?: string; template?: boolean; onChange: (v: string) => void }) {
+function StepValue({
+	wf,
+	field,
+	fixed,
+	formula,
+	title,
+	placeholder,
+	multiple,
+	onChange,
+}: {
+	wf: WorkflowDef;
+	field: WorkflowField | undefined;
+	fixed: FixedValue | undefined;
+	formula: string;
+	title: string;
+	placeholder: string;
+	/** notes to link (many, whatever the field holds) */
+	multiple?: boolean;
+	onChange: (v: { fixed: FixedValue } | { formula: string }) => void;
+}) {
+	const plugin = usePlugin();
+	const lookup = { types: plugin.settings.types, groups: plugin.settings.groups };
+	const editor = (src: string) =>
+		FormulaModal.forWorkflow(plugin, workflowDef(wf), {
+			title,
+			value: src,
+			field: multiple ? undefined : field,
+			done: (v) => onChange({ formula: v }),
+		}).open();
+	const fxButton = (src: string, isFormula: boolean) => (
+		<button className={`oe-wf-fxbtn oe-wf-fx${isFormula ? " is-active" : ""}`} aria-label={isFormula ? "Open the formula editor" : "Use a formula"} onClick={() => editor(src)}>
+			<span className="oe-wf-fx-label">ƒx</span>
+		</button>
+	);
+	if (fixed !== undefined && field)
+		return (
+			<div className="oe-wf-value">
+				<FixedInput wf={wf} field={field} value={fixed} multiple={multiple} onChange={(v) => onChange({ fixed: v })} />
+				<span className="oe-wf-value-btns">
+					<InsertFieldButton onClick={(e) => fieldMenu(e, wf, lookup, (label) => onChange({ formula: `[${label}]` }))} />
+					{fxButton(formulaFromFixed(fixed, field), false)}
+				</span>
+			</div>
+		);
+	return (
+		<FormulaBox wf={wf} value={formula} placeholder={placeholder} onChange={(v) => onChange({ formula: v })}>
+			{fxButton(formula, true)}
+			{field && (
+				<button
+					className="oe-wf-fxbtn"
+					aria-label="Pick a value instead"
+					onClick={() => onChange({ fixed: (multiple ? undefined : fixedFromFormula(formula, field)) ?? defaultFixed(multiple ? { ...field, kind: "relation" } : field) })}
+				>
+					<Icon name="rotate-ccw" />
+				</button>
+			)}
+		</FormulaBox>
+	);
+}
+
+/** A picked value, with the same inputs as filter values: pills for status and choices, a date, a number, notes. */
+function FixedInput({ wf, field, value, multiple, onChange }: { wf: WorkflowDef; field: WorkflowField; value: FixedValue; multiple?: boolean; onChange: (v: FixedValue) => void }) {
+	const plugin = usePlugin();
+	const { types, groups } = plugin.settings;
+	const list = Array.isArray(value) ? value : value === "" ? [] : [String(value)];
+	switch (field.kind) {
+		case "status":
+		case "select":
+		case "multiselect": {
+			const many = field.kind === "multiselect";
+			const options = field.kind === "status" ? statusUnion(scopeTypes(wf, types), groups) : (field.field?.options ?? []);
+			const tint = (o: string) => colorClass(field.kind === "status" ? statusColorAmong(o, types, groups) : field.field ? choiceColor(field.field, o) : null);
+			const all = [...options, ...list.filter((v) => !options.some((o) => o.toLowerCase() === v.toLowerCase()))];
+			const on = (o: string) => list.some((v) => v.toLowerCase() === o.toLowerCase());
+			return (
+				<span className="oe-pop-pills oe-wf-pick" role="group" aria-label="Value">
+					{all.length === 0 && <span className="oe-pop-empty">No choices.</span>}
+					{all.map((o) => (
+						<button
+							key={o}
+							className={`oe-option${on(o) ? " is-active" : ""}${tint(o)}`}
+							aria-pressed={on(o)}
+							onClick={() => onChange(many ? (on(o) ? list.filter((v) => v.toLowerCase() !== o.toLowerCase()) : [...list, o]) : on(o) ? "" : o)}
+						>
+							{o}
+						</button>
+					))}
+				</span>
+			);
+		}
+		case "boolean":
+			return (
+				<label className="oe-wf-check">
+					<input type="checkbox" checked={value === true} aria-label="Ticked" onChange={(e) => onChange(e.target.checked)} />
+					{value === true ? "Ticked" : "Not ticked"}
+				</label>
+			);
+		case "number":
+			return (
+				<input
+					type="text"
+					inputMode="decimal"
+					className="oe-pop-input is-number"
+					aria-label="Value"
+					value={String(value)}
+					onChange={(e) => {
+						const n = Number(e.target.value);
+						onChange(e.target.value.trim() !== "" && Number.isFinite(n) ? n : e.target.value);
+					}}
+				/>
+			);
+		case "date":
+			return <DateBox label="Date" value={value} ctx={{ dates: plugin.dates, today: todayDays() }} onChange={onChange} />;
+		case "relation":
+			return <LinkValues targets={field.field?.targets} value={list} single={!multiple && !!field.field && !isListValued(field.field)} onChange={onChange} />;
+		case "list":
+			return <ListInput value={list} onChange={onChange} />;
+		default:
+			return <input type="text" className="oe-pop-input oe-wf-text" aria-label="Value" value={String(value)} placeholder="Text" onChange={(e) => onChange(e.target.value)} />;
+	}
+}
+
+/** A text list typed with commas ("a, b"). */
+function ListInput({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+	const [text, setText] = useState(value.join(", "));
+	return (
+		<input
+			type="text"
+			className="oe-pop-input oe-wf-text"
+			aria-label="Values, separated by commas"
+			placeholder="a, b, c"
+			value={text}
+			onChange={(e) => {
+				setText(e.target.value);
+				onChange(
+					e.target.value
+						.split(",")
+						.map((s) => s.trim())
+						.filter(Boolean),
+				);
+			}}
+		/>
+	);
+}
+
+/**
+ * A formula (or, with `template`, text with {formula} parts) box: monospace, checked as you type, with [ ] to insert
+ * a field at the cursor, and any other buttons after it.
+ */
+function FormulaBox({ wf, value, placeholder, template, onChange, children }: { wf: WorkflowDef; value: string; placeholder?: string; template?: boolean; onChange: (v: string) => void; children?: ReactNode }) {
 	const plugin = usePlugin();
 	const ref = useRef<HTMLInputElement>(null);
 	const lookup = { types: plugin.settings.types, groups: plugin.settings.groups };
@@ -706,41 +922,29 @@ function FormulaBox({ wf, value, placeholder, template, onChange }: { wf: Workfl
 			error = e instanceof Error ? e.message : String(e);
 		}
 	const insert = (e: ReactMouseEvent) => {
-		const m = new Menu();
-		const cols = availableColumns(def, lookup);
-		const add = (c: ColumnDef) => {
-			const label = resolveColumn(c, def, lookup).label;
-			m.addItem((i) =>
-				i.setTitle(label).onClick(() => {
-					const el = ref.current;
-					const text = template ? `{[${label}]}` : `[${label}]`;
-					const from = el?.selectionStart ?? value.length;
-					const to = el?.selectionEnd ?? value.length;
-					onChange(value.slice(0, from) + text + value.slice(to));
-					window.setTimeout(() => {
-						el?.focus();
-						el?.setSelectionRange(from + text.length, from + text.length);
-					}, 0);
-				}),
-			);
-		};
-		add({ kind: "builtin", id: "name", key: "name" });
-		for (const c of [...cols.fields, ...cols.builtins]) add(c);
-		m.showAtMouseEvent(e.nativeEvent);
+		const el = ref.current;
+		const from = el?.selectionStart ?? value.length;
+		const to = el?.selectionEnd ?? value.length;
+		fieldMenu(e, wf, lookup, (label) => {
+			const text = template ? `{[${label}]}` : `[${label}]`;
+			onChange(value.slice(0, from) + text + value.slice(to));
+			window.setTimeout(() => {
+				el?.focus();
+				el?.setSelectionRange(from + text.length, from + text.length);
+			}, 0);
+		});
 	};
 	return (
 		<div className={`oe-wf-formula${error ? " is-invalid" : ""}`}>
 			<div className="oe-wf-formula-row">
 				<input ref={ref} type="text" className="oe-wf-formula-input" aria-label={template ? "Text" : "Formula"} value={value} placeholder={placeholder} spellCheck={false} onChange={(e) => onChange(e.target.value)} />
-				<button className="clickable-icon" aria-label="Insert a field" onClick={insert}>
-					<Icon name="brackets" />
-				</button>
+				<InsertFieldButton onClick={insert} />
+				{children}
 			</div>
 			{error && <div className="oe-wf-formula-error">{error}</div>}
 		</div>
 	);
 }
-
 /** Runs, newest first: when, the note, what changed (or the error / why it stopped), with Undo. */
 function RunList({ runs, showWorkflow, empty = "No runs yet." }: { runs: RunRecord[]; showWorkflow?: boolean; empty?: string }) {
 	const plugin = usePlugin();

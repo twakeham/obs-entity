@@ -240,7 +240,8 @@ function ConditionEditor({ cond, onChange, onRemove, choices, ctx, valuesOf, thi
 	);
 }
 
-function DateBox({ value, ctx, onChange, label }: { value: unknown; ctx: ViewContext; onChange: (v: string) => void; label: string }) {
+/** A date as in filters: a date, or relative to today ("today", "-7d", "+1m"), with what it means now. */
+export function DateBox({ value, ctx, onChange, label }: { value: unknown; ctx: Pick<ViewContext, "dates" | "today">; onChange: (v: string) => void; label: string }) {
 	const text = value === undefined || value === null ? "" : String(value);
 	const d = dateValue(text, ctx);
 	return (
@@ -304,7 +305,7 @@ function ValueEditor({ kind, col, value, ctx, valuesOf, thisNote, onChange }: { 
 			);
 		}
 		case "links":
-			return <LinkValues col={col} value={value} thisNote={thisNote} onChange={onChange} />;
+			return <LinkValues targets={col.def.kind === "incoming" ? [col.def.type] : col.field?.targets} value={value} thisNote={thisNote} onChange={onChange} />;
 	}
 	return null;
 }
@@ -313,7 +314,20 @@ function ValueEditor({ kind, col, value, ctx, valuesOf, thisNote, onChange }: { 
  * Chosen notes for "links to any / none of": chips plus a picker limited to the column's targets. In views the
  * picker offers "This note" first (stored as `{this}`).
  */
-function LinkValues({ col, value, thisNote, onChange }: { col: ResolvedColumn; value: unknown; thisNote?: string | null; onChange: (v: unknown) => void }) {
+export function LinkValues({
+	targets,
+	value,
+	thisNote,
+	single,
+	onChange,
+}: {
+	targets: string[] | undefined;
+	value: unknown;
+	thisNote?: string | null;
+	/** one note: picking another replaces it */
+	single?: boolean;
+	onChange: (v: string[]) => void;
+}) {
 	const plugin = usePlugin();
 	const ref = useRef<HTMLInputElement>(null);
 	const paths = (Array.isArray(value) ? value : value ? [value] : []).map(String);
@@ -326,14 +340,15 @@ function LinkValues({ col, value, thisNote, onChange }: { col: ResolvedColumn; v
 	const thisName = thisNote ? (plugin.index.get(thisNote)?.name ?? thisNote.split("/").pop()?.replace(/\.md$/, "")) : null;
 	const thisText = useRef(thisName);
 	thisText.current = thisName;
-	const targets = col.def.kind === "incoming" ? [col.def.type] : col.field?.targets;
+	const singleRef = useRef(single);
+	singleRef.current = single;
 	useEffect(() => {
 		if (!ref.current) return;
 		const s = new EntitySuggest(plugin.app, ref.current, plugin, {
 			targets,
 			allowCreate: false,
 			exclude: () => new Set(latest.current),
-			onPick: (e: EntityRecord) => onChangeRef.current([...latest.current, e.path]),
+			onPick: (e: EntityRecord) => onChangeRef.current(singleRef.current ? [e.path] : [...latest.current, e.path]),
 			extra: () =>
 				offerThis.current && !latest.current.includes(THIS_NOTE)
 					? {
@@ -363,7 +378,7 @@ function LinkValues({ col, value, thisNote, onChange }: { col: ResolvedColumn; v
 					</span>
 				</span>
 			))}
-			<input ref={ref} type="text" className="oe-pop-input" placeholder="Choose…" aria-label="Choose a note" />
+			<input ref={ref} type="text" className="oe-pop-input" placeholder={single && paths.length ? "Change…" : "Choose…"} aria-label="Choose a note" />
 		</span>
 	);
 }

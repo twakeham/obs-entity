@@ -10,7 +10,7 @@ import { DateVal, FormulaError, isLink, toText, truthy, type FValue } from "./fo
 import { isEmptyValue } from "./frontmatter";
 import { asArray, parseLink, toWikilink } from "./links";
 import { COMMON_KEYS, isCalculated, isListValued, statusesFor, typeMatchesTarget, type EntityTypeDef, type FieldDef, type GroupDef } from "./types";
-import { compileFormula, emptyView, evaluateFormula, filterFields, runView, withThisNote, type FilterGroup, type ViewContext, type ViewDef, type ViewRow } from "./views";
+import { compileFormula, dateValue, emptyView, evaluateFormula, filterFields, runView, withThisNote, type FilterGroup, type ViewContext, type ViewDef, type ViewRow } from "./views";
 
 // ---------------------------------------------------------------- definitions
 
@@ -22,11 +22,18 @@ export type WorkflowTrigger =
 	| { kind: "changed"; field: string; from?: string[]; to?: ChangedTo }
 	| { kind: "manual"; label?: string; icon?: string; confirm?: string };
 
+/**
+ * A value picked in the editor instead of written as a formula: text, a number, a checkbox, choices, a date (as in
+ * filters: "2026-01-31", "today", "+7d", "-1m") or notes (paths).
+ */
+export type FixedValue = string | number | boolean | string[];
+
+/** `set` and `link` steps use `fixed` when it's there, else the formula in `value` / `target`. */
 export type WorkflowStep =
-	| { kind: "set"; field: string; value: string }
+	| { kind: "set"; field: string; value: string; fixed?: FixedValue }
 	| { kind: "clear"; field: string }
 	| { kind: "tag"; op: "add" | "remove"; tag: string }
-	| { kind: "link"; op: "add" | "remove"; field: string; target: string }
+	| { kind: "link"; op: "add" | "remove"; field: string; target: string; fixed?: string[] }
 	| { kind: "notice"; text: string };
 
 export type TriggerKind = WorkflowTrigger["kind"];
@@ -71,17 +78,24 @@ function readTrigger(raw: unknown): WorkflowTrigger {
 	return { kind: "manual", ...(str(raw.label) ? { label: str(raw.label) } : {}), ...(str(raw.icon) ? { icon: str(raw.icon) } : {}), ...(str(raw.confirm) ? { confirm: str(raw.confirm) } : {}) };
 }
 
+function readFixed(v: unknown): FixedValue | undefined {
+	if (typeof v === "string" || typeof v === "boolean" || (typeof v === "number" && Number.isFinite(v))) return v;
+	return Array.isArray(v) ? strList(v) : undefined;
+}
+
 function readStep(raw: unknown): WorkflowStep | null {
 	if (!isObj(raw)) return null;
 	switch (raw.kind) {
-		case "set":
-			return { kind: "set", field: str(raw.field), value: str(raw.value) };
+		case "set": {
+			const fixed = readFixed(raw.fixed);
+			return { kind: "set", field: str(raw.field), value: str(raw.value), ...(fixed !== undefined ? { fixed } : {}) };
+		}
 		case "clear":
 			return { kind: "clear", field: str(raw.field) };
 		case "tag":
 			return { kind: "tag", op: raw.op === "remove" ? "remove" : "add", tag: str(raw.tag) };
 		case "link":
-			return { kind: "link", op: raw.op === "remove" ? "remove" : "add", field: str(raw.field), target: str(raw.target) };
+			return { kind: "link", op: raw.op === "remove" ? "remove" : "add", field: str(raw.field), target: str(raw.target), ...(Array.isArray(raw.fixed) ? { fixed: strList(raw.fixed) } : {}) };
 		case "notice":
 			return { kind: "notice", text: str(raw.text) };
 	}
@@ -93,8 +107,11 @@ function readGroup(raw: unknown): FilterGroup {
 	return { mode: raw.mode === "any" ? "any" : "all", items: raw.items as FilterGroup["items"] };
 }
 
-/** Saved workflows, tidied (unknown parts dropped, ids made unique). */
-export function readWorkflows(raw: unknown): WorkflowDef[] {
+/**
+ * Saved workflows, tidied (unknown parts dropped, ids made unique). With the types, "Set a field" steps whose formula
+ * is a plain value (`"High"`, `5`, `true`, `today() + 7`) become fixed values.
+ */
+export function readWorkflows(raw: unknown, types?: EntityTypeDef[]): WorkflowDef[] {
 	const out: WorkflowDef[] = [];
 	for (const w of Array.isArray(raw) ? raw : []) {
 		if (!isObj(w)) continue;
@@ -110,6 +127,15 @@ export function readWorkflows(raw: unknown): WorkflowDef[] {
 			steps: (Array.isArray(w.steps) ? w.steps : []).map(readStep).filter((s): s is WorkflowStep => !!s),
 		});
 	}
+	if (types)
+		for (const wf of out) {
+			const fields = workflowFields(wf, types);
+			wf.steps = wf.steps.map((s) => {
+				if (s.kind !== "set" || s.fixed !== undefined) return s;
+				const fixed = fixedFromFormula(s.value, fields.find((f) => f.key === s.field));
+				return fixed === undefined ? s : { ...s, value: "", fixed };
+			});
+		}
 	return out;
 }
 
@@ -297,7 +323,10 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup): WorkflowProbl
 		switch (s.kind) {
 			case "set": {
 				fieldOk(s.field, "set");
-				if (!s.value.trim()) add(at, "Write the value, e.g. today() or \"done\".");
+				if (s.fixed !== undefined) {
+					const p = fixedProblem(s.fixed, fields.find((f) => f.key === s.field), types, lookup.groups);
+					if (p) add(at, p);
+				} else if (!s.value.trim()) add(at, "Write the formula, e.g. today() or [Start] + 7.");
 				else {
 					const e = formulaError(s.value, def, lookup);
 					if (e) add(at, e);
@@ -314,7 +343,9 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup): WorkflowProbl
 				const f = fields.find((x) => x.key === s.field);
 				if (!s.field) add(at, "Choose the link field.");
 				else if (f?.kind !== "relation") add(at, f ? `${f.label} isn't a link field.` : `None of the types has a “${s.field}” field.`);
-				if (!s.target.trim()) add(at, "Write the note to link, e.g. [Project] or \"Apollo\".");
+				if (s.fixed !== undefined) {
+					if (!s.fixed.length) add(at, "Choose the note to link.");
+				} else if (!s.target.trim()) add(at, "Write the note to link, e.g. [Project] or \"Apollo\".");
 				else {
 					const e = formulaError(s.target, def, lookup);
 					if (e) add(at, e);
@@ -421,6 +452,119 @@ export function storedValue(field: WorkflowField, v: FValue, row: ViewRow, ctx: 
 	}
 }
 
+// ---------------------------------------------------------------- fixed values
+
+/** Whether a fixed value is empty (nothing picked or typed). Checkboxes and numbers never are. */
+export const isEmptyFixed = (v: FixedValue | undefined): boolean => v === undefined || v === "" || (Array.isArray(v) && v.length === 0);
+
+/** A field's starting fixed value: ticked for checkboxes, none for lists and links, else empty. */
+export const defaultFixed = (f: WorkflowField | undefined): FixedValue =>
+	f?.kind === "boolean" ? true : f?.kind === "multiselect" || f?.kind === "list" || f?.kind === "relation" ? [] : "";
+
+const STRING_LIT = /^"((?:[^"\\]|\\.)*)"$|^'([^'\\]*)'$/;
+
+/**
+ * A formula as a fixed value for a field, when it's just a value of the field's kind: `"High"` for text and
+ * choices, `5` for numbers, `true` / `false` for checkboxes, `today()`, `today() + 7` or `"2026-01-31"` for dates.
+ * Anything else (references, functions, links) stays a formula: undefined.
+ */
+export function fixedFromFormula(src: string, f: WorkflowField | undefined): FixedValue | undefined {
+	const s = src.trim();
+	if (!f || !s) return undefined;
+	const m = STRING_LIT.exec(s);
+	let text: string | null = null;
+	if (m)
+		try {
+			text = m[1] !== undefined ? (JSON.parse(`"${m[1]}"`) as string) : m[2];
+		} catch {
+			text = null;
+		}
+	switch (f.kind) {
+		case "status":
+		case "select":
+		case "text":
+		case "textarea":
+		case "url":
+			return text ?? undefined;
+		case "multiselect":
+		case "list":
+			return text ? [text] : undefined;
+		case "number":
+			return /^-?\d+(?:\.\d+)?$/.test(s) ? Number(s) : undefined;
+		case "boolean":
+			return /^(true|false)$/i.test(s) ? s.toLowerCase() === "true" : undefined;
+		case "date": {
+			const rel = /^today\(\)(?:\s*([+-])\s*(\d+))?$/i.exec(s);
+			if (rel) return rel[2] && Number(rel[2]) ? `${rel[1]}${Number(rel[2])}d` : "today";
+			return text && /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : undefined;
+		}
+	}
+	return undefined;
+}
+
+const lit = (s: string) => JSON.stringify(s);
+const notePath = (p: string) => p.replace(/\.md$/i, "");
+
+/** A fixed value written as a formula (to carry on in the formula editor). */
+export function formulaFromFixed(v: FixedValue | undefined, f: WorkflowField | undefined): string {
+	if (v === undefined || isEmptyFixed(v)) return "";
+	if (f?.kind === "relation") {
+		const items = (Array.isArray(v) ? v : [String(v)]).map((p) => lit(notePath(p)));
+		return items.length === 1 ? items[0] : `list(${items.join(", ")})`;
+	}
+	if (Array.isArray(v)) return v.length === 1 ? lit(v[0]) : `list(${v.map(lit).join(", ")})`;
+	if (typeof v !== "string") return String(v);
+	if (f?.kind === "date") {
+		const s = v.trim().toLowerCase();
+		if (s === "today") return "today()";
+		const m = /^([+-]?\d+)\s*([dwmy])$/.exec(s);
+		if (m) {
+			const n = Number(m[1]);
+			if (m[2] === "d" || m[2] === "w") {
+				const days = m[2] === "w" ? 7 * n : n;
+				return days === 0 ? "today()" : `today() ${days < 0 ? "-" : "+"} ${Math.abs(days)}`;
+			}
+			return `dateAdd(today(), ${n}, "${m[2] === "m" ? "months" : "years"}")`;
+		}
+	}
+	return lit(v);
+}
+
+/** A fixed value as a formula result for a field of this kind: dates worked out from today, notes as links. */
+export function fixedToValue(v: FixedValue, kind: WorkflowField["kind"], row: ViewRow, ctx: ViewContext): FValue {
+	if (kind === "date" && typeof v === "string") {
+		const d = dateValue(v, ctx);
+		return d === null ? v : new DateVal(d);
+	}
+	if (kind === "relation") {
+		return (Array.isArray(v) ? v : [String(v)]).map((p) => {
+			const path = ctx.resolve(p, row.path) ?? ctx.resolve(notePath(p), row.path);
+			const name = notePath(p).split("/").pop() ?? p;
+			return path ? { path, linktext: notePath(p), name } : name;
+		});
+	}
+	return v;
+}
+
+/** What's wrong with a fixed value for a field (status and choices the types don't have), or null. */
+function fixedProblem(v: FixedValue | undefined, f: WorkflowField | undefined, types: EntityTypeDef[], groups: GroupDef[]): string | null {
+	if (!f) return null;
+	if (f.kind !== "boolean" && isEmptyFixed(v)) return f.kind === "relation" ? "Choose the note." : "Choose or write the value.";
+	const items = Array.isArray(v) ? v : [String(v)];
+	if (f.kind === "status") {
+		const all = types.flatMap((t) => statusesFor(t, groups)).map((s) => s.toLowerCase());
+		const bad = items.find((s) => !all.includes(s.toLowerCase()));
+		if (bad) return `None of these types has the status “${bad}”.`;
+	}
+	if (f.kind === "select" || f.kind === "multiselect") {
+		const opts = (f.field?.options ?? []).map((o) => o.toLowerCase());
+		const bad = items.find((s) => !opts.includes(s.toLowerCase()));
+		if (bad) return `“${bad}” isn't one of ${f.label}'s choices.`;
+	}
+	if (f.kind === "number" && typeof v !== "number") return `“${String(v)}” isn't a number.`;
+	return null;
+}
+
 // ---------------------------------------------------------------- running
 
 export interface StepEnv {
@@ -489,7 +633,8 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 					else {
 						// The note's own type's definition of the field (choices, link settings).
 						const own = row.type.fields.find((x) => x.key === f.key);
-						const r = storedValue(own ? { ...f, kind: own.kind, field: own } : f, evalAt(s.value), row, env.ctx, env.linkText);
+						const target = own ? { ...f, kind: own.kind, field: own } : f;
+						const r = storedValue(target, s.fixed !== undefined ? fixedToValue(s.fixed, target.kind, row, env.ctx) : evalAt(s.value), row, env.ctx, env.linkText);
 						if ("error" in r) throw new Error(r.error);
 						change = { op: "set", key: f.key, value: r.value };
 					}
@@ -504,7 +649,7 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 					const f = row.type.fields.find((x) => x.key === s.field);
 					if (!f) continue;
 					if (f.kind !== "relation") throw new Error(`${f.label} isn't a link field.`);
-					const { paths, unknown } = targetPaths(evalAt(s.target), row, env.ctx);
+					const { paths, unknown } = targetPaths(s.fixed !== undefined ? fixedToValue(s.fixed, "relation", row, env.ctx) : evalAt(s.target), row, env.ctx);
 					if (s.op === "add" && unknown.length) throw new Error(`No note called “${unknown[0]}”.`);
 					for (const p of paths) {
 						const c: BulkChange =
