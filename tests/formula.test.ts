@@ -118,8 +118,14 @@ describe("formula: compiling", () => {
 			expect(f.sig.toLowerCase().startsWith(`${f.name}(`), f.name).toBe(true);
 			expect(f.desc && f.example, f.name).toBeTruthy();
 			const extra = [...f.example.matchAll(/\[([^\]]+)\]/g)].map((m) => ({ id: m[1], label: m[1], type: "any" as const }));
-			expect(() => compile(f.example, [...COLUMNS, ...extra]), f.name).not.toThrow();
+			expect(() => compile(f.example, [...COLUMNS, ...extra], { workflow: !!f.workflow }), f.name).not.toThrow();
 		}
+	});
+
+	it("keeps old() and new() to workflows, on a column", () => {
+		expect(() => compile("old([Budget])", COLUMNS)).toThrow(/only works in workflows/);
+		expect(() => compile("old(1)", COLUMNS, { workflow: true })).toThrow(/needs a column/);
+		expect(compile("new([Budget]) - old([Budget])", COLUMNS, { workflow: true }).type).toBe("number");
 	});
 });
 

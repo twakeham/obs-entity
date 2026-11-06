@@ -24,6 +24,8 @@ export interface FormulaFieldOpts {
 
 const KEYWORDS = ["and", "or", "not", "true", "false", "item"];
 const CATEGORIES: FnCategory[] = ["Logic", "Maths", "Text", "Dates", "Lists", "Links"];
+/** Functions for view and field formulas (workflow-only ones aren't offered). */
+const VIEW_FUNCTIONS = FUNCTIONS.filter((f) => !f.workflow);
 
 /** Lenient tokens for colouring (works on unfinished formulas). */
 function highlightRanges(src: string, known: (name: string) => boolean): { from: number; to: number; cls: string }[] {
@@ -174,7 +176,7 @@ function FormulaEditor({
 			const word = cx.matchBefore(/[A-Za-z_]\w*/);
 			if (!word && !cx.explicit) return null;
 			const from = word ? word.from : cx.pos;
-			const fns: Completion[] = FUNCTIONS.map((f) => ({
+			const fns: Completion[] = VIEW_FUNCTIONS.map((f) => ({
 				label: f.sig.split("(")[0],
 				detail: f.sig.slice(f.sig.indexOf("(")),
 				type: "function",
@@ -290,7 +292,7 @@ function FormulaEditor({
 	}, [status, sample, data]);
 
 	const q = search.trim().toLowerCase();
-	const fnList = FUNCTIONS.filter((f) => !q || f.name.includes(q) || f.desc.toLowerCase().includes(q));
+	const fnList = VIEW_FUNCTIONS.filter((f) => !q || f.name.includes(q) || f.desc.toLowerCase().includes(q));
 	const colList = refCols.filter((c) => !q || c.label.toLowerCase().includes(q));
 
 	return (

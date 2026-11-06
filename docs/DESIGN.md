@@ -33,6 +33,7 @@ It is distilled from **Story Forge**, a worldbuilding / tabletop campaign plugin
    8. [Settings tab](#88-settings-tab)
    9. [Optional modules](#89-optional-modules)
    10. [Entity views](#810-entity-views)
+   11. [Workflows](#811-workflows)
 9. [Validation rules](#9-validation-rules)
 10. [Settings schema and migrations](#10-settings-schema-and-migrations)
 11. [Implementation notes and lessons learned](#11-implementation-notes-and-lessons-learned)
@@ -1783,6 +1784,125 @@ calendar:
 - **Narrow views:** below 760 px wide (a container query), toolbar buttons show only their icons.
 - **New view notes** open with the cursor after the block, so Live Preview shows the table and not the block's source.
 
+### 8.11 Workflows
+
+Event-driven automation: **when** something happens (a note is created, a field changes, someone runs it on notes or fills in its form, a schedule fires), **if** it matches some conditions, **do** a list of steps (set fields, create linked notes, tell the user). Workflows are their own part of the model, not part of a type: types, notes, tables and forms all hook into them. Built in three stages (§13); this section is the whole design, with each part marked by stage.
+
+#### Examples it's shaped by
+
+1. When a Task's status becomes done: set Completed to today; if every task on its Milestone is done, set the Milestone to done.
+2. When a Project is created: create its standard Milestones (Discovery, Build, Launch) linked to it.
+3. A "Start next session" button on a Session: create the next Session (number + 1, the same Campaign, the open plot threads carried over).
+4. Every morning: flag Tasks that are overdue and not done.
+5. When an NPC's Alive is unticked: set Died in to the current session and add a tag.
+6. When a Location's Region changes: copy it to the locations inside it.
+7. Selected tasks in a table → "Move to next sprint": each one's Sprint set to the next one.
+8. A "Log session" form: asks for the date, attendees and a summary; creates the Session note, links the attendees and appends a line to the Campaign.
+
+#### Storage
+
+`settings.workflows: WorkflowDef[]` in `data.json`, plus `settings.workflowsPaused` (the master switch). Exported and imported with packs (stage 3).
+
+```jsonc
+{
+  "id": "wf-k3j9",                       // stable; generated
+  "name": "Completed date",
+  "on": true,
+  "scope": ["task"],                     // type keys or "@group"; optional for manual and form workflows
+  "trigger": { "kind": "changed", "field": "status", "to": ["done"] },
+  "when": { "all": [] },                 // "Only if": a view filter group (§8.10 Filters)
+  "steps": [
+    { "kind": "set", "field": "completed", "value": "today()" },
+    { "kind": "notice", "text": "{name} is done" }
+  ]
+}
+```
+
+#### What a run gets
+
+- **This note:** the note that triggered it, or the one it was run on (none for a form started from the command palette).
+- **Selected notes:** when run on a table / board selection as one run (stage 2); otherwise each selected note gets its own run, as "this note".
+- **Answers:** the values filled in on the workflow's form, if it has one (stage 2).
+
+Steps use all three: `[Field]` is this note's field, `[Answer]` a form answer (form field labels are columns too), and "for each selected note" loops over the selection.
+
+#### Triggers ("When")
+
+| Kind | Stage | Needs types | Fires when | Options |
+|---|---|---|---|---|
+| `created` | 1 | yes | A note of a scoped type appears in the index after startup: made in the Create dialog, + New, a calendar day, converted to the type, or arriving by sync. Not on startup, not for renames. | – |
+| `changed` | 1 | yes | A field's stored value changes, from anywhere: the form, tables, boards, calendars, bulk actions, other workflows, or the note's YAML edited by hand. Compared on the index's old and new frontmatter. | `field` (a field key, `status` or `tags`); for status, choices and checkboxes optional `from` / `to` value lists ("changes to done"); for other kinds `to: "filled"` / `"empty"`, or any change. |
+| `manual` | 1 | optional | Someone runs it on notes (below). With a scope, it's only offered on those types' notes. | `label`, `icon`, optional `confirm` text ("Close this task?"); stage 2: `selection: "each" \| "once"` (a run per note, or one run with every selected note). |
+| `form` | 2 | optional | Someone fills in its form and presses its button. | The form: fields like a type's (text, number, date, choice, checkbox, links to notes, with required / defaults), a title and button text. |
+| `schedule` | 3 | yes | Daily at a time, weekly on a day, or every N hours, over the scoped notes matching "Only if". Needs Obsidian open; missed runs catch up once on the next start. | `every`, `at`, `day`, `hours`. |
+| `date` | 3 | yes | A date field reaches today, or N days before / after (checked daily, per note). | `field`, `offset`. |
+
+**Where manual and form workflows are started** (each workflow chooses where it shows):
+
+- **On a note's properties form:** as buttons in a strip under the form header, or, in a custom layout, as an item placed like a field (`wf:<id>`; unplaced buttons stay in the strip). Also in the form's ⋯ menu. (Stage 1.)
+- **Command palette:** "Run workflow…" (manual ones on the active note; form ones anywhere), and optionally a command of its own per workflow so it can have a hotkey. (Stage 1, form ones stage 2.)
+- **Tables, boards and calendars:** the row / card right-click menu, and the selection bar for the selected notes. (Stage 1: each selected note; "once for the selection", stage 2.)
+- **A view's toolbar and the ribbon:** for form workflows (stage 2).
+
+#### Conditions ("Only if")
+
+A view filter group (any / all, nested one level, every operator, relative dates, `{this}` meaning the note itself), built with the Filters panel and evaluated against this note's values **after** the change. Empty: always. Workflows without a note skip it. Linked-note steps (stage 2) have their own.
+
+#### Steps ("Do")
+
+Run in order on an in-memory copy of each note's frontmatter, so later steps see earlier ones; each changed note is written once at the end (`processFrontMatter`).
+
+| Step | Stage | Does |
+|---|---|---|
+| `set` | 1 | Sets a field (or `status`) of this note to a **value**: a formula (below), e.g. `today()`, `"High"`, `[Estimate] * 2`, `prop(first([Campaign]), "Current session")`. The result is converted to the field's kind (dates through the date adapter, links as `[[…]]`, lists); a result that doesn't fit (text in a number field, a status the type doesn't have) stops the run with an error. |
+| `clear` | 1 | Empties a field. |
+| `tag` | 1 | Adds or removes a tag. |
+| `link` | 1 | Adds or removes links in a relation field: the target is a formula giving a note (a link, or a name). Single-link fields are replaced. |
+| `notice` | 1 | Shows a notice; the text is a template (below). |
+| `linked` | 2 | Runs nested steps on linked notes: outgoing (a relation field) or incoming (`in:<type>.<field>`), like roll-up sources, with their own "Only if" (e.g. "Milestone, if every task on it is done": a roll-up condition). |
+| `create` | 2 | Creates a note of a type: the name (template), field values (formulas), linked to this note through a chosen field, from the type's template, optionally opened. Named (`as`) so later steps can use it. |
+| `forEach` | 2 | Runs nested steps for each item of a list, linked notes, or the selected notes (`{item}`). |
+| `run` | 2 | Runs another workflow on this note or linked ones (shared steps). |
+| `ask` | 3 | Asks before continuing (Yes / No); not for schedules. |
+| `move`, `rename` | 3 | Moves the note to a folder, or renames it from a template. |
+
+Steps that need a note (set, clear, tag, link) are only offered when the workflow has one: a scope, or (stage 2) a created note or a for-each item to act on.
+
+Not planned for now: shell commands, scripts, web requests, deleting notes.
+
+#### Values
+
+- **Formulas** are the view formula language (§8.10 Formulas): `[Field]` by label or key, built-ins (`[Status]`, `[Parent]`, `[Ancestors]`), `prop()`, every function. Compiled against the scoped types' columns (plus the form's fields); errors show in the editor as you type.
+- **Trigger values:** `old([Field])` and `new([Field])` on a `changed` trigger (on others both are the current value).
+- **Earlier steps** (stage 2): a named step's result as `[as]`, e.g. the created note.
+- **Templates** (notice text, note names): text with `{formula}` placeholders, e.g. `Session {[Number] + 1}`, `{name(first([Campaign]))} – {today()}`.
+
+#### Running
+
+- **Engine** (`services/workflows.ts`): the index emits per-note `created` and `changed` (old and new frontmatter) events; the engine finds enabled workflows whose scope matches the note's type and trigger matches the change, checks "Only if", and runs the steps. Manual and form runs come from the places above. Pure parts (matching triggers, evaluating values and conditions, applying steps to frontmatter) live in `model/workflows.ts` and are unit-tested.
+- **Chains:** a run's own writes are tagged, so the changes they cause carry the chain: at most 5 levels deep, and the same workflow can't run twice on the same note in one chain. Stops are logged.
+- **Undo:** writes by undo never trigger workflows. A run caused by a form or table cell edit is one extra Ctrl/Cmd+Z step there (the triggering note's history gets a "run" entry that restores every note the run changed; the next Ctrl/Cmd+Z undoes the edit itself). Manual and form runs show a notice with **Undo**; there's also an "Undo last workflow run" command, and each logged run can be undone while its notes haven't changed since.
+- **Big runs** (stage 3): more than 20 notes asks first; scheduled runs obey a per-workflow limit.
+- **Paused:** the master switch (settings, the Workflows view, and a command) stops all automatic triggers and greys out buttons; each workflow has its own on/off.
+- **Run log:** the last 200 runs (when, workflow, note, trigger, what changed field by field, errors, chain stops), kept in `workflow-log.json` in the plugin folder (not in `data.json`, so it doesn't sync noisily).
+- **Test run** (stage 3): "Try on a note…" shows what would change, writing nothing.
+
+#### The Workflows view
+
+Its own view (`WorkflowsView`, a main-area tab like Entity types), opened from the ribbon, a command, the settings tab, and the type editor:
+
+- **Sidebar:** every workflow, grouped by trigger (When created, When changed, Run on notes, Forms, Scheduled), each showing its name, scope and on/off state, with problems flagged; a search box; **+ New workflow**; the master **Pause all** switch; and **Recent runs** at the bottom.
+- **Editor** (main area), with the same draft / Save / Discard bar as the type editor:
+  - **Header:** name, on/off switch, ⋯ (Duplicate, Delete).
+  - **Applies to:** the scope (types and groups, as in relation targets); optional for manual and form workflows.
+  - **When:** the trigger kind and its options (field, from / to values as pills; button label, icon, confirm text and where it shows; the form's fields, stage 2).
+  - **Only if:** the Filters panel over the scoped types' columns.
+  - **Do:** the steps as cards in order: add (a menu of step kinds), drag to reorder, delete; each with its own fields (field picker, formula box with autocomplete and errors, template box).
+  - **Problems** (like type validation): unknown fields or types, formulas that don't compile, a `changed` trigger on a calculated field, steps setting calculated or missing fields, note steps without a note. A workflow with problems can be saved but is flagged and doesn't run.
+  - **Recent runs** for this workflow at the bottom.
+- **Recent runs** (all workflows): when, workflow, note(s), what changed, errors, with Undo where possible.
+
+**The type editor's Workflows tab** lists the workflows whose scope includes the type (or its group), with their trigger in words ("When Status changes to done", "Button: Start next session") and on/off state; clicking one opens it in the Workflows view. **New workflow for this type** opens the Workflows view with a new workflow scoped to the type.
 ---
 
 ## 9. Validation rules
@@ -1996,6 +2116,9 @@ Drive a real Obsidian instance via the Chrome DevTools Protocol (Obsidian starte
 | M4.5 ✅ | **Entity properties form** | Form replacing Obsidian's Properties block on entity notes (§8.4): typed controls, link pickers limited to allowed types, rejected invalid input, problems with fixes, Ctrl/Cmd+Z history, Other properties with "Add to type", Change type with move offer, Check entities command; info card removed (settings v3) | Values can only be entered in a form the type allows; problems from elsewhere are visible and fixable |
 | M4.6 ✅ | **Entity views: table** | View notes with an `entity-view` block (§8.10): source types, columns (fields, built-ins, incoming, roll-ups; formulas added later), filters with groups and relative dates, multi-level sort, group by, inline editing with the form's rules, virtualised rows, autosave, Save as…, New / Open view commands, browser Views section | Named views can be saved, reopened elsewhere, and used to edit entities |
 | M5 | **Packs & polish** | Type packs (bundled example pack + import/export of groups), template generation, ribbon options, accessibility pass (keyboard navigation in lists, ARIA on toggles), docs | Ready for a public/BRAT release |
+| M7.1 | **Workflows: engine and basics** | §8.11 stage 1: the Workflows view and the type editor's Workflows tab; created / changed / manual triggers (form buttons, ⋯ menu, command, row menu and selection bar per note); Only if; set / clear / tag / link / notice steps; undo, chains, run log, master switch | Examples 1 (completed date), 5, 7 and simple 3 work |
+| M7.2 | **Workflows: other notes and forms** | Form workflows (their input form, started from commands, the ribbon, view toolbars and notes), linked-note steps, create note, named results, for each, run workflow, one run for a whole selection | Examples 1 (milestone roll-up), 2, 3, 6, 8 work |
+| M7.3 | **Workflows: time** | Schedule and date triggers, ask, move / rename, test run, big-run confirmation, limits, packs | Example 4 works |
 | M6+ | **Modules** | Graph, overview dashboard, bulk edit, Bases generation, domain views | Each behind a module toggle |
 
 ---

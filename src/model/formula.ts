@@ -215,7 +215,7 @@ export function parse(src: string): Node {
 
 // ---------------------------------------------------------------- functions
 
-export type FnCategory = "Logic" | "Maths" | "Text" | "Dates" | "Lists" | "Links";
+export type FnCategory = "Logic" | "Maths" | "Text" | "Dates" | "Lists" | "Links" | "Workflows";
 
 export interface FnDef {
 	name: string;
@@ -228,6 +228,8 @@ export interface FnDef {
 	max: number;
 	/** result type from the argument types */
 	ret: FType | ((args: FType[]) => FType);
+	/** only in workflow formulas (compile with `{ workflow: true }`) */
+	workflow?: true;
 }
 
 const same = (args: FType[], from = 0, step = 1): FType => {
@@ -306,6 +308,9 @@ export const FUNCTIONS: FnDef[] = [
 	// Links
 	{ name: "name", cat: "Links", sig: "name(link)", desc: "The linked note's name (a list of names for several links).", example: "name([Owner])", min: 1, max: 1, ret: "text" },
 	{ name: "prop", cat: "Links", sig: 'prop(link, "Field")', desc: "A field of the linked note, by its label or key (a list for several links).", example: 'prop([Project], "Due")', min: 2, max: 2, ret: "any" },
+	// Workflows
+	{ name: "old", cat: "Workflows", sig: "old([Field])", desc: "The field's value before the change that started the workflow (the current value for other triggers).", example: 'old([Status]) = "blocked"', min: 1, max: 1, ret: (a) => a[0], workflow: true },
+	{ name: "new", cat: "Workflows", sig: "new([Field])", desc: "The field's value after the change (the same as [Field]).", example: "new([Estimate]) - old([Estimate])", min: 1, max: 1, ret: (a) => a[0], workflow: true },
 ];
 const FN = new Map(FUNCTIONS.map((f) => [f.name, f]));
 export const functionDef = (name: string): FnDef | undefined => FN.get(name.toLowerCase());
@@ -333,9 +338,10 @@ export function findColumn(name: string, columns: RefColumn[]): RefColumn | unde
 
 /**
  * Parse and check a formula: resolve references (unknown columns are errors), check function names and
- * argument counts, and infer the result type. Throws the first problem as a FormulaError.
+ * argument counts, and infer the result type. Throws the first problem as a FormulaError. Workflow-only
+ * functions (old, new) need `{ workflow: true }`.
  */
-export function compile(src: string, columns: RefColumn[]): Compiled {
+export function compile(src: string, columns: RefColumn[], opts: { workflow?: boolean } = {}): Compiled {
 	if (!src.trim()) throw new FormulaError("Write a formula, e.g. [Budget] / [Tasks].", 0, 0);
 	const ast = parse(src);
 	const refs = new Set<string>();
@@ -390,8 +396,9 @@ export function compile(src: string, columns: RefColumn[]): Compiled {
 					throw new FormulaError(`${f.sig.split("(")[0]}() needs ${want} argument${f.min === 1 && f.max === 1 ? "" : "s"}: ${f.sig}.`, n.from, n.to);
 				}
 				const lambda = f.name === "map" || f.name === "filter";
-				// value() reads the field behind a column, so it needs a column itself.
-				if (f.name === "value" && n.args[0]?.k !== "ref") throw new FormulaError("value() needs a column, e.g. value([Priority]).", n.from, n.to);
+				if (f.workflow && !opts.workflow) throw new FormulaError(`${f.name}() only works in workflows.`, n.from, n.nameTo);
+				// value(), old() and new() read the field behind a column, so they need a column themselves.
+				if ((f.name === "value" || f.workflow) && n.args[0]?.k !== "ref") throw new FormulaError(`${f.name}() needs a column, e.g. ${f.name}([${f.name === "value" ? "Priority" : "Status"}]).`, n.from, n.to);
 				const args = n.args.map((x, i) => typeOf(x, inLambda || (lambda && i === 1)));
 				if (f.name === "map") return "list";
 				return typeof f.ret === "function" ? f.ret(args) : f.ret;
@@ -436,6 +443,8 @@ export interface EvalEnv {
 	col: (id: string) => FValue;
 	/** value([Column]): a choice's number (choices with values), else the column's number; null when there's none */
 	value?: (id: string) => FValue;
+	/** old([Column]) in workflows: the value before the change (the current value when unset) */
+	old?: (id: string) => FValue;
 	/** today, in days */
 	today: number;
 	/** a field of a linked note, by label or key */
@@ -651,6 +660,14 @@ export function evaluate(ast: Node, env: EvalEnv): FValue {
 					if (!isEmptyV(v)) return v;
 				}
 				return null;
+			}
+			// workflows
+			case "old":
+			case "new": {
+				const ref = A[0];
+				if (ref.k !== "ref") return null;
+				const id = ref.id ?? ref.name;
+				return n.fn.toLowerCase() === "old" && env.old ? env.old(id) : env.col(id);
 			}
 			// maths
 			case "value": {
