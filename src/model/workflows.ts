@@ -9,8 +9,8 @@ import { writeDay } from "./calendarView";
 import { DateVal, FormulaError, isLink, toText, truthy, type FValue } from "./formula";
 import { isEmptyValue } from "./frontmatter";
 import { asArray, parseLink, toWikilink } from "./links";
-import { COMMON_KEYS, isCalculated, isListValued, statusesFor, typeMatchesTarget, type EntityTypeDef, type FieldDef, type GroupDef } from "./types";
-import { compileFormula, dateValue, emptyView, evaluateFormula, formulaRefColumns, filterFields, runView, withThisNote, type FilterGroup, type LinkValue, type ViewContext, type ViewDef, type ViewRow } from "./views";
+import { COMMON_KEYS, isCalculated, isListValued, statusesFor, typeExplicitlyTargeted, typeMatchesTarget, type EntityTypeDef, type FieldDef, type GroupDef } from "./types";
+import { compileFormula, dateValue, emptyView, evaluateFormula, formulaRefColumns, filterFields, runView, withThisNote, type FilterGroup, type LinkValue, type VarSpec, type ViewContext, type ViewDef, type ViewRow } from "./views";
 
 // ---------------------------------------------------------------- definitions
 
@@ -44,17 +44,38 @@ export interface CreateLink {
 	field: string;
 }
 
+/** `on` for the workflow's own note, inside a loop (where unset means each linked note). */
+export const ON_THIS = "@this";
+/** "This note" in formulas inside a loop of notes: the note the workflow runs on. */
+export const THIS_NOTE_VAR = "This note";
+
+/** Where "For linked notes" gets its notes: this note's link field, or another type's link field pointing here. */
+export type LinkedSource = { dir: "out"; field: string } | { dir: "in"; type: string; field: string };
+
 /**
- * `set` and `link` steps use `fixed` when it's there, else the formula in `value` / `target`. `on`: the note a step
- * acts on, by the name an earlier "Create a note" step gave it (unset: this note).
+ * Steps that act on one note. `set` and `link` use `fixed` when it's there, else the formula in `value` / `target`.
+ * `on`: the note a step acts on: unset for the default (this note; each linked note inside a loop), `ON_THIS` for the
+ * workflow's note inside a loop, or the name a "Create a note" step gave its note.
  */
-export type WorkflowStep =
+export type NoteStep =
 	| { kind: "set"; field: string; value: string; fixed?: FixedValue; on?: string }
 	| { kind: "clear"; field: string; on?: string }
 	| { kind: "tag"; op: "add" | "remove"; tag: string; on?: string }
 	| { kind: "link"; op: "add" | "remove"; field: string; target: string; fixed?: string[]; on?: string }
 	| { kind: "notice"; text: string }
-	| { kind: "create"; type: string; name: string; fields: CreateField[]; link?: CreateLink; template: boolean; open: CreateOpen; exists: CreateExists; as: string };
+	| { kind: "create"; type: string; name: string; fields: CreateField[]; link?: CreateLink; template: boolean; open: CreateOpen; exists: CreateExists; as: string }
+	| { kind: "run"; workflow: string; on?: string };
+
+/**
+ * Loops (one level: their steps are NoteSteps). "For linked notes": the notes in a link field, or linking here.
+ * "For each": the items of a formula's list: notes, or values (text, numbers, dates). Inside a loop of notes,
+ * formulas read each note and steps act on it; `as` names it (and a value, in a loop of values).
+ */
+export type LoopStep =
+	| { kind: "linked"; source: LinkedSource; when: FilterGroup; as: string; steps: NoteStep[] }
+	| { kind: "each"; formula: string; items: "notes" | "values"; itemType: string; when: FilterGroup; as: string; steps: NoteStep[] };
+
+export type WorkflowStep = NoteStep | LoopStep;
 
 export type TriggerKind = WorkflowTrigger["kind"];
 export type StepKind = WorkflowStep["kind"];
@@ -73,7 +94,11 @@ export interface WorkflowDef {
 }
 
 export const TRIGGER_LABELS: Record<TriggerKind, string> = { created: "When a note is created", changed: "When a field changes", manual: "Run on notes" };
-export const STEP_LABELS: Record<StepKind, string> = { set: "Set a field", clear: "Clear a field", tag: "Add or remove a tag", link: "Add or remove a link", notice: "Show a notice", create: "Create a note" };
+export const STEP_LABELS: Record<StepKind, string> = { set: "Set a field", clear: "Clear a field", tag: "Add or remove a tag", link: "Add or remove a link", notice: "Show a notice", create: "Create a note", linked: "For linked notes", each: "For each", run: "Run another workflow" };
+/** The most notes (or values) loops go through in one run; past it the run stops. */
+export const MAX_LOOP_ITEMS = 200;
+/** How deep "Run another workflow" goes (a workflow running one that runs one…). */
+export const MAX_RUN_DEPTH = 3;
 /** The most chained runs (a run's changes starting others) before the chain stops. */
 export const MAX_CHAIN = 5;
 
@@ -103,10 +128,22 @@ function readFixed(v: unknown): FixedValue | undefined {
 	return Array.isArray(v) ? strList(v) : undefined;
 }
 
-function readStep(raw: unknown): WorkflowStep | null {
+function readStep(raw: unknown, inner = false): WorkflowStep | null {
 	if (!isObj(raw)) return null;
 	const on = str(raw.on) ? { on: str(raw.on) } : {};
+	const innerSteps = () => (Array.isArray(raw.steps) ? raw.steps : []).map((x) => readStep(x, true)).filter((s): s is NoteStep => !!s);
 	switch (raw.kind) {
+		case "linked": {
+			if (inner) return null;
+			const sr = raw.source;
+			const source: LinkedSource = isObj(sr) && sr.dir === "in" ? { dir: "in", type: str(sr.type), field: str(sr.field) } : { dir: "out", field: isObj(sr) ? str(sr.field) : "" };
+			return { kind: "linked", source, when: readGroup(raw.when), as: str(raw.as), steps: innerSteps() };
+		}
+		case "each":
+			if (inner) return null;
+			return { kind: "each", formula: str(raw.formula), items: raw.items === "notes" ? "notes" : "values", itemType: str(raw.itemType), when: readGroup(raw.when), as: str(raw.as), steps: innerSteps() };
+		case "run":
+			return { kind: "run", workflow: str(raw.workflow), ...on };
 		case "set": {
 			const fixed = readFixed(raw.fixed);
 			return { kind: "set", field: str(raw.field), value: str(raw.value), ...(fixed !== undefined ? { fixed } : {}), ...on };
@@ -164,7 +201,7 @@ export function readWorkflows(raw: unknown, types?: EntityTypeDef[]): WorkflowDe
 			scope: strList(w.scope),
 			trigger: readTrigger(w.trigger),
 			when: readGroup(w.when),
-			steps: (Array.isArray(w.steps) ? w.steps : []).map(readStep).filter((s): s is WorkflowStep => !!s),
+			steps: (Array.isArray(w.steps) ? w.steps : []).map((s) => readStep(s)).filter((s): s is WorkflowStep => !!s),
 		});
 	}
 	if (types)
@@ -219,20 +256,123 @@ export function workflowFields(wf: Pick<WorkflowDef, "scope">, types: EntityType
 export const fieldLabel = (key: string, types: EntityTypeDef[]): string =>
 	key === COMMON_KEYS.status ? "Status" : key === COMMON_KEYS.tags ? "Tags" : (types.flatMap((t) => t.fields).find((f) => f.key === key)?.label ?? key);
 
-/** The notes "Create a note" steps before step `i` make, by the name later steps use. */
-export function createdBefore(wf: Pick<WorkflowDef, "steps">, i: number): { as: string; type: string }[] {
-	return wf.steps.slice(0, i).flatMap((s) => (s.kind === "create" && s.as.trim() ? [{ as: s.as.trim(), type: s.type }] : []));
+/** A loop's steps, or none. */
+export const innerSteps = (s: WorkflowStep): NoteStep[] => (s.kind === "linked" || s.kind === "each" ? s.steps : []);
+export const isLoop = (s: WorkflowStep): s is LoopStep => s.kind === "linked" || s.kind === "each";
+
+/** "For linked notes" choices: this note's link fields, and other types' link fields that point at these types. */
+export function linkedSources(scope: string[], types: EntityTypeDef[]): { out: WorkflowField[]; in: { type: EntityTypeDef; field: FieldDef; label: string }[] } {
+	const st = scopeTypes({ scope }, types);
+	const out = workflowFields({ scope }, types).filter((f) => f.kind === "relation");
+	const into: { type: EntityTypeDef; field: FieldDef; label: string }[] = [];
+	if (scope.length)
+		for (const t of types)
+			for (const f of t.fields)
+				if (f.kind === "relation" && st.every((x) => typeExplicitlyTargeted(x, f.targets))) into.push({ type: t, field: f, label: `${t.plural || t.name} (${f.label})` });
+	return { out, in: into };
 }
 
-/** The fields step `i` can use: this note's (the scope's), or, with `on`, the created note's type's. */
-export function stepFields(wf: Pick<WorkflowDef, "scope" | "steps">, i: number, types: EntityTypeDef[]): WorkflowField[] {
-	const s = wf.steps[i];
-	const on = s && "on" in s ? s.on : undefined;
-	if (!on) return workflowFields(wf, types);
-	const made = createdBefore(wf, i).find((x) => x.as === on);
-	return made && types.some((t) => t.key === made.type) ? workflowFields({ scope: [made.type] }, types) : [];
+/** The types of a loop's notes (none for a loop of values). */
+export function loopItemTypes(s: LoopStep, scope: string[], types: EntityTypeDef[]): EntityTypeDef[] {
+	if (s.kind === "linked") {
+		if (s.source.dir === "in") return types.filter((t) => t.key === (s.source as { type: string }).type);
+		const f = workflowFields({ scope }, types).find((x) => x.key === s.source.field && x.kind === "relation")?.field;
+		return f ? types.filter((t) => typeMatchesTarget(t, f.targets)) : [];
+	}
+	if (s.items !== "notes") return [];
+	return s.itemType ? types.filter((t) => t.key === s.itemType) : types;
 }
 
+/** The scope keys for a set of types: [] when it's every type (any note). */
+const keysOf = (ts: EntityTypeDef[], all: EntityTypeDef[]) => (ts.length === all.length ? [] : ts.map((t) => t.key));
+
+/** What a step can see and act on (DESIGN §8.11). */
+export interface StepScope {
+	/** the columns formulas read */
+	def: ViewDef;
+	/** the note steps act on when `on` is unset: its scope (as in a workflow''s; [] any note), types and fields */
+	scope: string[];
+	types: EntityTypeDef[];
+	fields: WorkflowField[];
+	/** names formulas can use besides columns: created notes, and in loops "This note" and the item */
+	vars: VarSpec[];
+	/** "On" choices besides the default: stored value, label, the note''s types */
+	on: { value: string; label: string; types: EntityTypeDef[] }[];
+	/** the default note in the On picker: "This note", or "Each <name>" in a loop of notes */
+	defaultLabel: string;
+	/** inside a loop (of notes, or of values) */
+	loop?: "notes" | "values";
+}
+
+/**
+ * Each step''s scope, by its place: "3", or "3.1" for the second step inside step 3. Created notes are seen by the
+ * steps after them (inside a loop, by the loop''s later steps only); in a loop of notes formulas read each note.
+ */
+export function stepScopes(wf: Pick<WorkflowDef, "scope" | "when" | "steps">, lookup: Lookup): Map<string, StepScope> {
+	const all = lookup.types;
+	const out = new Map<string, StepScope>();
+	let cur: StepScope = { def: workflowDef(wf), scope: wf.scope, types: scopeTypes(wf, all), fields: workflowFields(wf, all), vars: [], on: [], defaultLabel: "This note" };
+	const withCreated = (sc: StepScope, s: NoteStep): StepScope =>
+		s.kind === "create" && s.as.trim() ? { ...sc, vars: [...sc.vars, { name: s.as.trim(), type: "links" }], on: [...sc.on, { value: s.as.trim(), label: s.as.trim(), types: all.filter((t) => t.key === s.type) }] } : sc;
+	wf.steps.forEach((s, i) => {
+		out.set(String(i), cur);
+		if (!isLoop(s)) {
+			cur = withCreated(cur, s);
+			return;
+		}
+		const as = s.as.trim() || "Item";
+		let inner: StepScope;
+		if (s.kind === "each" && s.items === "values") inner = { ...cur, vars: [...cur.vars, { name: as, type: "any" }], loop: "values" };
+		else {
+			const its = loopItemTypes(s, wf.scope, all);
+			const scope = keysOf(its, all);
+			inner = {
+				def: workflowDef({ scope, when: s.when }),
+				scope,
+				types: its,
+				fields: workflowFields({ scope }, all),
+				vars: [...cur.vars, { name: THIS_NOTE_VAR, type: "links" }, { name: as, type: "links" }],
+				on: [{ value: ON_THIS, label: "This note", types: scopeTypes(wf, all) }, ...cur.on],
+				defaultLabel: `Each ${as.toLowerCase()}`,
+				loop: "notes",
+			};
+		}
+		s.steps.forEach((x, j) => {
+			out.set(`${i}.${j}`, inner);
+			inner = withCreated(inner, x);
+		});
+	});
+	return out;
+}
+
+/** The note a step acts on, in its scope: its types and fields (null: `on` names nothing before it). */
+export function stepTarget(s: WorkflowStep, sc: StepScope, all: EntityTypeDef[]): { scope: string[]; types: EntityTypeDef[]; fields: WorkflowField[] } | null {
+	const on = "on" in s ? s.on : undefined;
+	if (on === undefined) return { scope: sc.scope, types: sc.types, fields: sc.fields };
+	const o = sc.on.find((x) => x.value === on);
+	if (!o) return null;
+	const scope = keysOf(o.types, all);
+	return { scope, types: o.types, fields: workflowFields({ scope }, all) };
+}
+
+/** Workflows a workflow runs ("Run another workflow"), directly. */
+const runsOf = (wf: Pick<WorkflowDef, "steps">): string[] => wf.steps.flatMap((s) => [s, ...innerSteps(s)]).flatMap((s) => (s.kind === "run" ? [s.workflow] : []));
+
+/** A chain of workflows that leads back to `wf` through "Run another workflow" (names), or null. */
+export function runCycle(wf: WorkflowDef, all: WorkflowDef[]): string[] | null {
+	const byId = new Map(all.map((w) => [w.id, w]));
+	byId.set(wf.id, wf);
+	const visit = (id: string, path: string[]): string[] | null => {
+		for (const next of runsOf(byId.get(id) ?? { steps: [] })) {
+			if (next === wf.id) return [...path, wf.name];
+			if (path.length > MAX_RUN_DEPTH + 2 || !byId.has(next) || path.includes(byId.get(next)!.name)) continue;
+			const found = visit(next, [...path, byId.get(next)!.name]);
+			if (found) return found;
+		}
+		return null;
+	};
+	return visit(wf.id, [wf.name]);
+}
 /**
  * How a created note of a type and this note can be linked: the new type's link fields that can point at every one of
  * this workflow's types ("from-new"), and this note's link fields that can point at the new type ("to-new").
@@ -357,7 +497,7 @@ export interface WorkflowProblem {
 
 type Lookup = Pick<ViewContext, "types" | "groups">;
 
-const formulaError = (src: string, def: ViewDef, lookup: Lookup, vars: string[] = []): string | null => {
+const formulaError = (src: string, def: ViewDef, lookup: Lookup, vars: VarSpec[] = []): string | null => {
 	try {
 		compileFormula(src, def, lookup, { workflow: true, vars });
 		return null;
@@ -366,7 +506,7 @@ const formulaError = (src: string, def: ViewDef, lookup: Lookup, vars: string[] 
 	}
 };
 
-const templateError = (src: string, def: ViewDef, lookup: Lookup, vars: string[] = []): string | null => {
+const templateError = (src: string, def: ViewDef, lookup: Lookup, vars: VarSpec[] = []): string | null => {
 	try {
 		for (const p of parseTemplate(src)) if ("formula" in p) compileFormula(p.formula, def, lookup, { workflow: true, vars });
 		return null;
@@ -375,8 +515,8 @@ const templateError = (src: string, def: ViewDef, lookup: Lookup, vars: string[]
 	}
 };
 
-/** What's wrong with a workflow (it doesn't run while there are problems). */
-export function workflowProblems(wf: WorkflowDef, lookup: Lookup): WorkflowProblem[] {
+/** What's wrong with a workflow (it doesn't run while there are problems). `lookup.workflows`: for "Run another workflow". */
+export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?: WorkflowDef[] }, checking: string[] = []): WorkflowProblem[] {
 	const out: WorkflowProblem[] = [];
 	const add = (at: string, message: string) => out.push({ at, message });
 	if (!wf.name.trim()) add("name", "Give the workflow a name.");
@@ -395,25 +535,31 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup): WorkflowProbl
 	if (t.kind === "manual" && t.label !== undefined && !t.label.trim()) add("trigger", "Give the button a label.");
 	for (const id of filterFields(wf.when)) if (!formulaColumnOk(id, def, lookup)) add("when", `A condition uses “${id}”, which isn't a column of these types.`);
 	if (!wf.steps.length) add("steps", "Add a step.");
-	const columnLabels = new Set(formulaRefColumns(def, lookup).map((c) => c.label.toLowerCase()));
+	const scopes = stepScopes(wf, lookup);
 	const names = new Set<string>();
-	wf.steps.forEach((s, i) => {
-		const at = `step:${i}`;
-		const made = createdBefore(wf, i);
-		const vars = made.map((x) => x.as);
-		// The note the step acts on: this one, or one an earlier step created.
-		const on = "on" in s ? s.on : undefined;
-		const onType = on ? lookup.types.find((x) => x.key === made.find((m) => m.as === on)?.type) : undefined;
-		if (on && !made.some((m) => m.as === on)) return add(at, `No earlier step creates “${on}”.`);
-		const tTypes = on ? (onType ? [onType] : []) : types;
-		const tFields = on ? (onType ? workflowFields({ scope: [onType.key] }, lookup.types) : []) : fields;
-		const fErr = (src: string) => formulaError(src, def, lookup, vars);
-		const fieldOk = (key: string, what: string) => {
-			if (!key) return add(at, `Choose the field to ${what}.`);
-			const calc = tTypes.flatMap((x) => x.fields).find((f) => f.key === key && isCalculated(f));
+	/** A name later steps use (a created note, a loop's item): unique, and not a column's label. */
+	const nameOk = (at: string, raw: string, sc: StepScope, what: string) => {
+		const as = raw.trim();
+		if (!as) return add(at, `Name ${what} for later steps (Call it).`);
+		if (names.has(as.toLowerCase()) || as.toLowerCase() === THIS_NOTE_VAR.toLowerCase()) add(at, `Another step already uses the name “${as}”: choose another.`);
+		else if (formulaRefColumns(sc.def, lookup).some((c) => c.label.toLowerCase() === as.toLowerCase())) add(at, `“${as}” is already a field's name: choose another.`);
+		names.add(as.toLowerCase());
+	};
+	const check = (s: WorkflowStep, key: string) => {
+		const at = `step:${key}`;
+		const sc = scopes.get(key);
+		if (!sc) return;
+		const target = stepTarget(s, sc, lookup.types);
+		if (!target) return add(at, `No earlier step creates “${(s as { on?: string }).on}”.`);
+		const tTypes = target.types;
+		const tFields = target.fields;
+		const fErr = (src: string) => formulaError(src, sc.def, lookup, sc.vars);
+		const fieldOk = (fkey: string, what: string) => {
+			if (!fkey) return add(at, `Choose the field to ${what}.`);
+			const calc = tTypes.flatMap((x) => x.fields).find((f) => f.key === fkey && isCalculated(f));
 			if (calc) return add(at, `${calc.label} is calculated: it can't be ${what === "set" ? "set" : "changed"}.`);
-			if (key === COMMON_KEYS.tags) return add(at, "Use “Add or remove a tag” for tags.");
-			if (!tFields.some((f) => f.key === key)) add(at, on && onType ? `${onType.name} has no “${key}” field.` : `None of the types has a “${key}” field.`);
+			if (fkey === COMMON_KEYS.tags) return add(at, "Use “Add or remove a tag” for tags.");
+			if (!tFields.some((f) => f.key === fkey)) add(at, tTypes.length === 1 ? `${tTypes[0].name} has no “${fkey}” field.` : `None of the types has a “${fkey}” field.`);
 		};
 		switch (s.kind) {
 			case "set": {
@@ -450,7 +596,7 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup): WorkflowProbl
 			case "notice": {
 				if (!s.text.trim()) add(at, "Write the notice.");
 				else {
-					const e = templateError(s.text, def, lookup, vars);
+					const e = templateError(s.text, sc.def, lookup, sc.vars);
 					if (e) add(at, e);
 				}
 				break;
@@ -459,7 +605,7 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup): WorkflowProbl
 				const nt = lookup.types.find((x) => x.key === s.type);
 				if (!nt) add(at, s.type ? `“${s.type}” isn't a type.` : "Choose the type of note to create.");
 				else {
-					const e = s.name.trim() ? templateError(s.name, def, lookup, vars) : null;
+					const e = s.name.trim() ? templateError(s.name, sc.def, lookup, sc.vars) : null;
 					if (e) add(at, `Name: ${e}`);
 					const nf = workflowFields({ scope: [nt.key] }, lookup.types);
 					for (const r of s.fields) {
@@ -478,20 +624,57 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup): WorkflowProbl
 						}
 					}
 					if (s.link) {
-						const o = createLinkOptions(wf, nt.key, lookup.types);
+						const o = createLinkOptions({ scope: sc.scope }, nt.key, lookup.types);
 						if (!(s.link.dir === "from-new" ? o.fromNew : o.toNew).some((f) => f.key === s.link!.field)) add(at, `“${s.link.field}” can't link the new note and this one.`);
 					}
 				}
-				const as = s.as.trim();
-				if (!as) add(at, "Name the note for later steps (Call it).");
-				else if (names.has(as.toLowerCase())) add(at, `Another step already creates “${as}”: choose another name.`);
-				else if (columnLabels.has(as.toLowerCase())) add(at, `“${as}” is already a field's name: choose another.`);
-				names.add(as.toLowerCase());
+				nameOk(at, s.as, sc, "the note");
+				break;
+			}
+			case "run": {
+				const sub = lookup.workflows?.find((w) => w.id === s.workflow);
+				if (!s.workflow) add(at, "Choose the workflow to run.");
+				else if (s.workflow === wf.id) add(at, "A workflow can't run itself.");
+				else if (!sub) add(at, "The workflow it runs has been deleted.");
+				else {
+					if (tTypes.length && !tTypes.some((x) => inScope(sub, x))) add(at, `“${sub.name}” doesn't apply to ${tTypes.length === 1 ? (tTypes[0].plural || tTypes[0].name) : "these notes"}.`);
+					if (!checking.includes(sub.id) && workflowProblems(sub, lookup, [...checking, wf.id]).length) add(at, `“${sub.name}” has problems, so it can't run.`);
+				}
+				break;
+			}
+			case "linked":
+			case "each": {
+				if (s.kind === "linked") {
+					const src = linkedSources(sc.scope, lookup.types);
+					const so = s.source;
+					const ok = so.dir === "out" ? src.out.some((f) => f.key === so.field) : src.in.some((x) => x.type.key === so.type && x.field.key === so.field);
+					if (!(so.dir === "out" ? so.field : so.field && so.type)) add(at, "Choose which linked notes.");
+					else if (!ok) add(at, "Those notes aren't linked to these types any more: choose again.");
+				} else {
+					if (!s.formula.trim()) add(at, "Write the formula that gives the list.");
+					else {
+						const e = fErr(s.formula);
+						if (e) add(at, e);
+					}
+					if (s.items === "notes" && s.itemType && !lookup.types.some((x) => x.key === s.itemType)) add(at, `“${s.itemType}” isn't a type.`);
+				}
+				const inner = scopes.get(`${key}.0`);
+				if (s.kind === "linked" || s.items === "notes")
+					for (const id of filterFields(s.when)) if (!formulaColumnOk(id, inner?.def ?? sc.def, lookup)) add(at, `A condition uses “${id}”, which isn't a column of these notes.`);
+				nameOk(at, s.as, sc, s.kind === "linked" || s.items === "notes" ? "each note" : "each value");
+				if (!s.steps.length) add(at, "Add a step inside the loop.");
+				s.steps.forEach((x, j) => check(x, `${key}.${j}`));
 				break;
 			}
 		}
-		if ((s.kind === "set" || s.kind === "clear" || s.kind === "link") && !on && !wf.scope.length) add(at, "Choose the types this runs on, so its fields are known.");
-	});
+		const def0 = !("on" in s) || s.on === undefined;
+		if ((s.kind === "set" || s.kind === "clear" || s.kind === "link") && def0 && !sc.scope.length && sc.loop !== "notes") add(at, "Choose the types this runs on, so its fields are known.");
+	};
+	wf.steps.forEach((s, i) => check(s, String(i)));
+	if (lookup.workflows && !checking.length) {
+		const cycle = runCycle(wf, lookup.workflows);
+		if (cycle) add("steps", `It runs itself: ${cycle.join(" → ")}.`);
+	}
 	return out;
 }
 const formulaColumnOk = (id: string, def: ViewDef, lookup: Lookup) => formulaError(`[${id}]`, def, lookup) === null;
@@ -717,6 +900,8 @@ export interface StepEnv {
 	linkText: LinkTextOf;
 	/** places created notes; without it, "Create a note" steps fail */
 	place?: (req: PlaceRequest) => Placed;
+	/** every workflow, for "Run another workflow" */
+	workflows?: WorkflowDef[];
 }
 
 export interface FieldChange {
@@ -725,7 +910,7 @@ export interface FieldChange {
 	after: unknown;
 }
 
-/** A note other than the one the workflow runs on: one it created, or an existing one it changed ("Use the existing one"). */
+/** A note other than the one the workflow runs on: one it created, or an existing one it changed (a linked note, "Use the existing one"). */
 export interface OtherNote {
 	path: string;
 	name: string;
@@ -740,8 +925,10 @@ export interface RunResult {
 	fm: Record<string, unknown>;
 	changes: FieldChange[];
 	notices: string[];
-	/** notes created or changed besides this one, in the order the steps made them */
+	/** notes created or changed besides this one, in the order the steps reached them */
 	others: OtherNote[];
+	/** workflows "Run another workflow" ran (names) */
+	via: string[];
 	/** the step that failed, and why: nothing is written */
 	error?: { step: number; message: string };
 	/** why the run stopped before doing anything ("If it already exists: Stop the run") */
@@ -759,7 +946,7 @@ function withFrontmatter(row: ViewRow, fm: Record<string, unknown>): ViewRow {
 }
 
 /** Render a template for a note (`vars`: notes earlier steps created, by name). */
-export function renderTemplate(src: string, row: ViewRow, def: ViewDef, env: Pick<StepEnv, "ctx" | "old"> & { vars?: Record<string, LinkValue> }): string {
+export function renderTemplate(src: string, row: ViewRow, def: ViewDef, env: Pick<StepEnv, "ctx" | "old"> & { vars?: Record<string, FValue> }): string {
 	return parseTemplate(src)
 		.map((p) => ("text" in p ? p.text : valueText(evaluateFormula(p.formula, row, def, env.ctx, { workflow: true, old: env.old, vars: env.vars }), env.ctx)))
 		.join("");
@@ -773,7 +960,7 @@ const diffOf = (start: Record<string, unknown>, fm: Record<string, unknown>): Fi
 
 class StopRun extends Error {}
 
-/** A note a run is working on: this one, or one a step created (or reused). */
+/** A note a run is working on: this one, one a step created, or another it changes (a linked note, an existing one). */
 interface RunNote {
 	path: string;
 	row: ViewRow;
@@ -782,140 +969,249 @@ interface RunNote {
 	created?: OtherNote["created"];
 }
 
+/** Where steps run: the workflow (its note, columns), the note formulas read, a loop's note, and the names in use. */
+interface Frame {
+	wf: WorkflowDef;
+	/** the workflow's note ("This note") */
+	main: RunNote;
+	/** the note formulas read: the workflow's, or each note in a loop of notes */
+	reader: RunNote;
+	def: ViewDef;
+	/** in a loop of notes: the note steps act on by default */
+	item?: RunNote;
+	vars: Record<string, FValue>;
+	/** notes by the names steps give them ("On") */
+	named: Map<string, RunNote>;
+	old?: ViewRow;
+	depth: number;
+	/** workflows running, outermost first (a workflow can't run itself) */
+	stack: string[];
+}
+
 /**
- * Run a workflow's steps on a copy of the note's frontmatter, in order (each sees the ones before). "Create a note"
- * steps plan new notes (placed by `env.place`) that later steps can act on (`on`) or refer to (`[Name]`). A step
+ * Run a workflow's steps on copies of the notes' frontmatter, in order (each sees the ones before). "Create a note"
+ * plans new notes (placed by `env.place`); loops go through linked notes or a list; "Run another workflow" runs that
+ * workflow's steps on a note in the same run. Every note is collected once, so the engine writes each once. A step
  * that fails stops the run: the result has the error, the frontmatter as it was and no other notes.
  */
 export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 	const start = copy(env.row.frontmatter);
-	const def = workflowDef(wf);
 	const notices: string[] = [];
+	const via: string[] = [];
 	const main: RunNote = { path: env.row.path, row: env.row, start, fm: copy(env.row.frontmatter) };
-	const named = new Map<string, RunNote>();
-	const others: RunNote[] = [];
+	const notes = new Map<string, RunNote>([[main.path, main]]);
+	const order: RunNote[] = [];
 	const taken = new Set<string>();
-	const vars: Record<string, LinkValue> = {};
-	// Formulas see the notes this run is making (prop([New session], "Date")) as they are so far.
-	const noteAt = (p: string) => (p === main.path ? main : others.find((n) => n.path === p));
-	const ctx: ViewContext = {
-		...env.ctx,
-		row: (p) => noteAt(p)?.row ?? env.ctx.row(p),
-		resolve: (lp, src) => env.ctx.resolve(lp, src) ?? others.find((n) => n.path === lp || n.path === `${lp}.md` || n.row.name.toLowerCase() === lp.toLowerCase())?.path ?? null,
+	let items = 0;
+	const byName = (lp: string) => [...notes.values()].find((n) => n.path === lp || n.path === `${lp}.md` || n.row.name.toLowerCase() === lp.toLowerCase())?.path ?? null;
+	// Formulas see the notes this run changes and makes (prop([New session], "Date")) as they are so far.
+	const ctx: ViewContext = { ...env.ctx, row: (p) => notes.get(p)?.row ?? env.ctx.row(p), resolve: (lp, src) => env.ctx.resolve(lp, src) ?? byName(lp) };
+	const noteAt = (path: string): RunNote | null => {
+		const have = notes.get(path);
+		if (have) return have;
+		const r = env.ctx.row(path);
+		if (!r) return null;
+		const n: RunNote = { path, row: r, start: copy(r.frontmatter), fm: copy(r.frontmatter) };
+		notes.set(path, n);
+		order.push(n);
+		return n;
 	};
-	const evalAt = (src: string) => evaluateFormula(src, main.row, def, ctx, { workflow: true, old: env.old, vars });
-	const fieldsOf = (n: RunNote) => (n === main ? workflowFields(wf, ctx.types) : workflowFields({ scope: [n.row.type.key] }, ctx.types));
+	const linkOf = (n: RunNote): LinkValue => ({ path: n.path, linktext: env.linkText(n.path), name: n.row.name });
 	const sync = (n: RunNote) => (n.row = withFrontmatter(n.row, n.fm));
+	const allFields = workflowFields({ scope: [] }, ctx.types);
+	const evalIn = (f: Frame, src: string) => evaluateFormula(src, f.reader.row, f.def, ctx, { workflow: true, old: f.reader === f.main ? f.old : undefined, vars: f.vars });
 	/** A picked value or formula, as the note's field stores it (the note's own type's definition of the field). */
-	const valueFor = (f: WorkflowField, n: RunNote, fixed: FixedValue | undefined, formula: string): unknown => {
-		const own = n.row.type.fields.find((x) => x.key === f.key);
-		const target = own ? { ...f, kind: own.kind, field: own } : f;
-		const r = storedValue(target, fixed !== undefined ? fixedToValue(fixed, target.kind, n.row, ctx) : evalAt(formula), n.row, ctx, env.linkText);
+	const valueFor = (f: Frame, wfield: WorkflowField, n: RunNote, fixed: FixedValue | undefined, formula: string): unknown => {
+		const own = n.row.type.fields.find((x) => x.key === wfield.key);
+		const target = own ? { ...wfield, kind: own.kind, field: own } : wfield;
+		const r = storedValue(target, fixed !== undefined ? fixedToValue(fixed, target.kind, n.row, ctx) : evalIn(f, formula), n.row, ctx, env.linkText);
 		if ("error" in r) throw new Error(r.error);
 		return r.value;
 	};
-	const addLink = (n: RunNote, f: FieldDef, path: string) => {
-		applyChange(n.fm, { op: "add-link", key: f.key, linktext: env.linkText(path), multiple: isListValued(f), labelled: !!f.labelled });
+	const addLink = (n: RunNote, fd: FieldDef, path: string) => {
+		applyChange(n.fm, { op: "add-link", key: fd.key, linktext: env.linkText(path), multiple: isListValued(fd), labelled: !!fd.labelled });
 		sync(n);
 	};
-	for (let i = 0; i < wf.steps.length; i++) {
-		const s = wf.steps[i];
-		try {
-			const on = "on" in s ? s.on : undefined;
-			const note = on ? named.get(on) : main;
-			if (!note) throw new Error(`No earlier step created “${on}”.`);
-			let change: BulkChange | null = null;
-			switch (s.kind) {
-				case "set":
-				case "clear": {
-					const f = fieldsOf(note).find((x) => x.key === s.field);
-					if (!f) throw new Error(`None of the types has a “${s.field}” field.`);
-					if (f.key !== COMMON_KEYS.status && !note.row.type.fields.some((x) => x.key === f.key)) continue;
-					change = { op: "set", key: f.key, value: s.kind === "clear" ? null : valueFor(f, note, s.fixed, s.value) };
-					break;
-				}
-				case "tag": {
-					const tag = s.tag.trim().replace(/^#/, "");
-					change = { op: s.op === "add" ? "add-tags" : "remove-tags", tags: [tag] };
-					break;
-				}
-				case "link": {
-					const f = note.row.type.fields.find((x) => x.key === s.field);
-					if (!f) continue;
-					if (f.kind !== "relation") throw new Error(`${f.label} isn't a link field.`);
-					const { paths, unknown } = targetPaths(s.fixed !== undefined ? fixedToValue(s.fixed, "relation", note.row, ctx) : evalAt(s.target), note.row, ctx);
-					if (s.op === "add" && unknown.length) throw new Error(`No note called “${unknown[0]}”.`);
-					for (const p of paths) {
-						const c: BulkChange =
-							s.op === "add"
-								? { op: "add-link", key: f.key, linktext: env.linkText(p), multiple: isListValued(f), labelled: !!f.labelled }
-								: { op: "remove-link", key: f.key, matches: (lp) => ctx.resolve(lp, note.path) === p };
-						applyChange(note.fm, c);
-					}
-					sync(note);
-					continue;
-				}
-				case "notice":
-					notices.push(renderTemplate(s.text, main.row, def, { ctx, old: env.old, vars }));
-					continue;
-				case "create": {
-					if (!env.place) throw new Error("Notes can't be created here.");
-					const type = ctx.types.find((x) => x.key === s.type);
-					if (!type) throw new Error(s.type ? `“${s.type}” isn't a type.` : "Choose the type of note to create.");
-					const name = (s.name.trim() ? renderTemplate(s.name, main.row, def, { ctx, old: env.old, vars }) : "").trim() || `New ${type.name.toLowerCase()}`;
-					const fm: Record<string, unknown> = {};
-					const draft: RunNote = {
-						path: "",
-						row: { path: "", name, type, status: null, subtitle: null, tags: [], aliases: [], folder: "", mtime: 0, order: null, frontmatter: fm },
-						start: {},
-						fm,
-					};
-					const nf = workflowFields({ scope: [type.key] }, ctx.types);
-					for (const r of s.fields) {
-						const f = nf.find((x) => x.key === r.field);
-						if (!f) throw new Error(`${type.name} has no “${r.field}” field.`);
-						fm[f.key] = valueFor(f, draft, r.fixed, r.value);
-						sync(draft);
-					}
-					const fromNew = s.link?.dir === "from-new" ? type.fields.find((x) => x.key === s.link!.field && x.kind === "relation") : undefined;
-					if (fromNew) addLink(draft, fromNew, main.path);
-					const placed = env.place({ type, name, fm, exists: s.exists, taken });
-					if ("stop" in placed) throw new StopRun(placed.stop);
-					let made: RunNote;
-					if (placed.existing) {
-						// "Use the existing one": no new note; its link is still made, its fields left as they are.
-						made = noteAt(placed.path) ?? { path: placed.path, row: placed.existing, start: copy(placed.existing.frontmatter), fm: copy(placed.existing.frontmatter) };
-						if (made !== main && !others.includes(made)) others.push(made);
-						if (fromNew) addLink(made, fromNew, main.path);
-					} else {
-						taken.add(placed.path.toLowerCase());
-						made = { ...draft, path: placed.path, row: { ...draft.row, path: placed.path, name: baseName(placed.path) }, created: { type: type.key, template: s.template, open: s.open } };
-						others.push(made);
-					}
-					const as = s.as.trim();
-					named.set(as, made);
-					vars[as] = { path: made.path, linktext: env.linkText(made.path), name: made.row.name };
-					if (s.link?.dir === "to-new") {
-						const f = main.row.type.fields.find((x) => x.key === s.link!.field && x.kind === "relation");
-						if (f) addLink(main, f, made.path);
-					}
-					continue;
-				}
-			}
-			if (change) {
-				applyChange(note.fm, change);
+	const targetOf = (f: Frame, on: string | undefined): RunNote => {
+		if (on === undefined) return f.item ?? f.main;
+		if (on === ON_THIS) return f.main;
+		const n = f.named.get(on);
+		if (!n) throw new Error(`No earlier step created “${on}”.`);
+		return n;
+	};
+	/** The notes a link value points at (paths), including notes this run made. */
+	const linkedPaths = (raw: unknown, from: string): string[] =>
+		asArray(raw).flatMap((v) => {
+			const s = typeof v === "string" ? v : isObj(v) && typeof v.target === "string" ? v.target : String(v ?? "");
+			const lp = (parseLink(s)?.path ?? s).trim();
+			const p = lp ? ctx.resolve(lp, from) : null;
+			return p ? [p] : [];
+		});
+	const passes = (when: FilterGroup, n: RunNote, f: Frame) => !when.items.length || runView(withThisNote({ ...emptyView([n.row.type.key]), filters: when }, f.main.path), [n.row], ctx).rows.length > 0;
+	const loopFrame = (f: Frame, s: LoopStep, n: RunNote, def: ViewDef): Frame => {
+		const as = s.as.trim() || "Item";
+		return { ...f, item: n, reader: n, def, vars: { ...f.vars, [THIS_NOTE_VAR]: linkOf(f.main), [as]: linkOf(n) }, named: new Map(f.named) };
+	};
+	const count = (as: string) => {
+		if (++items > MAX_LOOP_ITEMS) throw new Error(`More than ${MAX_LOOP_ITEMS} items in the loops (“${as}”): stopped.`);
+	};
+
+	const exec = (steps: WorkflowStep[], f: Frame) => {
+		for (const s of steps) step(s, f);
+	};
+	const step = (s: WorkflowStep, f: Frame) => {
+		switch (s.kind) {
+			case "set":
+			case "clear": {
+				const note = targetOf(f, s.on);
+				const wfield = s.field === COMMON_KEYS.status ? { key: s.field, label: "Status", kind: "status" as const } : allFields.find((x) => x.key === s.field);
+				if (!wfield) throw new Error(`None of the types has a “${s.field}” field.`);
+				// Fields the note's type doesn't have are left alone (a workflow for several types).
+				if (wfield.key !== COMMON_KEYS.status && !note.row.type.fields.some((x) => x.key === wfield.key)) return;
+				applyChange(note.fm, { op: "set", key: wfield.key, value: s.kind === "clear" ? null : valueFor(f, wfield, note, s.fixed, s.value) });
 				sync(note);
+				return;
 			}
+			case "tag": {
+				const note = targetOf(f, s.on);
+				applyChange(note.fm, { op: s.op === "add" ? "add-tags" : "remove-tags", tags: [s.tag.trim().replace(/^#/, "")] });
+				sync(note);
+				return;
+			}
+			case "link": {
+				const note = targetOf(f, s.on);
+				const fd = note.row.type.fields.find((x) => x.key === s.field);
+				if (!fd) return;
+				if (fd.kind !== "relation") throw new Error(`${fd.label} isn't a link field.`);
+				const { paths, unknown } = targetPaths(s.fixed !== undefined ? fixedToValue(s.fixed, "relation", note.row, ctx) : evalIn(f, s.target), note.row, ctx);
+				if (s.op === "add" && unknown.length) throw new Error(`No note called “${unknown[0]}”.`);
+				for (const p of paths)
+					applyChange(
+						note.fm,
+						s.op === "add"
+							? { op: "add-link", key: fd.key, linktext: env.linkText(p), multiple: isListValued(fd), labelled: !!fd.labelled }
+							: { op: "remove-link", key: fd.key, matches: (lp) => ctx.resolve(lp, note.path) === p },
+					);
+				sync(note);
+				return;
+			}
+			case "notice":
+				notices.push(renderTemplate(s.text, f.reader.row, f.def, { ctx, old: f.reader === f.main ? f.old : undefined, vars: f.vars }));
+				return;
+			case "create": {
+				if (!env.place) throw new Error("Notes can't be created here.");
+				const type = ctx.types.find((x) => x.key === s.type);
+				if (!type) throw new Error(s.type ? `“${s.type}” isn't a type.` : "Choose the type of note to create.");
+				const base = f.item ?? f.main;
+				const name = (s.name.trim() ? renderTemplate(s.name, f.reader.row, f.def, { ctx, old: f.reader === f.main ? f.old : undefined, vars: f.vars }) : "").trim() || `New ${type.name.toLowerCase()}`;
+				const fm: Record<string, unknown> = {};
+				const draft: RunNote = { path: "", row: { path: "", name, type, status: null, subtitle: null, tags: [], aliases: [], folder: "", mtime: 0, order: null, frontmatter: fm }, start: {}, fm };
+				const nf = workflowFields({ scope: [type.key] }, ctx.types);
+				for (const r of s.fields) {
+					const wfield = nf.find((x) => x.key === r.field);
+					if (!wfield) throw new Error(`${type.name} has no “${r.field}” field.`);
+					fm[wfield.key] = valueFor(f, wfield, draft, r.fixed, r.value);
+					sync(draft);
+				}
+				const fromNew = s.link?.dir === "from-new" ? type.fields.find((x) => x.key === s.link!.field && x.kind === "relation") : undefined;
+				if (fromNew) addLink(draft, fromNew, base.path);
+				const placed = env.place({ type, name, fm, exists: s.exists, taken });
+				if ("stop" in placed) throw new StopRun(placed.stop);
+				let made: RunNote;
+				if (placed.existing) {
+					// "Use the existing one": no new note; its link is still made, its fields left as they are.
+					made = noteAt(placed.path) ?? { path: placed.path, row: placed.existing, start: copy(placed.existing.frontmatter), fm: copy(placed.existing.frontmatter) };
+					if (fromNew) addLink(made, fromNew, base.path);
+				} else {
+					taken.add(placed.path.toLowerCase());
+					made = { ...draft, path: placed.path, row: { ...draft.row, path: placed.path, name: baseName(placed.path) }, created: { type: type.key, template: s.template, open: s.open } };
+					notes.set(made.path, made);
+					order.push(made);
+				}
+				const as = s.as.trim();
+				f.named.set(as, made);
+				f.vars[as] = linkOf(made);
+				if (s.link?.dir === "to-new") {
+					const fd = base.row.type.fields.find((x) => x.key === s.link!.field && x.kind === "relation");
+					if (fd) addLink(base, fd, made.path);
+				}
+				return;
+			}
+			case "run": {
+				const note = targetOf(f, s.on);
+				const sub = env.workflows?.find((w) => w.id === s.workflow);
+				if (!sub) throw new Error("The workflow it runs has been deleted.");
+				if (f.stack.includes(sub.id)) throw new Error(`“${sub.name}” would run itself.`);
+				if (f.depth >= MAX_RUN_DEPTH) throw new Error(`Workflows ran each other more than ${MAX_RUN_DEPTH} deep.`);
+				if (!inScope(sub, note.row.type) || !passesWhen(sub, note.row, ctx)) return;
+				via.push(sub.name);
+				exec(sub.steps, { wf: sub, main: note, reader: note, def: workflowDef(sub), vars: {}, named: new Map(), depth: f.depth + 1, stack: [...f.stack, sub.id] });
+				return;
+			}
+			case "linked": {
+				const scope = keysOf(loopItemTypes(s, f.wf.scope, ctx.types), ctx.types);
+				const def = workflowDef({ scope, when: s.when });
+				let paths: string[];
+				const so = s.source;
+				if (so.dir === "out") paths = linkedPaths(f.main.fm[so.field], f.main.path);
+				else {
+					// Notes of the type whose field links here: the index's, and notes this run has changed or made.
+					const cands = new Set([...env.ctx.incoming(f.main.path).filter((l) => l.sourceType === so.type && l.fieldKey === so.field).map((l) => l.source), ...[...notes.values()].filter((n) => n.row.type.key === so.type).map((n) => n.path)]);
+					paths = [...cands].filter((p) => {
+						const n = notes.get(p) ?? env.ctx.row(p);
+						const fm = n ? ("fm" in n ? n.fm : n.frontmatter) : undefined;
+						return !!fm && linkedPaths(fm[so.field], p).includes(f.main.path);
+					});
+				}
+				for (const p of [...new Set(paths)].sort()) {
+					const n = noteAt(p);
+					if (!n || n === f.main || !passes(s.when, n, f)) continue;
+					count(s.as);
+					exec(s.steps, loopFrame(f, s, n, def));
+				}
+				return;
+			}
+			case "each": {
+				const v = evalIn(f, s.formula);
+				if (s.items === "values") {
+					const as = s.as.trim() || "Item";
+					for (const x of asArray(v) as FValue[]) {
+						if (x === null || x === "") continue;
+						count(as);
+						exec(s.steps, { ...f, vars: { ...f.vars, [as]: x }, named: new Map(f.named) });
+					}
+					return;
+				}
+				const scope = keysOf(loopItemTypes(s, f.wf.scope, ctx.types), ctx.types);
+				const def = workflowDef({ scope, when: s.when });
+				const { paths, unknown } = targetPaths(v, f.reader.row, ctx);
+				if (unknown.length) throw new Error(`No note called “${unknown[0]}”.`);
+				for (const p of paths) {
+					const n = noteAt(p);
+					if (!n || (s.itemType && n.row.type.key !== s.itemType) || !passes(s.when, n, f)) continue;
+					count(s.as);
+					exec(s.steps, loopFrame(f, s, n, def));
+				}
+				return;
+			}
+		}
+	};
+
+	const top: Frame = { wf, main, reader: main, def: workflowDef(wf), vars: {}, named: new Map(), old: env.old, depth: 0, stack: [wf.id] };
+	for (let i = 0; i < wf.steps.length; i++) {
+		try {
+			step(wf.steps[i], top);
 		} catch (e) {
-			if (e instanceof StopRun) return { fm: start, changes: [], notices: [], others: [], stopped: e.message };
-			return { fm: start, changes: [], notices: [], others: [], error: { step: i, message: e instanceof Error ? e.message : String(e) } };
+			if (e instanceof StopRun) return { fm: start, changes: [], notices: [], others: [], via: [], stopped: e.message };
+			return { fm: start, changes: [], notices: [], others: [], via: [], error: { step: i, message: e instanceof Error ? e.message : String(e) } };
 		}
 	}
 	return {
 		fm: main.fm,
 		changes: diffOf(start, main.fm),
 		notices,
-		others: others
+		via: [...new Set(via)],
+		others: order
 			.map((n): OtherNote => ({ path: n.path, name: n.row.name, ...(n.created ? { created: n.created } : {}), fm: n.fm, changes: diffOf(n.start, n.fm) }))
 			.filter((o) => o.created || o.changes.length),
 	};

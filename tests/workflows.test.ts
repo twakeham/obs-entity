@@ -6,6 +6,9 @@ import type { EntityTypeDef, FieldDef, GroupDef } from "../src/model/types";
 import type { ViewContext, ViewRow } from "../src/model/views";
 import {
 	changeMatches,
+	linkedSources,
+	ON_THIS,
+	stepScopes,
 	createLinkOptions,
 	newCreateStep,
 	fixedFromFormula,
@@ -149,7 +152,7 @@ describe("templates and problems", () => {
 				],
 			}),
 		);
-		expect(bad[0]).toMatch(/^step:0: None of the types has a “nope” field/);
+		expect(bad[0]).toMatch(/^step:0: Task has no “nope” field/);
 		expect(bad[1]).toMatch(/^step:1: .*Nope/);
 		expect(bad[2]).toMatch(/^step:2: Due isn't a link field/);
 		expect(bad[3]).toMatch(/^step:3: .*closing/);
@@ -356,7 +359,7 @@ describe("create a note", () => {
 		const at = (steps: WorkflowDef["steps"]) => workflowProblems(wf({ name: "x", scope: ["project"], steps }), ctx).map((p) => p.message);
 		expect(at([create()])).toEqual([]);
 		expect(at([create({ as: "" })])).toEqual(["Name the note for later steps (Call it)."]);
-		expect(at([create(), create()])).toEqual(["Another step already creates “Kickoff”: choose another name."]);
+		expect(at([create(), create()])).toEqual(["Another step already uses the name “Kickoff”: choose another."]);
 		expect(at([create({ as: "Budget" })])).toEqual(["“Budget” is already a field's name: choose another."]);
 		expect(at([create({ type: "" })])).toEqual(["Choose the type of note to create."]);
 		expect(at([create({ fields: [{ field: "priority", value: "", fixed: "Urgent" }, { field: "nope", value: "1" }] })])).toEqual(["Priority: “Urgent” isn't one of Priority's choices.", "Task has no “nope” field."]);
@@ -365,5 +368,102 @@ describe("create a note", () => {
 		expect(at([create(), { kind: "set", field: "budget", value: "", fixed: 1, on: "Kickoff" }])).toEqual(["Task has no “budget” field."]);
 		expect(at([create(), { kind: "notice", text: "{[Kickoff]}" }, { kind: "set", field: "budget", value: "count([Kickoff])" }])).toEqual([]);
 		expect(at([{ kind: "notice", text: "{[Kickoff]}" }, create()])).toEqual(["Unknown column [Kickoff]."]);
+	});
+});
+
+describe("loops and running other workflows", () => {
+	const t1 = row("Plan", TASK, { estimate: 2, project: "[[Apollo]]", priority: "Low", labels: ["bug", "feature"] });
+	const t2 = row("Build", TASK, { estimate: 5, project: "[[Apollo]]", priority: "High" });
+	const t3 = row("Other", TASK, { estimate: 1, project: "[[Zeus]]", priority: "Low" });
+	const all = [ROWS[0], ROWS[1], t1, t2, t3];
+	const at = new Map(all.map((r) => [r.path, r]));
+	const ctx2: ViewContext = {
+		...ctx,
+		resolve: (p) => (at.has(`${p}.md`) ? `${p}.md` : at.has(p) ? p : null),
+		row: (p) => at.get(p),
+		incoming: (p) => all.filter((r) => r.type.key === "task" && r.frontmatter.project === `[[${p.replace(/\.md$/, "")}]]`).map((r) => ({ source: r.path, sourceType: "task", fieldKey: "project" })),
+	};
+	const place = (req: PlaceRequest): Placed => ({ path: `New/${req.name}.md` });
+	const run2 = (w: WorkflowDef, r: ViewRow, workflows: WorkflowDef[] = []) => runSteps(w, { ctx: ctx2, row: r, linkText, place, workflows });
+	type Linked = Extract<WorkflowDef["steps"][number], { kind: "linked" }>;
+	const linkedTasks = (over: Partial<Linked> = {}) => ({ kind: "linked", source: { dir: "in", type: "task", field: "project" }, when: { mode: "all", items: [] }, as: "Task", steps: [], ...over }) as Linked;
+
+	it("list linked notes both ways, and give each step its scope", () => {
+		const src = linkedSources(["project"], TYPES);
+		expect(src.out).toEqual([]);
+		expect(src.in.map((x) => x.label)).toEqual(["tasks (Project)"]);
+		expect(linkedSources(["task"], TYPES).out.map((f) => f.key)).toEqual(["project", "people"]);
+		const w = wf({ scope: ["project"], steps: [linkedTasks({ steps: [{ kind: "set", field: "estimate", value: "[Estimate] * 2" }] }), { kind: "notice", text: "x" }] });
+		const sc = stepScopes(w, ctx);
+		expect(sc.get("0.0")).toMatchObject({ scope: ["task"], loop: "notes", defaultLabel: "Each task" });
+		expect(sc.get("0.0")!.vars.map((v) => v.name)).toEqual(["This note", "Task"]);
+		expect(sc.get("0.0")!.on.map((o) => o.value)).toEqual([ON_THIS]);
+		expect(sc.get("1")!.loop).toBeUndefined();
+	});
+
+	it("run steps on each note linking here: formulas read each note, Only if filters them, [This note] is the workflow's", () => {
+		const w = wf({
+			scope: ["project"],
+			steps: [
+				linkedTasks({
+					when: { mode: "all", items: [{ field: "priority", op: "any-of", value: ["Low"] }] },
+					steps: [
+						{ kind: "set", field: "estimate", value: "[Estimate] * 10" },
+						{ kind: "tag", op: "add", tag: "from-project" },
+						{ kind: "set", field: "budget", value: 'prop([This note], "Budget") + 1', on: ON_THIS },
+						{ kind: "notice", text: "{[Task]} in {[This note]}" },
+					],
+				}),
+			],
+		});
+		const res = run2(w, ROWS[0]);
+		expect(res.error).toBeUndefined();
+		expect(res.changes).toEqual([{ key: "budget", before: 10, after: 11 }]);
+		expect(res.others.map((o) => [o.path, o.fm.estimate, o.fm.tags])).toEqual([["Plan.md", 20, ["from-project"]]]);
+		expect(res.notices).toEqual(["Plan in Apollo"]);
+	});
+
+	it("go through this note's link field", () => {
+		const w = wf({ scope: ["task"], steps: [{ kind: "linked", source: { dir: "out", field: "project" }, when: { mode: "all", items: [] }, as: "Project", steps: [{ kind: "set", field: "budget", value: '[Budget] + prop([This note], "Estimate")' }] }] });
+		const res = run2(w, t2);
+		expect(res.others.map((o) => [o.path, o.fm.budget])).toEqual([["Apollo.md", 15]]);
+	});
+
+	it("for each value: create a note per label", () => {
+		const w = wf({
+			scope: ["task"],
+			steps: [{ kind: "each", formula: "[Labels]", items: "values", itemType: "", when: { mode: "all", items: [] }, as: "Label", steps: [{ kind: "create", type: "task", name: "{[Name]} - {[Label]}", fields: [], template: false, open: "no", exists: "new", as: "Follow-up" }] }],
+		});
+		const res = run2(w, t1);
+		expect(res.error).toBeUndefined();
+		expect(res.others.map((o) => o.path)).toEqual(["New/Plan - bug.md", "New/Plan - feature.md"]);
+	});
+
+	it("for each note of a formula's list", () => {
+		const w = wf({ scope: ["project"], steps: [{ kind: "each", formula: 'list("Plan", "Build")', items: "notes", itemType: "task", when: { mode: "all", items: [] }, as: "T", steps: [{ kind: "set", field: "priority", value: "", fixed: "Low" }] }] });
+		const res = run2(w, ROWS[0]);
+		expect(res.others.map((o) => [o.path, o.fm.priority])).toEqual([["Build.md", "Low"]]);
+	});
+
+	it("run another workflow in the same run: its Only if, its steps, on each linked note", () => {
+		const close = wf({ id: "close", name: "Close out", scope: ["task"], when: { mode: "all", items: [{ field: "priority", op: "any-of", value: ["High"] }] }, steps: [{ kind: "set", field: "status", value: "", fixed: "done" }] });
+		const w = wf({ id: "outer", scope: ["project"], steps: [linkedTasks({ steps: [{ kind: "run", workflow: "close" }] })] });
+		const res = run2(w, ROWS[0], [close, w]);
+		expect(res.via).toEqual(["Close out"]);
+		expect(res.others.map((o) => [o.path, o.fm.status])).toEqual([["Build.md", "done"]]);
+	});
+
+	it("report loop and run problems", () => {
+		const close = wf({ id: "close", name: "Close out", scope: ["task"], steps: [{ kind: "run", workflow: "outer" }] });
+		const probs = (w: WorkflowDef) => workflowProblems(w, { ...ctx, workflows: [close, w] }).map((p) => `${p.at}: ${p.message}`);
+		expect(probs(wf({ id: "outer", name: "x", scope: ["project"], steps: [linkedTasks()] }))).toEqual(["step:0: Add a step inside the loop."]);
+		expect(probs(wf({ id: "outer", name: "x", scope: ["project"], steps: [linkedTasks({ source: { dir: "out", field: "" }, steps: [{ kind: "tag", op: "add", tag: "a" }] })] }))).toEqual(["step:0: Choose which linked notes."]);
+		expect(probs(wf({ id: "outer", name: "x", scope: ["project"], steps: [linkedTasks({ as: "Budget", steps: [{ kind: "set", field: "nope", value: "1" }] })] }))).toEqual([
+			"step:0: \u201cBudget\u201d is already a field's name: choose another.",
+			"step:0.0: Task has no \u201cnope\u201d field.",
+		]);
+		expect(probs(wf({ id: "outer", name: "x", scope: ["project"], steps: [{ kind: "run", workflow: "close" }] }))).toEqual(["step:0: \u201cClose out\u201d doesn't apply to projects.", "step:0: \u201cClose out\u201d has problems, so it can't run.", "steps: It runs itself: x \u2192 Close out \u2192 x."]);
+		expect(probs(wf({ id: "outer", name: "x", scope: ["project"], steps: [{ kind: "run", workflow: "outer" }] }))).toEqual(["step:0: A workflow can't run itself.", "steps: It runs itself: x \u2192 x."]);
+		expect(probs(wf({ id: "outer", name: "x", scope: ["project"], steps: [{ kind: "each", formula: "[Budget]", items: "values", itemType: "", when: { mode: "all", items: [] }, as: "N", steps: [{ kind: "notice", text: "{[N] + 1}" }] }] }))).toEqual([]);
 	});
 });

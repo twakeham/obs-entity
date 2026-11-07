@@ -7968,3 +7968,50 @@ button.oe-calv-more:hover {
 	text-decoration: line-through;
 	color: var(--text-faint);
 }
+
+/* Loops ("For linked notes", "For each"): their steps, indented inside the card */
+.oe-wf-step.is-loop {
+	border-left: 3px solid var(--interactive-accent);
+}
+
+.oe-wf-loop-steps {
+	grid-column: 1 / -1;
+	margin-top: var(--size-4-2);
+	padding: var(--size-4-2) 0 0 var(--size-4-4);
+	border-top: 1px dashed var(--background-modifier-border);
+}
+
+.oe-wf-loop-steps .oe-wf-step {
+	background-color: var(--background-secondary);
+}
+
+.oe-wf-loop-steps .oe-wf-step-n {
+	width: auto;
+	min-width: 20px;
+	padding: 0 5px;
+	border-radius: 10px;
+	background-color: var(--background-modifier-border-hover);
+	color: var(--text-normal);
+}
+
+.oe-tm button.oe-wf-add-step.is-inner {
+	width: auto;
+	margin-top: var(--size-4-2);
+	padding: 2px 12px;
+	height: auto;
+	font-size: var(--font-ui-small);
+}
+
+.oe-wf-inner-empty {
+	font-size: var(--font-ui-small);
+}
+
+.oe-wf-loop-when {
+	width: 100%;
+	max-width: 52em;
+}
+
+.oe-wf .oe-wf-loop select.oe-wf-loop-source,
+.oe-wf select.oe-wf-run-pick {
+	max-width: 22em;
+}

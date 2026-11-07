@@ -1629,18 +1629,24 @@ function formulaCell(row: ViewRow, col: ResolvedColumn, ctx: ViewContext): Cell 
 
 /** A workflow's created notes in formulas: `[New session]`, a links column with this id prefix. */
 export const VAR_PREFIX = "var:";
-export const varColumns = (names: string[]): RefColumn[] => names.map((n) => ({ id: `${VAR_PREFIX}${n}`, label: n, type: "links" as FType }));
+/** A name formulas can use besides columns: a note (links) or a value (a loop's item). */
+export interface VarSpec {
+	name: string;
+	type: FType;
+}
+export const varColumns = (vars: (string | VarSpec)[]): RefColumn[] =>
+	vars.map((v) => (typeof v === "string" ? { id: `${VAR_PREFIX}${v}`, label: v, type: "links" as FType } : { id: `${VAR_PREFIX}${v.name}`, label: v.name, type: v.type }));
 
 /**
  * The formula environment for one row: its referenced columns' values (and in workflows, their old values, and the
  * notes earlier steps created, by name).
  */
-function rowEnv(row: ViewRow, refs: Map<string, ResolvedColumn>, ctx: ViewContext, old?: ViewRow, vars?: Record<string, LinkValue>): EvalEnv {
+function rowEnv(row: ViewRow, refs: Map<string, ResolvedColumn>, ctx: ViewContext, old?: ViewRow, vars?: Record<string, FValue>): EvalEnv {
 	return {
 		col: (id) => {
 			if (id.startsWith(VAR_PREFIX)) {
 				const v = vars?.[id.slice(VAR_PREFIX.length)];
-				return v ? [v] : [];
+				return v === undefined ? null : isLink(v) ? [v] : v;
 			}
 			const c = refs.get(id);
 			return c ? cellValue(cellOf(row, c, ctx), c) : null;
@@ -1691,7 +1697,7 @@ export function compileFormula(
 	src: string,
 	def: ViewDef,
 	ctx: Pick<ViewContext, "types" | "groups">,
-	opts: { workflow?: boolean; vars?: string[] } = {},
+	opts: { workflow?: boolean; vars?: (string | VarSpec)[] } = {},
 ): { compiled: Compiled; refs: Map<string, ResolvedColumn> } {
 	const compiled = compile(src, [...formulaRefColumns(def, ctx), ...varColumns(opts.vars ?? [])], opts);
 	const universe = formulaUniverse(def, ctx);
@@ -1710,8 +1716,9 @@ export function compileFormula(
  * A formula's raw value for one note (workflows): `old` is the note before the change, for old(); `vars` the notes
  * earlier steps created, by name. Throws a FormulaError.
  */
-export function evaluateFormula(src: string, row: ViewRow, def: ViewDef, ctx: ViewContext, opts: { workflow?: boolean; old?: ViewRow; vars?: Record<string, LinkValue> } = {}): FValue {
-	const { compiled, refs } = compileFormula(src, def, ctx, { workflow: opts.workflow, vars: Object.keys(opts.vars ?? {}) });
+export function evaluateFormula(src: string, row: ViewRow, def: ViewDef, ctx: ViewContext, opts: { workflow?: boolean; old?: ViewRow; vars?: Record<string, FValue> } = {}): FValue {
+	const vars = Object.entries(opts.vars ?? {}).map(([name, v]): VarSpec => ({ name, type: isLink(v) ? "links" : "any" }));
+	const { compiled, refs } = compileFormula(src, def, ctx, { workflow: opts.workflow, vars });
 	return evaluate(compiled.ast, rowEnv(row, refs, ctx, opts.old, opts.vars));
 }
 

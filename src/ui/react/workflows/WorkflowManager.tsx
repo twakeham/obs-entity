@@ -3,16 +3,22 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEven
 import { statusUnion } from "../../../model/bulk";
 import { statusColorAmong, type ColorMap } from "../../../model/colors";
 import { todayDays } from "../../../model/formConditions";
-import { COMMON_KEYS, isListValued, type EntityTypeDef, type GroupDef } from "../../../model/types";
-import { availableColumns, compileFormula, resolveColumn, type ColumnDef } from "../../../model/views";
+import { COMMON_KEYS, isListValued, typeMatchesTarget, type EntityTypeDef, type GroupDef } from "../../../model/types";
+import { availableColumns, compileFormula, resolveColumn, type ColumnDef, type VarSpec, type ViewDef, type ViewRow } from "../../../model/views";
 import {
 	cloneWorkflow,
-	createdBefore,
 	createLinkOptions,
 	defaultFixed,
 	fixedFromFormula,
 	newCreateStep,
-	stepFields,
+	stepScopes,
+	stepTarget,
+	innerSteps,
+	inScope,
+	isLoop,
+	linkedSources,
+	loopItemTypes,
+	ON_THIS,
 	formulaFromFixed,
 	listsValues,
 	needsScope,
@@ -27,6 +33,10 @@ import {
 	type CreateField,
 	type CreateLink,
 	type FixedValue,
+	type LinkedSource,
+	type LoopStep,
+	type NoteStep,
+	type StepScope,
 	type StepKind,
 	type TriggerKind,
 	type WorkflowDef,
@@ -65,7 +75,7 @@ const TRIGGER_OPTIONS: { value: TriggerKind; label: string; icon: string }[] = [
 	{ value: "created", label: "Note created", icon: "file-plus" },
 	{ value: "manual", label: "Run on notes", icon: "mouse-pointer-click" },
 ];
-const STEP_ICONS: Record<StepKind, string> = { set: "pencil-line", clear: "eraser", tag: "tag", link: "link", notice: "message-square", create: "file-plus" };
+const STEP_ICONS: Record<StepKind, string> = { set: "pencil-line", clear: "eraser", tag: "tag", link: "link", notice: "message-square", create: "file-plus", linked: "git-fork", each: "repeat", run: "play" };
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -234,6 +244,34 @@ export function WorkflowManager({ state, setState, request, onRequestDone }: { s
 	);
 }
 
+/** Columns a filter over a definition's notes can use (Only if): name, fields, built-ins, incoming links. */
+function columnChoices(def: ViewDef, lookup: { types: EntityTypeDef[]; groups: GroupDef[] }): ColumnChoice[] {
+	const a = availableColumns(def, lookup);
+	const out: ColumnChoice[] = [];
+	const add = (list: ColumnDef[], group: string) => {
+		for (const c of list) out.push({ col: resolveColumn(c, def, lookup), group });
+	};
+	add([{ kind: "builtin", id: "name", key: "name" }], "Built-in");
+	add(a.fields, "Fields");
+	add(a.builtins, "Built-in");
+	add(a.incoming, "Incoming links");
+	return out;
+}
+
+/** The values a column has in notes of these types (for a filter's value pickers). */
+function columnValues(choices: ColumnChoice[], colId: string, rows: ViewRow[], types: EntityTypeDef[]): string[] {
+	const col = choices.find((c) => c.col.id === colId)?.col;
+	if (!col) return [];
+	const keys = new Set(types.map((x) => x.key));
+	const set = new Set<string>();
+	for (const r of rows) {
+		if (!keys.has(r.type.key)) continue;
+		const v = r.frontmatter[col.def.kind === "field" ? col.def.key : col.id];
+		for (const x of Array.isArray(v) ? v : v === null || v === undefined || v === "" ? [] : [v]) set.add(String(x));
+	}
+	return [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+}
+
 /** The editor for one workflow: header with on/off and ⋯, Applies to, When, Only if, Do, and its recent runs. */
 function WorkflowEditor({
 	id,
@@ -266,7 +304,7 @@ function WorkflowEditor({
 		fn(next);
 		setDraft(next);
 	};
-	const problems = workflowProblems(wf, lookup);
+	const problems = workflowProblems(wf, { ...lookup, workflows: settings.workflows });
 	// A new workflow isn't nagged about what it hasn't got yet until Save is tried.
 	const shownProblems = attempted || !isNew ? problems : problems.filter((p) => p.at !== "name" && p.at !== "steps" && p.at !== "scope");
 	const at = (k: string) => shownProblems.filter((p) => p.at === k);
@@ -309,31 +347,9 @@ function WorkflowEditor({
 	// Columns for Only if, and the scoped notes' values (for value pickers).
 	const { rows, ctx } = useMemo(() => plugin.viewData(), [plugin]);
 	const scopeKey = JSON.stringify(wf.scope);
-	const choices: ColumnChoice[] = useMemo(() => {
-		const a = availableColumns(def, lookup);
-		const out: ColumnChoice[] = [];
-		const add = (list: ColumnDef[], group: string) => {
-			for (const c of list) out.push({ col: resolveColumn(c, def, lookup), group });
-		};
-		add([{ kind: "builtin", id: "name", key: "name" }], "Built-in");
-		add(a.fields, "Fields");
-		add(a.builtins, "Built-in");
-		add(a.incoming, "Incoming links");
-		return out;
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [scopeKey, settings.types]);
-	const valuesOf = (colId: string) => {
-		const col = choices.find((c) => c.col.id === colId)?.col;
-		if (!col) return [];
-		const keys = new Set(scopeTypes(wf, settings.types).map((x) => x.key));
-		const set = new Set<string>();
-		for (const r of rows) {
-			if (!keys.has(r.type.key)) continue;
-			const v = r.frontmatter[col.def.kind === "field" ? col.def.key : col.id];
-			for (const x of Array.isArray(v) ? v : v === null || v === undefined || v === "" ? [] : [v]) set.add(String(x));
-		}
-		return [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-	};
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	const choices: ColumnChoice[] = useMemo(() => columnChoices(def, lookup), [scopeKey, settings.types]);
+	const valuesOf = (colId: string) => columnValues(choices, colId, rows, scopeTypes(wf, settings.types));
 
 	const setTrigger = (kind: TriggerKind) =>
 		edit((x) => {
@@ -358,15 +374,7 @@ function WorkflowEditor({
 
 	const recent = plugin.workflows.log.filter((r) => r.workflow === id).slice(0, 10);
 
-	// Dragging a step by its handle: `over` is the gap it would go into (0 … steps).
-	const [drag, setDrag] = useState<{ from: number; over: number | null } | null>(null);
-	const moveStep = (from: number, to: number) => {
-		if (from === to || from + 1 === to) return;
-		edit((x) => {
-			const [m] = x.steps.splice(from, 1);
-			x.steps.splice(to > from ? to - 1 : to, 0, m);
-		});
-	};
+	const scopes = useMemo(() => stepScopes(wf, lookup), [wf, settings.types]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	return (
 		<main className="oe-tm-main oe-wf-editor" data-workflow-id={id}>
@@ -491,55 +499,7 @@ function WorkflowEditor({
 							<Icon name="alert-circle" /> {p.message}
 						</div>
 					))}
-					<div className="oe-wf-steps" onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && drag && setDrag({ ...drag, over: null })}>
-						{wf.steps.map((s, i) => (
-							<StepCard
-								key={i}
-								index={i}
-								count={wf.steps.length}
-								drag={{
-									dragging: drag?.from === i,
-									before: !!drag && drag.over === i && drag.from !== i && drag.from !== i - 1,
-									after: !!drag && drag.over === i + 1 && i === wf.steps.length - 1 && drag.from !== i,
-									active: !!drag,
-									start: () => setDrag({ from: i, over: null }),
-									over: (at) => drag && at !== drag.over && setDrag({ ...drag, over: at }),
-									drop: () => {
-										if (drag && drag.over !== null) moveStep(drag.from, drag.over);
-										setDrag(null);
-									},
-									end: () => setDrag(null),
-								}}
-								step={s}
-								wf={wf}
-								problems={shownProblems.filter((p) => p.at === `step:${i}`)}
-								onChange={(n) => edit((x) => (x.steps[i] = n))}
-								onMove={(d) =>
-									edit((x) => {
-										const [m] = x.steps.splice(i, 1);
-										x.steps.splice(i + d, 0, m);
-									})
-								}
-								onRemove={() => edit((x) => x.steps.splice(i, 1))}
-							/>
-						))}
-					</div>
-					<button
-						className="oe-wf-add-step"
-						onClick={(e) => {
-							const m = new Menu();
-							for (const k of Object.keys(STEP_LABELS) as StepKind[])
-								m.addItem((i) =>
-									i
-										.setTitle(STEP_LABELS[k])
-										.setIcon(STEP_ICONS[k])
-										.onClick(() => edit((x) => x.steps.push(k === "create" ? newCreateStep(x, settings.types) : blankStep(k, fields)))),
-								);
-							m.showAtMouseEvent(e.nativeEvent);
-						}}
-					>
-						<Icon name="plus" /> Add step
-					</button>
+					<StepList wf={wf} steps={wf.steps} path="" scopes={scopes} problems={shownProblems} onChange={(steps) => edit((x) => (x.steps = steps))} />
 				</Section>
 
 				{!isNew && (
@@ -550,22 +510,6 @@ function WorkflowEditor({
 			</div>
 		</main>
 	);
-}
-
-function blankStep(kind: Exclude<StepKind, "create">, fields: WorkflowField[]): WorkflowStep {
-	const first = fields.find((f) => f.key !== COMMON_KEYS.tags)?.key ?? COMMON_KEYS.status;
-	switch (kind) {
-		case "set":
-			return { kind, field: first, value: "", fixed: defaultFixed(fields.find((f) => f.key === first)) };
-		case "clear":
-			return { kind, field: first };
-		case "tag":
-			return { kind, op: "add", tag: "" };
-		case "link":
-			return { kind, op: "add", field: fields.find((f) => f.kind === "relation")?.key ?? "", target: "", fixed: [] };
-		case "notice":
-			return { kind, text: "" };
-	}
 }
 
 /**
@@ -600,20 +544,6 @@ const statusColors = (statuses: string[], types: EntityTypeDef[], groups: GroupD
 	}
 	return out;
 };
-/** A step card's part in dragging steps to reorder them. */
-interface StepDrag {
-	dragging: boolean;
-	/** the drop line above / below this card */
-	before: boolean;
-	after: boolean;
-	/** a step is being dragged */
-	active: boolean;
-	start: () => void;
-	over: (gap: number) => void;
-	drop: () => void;
-	end: () => void;
-}
-
 /** A field picker like the views' column pickers: Built-in (Status, Tags) and Fields. */
 function FieldSelect({ value, fields, label, onChange }: { value: string; fields: WorkflowField[]; label: string; onChange: (key: string) => void }) {
 	const builtin = fields.filter((f) => f.key === COMMON_KEYS.status || f.key === COMMON_KEYS.tags);
@@ -633,23 +563,185 @@ function FieldSelect({ value, fields, label, onChange }: { value: string; fields
 	);
 }
 
-/** One step: its kind, its settings, problems, and move / remove buttons. */
+/** Names steps give notes and loop items (lower case), across the workflow: each must be unique. */
+function usedNames(wf: WorkflowDef, except?: WorkflowStep): Set<string> {
+	return new Set(
+		wf.steps
+			.flatMap((s) => [s, ...innerSteps(s)])
+			.filter((s) => s !== except)
+			.flatMap((s) => (s.kind === "create" || s.kind === "linked" || s.kind === "each" ? [s.as.trim().toLowerCase()] : [])),
+	);
+}
+
+/** A name not used yet: "Task", else "Task 2", "Task 3"… */
+const uniqueName = (base: string, used: Set<string>) => {
+	let n = base;
+	for (let i = 2; used.has(n.toLowerCase()); i++) n = `${base} ${i}`;
+	return n;
+};
+
+/** A new step of a kind, for the note its list acts on by default (`sc`). */
+function blankStep(kind: StepKind, wf: WorkflowDef, sc: StepScope, workflows: WorkflowDef[], types: EntityTypeDef[]): WorkflowStep {
+	const fields = sc.fields;
+	const first = fields.find((f) => f.key !== COMMON_KEYS.tags)?.key ?? COMMON_KEYS.status;
+	const used = usedNames(wf);
+	switch (kind) {
+		case "set":
+			return { kind, field: first, value: "", fixed: defaultFixed(fields.find((f) => f.key === first)) };
+		case "clear":
+			return { kind, field: first };
+		case "tag":
+			return { kind, op: "add", tag: "" };
+		case "link":
+			return { kind, op: "add", field: fields.find((f) => f.kind === "relation")?.key ?? "", target: "", fixed: [] };
+		case "notice":
+			return { kind, text: "" };
+		case "create": {
+			const s = newCreateStep({ scope: sc.scope, steps: [], trigger: wf.trigger }, types);
+			return { ...s, as: uniqueName(s.as, used) };
+		}
+		case "run":
+			return { kind, workflow: workflows.find((w) => w.id !== wf.id && (!sc.types.length || sc.types.some((t) => inScope(w, t))))?.id ?? "" };
+		case "linked": {
+			const src = linkedSources(sc.scope, types);
+			const source: LinkedSource = src.in[0] ? { dir: "in", type: src.in[0].type.key, field: src.in[0].field.key } : { dir: "out", field: src.out[0]?.key ?? "" };
+			const step: LoopStep = { kind, source, when: { mode: "all", items: [] }, as: "", steps: [] };
+			const its = loopItemTypes(step, sc.scope, types);
+			return { ...step, as: uniqueName(its.length === 1 ? its[0].name : "Note", used) };
+		}
+		case "each":
+			return { kind, formula: "", items: "values", itemType: "", when: { mode: "all", items: [] }, as: uniqueName("Item", used), steps: [] };
+	}
+}
+
+/** The scope a step added at the end of a list would have (the list''s created notes included). */
+function scopeForNew(wf: WorkflowDef, path: string, lookup: { types: EntityTypeDef[]; groups: GroupDef[] }): StepScope {
+	const ph: NoteStep = { kind: "notice", text: "" };
+	const next: WorkflowDef = path === "" ? { ...wf, steps: [...wf.steps, ph] } : { ...wf, steps: wf.steps.map((s, i) => (String(i) === path && isLoop(s) ? { ...s, steps: [...s.steps, ph] } : s)) };
+	const list = path === "" ? next.steps : innerSteps(next.steps[Number(path)]);
+	return stepScopes(next, lookup).get(path === "" ? String(list.length - 1) : `${path}.${list.length - 1}`)!;
+}
+
+/** A step card''s part in dragging steps to reorder them. */
+interface StepDrag {
+	dragging: boolean;
+	/** the drop line above / below this card */
+	before: boolean;
+	after: boolean;
+	/** a step of this list is being dragged */
+	active: boolean;
+	start: () => void;
+	over: (gap: number) => void;
+	drop: () => void;
+	end: () => void;
+}
+
+/**
+ * Steps in order, as cards that drag to reorder by their handle, with "Add step" (a menu of step kinds). `path`:
+ * "" for the workflow''s steps, or a loop''s place ("2") for the steps inside it (no loops there).
+ */
+function StepList({
+	wf,
+	steps,
+	path,
+	scopes,
+	problems,
+	onChange,
+}: {
+	wf: WorkflowDef;
+	steps: WorkflowStep[];
+	path: string;
+	scopes: Map<string, StepScope>;
+	problems: WorkflowProblem[];
+	onChange: (steps: WorkflowStep[]) => void;
+}) {
+	const plugin = usePlugin();
+	const { types, groups, workflows } = plugin.settings;
+	// `over` is the gap the dragged step would go into (0 … steps).
+	const [drag, setDrag] = useState<{ from: number; over: number | null } | null>(null);
+	const keyOf = (i: number) => (path ? `${path}.${i}` : String(i));
+	const move = (from: number, to: number) => {
+		if (from === to || from + 1 === to) return;
+		const next = [...steps];
+		const [m] = next.splice(from, 1);
+		next.splice(to > from ? to - 1 : to, 0, m);
+		onChange(next);
+	};
+	const kinds = (Object.keys(STEP_LABELS) as StepKind[]).filter((k) => !path || (k !== "linked" && k !== "each"));
+	const add = (e: ReactMouseEvent) => {
+		const m = new Menu();
+		const sc = scopeForNew(wf, path, { types, groups });
+		for (const k of kinds)
+			m.addItem((i) =>
+				i
+					.setSection(k === "linked" || k === "each" || k === "run" ? "more" : "note")
+					.setTitle(STEP_LABELS[k])
+					.setIcon(STEP_ICONS[k])
+					.onClick(() => onChange([...steps, blankStep(k, wf, sc, workflows, types)])),
+			);
+		m.showAtMouseEvent(e.nativeEvent);
+	};
+	return (
+		<>
+			<div className="oe-wf-steps" onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && drag && setDrag({ ...drag, over: null })}>
+				{steps.map((s, i) => (
+					<StepCard
+						key={i}
+						index={i}
+						path={keyOf(i)}
+						count={steps.length}
+						drag={{
+							dragging: drag?.from === i,
+							before: !!drag && drag.over === i && drag.from !== i && drag.from !== i - 1,
+							after: !!drag && drag.over === i + 1 && i === steps.length - 1 && drag.from !== i,
+							active: !!drag,
+							start: () => setDrag({ from: i, over: null }),
+							over: (at) => drag && at !== drag.over && setDrag({ ...drag, over: at }),
+							drop: () => {
+								if (drag && drag.over !== null) move(drag.from, drag.over);
+								setDrag(null);
+							},
+							end: () => setDrag(null),
+						}}
+						step={s}
+						wf={wf}
+						scopes={scopes}
+						problems={problems}
+						onChange={(n) => onChange(steps.map((x, j) => (j === i ? n : x)))}
+						onMove={(d) => move(i, d < 0 ? i - 1 : i + 2)}
+						onRemove={() => onChange(steps.filter((_, j) => j !== i))}
+					/>
+				))}
+				{!steps.length && path && <div className="oe-tm-muted oe-wf-inner-empty">No steps yet: they run for each one.</div>}
+			</div>
+			<button className={`oe-wf-add-step${path ? " is-inner" : ""}`} onClick={add}>
+				<Icon name="plus" /> {path ? "Add a step inside" : "Add step"}
+			</button>
+		</>
+	);
+}
+
+/** One step: its kind, its settings, problems, and drag / move / remove buttons. */
 function StepCard({
 	index,
+	path,
 	count,
 	drag,
 	step,
 	wf,
+	scopes,
 	problems,
 	onChange,
 	onMove,
 	onRemove,
 }: {
 	index: number;
+	path: string;
 	count: number;
 	drag: StepDrag;
 	step: WorkflowStep;
 	wf: WorkflowDef;
+	scopes: Map<string, StepScope>;
 	problems: WorkflowProblem[];
 	onChange: (s: WorkflowStep) => void;
 	onMove: (d: -1 | 1) => void;
@@ -657,36 +749,40 @@ function StepCard({
 }) {
 	const plugin = usePlugin();
 	const allTypes = plugin.settings.types;
-	// Notes earlier steps create: what this step can act on ("On"), and refer to in formulas.
-	const made = createdBefore(wf, index);
-	const vars = made.map((m) => m.as);
+	const sc = scopes.get(path) ?? scopeForNew(wf, path.includes(".") ? path.split(".")[0] : "", plugin.settings);
+	const target = stepTarget(step, sc, allTypes) ?? { scope: [], types: [], fields: [] };
 	const on = "on" in step ? step.on : undefined;
-	const fields = stepFields(wf, index, allTypes);
-	const targetTypes = on ? allTypes.filter((t) => t.key === made.find((m) => m.as === on)?.type) : scopeTypes(wf, allTypes);
-	const settable = fields.filter((f) => f.key !== COMMON_KEYS.tags);
-	const relations = fields.filter((f) => f.kind === "relation");
+	const settable = target.fields.filter((f) => f.key !== COMMON_KEYS.tags);
+	const relations = target.fields.filter((f) => f.kind === "relation");
+	const mine = problems.filter((p) => p.at === `step:${path}`);
 	const changeOn = (v: string) => {
-		if (step.kind === "notice" || step.kind === "create") return;
-		const nextFields = stepFields({ ...wf, steps: wf.steps.map((s, j) => (j === index ? { ...step, on: v || undefined } : s)) as WorkflowStep[] }, index, allTypes);
-		const next = (step.kind === "tag" ? { ...step } : blankStep(step.kind, nextFields)) as WorkflowStep & { on?: string };
+		if (!("on" in step) && step.kind !== "set" && step.kind !== "clear" && step.kind !== "tag" && step.kind !== "link" && step.kind !== "run") return;
+		const withOn = { ...step, on: v || undefined } as WorkflowStep;
+		const t2 = stepTarget(withOn, sc, allTypes);
+		const next = (step.kind === "tag" || step.kind === "run" ? { ...step } : blankStep(step.kind, wf, { ...sc, fields: t2?.fields ?? [], scope: t2?.scope ?? [] }, plugin.settings.workflows, allTypes)) as WorkflowStep & { on?: string };
 		if (v) next.on = v;
 		else delete next.on;
 		onChange(next);
 	};
 	const onPicker =
-		made.length > 0 && step.kind !== "notice" && step.kind !== "create" ? (
+		sc.on.length > 0 && (step.kind === "set" || step.kind === "clear" || step.kind === "tag" || step.kind === "link" || step.kind === "run") ? (
 			<span className="oe-wf-on">
 				<span className="oe-wf-to">On</span>
 				<select className="dropdown oe-pop-select" aria-label="On" value={on ?? ""} onChange={(e) => changeOn(e.target.value)}>
-					<option value="">This note</option>
-					<optgroup label="Created by earlier steps">
-						{made.map((m) => (
-							<option key={m.as} value={m.as}>
-								{m.as}
-							</option>
-						))}
-					</optgroup>
-					{on && !made.some((m) => m.as === on) && <option value={on}>{on}</option>}
+					<option value="">{sc.defaultLabel}</option>
+					{sc.on.some((o) => o.value === ON_THIS) && <option value={ON_THIS}>This note</option>}
+					{sc.on.some((o) => o.value !== ON_THIS) && (
+						<optgroup label="Created by earlier steps">
+							{sc.on
+								.filter((o) => o.value !== ON_THIS)
+								.map((o) => (
+									<option key={o.value} value={o.value}>
+										{o.label}
+									</option>
+								))}
+						</optgroup>
+					)}
+					{on && !sc.on.some((o) => o.value === on) && <option value={on}>{on}</option>}
 				</select>
 			</span>
 		) : null;
@@ -708,11 +804,10 @@ function StepCard({
 					/>
 					<span className="oe-wf-to">to</span>
 					<StepValue
-						wf={wf}
-						vars={vars}
-						types={targetTypes}
+						sc={sc}
+						types={target.types}
 						field={field}
-						preview={!on}
+						preview={!on && sc.loop !== "notes"}
 						fixed={step.fixed}
 						formula={step.value}
 						title={`Set ${field?.label ?? step.field} to…`}
@@ -753,6 +848,7 @@ function StepCard({
 			break;
 		case "link": {
 			const field = relations.find((f) => f.key === step.field);
+			const names = sc.vars.filter((v) => v.type === "links").map((v) => v.name);
 			body = (
 				<>
 					{onPicker}
@@ -767,15 +863,14 @@ function StepCard({
 					/>
 					{relations.length ? <FieldSelect label="Field" value={step.field} fields={relations} onChange={(k) => onChange({ ...step, field: k })} /> : <span className="oe-tm-muted">These types have no link fields.</span>}
 					<StepValue
-						wf={wf}
-						vars={vars}
-						types={targetTypes}
+						sc={sc}
+						types={target.types}
 						field={field}
 						multiple
 						fixed={step.fixed}
 						formula={step.target}
 						title={`${step.op === "add" ? "Link" : "Unlink"} ${field?.label ?? "notes"}`}
-						placeholder={vars.length ? `e.g. [${vars[0]}] or [Project]` : 'e.g. [Project] or "Apollo"'}
+						placeholder={names.length ? `e.g. [${names[names.length - 1]}] or [Project]` : 'e.g. [Project] or "Apollo"'}
 						onChange={(v) => {
 							const { fixed: _drop, ...rest } = step;
 							onChange("fixed" in v ? { ...rest, target: "", fixed: Array.isArray(v.fixed) ? v.fixed : [] } : { ...rest, target: v.formula });
@@ -786,19 +881,34 @@ function StepCard({
 			break;
 		}
 		case "notice":
-			body = <FormulaBox wf={wf} vars={vars} template value={step.text} placeholder="e.g. {[Name]} is done" onChange={(v) => onChange({ ...step, text: v })} />;
+			body = <FormulaBox sc={sc} template value={step.text} placeholder="e.g. {[Name]} is done" onChange={(v) => onChange({ ...step, text: v })} />;
 			break;
 		case "create":
-			body = <CreateBody wf={wf} index={index} step={step} vars={vars} onChange={onChange} />;
+			body = <CreateBody wf={wf} sc={sc} step={step} onChange={onChange} />;
+			break;
+		case "run":
+			body = (
+				<>
+					{onPicker}
+					<RunBody wf={wf} types={target.types} step={step} onChange={onChange} />
+				</>
+			);
+			break;
+		case "linked":
+		case "each":
+			body = <LoopBody wf={wf} path={path} step={step} scopes={scopes} problems={problems} onChange={onChange} />;
 			break;
 	}
+	const named = step.kind === "create" || step.kind === "linked" || step.kind === "each" ? step.as.trim() : "";
+	const subtitle = step.kind === "run" ? plugin.settings.workflows.find((w) => w.id === step.workflow)?.name : named ? `“${named}”` : "";
 	return (
 		<div
-			className={`oe-wf-step${problems.length ? " has-issue" : ""}${drag.dragging ? " is-dragging" : ""}${drag.before ? " drop-before" : ""}${drag.after ? " drop-after" : ""}`}
-			data-step={index}
+			className={`oe-wf-step${mine.length ? " has-issue" : ""}${isLoop(step) ? " is-loop" : ""}${drag.dragging ? " is-dragging" : ""}${drag.before ? " drop-before" : ""}${drag.after ? " drop-after" : ""}`}
+			data-step={path}
 			onDragOver={(e) => {
 				if (!drag.active) return;
 				e.preventDefault();
+				e.stopPropagation();
 				e.dataTransfer.dropEffect = "move";
 				const r = e.currentTarget.getBoundingClientRect();
 				drag.over(e.clientY < r.top + r.height / 2 ? index : index + 1);
@@ -806,14 +916,15 @@ function StepCard({
 			onDrop={(e) => {
 				if (!drag.active) return;
 				e.preventDefault();
+				e.stopPropagation();
 				drag.drop();
 			}}
 		>
 			<div className="oe-wf-step-head">
-				<span className="oe-wf-step-n">{index + 1}</span>
+				<span className="oe-wf-step-n">{path.includes(".") ? path.split(".").map((n) => Number(n) + 1).join(".") : index + 1}</span>
 				<Icon name={STEP_ICONS[step.kind]} />
 				<span className="oe-wf-step-title">{STEP_LABELS[step.kind]}</span>
-				{step.kind === "create" && step.as.trim() && <span className="oe-wf-step-as">“{step.as.trim()}”</span>}
+				{subtitle && <span className="oe-wf-step-as">{subtitle}</span>}
 				<span className="oe-spacer" />
 				<span
 					className="oe-wf-step-grip"
@@ -822,8 +933,9 @@ function StepCard({
 					aria-label="Drag to reorder"
 					title="Drag to reorder"
 					onDragStart={(e) => {
+						e.stopPropagation();
 						e.dataTransfer.effectAllowed = "move";
-						e.dataTransfer.setData("text/plain", String(index));
+						e.dataTransfer.setData("text/plain", path);
 						const card = e.currentTarget.closest(".oe-wf-step");
 						if (card instanceof HTMLElement) e.dataTransfer.setDragImage(card, 24, 16);
 						drag.start();
@@ -842,8 +954,8 @@ function StepCard({
 					<Icon name="trash-2" />
 				</button>
 			</div>
-			<div className={`oe-wf-step-body${step.kind === "create" ? " is-create" : ""}`}>{body}</div>
-			{problems.map((p, i) => (
+			<div className={`oe-wf-step-body${step.kind === "create" || isLoop(step) ? " is-create" : ""}`}>{body}</div>
+			{mine.map((p, i) => (
 				<div key={i} className="oe-tm-issue">
 					<Icon name="alert-circle" /> {p.message}
 				</div>
@@ -852,54 +964,224 @@ function StepCard({
 	);
 }
 
+/** Label / control rows, as in "Create a note" and the loops. */
+const formRow = (label: string, control: ReactNode, desc?: string) => (
+	<>
+		<span className="oe-wf-create-label" title={desc}>
+			{label}
+		</span>
+		<div className="oe-wf-create-control">{control}</div>
+	</>
+);
+
+/**
+ * "For linked notes" (which notes: this note''s link field, or notes linking here) and "For each" (a formula''s list, of
+ * notes or values): Only if (notes), the name each one goes by, and the steps inside.
+ */
+function LoopBody({
+	wf,
+	path,
+	step,
+	scopes,
+	problems,
+	onChange,
+}: {
+	wf: WorkflowDef;
+	path: string;
+	step: LoopStep;
+	scopes: Map<string, StepScope>;
+	problems: WorkflowProblem[];
+	onChange: (s: WorkflowStep) => void;
+}) {
+	const plugin = usePlugin();
+	const { types, groups } = plugin.settings;
+	const lookup = { types, groups };
+	const sc = scopes.get(path) ?? scopeForNew(wf, "", lookup);
+	const its = loopItemTypes(step, sc.scope, types);
+	const notesLoop = step.kind === "linked" || step.items === "notes";
+	const innerDef = workflowDef({ scope: its.length === types.length ? [] : its.map((t) => t.key), when: step.when });
+	const { rows, ctx } = useMemo(() => plugin.viewData(), [plugin]);
+	const choices = useMemo(() => columnChoices(innerDef, lookup), [JSON.stringify(its.map((t) => t.key)), types]); // eslint-disable-line react-hooks/exhaustive-deps
+	const typeName = its.length === 1 ? (its[0].plural || its[0].name).toLowerCase() : "notes";
+	const set = (patch: Partial<LoopStep>) => onChange({ ...step, ...patch } as LoopStep);
+	const src = step.kind === "linked" ? linkedSources(sc.scope, types) : null;
+	const srcValue = step.kind === "linked" ? (step.source.dir === "out" ? `out:${step.source.field}` : `in:${step.source.type}:${step.source.field}`) : "";
+	/** "For each": a links result loops over notes (of the link field''s type, when it has one); anything else, values. */
+	const detect = (src2: string): Partial<LoopStep> => {
+		try {
+			const { compiled, refs } = compileFormula(src2, sc.def, lookup, { workflow: true, vars: sc.vars });
+			if (compiled.type !== "links") return { items: "values", itemType: "" };
+			const targets = [...refs.values()].map((r) => r.field?.targets).find((t) => t?.length);
+			const ts = targets ? types.filter((t) => typeMatchesTarget(t, targets)) : [];
+			return { items: "notes", itemType: ts.length === 1 ? ts[0].key : "" };
+		} catch {
+			return {};
+		}
+	};
+	return (
+		<div className="oe-wf-create oe-wf-loop">
+			{step.kind === "linked" &&
+				formRow(
+					"Notes",
+					<select
+						className="dropdown oe-pop-select oe-wf-loop-source"
+						aria-label="Which linked notes"
+						value={srcValue}
+						onChange={(e) => {
+							const [dir, a, b] = e.target.value.split(":");
+							const source: LinkedSource = dir === "in" ? { dir: "in", type: a, field: b } : { dir: "out", field: a };
+							const next = { ...step, source, when: { mode: "all", items: [] } } as LoopStep;
+							const t2 = loopItemTypes(next, sc.scope, types);
+							// A name still from the old notes follows the new ones.
+							const was = its.length === 1 ? its[0].name : "Note";
+							const as = step.as.trim().toLowerCase().startsWith(was.toLowerCase()) && t2.length === 1 ? uniqueName(t2[0].name, usedNames(wf, step)) : step.as;
+							onChange({ ...next, as });
+						}}
+					>
+						{!src!.out.some((f) => `out:${f.key}` === srcValue) && !src!.in.some((x) => `in:${x.type.key}:${x.field.key}` === srcValue) && <option value={srcValue}>Choose…</option>}
+						{src!.out.length > 0 && (
+							<optgroup label="This note's links">
+								{src!.out.map((f) => (
+									<option key={f.key} value={`out:${f.key}`}>
+										{f.label}
+									</option>
+								))}
+							</optgroup>
+						)}
+						{src!.in.length > 0 && (
+							<optgroup label="Notes linking here">
+								{src!.in.map((x) => (
+									<option key={`${x.type.key}:${x.field.key}`} value={`in:${x.type.key}:${x.field.key}`}>
+										{x.label}
+									</option>
+								))}
+							</optgroup>
+						)}
+					</select>,
+				)}
+			{step.kind === "each" && (
+				<>
+					{formRow(
+						"List",
+						<FormulaBox sc={sc} label="List formula" value={step.formula} placeholder='e.g. [Labels], [Team] or list("a", "b")' onChange={(v) => onChange({ ...step, formula: v, ...detect(v) } as LoopStep)} />,
+						"A formula that gives a list. It reads this note.",
+					)}
+					{formRow(
+						"Items are",
+						<select
+							className="dropdown oe-pop-select"
+							aria-label="Items are"
+							value={step.items === "values" ? "values" : `notes:${step.itemType}`}
+							onChange={(e) => {
+								const v = e.target.value;
+								set(v === "values" ? { items: "values", itemType: "", when: { mode: "all", items: [] } } : { items: "notes", itemType: v.slice("notes:".length) });
+							}}
+						>
+							<option value="values">Values (text, numbers, dates)</option>
+							<option value="notes:">Notes (any type)</option>
+							<optgroup label="Notes of a type">
+								{types.map((t) => (
+									<option key={t.key} value={`notes:${t.key}`}>
+										{t.plural || t.name}
+									</option>
+								))}
+							</optgroup>
+						</select>,
+					)}
+				</>
+			)}
+			{notesLoop &&
+				formRow(
+					"Only if",
+					<div className="oe-wf-when oe-wf-loop-when">
+						<FiltersPanel
+							filters={step.when}
+							choices={choices}
+							ctx={ctx}
+							valuesOf={(id) => columnValues(choices, id, rows, its)}
+							thisNote={null}
+							heading={`Only the ${typeName} that match`}
+							emptyText={`No conditions: every one of the ${typeName}.`}
+							onChange={(g) => set({ when: g })}
+						/>
+					</div>,
+				)}
+			{formRow(
+				"Call each",
+				<span className="oe-wf-inline">
+					<TextInput label="Call each" className="oe-wf-text" value={step.as} placeholder={notesLoop ? "e.g. Task" : "e.g. Label"} onChange={(v) => set({ as: v })} />
+					<span className="oe-tm-muted">
+						{notesLoop
+							? `Inside: steps act on each one and formulas read it; [${step.as.trim() || "…"}] is it, [This note] the workflow's note.`
+							: `Inside: [${step.as.trim() || "…"}] is the value.`}
+					</span>
+				</span>,
+			)}
+			<div className="oe-wf-loop-steps">
+				<StepList wf={wf} steps={step.steps} path={path} scopes={scopes} problems={problems} onChange={(steps) => set({ steps: steps as NoteStep[] })} />
+			</div>
+		</div>
+	);
+}
+
+/** "Run another workflow": which one (the ones for this note''s types first); it runs in this run, its Only if checked. */
+function RunBody({ wf, types, step, onChange }: { wf: WorkflowDef; types: EntityTypeDef[]; step: Extract<WorkflowStep, { kind: "run" }>; onChange: (s: WorkflowStep) => void }) {
+	const plugin = usePlugin();
+	const others = plugin.settings.workflows.filter((w) => w.id !== wf.id);
+	const fits = (w: WorkflowDef) => !types.length || types.some((t) => inScope(w, t));
+	const list = (ws: WorkflowDef[]) =>
+		ws.map((w) => (
+			<option key={w.id} value={w.id}>
+				{w.name}
+			</option>
+		));
+	return (
+		<span className="oe-wf-inline">
+			<select className="dropdown oe-pop-select oe-wf-run-pick" aria-label="Workflow to run" value={step.workflow} onChange={(e) => onChange({ ...step, workflow: e.target.value })}>
+				{!others.some((w) => w.id === step.workflow) && <option value={step.workflow}>{step.workflow ? "(deleted)" : "Choose…"}</option>}
+				{others.some(fits) && <optgroup label="For these notes">{list(others.filter(fits))}</optgroup>}
+				{others.some((w) => !fits(w)) && <optgroup label="Other workflows">{list(others.filter((w) => !fits(w)))}</optgroup>}
+			</select>
+			<span className="oe-tm-muted">Its steps run as part of this run (one undo); its Only if is checked first.</span>
+		</span>
+	);
+}
+
 type CreateStep = Extract<WorkflowStep, { kind: "create" }>;
 
-/** The link a created note of a type starts with: its field to this note if it has one, else this note's to it. */
-function defaultCreateLink(wf: WorkflowDef, typeKey: string, types: EntityTypeDef[]): CreateLink | undefined {
-	const o = createLinkOptions(wf, typeKey, types);
+/** The link a created note of a type starts with: its field to this note if it has one, else this note''s to it. */
+function defaultCreateLink(scope: string[], typeKey: string, types: EntityTypeDef[]): CreateLink | undefined {
+	const o = createLinkOptions({ scope }, typeKey, types);
 	return o.fromNew[0] ? { dir: "from-new", field: o.fromNew[0].key } : o.toNew[0] ? { dir: "to-new", field: o.toNew[0].key } : undefined;
 }
 
 /**
- * "Create a note": its type, name (a template), starting fields (picked or formulas, read from this note), the link
- * between it and this note, the type's template, whether it opens, what to do when it already exists, and the name
- * later steps call it.
+ * "Create a note": its type, name (a template), starting fields (picked or formulas), the link between it and the
+ * note the step is for (this note, or each note in a loop), the type''s template, whether it opens, what to do when
+ * it already exists, and the name later steps call it.
  */
-function CreateBody({ wf, index, step, vars, onChange }: { wf: WorkflowDef; index: number; step: CreateStep; vars: string[]; onChange: (s: WorkflowStep) => void }) {
+function CreateBody({ wf, sc, step, onChange }: { wf: WorkflowDef; sc: StepScope; step: CreateStep; onChange: (s: WorkflowStep) => void }) {
 	const plugin = usePlugin();
 	const { types, groups } = plugin.settings;
 	const type = types.find((t) => t.key === step.type);
 	const nf = type ? workflowFields({ scope: [type.key] }, types).filter((f) => f.key !== COMMON_KEYS.tags) : [];
-	const links = createLinkOptions(wf, step.type, types);
+	const links = createLinkOptions({ scope: sc.scope }, step.type, types);
 	const set = (patch: Partial<CreateStep>) => onChange({ ...step, ...patch });
 	const typeName = type?.name.toLowerCase() ?? "note";
+	const which = sc.loop === "notes" ? sc.defaultLabel.replace(/^Each /, "the ") : "this note";
 	const setType = (key: string) => {
 		const t = types.find((x) => x.key === key);
-		const link = defaultCreateLink(wf, key, types);
+		const link = defaultCreateLink(sc.scope, key, types);
 		const { link: _l, ...rest } = step;
 		// A name still the default for the old type follows the new one.
-		const wasDefault = /^New .+/i.test(step.as.trim()) && step.as.trim().toLowerCase().startsWith(`new ${typeName}`);
-		const used = new Set(wf.steps.flatMap((s, j) => (s.kind === "create" && j !== index ? [s.as.trim().toLowerCase()] : [])));
-		let as = step.as;
-		if (wasDefault && t) {
-			const base = `New ${t.name.toLowerCase()}`;
-			as = base;
-			for (let n = 2; used.has(as.toLowerCase()); n++) as = `${base} ${n}`;
-		}
+		const wasDefault = step.as.trim().toLowerCase().startsWith(`new ${typeName}`);
+		const as = wasDefault && t ? uniqueName(`New ${t.name.toLowerCase()}`, usedNames(wf, step)) : step.as;
 		onChange({ ...rest, type: key, fields: [], as, ...(link ? { link } : {}) });
 	};
 	const linkValue = step.link ? `${step.link.dir}:${step.link.field}` : "";
-	const row = (label: string, control: ReactNode, desc?: string) => (
-		<>
-			<span className="oe-wf-create-label" title={desc}>
-				{label}
-			</span>
-			<div className="oe-wf-create-control">{control}</div>
-		</>
-	);
 	return (
 		<div className="oe-wf-create">
-			{row(
+			{formRow(
 				"Type",
 				<select className="dropdown oe-pop-select" aria-label="Type of note" value={step.type} onChange={(e) => setType(e.target.value)}>
 					{!type && <option value={step.type}>{step.type || "Choose…"}</option>}
@@ -917,8 +1199,8 @@ function CreateBody({ wf, index, step, vars, onChange }: { wf: WorkflowDef; inde
 					})}
 				</select>,
 			)}
-			{row("Name", <FormulaBox wf={wf} vars={vars} template label="Note name" value={step.name} placeholder={`New ${typeName}  ·  e.g. {[Name]} kickoff`} onChange={(v) => set({ name: v })} />, "Text with {formula} parts. Empty: “New <type>”.")}
-			{row(
+			{formRow("Name", <FormulaBox sc={sc} template label="Note name" value={step.name} placeholder={`New ${typeName}  ·  e.g. {[Name]} kick-off`} onChange={(v) => set({ name: v })} />, "Text with {formula} parts. Empty: “New <type>”.")}
+			{formRow(
 				"Fields",
 				<div className="oe-wf-create-fields">
 					{step.fields.map((r, i) => {
@@ -929,8 +1211,7 @@ function CreateBody({ wf, index, step, vars, onChange }: { wf: WorkflowDef; inde
 								<FieldSelect label="Field" value={r.field} fields={nf.filter((x) => x.key === r.field || !step.fields.some((y) => y.field === x.key))} onChange={(k) => setRow({ field: k, value: "", fixed: defaultFixed(nf.find((x) => x.key === k)) })} />
 								<span className="oe-wf-to">=</span>
 								<StepValue
-									wf={wf}
-									vars={vars}
+									sc={sc}
 									types={type ? [type] : []}
 									field={f}
 									preview={false}
@@ -969,9 +1250,9 @@ function CreateBody({ wf, index, step, vars, onChange }: { wf: WorkflowDef; inde
 						</select>
 					)}
 				</div>,
-				"The new note's values. Formulas read this note, e.g. [Campaign], today().",
+				`The new note's values. Formulas read ${which}.`,
 			)}
-			{row(
+			{formRow(
 				"Link",
 				<select
 					className="dropdown oe-pop-select oe-wf-create-link"
@@ -983,9 +1264,9 @@ function CreateBody({ wf, index, step, vars, onChange }: { wf: WorkflowDef; inde
 						onChange(e.target.value ? { ...rest, link: { dir, field } } : rest);
 					}}
 				>
-					<option value="">Don't link it to this note</option>
+					<option value="">Don't link it to {which}</option>
 					{links.fromNew.length > 0 && (
-						<optgroup label={`The new ${typeName}'s field → this note`}>
+						<optgroup label={`The new ${typeName}'s field → ${which}`}>
 							{links.fromNew.map((f) => (
 								<option key={f.key} value={`from-new:${f.key}`}>
 									{f.label}
@@ -994,7 +1275,7 @@ function CreateBody({ wf, index, step, vars, onChange }: { wf: WorkflowDef; inde
 						</optgroup>
 					)}
 					{links.toNew.length > 0 && (
-						<optgroup label={`This note's field → the new ${typeName}`}>
+						<optgroup label={`${which[0].toUpperCase()}${which.slice(1)}'s field → the new ${typeName}`}>
 							{links.toNew.map((f) => (
 								<option key={f.key} value={`to-new:${f.key}`}>
 									{f.label}
@@ -1005,14 +1286,14 @@ function CreateBody({ wf, index, step, vars, onChange }: { wf: WorkflowDef; inde
 					{step.link && !(step.link.dir === "from-new" ? links.fromNew : links.toNew).some((f) => f.key === step.link!.field) && <option value={linkValue}>{step.link.field}</option>}
 				</select>,
 			)}
-			{row(
+			{formRow(
 				"Body",
 				<span className="oe-wf-inline">
 					<Toggle label="Use the type's template" value={step.template} onChange={(v) => set({ template: v })} />
 					<span className="oe-tm-muted">{step.template ? "From the type's template" : "Empty"}</span>
 				</span>,
 			)}
-			{row(
+			{formRow(
 				"Open it",
 				<Segmented
 					label="Open it"
@@ -1025,7 +1306,7 @@ function CreateBody({ wf, index, step, vars, onChange }: { wf: WorkflowDef; inde
 					onChange={(v) => set({ open: v })}
 				/>,
 			)}
-			{row(
+			{formRow(
 				"If it exists",
 				<select className="dropdown oe-pop-select" aria-label="If it already exists" value={step.exists} onChange={(e) => set({ exists: e.target.value as CreateStep["exists"] })}>
 					<option value="new">Create another</option>
@@ -1034,7 +1315,7 @@ function CreateBody({ wf, index, step, vars, onChange }: { wf: WorkflowDef; inde
 				</select>,
 				"A note of this type with the same name, where it would be created. Create another: its name gets “ 2”, “ 3”…",
 			)}
-			{row(
+			{formRow(
 				"Call it",
 				<span className="oe-wf-inline">
 					<TextInput label="Call it" className="oe-wf-text" value={step.as} placeholder={`New ${typeName}`} onChange={(v) => set({ as: v })} />
@@ -1044,6 +1325,7 @@ function CreateBody({ wf, index, step, vars, onChange }: { wf: WorkflowDef; inde
 		</div>
 	);
 }
+
 /** A hint for a value box, by the field's kind. */
 function valueHint(f: WorkflowField | undefined): string {
 	switch (f?.kind) {
@@ -1064,14 +1346,15 @@ function valueHint(f: WorkflowField | undefined): string {
 }
 
 /** The fields [ ] offers, grouped like the field pickers: Built-in (Name, Status, Type, Created…) and Fields. */
-function insertableFields(wf: WorkflowDef, lookup: { types: EntityTypeDef[]; groups: GroupDef[] }, vars: string[] = []): { group: string; labels: string[] }[] {
-	const def = workflowDef(wf);
+function insertableFields(sc: StepScope, lookup: { types: EntityTypeDef[]; groups: GroupDef[] }): { group: string; labels: string[] }[] {
+	const def = sc.def;
+	const vars = sc.vars.map((v) => v.name);
 	const cols = availableColumns(def, lookup);
 	const labels = (list: ColumnDef[]) => [...new Set(list.map((c) => resolveColumn(c, def, lookup).label))];
 	return [
 		{ group: "Built-in", labels: labels([{ kind: "builtin", id: "name", key: "name" } as ColumnDef, ...cols.builtins]) },
 		{ group: "Fields", labels: labels(cols.fields) },
-		{ group: "Created notes", labels: vars },
+		{ group: sc.loop ? "Notes and values" : "Created notes", labels: vars },
 	].filter((g) => g.labels.length);
 }
 
@@ -1079,9 +1362,9 @@ function insertableFields(wf: WorkflowDef, lookup: { types: EntityTypeDef[]; gro
  * The [ ] button: looks like the field pickers and opens the same grouped dropdown (a native select laid over the
  * icon); picking a field calls `onPick` with its label.
  */
-function InsertFieldButton({ wf, vars, onPick }: { wf: WorkflowDef; vars?: string[]; onPick: (label: string) => void }) {
+function InsertFieldButton({ sc, onPick }: { sc: StepScope; onPick: (label: string) => void }) {
 	const plugin = usePlugin();
-	const groups = insertableFields(wf, { types: plugin.settings.types, groups: plugin.settings.groups }, vars);
+	const groups = insertableFields(sc, { types: plugin.settings.types, groups: plugin.settings.groups });
 	return (
 		<span className="oe-wf-fxbtn oe-wf-insert" title="Insert a field">
 			<Icon name="brackets" />
@@ -1115,8 +1398,7 @@ function InsertFieldButton({ wf, vars, onPick }: { wf: WorkflowDef; vars?: strin
  * [ ] puts a field in (as a formula); ƒx opens the formula editor; ↺ goes back to a picked value.
  */
 function StepValue({
-	wf,
-	vars,
+	sc,
 	types,
 	field,
 	preview = true,
@@ -1127,9 +1409,8 @@ function StepValue({
 	multiple,
 	onChange,
 }: {
-	wf: WorkflowDef;
-	/** notes earlier steps create, for formulas */
-	vars: string[];
+	/** what formulas read and the names they can use */
+	sc: StepScope;
 	/** the types of the note the value goes in (their statuses) */
 	types: EntityTypeDef[];
 	field: WorkflowField | undefined;
@@ -1145,10 +1426,10 @@ function StepValue({
 }) {
 	const plugin = usePlugin();
 	const editor = (src: string) =>
-		FormulaModal.forWorkflow(plugin, workflowDef(wf), {
+		FormulaModal.forWorkflow(plugin, sc.def, {
 			title,
 			value: src,
-			vars,
+			vars: sc.vars,
 			field: multiple || !preview ? undefined : field,
 			done: (v) => onChange({ formula: v }),
 		}).open();
@@ -1162,13 +1443,13 @@ function StepValue({
 			<div className="oe-wf-value">
 				<FixedInput types={types} field={field} value={fixed} multiple={multiple} onChange={(v) => onChange({ fixed: v })} />
 				<span className="oe-wf-value-btns">
-					<InsertFieldButton wf={wf} vars={vars} onPick={(label) => onChange({ formula: `[${label}]` })} />
+					<InsertFieldButton sc={sc} onPick={(label) => onChange({ formula: `[${label}]` })} />
 					{fxButton(formulaFromFixed(fixed, field), false)}
 				</span>
 			</div>
 		);
 	return (
-		<FormulaBox wf={wf} vars={vars} value={formula} placeholder={placeholder} onChange={(v) => onChange({ formula: v })}>
+		<FormulaBox sc={sc} value={formula} placeholder={placeholder} onChange={(v) => onChange({ formula: v })}>
 			{fxButton(formula, true)}
 			{field && (
 				<button
@@ -1275,8 +1556,7 @@ function ListInput({ value, onChange }: { value: string[]; onChange: (v: string[
  * a field at the cursor, and any other buttons after it.
  */
 function FormulaBox({
-	wf,
-	vars = [],
+	sc,
 	value,
 	placeholder,
 	template,
@@ -1284,8 +1564,7 @@ function FormulaBox({
 	onChange,
 	children,
 }: {
-	wf: WorkflowDef;
-	vars?: string[];
+	sc: StepScope;
 	value: string;
 	placeholder?: string;
 	template?: boolean;
@@ -1296,7 +1575,7 @@ function FormulaBox({
 	const plugin = usePlugin();
 	const ref = useRef<HTMLInputElement>(null);
 	const lookup = { types: plugin.settings.types, groups: plugin.settings.groups };
-	const def = workflowDef(wf);
+	const { def, vars } = sc;
 	let error: string | null = null;
 	if (value.trim())
 		try {
@@ -1322,7 +1601,7 @@ function FormulaBox({
 		<div className={`oe-wf-formula${error ? " is-invalid" : ""}`}>
 			<div className="oe-wf-formula-row">
 				<input ref={ref} type="text" className="oe-wf-formula-input" aria-label={label ?? (template ? "Text" : "Formula")} value={value} placeholder={placeholder} spellCheck={false} onChange={(e) => onChange(e.target.value)} />
-				<InsertFieldButton wf={wf} vars={vars} onPick={insert} />
+				<InsertFieldButton sc={sc} onPick={insert} />
 				{children}
 			</div>
 			{error && <div className="oe-wf-formula-error">{error}</div>}

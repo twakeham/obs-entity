@@ -41,8 +41,10 @@ export interface RunRecord {
 	root?: string;
 	/** notes the run created */
 	created?: { path: string; name: string }[];
-	/** other existing notes it changed ("Use the existing one"), with their changes */
+	/** other existing notes it changed (linked notes, "Use the existing one"), with their changes */
 	others?: { path: string; name: string; changes: FieldChange[] }[];
+	/** workflows it ran ("Run another workflow") */
+	via?: string[];
 }
 
 /** Runs caused by one change, and the ones they cause in turn. */
@@ -227,7 +229,7 @@ export class WorkflowEngine extends Events {
 			const name = p.replace(/\.md$/, "").split("/").pop() ?? p;
 			return app.metadataCache.getFirstLinkpathDest(name, path) ? p.replace(/\.md$/, "") : name;
 		};
-		const res = runSteps(wf, { ctx, row, old, linkText, place: this.placer(rows) });
+		const res = runSteps(wf, { ctx, row, old, linkText, place: this.placer(rows), workflows: plugin.settings.workflows });
 		if (res.stopped) {
 			if (opts.manual) new Notice(`“${wf.name}” stopped: ${res.stopped}`);
 			return this.record({ ...base, stopped: res.stopped });
@@ -246,6 +248,7 @@ export class WorkflowEngine extends Events {
 			...(opts.chain.root ? { root: opts.chain.root } : {}),
 			...(made.length ? { created: made.map((o) => ({ path: o.path, name: o.name })) } : {}),
 			...(edited.length ? { others: edited.map((o) => ({ path: o.path, name: o.name, changes: o.changes })) } : {}),
+			...(res.via.length ? { via: res.via } : {}),
 		};
 		if (res.changes.length || made.length || edited.length) {
 			const chain: Chain = { depth: opts.chain.depth + 1, seen: new Set([...opts.chain.seen, key]), root: opts.chain.root ?? record.id };

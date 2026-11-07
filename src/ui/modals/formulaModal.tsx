@@ -11,7 +11,7 @@ import type EntitiesPlugin from "../../main";
 import { compile, findColumn, FormulaError, FTYPE_LABEL, FTYPES, FUNCTIONS, functionDef, toDisplay, toStored, toText, type FnCategory, type FnDef, type FType, type RefColumn } from "../../model/formula";
 import { storedValue, type WorkflowField } from "../../model/workflows";
 import { toKey, type EntityTypeDef } from "../../model/types";
-import { cellOf, compileFormula, evaluateFormula, formulaRefColumns, resolveColumn, runView, varColumns, type ColumnDef, type ViewDef, type ViewRow } from "../../model/views";
+import { cellOf, compileFormula, evaluateFormula, formulaRefColumns, resolveColumn, runView, varColumns, type VarSpec, type ColumnDef, type ViewDef, type ViewRow } from "../../model/views";
 import { PluginContext } from "../react/context";
 import { Icon } from "../react/Icon";
 
@@ -33,7 +33,7 @@ export interface WorkflowFormulaOpts {
 	title: string;
 	value: string;
 	/** notes earlier steps create, by name (`[New session]`) */
-	vars?: string[];
+	vars?: (string | VarSpec)[];
 	/** the field the result goes in (the preview shows the value it would store, or why it can't) */
 	field?: WorkflowField;
 	done: (src: string) => void;
@@ -315,7 +315,7 @@ function FormulaEditor({
 			return sample.map((row) => {
 				try {
 					// A created note doesn't exist yet: it previews as its name.
-					const vars = Object.fromEntries((workflow.vars ?? []).map((n) => [n, { path: null, linktext: n, name: n }]));
+					const vars = Object.fromEntries((workflow.vars ?? []).map((v) => (typeof v === "string" ? v : v.name)).map((n) => [n, { path: null, linktext: n, name: n }]));
 					const v = evaluateFormula(text, row, def, data.ctx, { workflow: true, vars });
 					const shown = toText(v, { dateText: (d) => data.ctx.dates.format(d, "short") });
 					const f = workflow.field;
