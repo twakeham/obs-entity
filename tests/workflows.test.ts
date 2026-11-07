@@ -6,6 +6,8 @@ import type { EntityTypeDef, FieldDef, GroupDef } from "../src/model/types";
 import type { ViewContext, ViewRow } from "../src/model/views";
 import {
 	changeMatches,
+	createLinkOptions,
+	newCreateStep,
 	fixedFromFormula,
 	formulaFromFixed,
 	newWorkflow,
@@ -17,6 +19,8 @@ import {
 	triggerText,
 	workflowFields,
 	workflowProblems,
+	type Placed,
+	type PlaceRequest,
 	type WorkflowDef,
 } from "../src/model/workflows";
 
@@ -286,5 +290,80 @@ describe("fixed values", () => {
 	it("list() makes a list", () => {
 		const res = run(wf({ steps: [{ kind: "set", field: "labels", value: 'list("bug", "feature")' }] }), r);
 		expect(res.fm.labels).toEqual(["bug", "feature"]);
+	});
+});
+
+describe("create a note", () => {
+	const apollo = ROWS[0];
+	const place = (req: PlaceRequest): Placed =>
+		req.exists === "stop" ? { stop: `${req.name} already exists.` } : req.exists === "use" ? { path: "Write docs.md", existing: ROWS[2] } : { path: `Tasks/${req.name}.md` };
+	const runP = (w: WorkflowDef, r: ViewRow) => runSteps(w, { ctx, row: r, linkText, place });
+	const create = (over: Partial<Extract<WorkflowDef["steps"][number], { kind: "create" }>> = {}) =>
+		({ kind: "create", type: "task", name: "{[Name]} kickoff", fields: [], link: { dir: "from-new", field: "project" }, template: true, open: "no", exists: "new", as: "Kickoff", ...over }) as Extract<WorkflowDef["steps"][number], { kind: "create" }>;
+
+	it("offer link fields both ways, and a new step that links back", () => {
+		const o = createLinkOptions({ scope: ["project"] }, "task", TYPES);
+		expect(o.fromNew.map((f) => f.key)).toEqual(["project", "people"]);
+		expect(o.toNew).toEqual([]);
+		expect(createLinkOptions({ scope: ["task"] }, "project", TYPES).toNew.map((f) => f.key)).toEqual(["project", "people"]);
+		const s = newCreateStep({ scope: ["project"], steps: [], trigger: { kind: "manual" } }, TYPES);
+		expect(s).toMatchObject({ type: "task", link: { dir: "from-new", field: "project" }, as: "New task", open: "tab", exists: "new" });
+	});
+
+	it("create a note with fields and a link back; later steps act on it and refer to it", () => {
+		const w = wf({
+			scope: ["project"],
+			steps: [
+				create({ fields: [{ field: "priority", value: "", fixed: "High" }, { field: "due", value: "today() + 1" }] }),
+				{ kind: "set", field: "estimate", value: "", fixed: 5, on: "Kickoff" },
+				{ kind: "notice", text: "{[Kickoff]} for {prop([Kickoff], \"Priority\")}" },
+			],
+		});
+		const res = runP(w, apollo);
+		expect(res.error).toBeUndefined();
+		expect(res.changes).toEqual([]);
+		expect(res.others).toHaveLength(1);
+		expect(res.others[0]).toMatchObject({ path: "Tasks/Apollo kickoff.md", name: "Apollo kickoff", created: { type: "task", template: true, open: "no" } });
+		expect(res.others[0].fm).toEqual({ priority: "High", due: "2026-11-07", project: "[[Apollo]]", estimate: 5 });
+		expect(res.notices).toEqual(["Apollo kickoff for High"]);
+	});
+
+	it("link this note to the new one; a default name", () => {
+		const w = wf({ scope: ["task"], steps: [{ kind: "create", type: "project", name: "", fields: [], link: { dir: "to-new", field: "project" }, template: false, open: "tab", exists: "new", as: "P" }] });
+		const res = runP(w, ROWS[2]);
+		expect(res.others[0].path).toBe("Tasks/New project.md");
+		expect(res.changes).toEqual([{ key: "project", before: "[[Apollo]]", after: "[[Tasks/New project]]" }]);
+	});
+
+	it("use the existing note, or stop the run", () => {
+		const used = runP(wf({ scope: ["project"], steps: [create({ exists: "use", fields: [{ field: "priority", value: "", fixed: "High" }] }), { kind: "tag", op: "add", tag: "kick", on: "Kickoff" }] }), apollo);
+		expect(used.others).toHaveLength(1);
+		expect(used.others[0].created).toBeUndefined();
+		expect(used.others[0].path).toBe("Write docs.md");
+		// its link is made and later steps act on it; the step's own fields aren't applied
+		expect(used.others[0].changes.map((c) => c.key).sort()).toEqual(["tags"]);
+		const stopped = runP(wf({ scope: ["project"], steps: [{ kind: "set", field: "budget", value: "", fixed: 1 }, create({ exists: "stop" })] }), apollo);
+		expect(stopped).toMatchObject({ stopped: "Apollo kickoff already exists.", changes: [], others: [] });
+		expect(stopped.error).toBeUndefined();
+	});
+
+	it("fail without a place to create notes, changing nothing", () => {
+		const res = run(wf({ scope: ["project"], steps: [create()] }), apollo);
+		expect(res.error).toEqual({ step: 0, message: "Notes can't be created here." });
+	});
+
+	it("report create problems: names, fields, links, and steps on notes no step creates", () => {
+		const at = (steps: WorkflowDef["steps"]) => workflowProblems(wf({ name: "x", scope: ["project"], steps }), ctx).map((p) => p.message);
+		expect(at([create()])).toEqual([]);
+		expect(at([create({ as: "" })])).toEqual(["Name the note for later steps (Call it)."]);
+		expect(at([create(), create()])).toEqual(["Another step already creates “Kickoff”: choose another name."]);
+		expect(at([create({ as: "Budget" })])).toEqual(["“Budget” is already a field's name: choose another."]);
+		expect(at([create({ type: "" })])).toEqual(["Choose the type of note to create."]);
+		expect(at([create({ fields: [{ field: "priority", value: "", fixed: "Urgent" }, { field: "nope", value: "1" }] })])).toEqual(["Priority: “Urgent” isn't one of Priority's choices.", "Task has no “nope” field."]);
+		expect(at([create({ link: { dir: "to-new", field: "budget" } })])).toEqual(["“budget” can't link the new note and this one."]);
+		expect(at([{ kind: "set", field: "estimate", value: "", fixed: 1, on: "Kickoff" }, create()])).toEqual(["No earlier step creates “Kickoff”."]);
+		expect(at([create(), { kind: "set", field: "budget", value: "", fixed: 1, on: "Kickoff" }])).toEqual(["Task has no “budget” field."]);
+		expect(at([create(), { kind: "notice", text: "{[Kickoff]}" }, { kind: "set", field: "budget", value: "count([Kickoff])" }])).toEqual([]);
+		expect(at([{ kind: "notice", text: "{[Kickoff]}" }, create()])).toEqual(["Unknown column [Kickoff]."]);
 	});
 });

@@ -11,7 +11,7 @@ import type EntitiesPlugin from "../../main";
 import { compile, findColumn, FormulaError, FTYPE_LABEL, FTYPES, FUNCTIONS, functionDef, toDisplay, toStored, toText, type FnCategory, type FnDef, type FType, type RefColumn } from "../../model/formula";
 import { storedValue, type WorkflowField } from "../../model/workflows";
 import { toKey, type EntityTypeDef } from "../../model/types";
-import { cellOf, compileFormula, evaluateFormula, formulaRefColumns, resolveColumn, runView, type ColumnDef, type ViewDef, type ViewRow } from "../../model/views";
+import { cellOf, compileFormula, evaluateFormula, formulaRefColumns, resolveColumn, runView, varColumns, type ColumnDef, type ViewDef, type ViewRow } from "../../model/views";
 import { PluginContext } from "../react/context";
 import { Icon } from "../react/Icon";
 
@@ -32,6 +32,8 @@ const VIEW_FUNCTIONS = FUNCTIONS.filter((f) => !f.workflow);
 export interface WorkflowFormulaOpts {
 	title: string;
 	value: string;
+	/** notes earlier steps create, by name (`[New session]`) */
+	vars?: string[];
 	/** the field the result goes in (the preview shows the value it would store, or why it can't) */
 	field?: WorkflowField;
 	done: (src: string) => void;
@@ -99,7 +101,7 @@ function FormulaEditor({
 		while (taken.has(`formula_${n}`)) n++;
 		return `formula_${n}`;
 	}, [def, existing]);
-	const refCols: RefColumn[] = useMemo(() => formulaRefColumns(def, lookup).filter((c) => c.id !== id), [def, lookup, id]);
+	const refCols: RefColumn[] = useMemo(() => [...formulaRefColumns(def, lookup).filter((c) => c.id !== id), ...varColumns(workflow?.vars ?? [])], [def, lookup, id, workflow]);
 	const [name, setName] = useState(existing?.label ?? "");
 	const [text, setText] = useState(() => (workflow ? workflow.value : existing ? toDisplay(existing.formula, refCols) : ""));
 	const [type, setType] = useState<FType | "">(existing?.type ?? "");
@@ -127,7 +129,7 @@ function FormulaEditor({
 	/** Problems with the formula: syntax and references (with positions), then resolution problems such as loops. */
 	const check = (src: string, t: FType | "", label: string) => {
 		try {
-			if (workflow) return { inferred: compileFormula(src, def, lookup, { workflow: true }).compiled.type };
+			if (workflow) return { inferred: compileFormula(src, def, lookup, { workflow: true, vars: workflow.vars }).compiled.type };
 			const c = compile(src, refCols);
 			const { col, tmp } = build(src, t, label);
 			const resolved = resolveColumn(col, tmp, lookup);
@@ -312,7 +314,9 @@ function FormulaEditor({
 			if (status.error) return [];
 			return sample.map((row) => {
 				try {
-					const v = evaluateFormula(text, row, def, data.ctx, { workflow: true });
+					// A created note doesn't exist yet: it previews as its name.
+					const vars = Object.fromEntries((workflow.vars ?? []).map((n) => [n, { path: null, linktext: n, name: n }]));
+					const v = evaluateFormula(text, row, def, data.ctx, { workflow: true, vars });
 					const shown = toText(v, { dateText: (d) => data.ctx.dates.format(d, "short") });
 					const f = workflow.field;
 					const own = f && row.type.fields.find((x) => x.key === f.key);

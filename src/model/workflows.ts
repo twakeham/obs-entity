@@ -10,7 +10,7 @@ import { DateVal, FormulaError, isLink, toText, truthy, type FValue } from "./fo
 import { isEmptyValue } from "./frontmatter";
 import { asArray, parseLink, toWikilink } from "./links";
 import { COMMON_KEYS, isCalculated, isListValued, statusesFor, typeMatchesTarget, type EntityTypeDef, type FieldDef, type GroupDef } from "./types";
-import { compileFormula, dateValue, emptyView, evaluateFormula, filterFields, runView, withThisNote, type FilterGroup, type ViewContext, type ViewDef, type ViewRow } from "./views";
+import { compileFormula, dateValue, emptyView, evaluateFormula, formulaRefColumns, filterFields, runView, withThisNote, type FilterGroup, type LinkValue, type ViewContext, type ViewDef, type ViewRow } from "./views";
 
 // ---------------------------------------------------------------- definitions
 
@@ -28,13 +28,33 @@ export type WorkflowTrigger =
  */
 export type FixedValue = string | number | boolean | string[];
 
-/** `set` and `link` steps use `fixed` when it's there, else the formula in `value` / `target`. */
+/** "Create a note" when its note already exists: create another (" 2"), use the existing one, or stop the run. */
+export type CreateExists = "new" | "use" | "stop";
+/** Where a created note opens: not at all, in a new tab, or in the current one. */
+export type CreateOpen = "no" | "tab" | "current";
+/** A field a created note starts with: picked (`fixed`) or a formula (`value`), as in "Set a field". */
+export interface CreateField {
+	field: string;
+	value: string;
+	fixed?: FixedValue;
+}
+/** Linking a created note and this one: its field to this note ("from-new"), or this note's field to it ("to-new"). */
+export interface CreateLink {
+	dir: "from-new" | "to-new";
+	field: string;
+}
+
+/**
+ * `set` and `link` steps use `fixed` when it's there, else the formula in `value` / `target`. `on`: the note a step
+ * acts on, by the name an earlier "Create a note" step gave it (unset: this note).
+ */
 export type WorkflowStep =
-	| { kind: "set"; field: string; value: string; fixed?: FixedValue }
-	| { kind: "clear"; field: string }
-	| { kind: "tag"; op: "add" | "remove"; tag: string }
-	| { kind: "link"; op: "add" | "remove"; field: string; target: string; fixed?: string[] }
-	| { kind: "notice"; text: string };
+	| { kind: "set"; field: string; value: string; fixed?: FixedValue; on?: string }
+	| { kind: "clear"; field: string; on?: string }
+	| { kind: "tag"; op: "add" | "remove"; tag: string; on?: string }
+	| { kind: "link"; op: "add" | "remove"; field: string; target: string; fixed?: string[]; on?: string }
+	| { kind: "notice"; text: string }
+	| { kind: "create"; type: string; name: string; fields: CreateField[]; link?: CreateLink; template: boolean; open: CreateOpen; exists: CreateExists; as: string };
 
 export type TriggerKind = WorkflowTrigger["kind"];
 export type StepKind = WorkflowStep["kind"];
@@ -53,7 +73,7 @@ export interface WorkflowDef {
 }
 
 export const TRIGGER_LABELS: Record<TriggerKind, string> = { created: "When a note is created", changed: "When a field changes", manual: "Run on notes" };
-export const STEP_LABELS: Record<StepKind, string> = { set: "Set a field", clear: "Clear a field", tag: "Add or remove a tag", link: "Add or remove a link", notice: "Show a notice" };
+export const STEP_LABELS: Record<StepKind, string> = { set: "Set a field", clear: "Clear a field", tag: "Add or remove a tag", link: "Add or remove a link", notice: "Show a notice", create: "Create a note" };
 /** The most chained runs (a run's changes starting others) before the chain stops. */
 export const MAX_CHAIN = 5;
 
@@ -85,19 +105,39 @@ function readFixed(v: unknown): FixedValue | undefined {
 
 function readStep(raw: unknown): WorkflowStep | null {
 	if (!isObj(raw)) return null;
+	const on = str(raw.on) ? { on: str(raw.on) } : {};
 	switch (raw.kind) {
 		case "set": {
 			const fixed = readFixed(raw.fixed);
-			return { kind: "set", field: str(raw.field), value: str(raw.value), ...(fixed !== undefined ? { fixed } : {}) };
+			return { kind: "set", field: str(raw.field), value: str(raw.value), ...(fixed !== undefined ? { fixed } : {}), ...on };
 		}
 		case "clear":
-			return { kind: "clear", field: str(raw.field) };
+			return { kind: "clear", field: str(raw.field), ...on };
 		case "tag":
-			return { kind: "tag", op: raw.op === "remove" ? "remove" : "add", tag: str(raw.tag) };
+			return { kind: "tag", op: raw.op === "remove" ? "remove" : "add", tag: str(raw.tag), ...on };
 		case "link":
-			return { kind: "link", op: raw.op === "remove" ? "remove" : "add", field: str(raw.field), target: str(raw.target), ...(Array.isArray(raw.fixed) ? { fixed: strList(raw.fixed) } : {}) };
+			return { kind: "link", op: raw.op === "remove" ? "remove" : "add", field: str(raw.field), target: str(raw.target), ...(Array.isArray(raw.fixed) ? { fixed: strList(raw.fixed) } : {}), ...on };
 		case "notice":
 			return { kind: "notice", text: str(raw.text) };
+		case "create": {
+			const l = raw.link;
+			const link = isObj(l) && (l.dir === "from-new" || l.dir === "to-new") && str(l.field) ? ({ dir: l.dir, field: str(l.field) } as CreateLink) : undefined;
+			const fields = (Array.isArray(raw.fields) ? raw.fields : []).filter(isObj).map((x): CreateField => {
+				const fixed = readFixed(x.fixed);
+				return { field: str(x.field), value: str(x.value), ...(fixed !== undefined ? { fixed } : {}) };
+			});
+			return {
+				kind: "create",
+				type: str(raw.type),
+				name: str(raw.name),
+				fields,
+				...(link ? { link } : {}),
+				template: raw.template !== false,
+				open: raw.open === "tab" || raw.open === "current" ? raw.open : "no",
+				exists: raw.exists === "use" || raw.exists === "stop" ? raw.exists : "new",
+				as: str(raw.as),
+			};
+		}
 	}
 	return null;
 }
@@ -178,6 +218,50 @@ export function workflowFields(wf: Pick<WorkflowDef, "scope">, types: EntityType
 /** A field's label for sentences (the key when it's unknown). */
 export const fieldLabel = (key: string, types: EntityTypeDef[]): string =>
 	key === COMMON_KEYS.status ? "Status" : key === COMMON_KEYS.tags ? "Tags" : (types.flatMap((t) => t.fields).find((f) => f.key === key)?.label ?? key);
+
+/** The notes "Create a note" steps before step `i` make, by the name later steps use. */
+export function createdBefore(wf: Pick<WorkflowDef, "steps">, i: number): { as: string; type: string }[] {
+	return wf.steps.slice(0, i).flatMap((s) => (s.kind === "create" && s.as.trim() ? [{ as: s.as.trim(), type: s.type }] : []));
+}
+
+/** The fields step `i` can use: this note's (the scope's), or, with `on`, the created note's type's. */
+export function stepFields(wf: Pick<WorkflowDef, "scope" | "steps">, i: number, types: EntityTypeDef[]): WorkflowField[] {
+	const s = wf.steps[i];
+	const on = s && "on" in s ? s.on : undefined;
+	if (!on) return workflowFields(wf, types);
+	const made = createdBefore(wf, i).find((x) => x.as === on);
+	return made && types.some((t) => t.key === made.type) ? workflowFields({ scope: [made.type] }, types) : [];
+}
+
+/**
+ * How a created note of a type and this note can be linked: the new type's link fields that can point at every one of
+ * this workflow's types ("from-new"), and this note's link fields that can point at the new type ("to-new").
+ */
+export function createLinkOptions(wf: Pick<WorkflowDef, "scope">, typeKey: string, types: EntityTypeDef[]): { fromNew: WorkflowField[]; toNew: WorkflowField[] } {
+	const t = types.find((x) => x.key === typeKey);
+	if (!t) return { fromNew: [], toNew: [] };
+	const scope = scopeTypes(wf, types);
+	const anyNote = (f: FieldDef) => !f.targets?.length || f.targets.includes("*");
+	const fromNew = t.fields
+		.filter((f) => f.kind === "relation" && (wf.scope.length ? scope.every((st) => typeMatchesTarget(st, f.targets)) : anyNote(f)))
+		.map((f): WorkflowField => ({ key: f.key, label: f.label, kind: f.kind, field: f }));
+	const toNew = workflowFields(wf, types).filter((f) => f.kind === "relation" && f.field && typeMatchesTarget(t, f.field.targets));
+	return { fromNew, toNew };
+}
+
+/** A new "Create a note" step: a type that can link to this note (its link set), named for later steps. */
+export function newCreateStep(wf: Pick<WorkflowDef, "scope" | "steps" | "trigger">, types: EntityTypeDef[]): Extract<WorkflowStep, { kind: "create" }> {
+	const scope = new Set(scopeTypes(wf, types).map((t) => t.key));
+	const linkable = types.filter((t) => createLinkOptions(wf, t.key, types).fromNew.length);
+	const type = linkable.find((t) => !scope.has(t.key)) ?? linkable[0] ?? types.find((t) => !scope.has(t.key)) ?? types[0];
+	const opts = type ? createLinkOptions(wf, type.key, types) : { fromNew: [], toNew: [] };
+	const link: CreateLink | undefined = opts.fromNew[0] ? { dir: "from-new", field: opts.fromNew[0].key } : opts.toNew[0] ? { dir: "to-new", field: opts.toNew[0].key } : undefined;
+	const used = new Set(wf.steps.flatMap((s) => (s.kind === "create" ? [s.as.trim().toLowerCase()] : [])));
+	const base = `New ${(type?.name ?? "note").toLowerCase()}`;
+	let as = base;
+	for (let n = 2; used.has(as.toLowerCase()); n++) as = `${base} ${n}`;
+	return { kind: "create", type: type?.key ?? "", name: "", fields: [], ...(link ? { link } : {}), template: true, open: wf.trigger.kind === "manual" ? "tab" : "no", exists: "new", as };
+}
 
 /** Whether a `changed` trigger on this field can list from / to values (status, choices, checkboxes). */
 export const listsValues = (f: WorkflowField | undefined) => !!f && (f.kind === "status" || f.kind === "select" || f.kind === "boolean");
@@ -273,18 +357,18 @@ export interface WorkflowProblem {
 
 type Lookup = Pick<ViewContext, "types" | "groups">;
 
-const formulaError = (src: string, def: ViewDef, lookup: Lookup): string | null => {
+const formulaError = (src: string, def: ViewDef, lookup: Lookup, vars: string[] = []): string | null => {
 	try {
-		compileFormula(src, def, lookup, { workflow: true });
+		compileFormula(src, def, lookup, { workflow: true, vars });
 		return null;
 	} catch (e) {
 		return e instanceof Error ? e.message : String(e);
 	}
 };
 
-const templateError = (src: string, def: ViewDef, lookup: Lookup): string | null => {
+const templateError = (src: string, def: ViewDef, lookup: Lookup, vars: string[] = []): string | null => {
 	try {
-		for (const p of parseTemplate(src)) if ("formula" in p) compileFormula(p.formula, def, lookup, { workflow: true });
+		for (const p of parseTemplate(src)) if ("formula" in p) compileFormula(p.formula, def, lookup, { workflow: true, vars });
 		return null;
 	} catch (e) {
 		return e instanceof Error ? e.message : String(e);
@@ -311,24 +395,35 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup): WorkflowProbl
 	if (t.kind === "manual" && t.label !== undefined && !t.label.trim()) add("trigger", "Give the button a label.");
 	for (const id of filterFields(wf.when)) if (!formulaColumnOk(id, def, lookup)) add("when", `A condition uses “${id}”, which isn't a column of these types.`);
 	if (!wf.steps.length) add("steps", "Add a step.");
+	const columnLabels = new Set(formulaRefColumns(def, lookup).map((c) => c.label.toLowerCase()));
+	const names = new Set<string>();
 	wf.steps.forEach((s, i) => {
 		const at = `step:${i}`;
+		const made = createdBefore(wf, i);
+		const vars = made.map((x) => x.as);
+		// The note the step acts on: this one, or one an earlier step created.
+		const on = "on" in s ? s.on : undefined;
+		const onType = on ? lookup.types.find((x) => x.key === made.find((m) => m.as === on)?.type) : undefined;
+		if (on && !made.some((m) => m.as === on)) return add(at, `No earlier step creates “${on}”.`);
+		const tTypes = on ? (onType ? [onType] : []) : types;
+		const tFields = on ? (onType ? workflowFields({ scope: [onType.key] }, lookup.types) : []) : fields;
+		const fErr = (src: string) => formulaError(src, def, lookup, vars);
 		const fieldOk = (key: string, what: string) => {
 			if (!key) return add(at, `Choose the field to ${what}.`);
-			const calc = types.flatMap((x) => x.fields).find((f) => f.key === key && isCalculated(f));
+			const calc = tTypes.flatMap((x) => x.fields).find((f) => f.key === key && isCalculated(f));
 			if (calc) return add(at, `${calc.label} is calculated: it can't be ${what === "set" ? "set" : "changed"}.`);
 			if (key === COMMON_KEYS.tags) return add(at, "Use “Add or remove a tag” for tags.");
-			if (!fields.some((f) => f.key === key)) add(at, `None of the types has a “${key}” field.`);
+			if (!tFields.some((f) => f.key === key)) add(at, on && onType ? `${onType.name} has no “${key}” field.` : `None of the types has a “${key}” field.`);
 		};
 		switch (s.kind) {
 			case "set": {
 				fieldOk(s.field, "set");
 				if (s.fixed !== undefined) {
-					const p = fixedProblem(s.fixed, fields.find((f) => f.key === s.field), types, lookup.groups);
+					const p = fixedProblem(s.fixed, tFields.find((f) => f.key === s.field), tTypes, lookup.groups);
 					if (p) add(at, p);
 				} else if (!s.value.trim()) add(at, "Write the formula, e.g. today() or [Start] + 7.");
 				else {
-					const e = formulaError(s.value, def, lookup);
+					const e = fErr(s.value);
 					if (e) add(at, e);
 				}
 				break;
@@ -340,14 +435,14 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup): WorkflowProbl
 				if (!s.tag.trim().replace(/^#/, "")) add(at, "Write the tag.");
 				break;
 			case "link": {
-				const f = fields.find((x) => x.key === s.field);
+				const f = tFields.find((x) => x.key === s.field);
 				if (!s.field) add(at, "Choose the link field.");
 				else if (f?.kind !== "relation") add(at, f ? `${f.label} isn't a link field.` : `None of the types has a “${s.field}” field.`);
 				if (s.fixed !== undefined) {
 					if (!s.fixed.length) add(at, "Choose the note to link.");
 				} else if (!s.target.trim()) add(at, "Write the note to link, e.g. [Project] or \"Apollo\".");
 				else {
-					const e = formulaError(s.target, def, lookup);
+					const e = fErr(s.target);
 					if (e) add(at, e);
 				}
 				break;
@@ -355,17 +450,50 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup): WorkflowProbl
 			case "notice": {
 				if (!s.text.trim()) add(at, "Write the notice.");
 				else {
-					const e = templateError(s.text, def, lookup);
+					const e = templateError(s.text, def, lookup, vars);
 					if (e) add(at, e);
 				}
 				break;
 			}
+			case "create": {
+				const nt = lookup.types.find((x) => x.key === s.type);
+				if (!nt) add(at, s.type ? `“${s.type}” isn't a type.` : "Choose the type of note to create.");
+				else {
+					const e = s.name.trim() ? templateError(s.name, def, lookup, vars) : null;
+					if (e) add(at, `Name: ${e}`);
+					const nf = workflowFields({ scope: [nt.key] }, lookup.types);
+					for (const r of s.fields) {
+						const f = nf.find((x) => x.key === r.field && x.kind !== "tags");
+						if (!f) {
+							add(at, r.field ? `${nt.name} has no “${r.field}” field.` : "Choose the field to fill in.");
+							continue;
+						}
+						if (r.fixed !== undefined) {
+							const p = fixedProblem(r.fixed, f, [nt], lookup.groups);
+							if (p) add(at, `${f.label}: ${p}`);
+						} else if (!r.value.trim()) add(at, `${f.label}: write the formula, or pick a value.`);
+						else {
+							const fe = fErr(r.value);
+							if (fe) add(at, `${f.label}: ${fe}`);
+						}
+					}
+					if (s.link) {
+						const o = createLinkOptions(wf, nt.key, lookup.types);
+						if (!(s.link.dir === "from-new" ? o.fromNew : o.toNew).some((f) => f.key === s.link!.field)) add(at, `“${s.link.field}” can't link the new note and this one.`);
+					}
+				}
+				const as = s.as.trim();
+				if (!as) add(at, "Name the note for later steps (Call it).");
+				else if (names.has(as.toLowerCase())) add(at, `Another step already creates “${as}”: choose another name.`);
+				else if (columnLabels.has(as.toLowerCase())) add(at, `“${as}” is already a field's name: choose another.`);
+				names.add(as.toLowerCase());
+				break;
+			}
 		}
-		if (s.kind !== "notice" && s.kind !== "tag" && !wf.scope.length) add(at, "Choose the types this runs on, so its fields are known.");
+		if ((s.kind === "set" || s.kind === "clear" || s.kind === "link") && !on && !wf.scope.length) add(at, "Choose the types this runs on, so its fields are known.");
 	});
 	return out;
 }
-
 const formulaColumnOk = (id: string, def: ViewDef, lookup: Lookup) => formulaError(`[${id}]`, def, lookup) === null;
 
 // ---------------------------------------------------------------- values
@@ -567,6 +695,19 @@ function fixedProblem(v: FixedValue | undefined, f: WorkflowField | undefined, t
 
 // ---------------------------------------------------------------- running
 
+/** Where a "Create a note" step's note would go: the engine works it out (folder rules, names already taken). */
+export interface PlaceRequest {
+	type: EntityTypeDef;
+	name: string;
+	/** the new note's frontmatter so far (its parent link decides the folder) */
+	fm: Record<string, unknown>;
+	exists: CreateExists;
+	/** paths (lower case) of notes this run creates before this one */
+	taken: Set<string>;
+}
+/** The new note's path; or, with "Use the existing one", the existing note; or why the run stops. */
+export type Placed = { path: string; existing?: ViewRow } | { stop: string };
+
 export interface StepEnv {
 	ctx: ViewContext;
 	/** the note, as it is now (the change already made) */
@@ -574,6 +715,8 @@ export interface StepEnv {
 	/** the note before the change (changed triggers), for old() */
 	old?: ViewRow;
 	linkText: LinkTextOf;
+	/** places created notes; without it, "Create a note" steps fail */
+	place?: (req: PlaceRequest) => Placed;
 }
 
 export interface FieldChange {
@@ -582,16 +725,31 @@ export interface FieldChange {
 	after: unknown;
 }
 
+/** A note other than the one the workflow runs on: one it created, or an existing one it changed ("Use the existing one"). */
+export interface OtherNote {
+	path: string;
+	name: string;
+	/** set when the run created it: its frontmatter is `fm` */
+	created?: { type: string; template: boolean; open: CreateOpen };
+	fm: Record<string, unknown>;
+	changes: FieldChange[];
+}
+
 export interface RunResult {
 	/** the note's frontmatter after the steps (unchanged when there's an error) */
 	fm: Record<string, unknown>;
 	changes: FieldChange[];
 	notices: string[];
+	/** notes created or changed besides this one, in the order the steps made them */
+	others: OtherNote[];
 	/** the step that failed, and why: nothing is written */
 	error?: { step: number; message: string };
+	/** why the run stopped before doing anything ("If it already exists: Stop the run") */
+	stopped?: string;
 }
 
 const copy = <T>(v: T): T => (v === undefined ? v : (JSON.parse(JSON.stringify(v)) as T));
+const baseName = (path: string) => (path.split("/").pop() ?? path).replace(/\.md$/i, "");
 
 /** The row with new frontmatter (status and tags follow it, so later steps see earlier ones). */
 function withFrontmatter(row: ViewRow, fm: Record<string, unknown>): ViewRow {
@@ -600,44 +758,80 @@ function withFrontmatter(row: ViewRow, fm: Record<string, unknown>): ViewRow {
 	return { ...row, frontmatter: fm, status: typeof status === "string" ? status : null, tags: [...new Set([...fmTags, ...row.tags.filter((t) => !asArray(row.frontmatter[COMMON_KEYS.tags]).map(String).includes(t))])] };
 }
 
-/** Render a template for a note. */
-export function renderTemplate(src: string, row: ViewRow, def: ViewDef, env: Pick<StepEnv, "ctx" | "old">): string {
+/** Render a template for a note (`vars`: notes earlier steps created, by name). */
+export function renderTemplate(src: string, row: ViewRow, def: ViewDef, env: Pick<StepEnv, "ctx" | "old"> & { vars?: Record<string, LinkValue> }): string {
 	return parseTemplate(src)
-		.map((p) => ("text" in p ? p.text : valueText(evaluateFormula(p.formula, row, def, env.ctx, { workflow: true, old: env.old }), env.ctx)))
+		.map((p) => ("text" in p ? p.text : valueText(evaluateFormula(p.formula, row, def, env.ctx, { workflow: true, old: env.old, vars: env.vars }), env.ctx)))
 		.join("");
 }
 
+const diffOf = (start: Record<string, unknown>, fm: Record<string, unknown>): FieldChange[] => {
+	const out: FieldChange[] = [];
+	for (const key of new Set([...Object.keys(start), ...Object.keys(fm)])) if (JSON.stringify(start[key] ?? null) !== JSON.stringify(fm[key] ?? null)) out.push({ key, before: start[key], after: fm[key] });
+	return out;
+};
+
+class StopRun extends Error {}
+
+/** A note a run is working on: this one, or one a step created (or reused). */
+interface RunNote {
+	path: string;
+	row: ViewRow;
+	start: Record<string, unknown>;
+	fm: Record<string, unknown>;
+	created?: OtherNote["created"];
+}
+
 /**
- * Run a workflow's steps on a copy of the note's frontmatter, in order (each sees the ones before). A step that
- * fails stops the run: the result has the error and the frontmatter as it was.
+ * Run a workflow's steps on a copy of the note's frontmatter, in order (each sees the ones before). "Create a note"
+ * steps plan new notes (placed by `env.place`) that later steps can act on (`on`) or refer to (`[Name]`). A step
+ * that fails stops the run: the result has the error, the frontmatter as it was and no other notes.
  */
 export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 	const start = copy(env.row.frontmatter);
-	const fm = copy(env.row.frontmatter);
 	const def = workflowDef(wf);
-	const fields = workflowFields(wf, env.ctx.types);
 	const notices: string[] = [];
-	let row = env.row;
-	const evalAt = (src: string) => evaluateFormula(src, row, def, env.ctx, { workflow: true, old: env.old });
+	const main: RunNote = { path: env.row.path, row: env.row, start, fm: copy(env.row.frontmatter) };
+	const named = new Map<string, RunNote>();
+	const others: RunNote[] = [];
+	const taken = new Set<string>();
+	const vars: Record<string, LinkValue> = {};
+	// Formulas see the notes this run is making (prop([New session], "Date")) as they are so far.
+	const noteAt = (p: string) => (p === main.path ? main : others.find((n) => n.path === p));
+	const ctx: ViewContext = {
+		...env.ctx,
+		row: (p) => noteAt(p)?.row ?? env.ctx.row(p),
+		resolve: (lp, src) => env.ctx.resolve(lp, src) ?? others.find((n) => n.path === lp || n.path === `${lp}.md` || n.row.name.toLowerCase() === lp.toLowerCase())?.path ?? null,
+	};
+	const evalAt = (src: string) => evaluateFormula(src, main.row, def, ctx, { workflow: true, old: env.old, vars });
+	const fieldsOf = (n: RunNote) => (n === main ? workflowFields(wf, ctx.types) : workflowFields({ scope: [n.row.type.key] }, ctx.types));
+	const sync = (n: RunNote) => (n.row = withFrontmatter(n.row, n.fm));
+	/** A picked value or formula, as the note's field stores it (the note's own type's definition of the field). */
+	const valueFor = (f: WorkflowField, n: RunNote, fixed: FixedValue | undefined, formula: string): unknown => {
+		const own = n.row.type.fields.find((x) => x.key === f.key);
+		const target = own ? { ...f, kind: own.kind, field: own } : f;
+		const r = storedValue(target, fixed !== undefined ? fixedToValue(fixed, target.kind, n.row, ctx) : evalAt(formula), n.row, ctx, env.linkText);
+		if ("error" in r) throw new Error(r.error);
+		return r.value;
+	};
+	const addLink = (n: RunNote, f: FieldDef, path: string) => {
+		applyChange(n.fm, { op: "add-link", key: f.key, linktext: env.linkText(path), multiple: isListValued(f), labelled: !!f.labelled });
+		sync(n);
+	};
 	for (let i = 0; i < wf.steps.length; i++) {
 		const s = wf.steps[i];
 		try {
+			const on = "on" in s ? s.on : undefined;
+			const note = on ? named.get(on) : main;
+			if (!note) throw new Error(`No earlier step created “${on}”.`);
 			let change: BulkChange | null = null;
 			switch (s.kind) {
 				case "set":
 				case "clear": {
-					const f = fields.find((x) => x.key === s.field);
+					const f = fieldsOf(note).find((x) => x.key === s.field);
 					if (!f) throw new Error(`None of the types has a “${s.field}” field.`);
-					if (f.key !== COMMON_KEYS.status && !row.type.fields.some((x) => x.key === f.key)) continue;
-					if (s.kind === "clear") change = { op: "set", key: f.key, value: null };
-					else {
-						// The note's own type's definition of the field (choices, link settings).
-						const own = row.type.fields.find((x) => x.key === f.key);
-						const target = own ? { ...f, kind: own.kind, field: own } : f;
-						const r = storedValue(target, s.fixed !== undefined ? fixedToValue(s.fixed, target.kind, row, env.ctx) : evalAt(s.value), row, env.ctx, env.linkText);
-						if ("error" in r) throw new Error(r.error);
-						change = { op: "set", key: f.key, value: r.value };
-					}
+					if (f.key !== COMMON_KEYS.status && !note.row.type.fields.some((x) => x.key === f.key)) continue;
+					change = { op: "set", key: f.key, value: s.kind === "clear" ? null : valueFor(f, note, s.fixed, s.value) };
 					break;
 				}
 				case "tag": {
@@ -646,39 +840,86 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 					break;
 				}
 				case "link": {
-					const f = row.type.fields.find((x) => x.key === s.field);
+					const f = note.row.type.fields.find((x) => x.key === s.field);
 					if (!f) continue;
 					if (f.kind !== "relation") throw new Error(`${f.label} isn't a link field.`);
-					const { paths, unknown } = targetPaths(s.fixed !== undefined ? fixedToValue(s.fixed, "relation", row, env.ctx) : evalAt(s.target), row, env.ctx);
+					const { paths, unknown } = targetPaths(s.fixed !== undefined ? fixedToValue(s.fixed, "relation", note.row, ctx) : evalAt(s.target), note.row, ctx);
 					if (s.op === "add" && unknown.length) throw new Error(`No note called “${unknown[0]}”.`);
 					for (const p of paths) {
 						const c: BulkChange =
 							s.op === "add"
 								? { op: "add-link", key: f.key, linktext: env.linkText(p), multiple: isListValued(f), labelled: !!f.labelled }
-								: { op: "remove-link", key: f.key, matches: (lp) => env.ctx.resolve(lp, row.path) === p };
-						applyChange(fm, c);
+								: { op: "remove-link", key: f.key, matches: (lp) => ctx.resolve(lp, note.path) === p };
+						applyChange(note.fm, c);
 					}
-					row = withFrontmatter(row, fm);
+					sync(note);
 					continue;
 				}
 				case "notice":
-					notices.push(renderTemplate(s.text, row, def, { ctx: env.ctx, old: env.old }));
+					notices.push(renderTemplate(s.text, main.row, def, { ctx, old: env.old, vars }));
 					continue;
+				case "create": {
+					if (!env.place) throw new Error("Notes can't be created here.");
+					const type = ctx.types.find((x) => x.key === s.type);
+					if (!type) throw new Error(s.type ? `“${s.type}” isn't a type.` : "Choose the type of note to create.");
+					const name = (s.name.trim() ? renderTemplate(s.name, main.row, def, { ctx, old: env.old, vars }) : "").trim() || `New ${type.name.toLowerCase()}`;
+					const fm: Record<string, unknown> = {};
+					const draft: RunNote = {
+						path: "",
+						row: { path: "", name, type, status: null, subtitle: null, tags: [], aliases: [], folder: "", mtime: 0, order: null, frontmatter: fm },
+						start: {},
+						fm,
+					};
+					const nf = workflowFields({ scope: [type.key] }, ctx.types);
+					for (const r of s.fields) {
+						const f = nf.find((x) => x.key === r.field);
+						if (!f) throw new Error(`${type.name} has no “${r.field}” field.`);
+						fm[f.key] = valueFor(f, draft, r.fixed, r.value);
+						sync(draft);
+					}
+					const fromNew = s.link?.dir === "from-new" ? type.fields.find((x) => x.key === s.link!.field && x.kind === "relation") : undefined;
+					if (fromNew) addLink(draft, fromNew, main.path);
+					const placed = env.place({ type, name, fm, exists: s.exists, taken });
+					if ("stop" in placed) throw new StopRun(placed.stop);
+					let made: RunNote;
+					if (placed.existing) {
+						// "Use the existing one": no new note; its link is still made, its fields left as they are.
+						made = noteAt(placed.path) ?? { path: placed.path, row: placed.existing, start: copy(placed.existing.frontmatter), fm: copy(placed.existing.frontmatter) };
+						if (made !== main && !others.includes(made)) others.push(made);
+						if (fromNew) addLink(made, fromNew, main.path);
+					} else {
+						taken.add(placed.path.toLowerCase());
+						made = { ...draft, path: placed.path, row: { ...draft.row, path: placed.path, name: baseName(placed.path) }, created: { type: type.key, template: s.template, open: s.open } };
+						others.push(made);
+					}
+					const as = s.as.trim();
+					named.set(as, made);
+					vars[as] = { path: made.path, linktext: env.linkText(made.path), name: made.row.name };
+					if (s.link?.dir === "to-new") {
+						const f = main.row.type.fields.find((x) => x.key === s.link!.field && x.kind === "relation");
+						if (f) addLink(main, f, made.path);
+					}
+					continue;
+				}
 			}
 			if (change) {
-				applyChange(fm, change);
-				row = withFrontmatter(row, fm);
+				applyChange(note.fm, change);
+				sync(note);
 			}
 		} catch (e) {
-			return { fm: start, changes: [], notices: [], error: { step: i, message: e instanceof Error ? e.message : String(e) } };
+			if (e instanceof StopRun) return { fm: start, changes: [], notices: [], others: [], stopped: e.message };
+			return { fm: start, changes: [], notices: [], others: [], error: { step: i, message: e instanceof Error ? e.message : String(e) } };
 		}
 	}
-	const keys = new Set([...Object.keys(start), ...Object.keys(fm)]);
-	const changes: FieldChange[] = [];
-	for (const key of keys) if (JSON.stringify(start[key] ?? null) !== JSON.stringify(fm[key] ?? null)) changes.push({ key, before: start[key], after: fm[key] });
-	return { fm, changes, notices };
+	return {
+		fm: main.fm,
+		changes: diffOf(start, main.fm),
+		notices,
+		others: others
+			.map((n): OtherNote => ({ path: n.path, name: n.row.name, ...(n.created ? { created: n.created } : {}), fm: n.fm, changes: diffOf(n.start, n.fm) }))
+			.filter((o) => o.created || o.changes.length),
+	};
 }
-
 // ---------------------------------------------------------------- in words
 
 const quoted = (vs: string[]) => vs.map((v) => `“${v}”`).join(" or ");

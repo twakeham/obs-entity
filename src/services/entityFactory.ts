@@ -15,6 +15,12 @@ export interface CreateOptions {
 	/** Open the new note after creating it. Default true. */
 	open?: boolean;
 	newTab?: boolean;
+	/** create at this path (workflows place notes first); its folders are made as needed */
+	path?: string;
+	/** stored values that win over the generated ones (a workflow's fields) */
+	frontmatter?: Record<string, unknown>;
+	/** use the type's template for the body. Default true. */
+	template?: boolean;
 }
 
 function firstLinktext(value: FieldValue | undefined): string | null {
@@ -140,15 +146,22 @@ export class EntityFactory {
 		const baseName = sanitizeFileName(name);
 		if (!baseName) throw new Error("The name contains no usable characters.");
 
-		const folder = await this.ensureFolder(this.folderFor(type, values));
-		const folderObj = folder ? this.app.vault.getAbstractFileByPath(folder) : this.app.vault.getRoot();
-		const taken = new Set(folderObj instanceof TFolder ? folderObj.children.map((c) => c.path.toLowerCase()) : []);
-		const path = normalizePath(uniquePath(folder, baseName, (p) => taken.has(p.toLowerCase())));
+		let path: string;
+		if (opts.path) {
+			const at = normalizePath(opts.path);
+			const folder = await this.ensureFolder(at.split("/").slice(0, -1).join("/"));
+			path = folder ? `${folder}/${at.split("/").pop()}` : at;
+		} else {
+			const folder = await this.ensureFolder(this.folderFor(type, values));
+			const folderObj = folder ? this.app.vault.getAbstractFileByPath(folder) : this.app.vault.getRoot();
+			const taken = new Set(folderObj instanceof TFolder ? folderObj.children.map((c) => c.path.toLowerCase()) : []);
+			path = normalizePath(uniquePath(folder, baseName, (p) => taken.has(p.toLowerCase())));
+		}
 		values = this.withDefaults(type, values);
 
 		const fieldStrings: Record<string, string> = {};
 		for (const f of type.fields) fieldStrings[f.key] = fieldDisplay(values.fields[f.key]);
-		const content = renderTemplate(await this.loadTemplate(type), {
+		const content = renderTemplate(opts.template === false ? "" : await this.loadTemplate(type), {
 			name,
 			type,
 			fields: fieldStrings,
@@ -157,6 +170,7 @@ export class EntityFactory {
 
 		const file = await this.app.vault.create(path, content);
 		const generated = buildFrontmatter(type, values);
+		if (opts.frontmatter) Object.assign(generated, JSON.parse(JSON.stringify(opts.frontmatter)) as Record<string, unknown>);
 		if (baseName !== name) generated[COMMON_KEYS.aliases] = [name];
 		await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => mergeFrontmatter(fm, generated));
 		// Index immediately so the new entity can be picked before the metadata cache catches up.

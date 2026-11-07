@@ -1627,10 +1627,21 @@ function formulaCell(row: ViewRow, col: ResolvedColumn, ctx: ViewContext): Cell 
 	return evalFormula(row, f, ctx);
 }
 
-/** The formula environment for one row: its referenced columns' values (and in workflows, their old values). */
-function rowEnv(row: ViewRow, refs: Map<string, ResolvedColumn>, ctx: ViewContext, old?: ViewRow): EvalEnv {
+/** A workflow's created notes in formulas: `[New session]`, a links column with this id prefix. */
+export const VAR_PREFIX = "var:";
+export const varColumns = (names: string[]): RefColumn[] => names.map((n) => ({ id: `${VAR_PREFIX}${n}`, label: n, type: "links" as FType }));
+
+/**
+ * The formula environment for one row: its referenced columns' values (and in workflows, their old values, and the
+ * notes earlier steps created, by name).
+ */
+function rowEnv(row: ViewRow, refs: Map<string, ResolvedColumn>, ctx: ViewContext, old?: ViewRow, vars?: Record<string, LinkValue>): EvalEnv {
 	return {
 		col: (id) => {
+			if (id.startsWith(VAR_PREFIX)) {
+				const v = vars?.[id.slice(VAR_PREFIX.length)];
+				return v ? [v] : [];
+			}
 			const c = refs.get(id);
 			return c ? cellValue(cellOf(row, c, ctx), c) : null;
 		},
@@ -1676,11 +1687,17 @@ function evalFormula(row: ViewRow, f: { compiled: Compiled; refs: Map<string, Re
  * Compile a formula against a definition's columns (its source types' fields, built-ins, incoming links), as
  * workflows use it (`workflow`: with old() / new()). Throws a FormulaError.
  */
-export function compileFormula(src: string, def: ViewDef, ctx: Pick<ViewContext, "types" | "groups">, opts: { workflow?: boolean } = {}): { compiled: Compiled; refs: Map<string, ResolvedColumn> } {
-	const compiled = compile(src, formulaRefColumns(def, ctx), opts);
+export function compileFormula(
+	src: string,
+	def: ViewDef,
+	ctx: Pick<ViewContext, "types" | "groups">,
+	opts: { workflow?: boolean; vars?: string[] } = {},
+): { compiled: Compiled; refs: Map<string, ResolvedColumn> } {
+	const compiled = compile(src, [...formulaRefColumns(def, ctx), ...varColumns(opts.vars ?? [])], opts);
 	const universe = formulaUniverse(def, ctx);
 	const refs = new Map<string, ResolvedColumn>();
 	for (const id of compiled.refs) {
+		if (id.startsWith(VAR_PREFIX)) continue;
 		const c = universe.find((x) => x.id === id) ?? columnFromId(id);
 		const r = resolveColumn(c, def, ctx);
 		if (r.invalid && r.field && isCalculated(r.field)) throw new FormulaError(`[${r.label}] has a problem: ${r.invalid}`);
@@ -1689,10 +1706,13 @@ export function compileFormula(src: string, def: ViewDef, ctx: Pick<ViewContext,
 	return { compiled, refs };
 }
 
-/** A formula's raw value for one note (workflows): `old` is the note before the change, for old(). Throws a FormulaError. */
-export function evaluateFormula(src: string, row: ViewRow, def: ViewDef, ctx: ViewContext, opts: { workflow?: boolean; old?: ViewRow } = {}): FValue {
-	const { compiled, refs } = compileFormula(src, def, ctx, opts);
-	return evaluate(compiled.ast, rowEnv(row, refs, ctx, opts.old));
+/**
+ * A formula's raw value for one note (workflows): `old` is the note before the change, for old(); `vars` the notes
+ * earlier steps created, by name. Throws a FormulaError.
+ */
+export function evaluateFormula(src: string, row: ViewRow, def: ViewDef, ctx: ViewContext, opts: { workflow?: boolean; old?: ViewRow; vars?: Record<string, LinkValue> } = {}): FValue {
+	const { compiled, refs } = compileFormula(src, def, ctx, { workflow: opts.workflow, vars: Object.keys(opts.vars ?? {}) });
+	return evaluate(compiled.ast, rowEnv(row, refs, ctx, opts.old, opts.vars));
 }
 
 

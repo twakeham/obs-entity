@@ -1,4 +1,9 @@
-import { Events, Notice, TFile, debounce, normalizePath } from "obsidian";
+import { Events, Notice, TFile, TFolder, debounce, normalizePath } from "obsidian";
+import { emptyFormValues } from "../model/defaults";
+import { todayDays } from "../model/formConditions";
+import type { EntityFormValues } from "../model/frontmatter";
+import { joinPath, sanitizeFileName, uniquePath } from "../model/paths";
+import { confirmRun } from "../ui/modals/workflowModals";
 import { COMMON_KEYS } from "../model/types";
 import type { ViewRow } from "../model/views";
 import {
@@ -9,6 +14,8 @@ import {
 	runSteps,
 	workflowProblems,
 	type FieldChange,
+	type Placed,
+	type PlaceRequest,
 	type TriggerKind,
 	type WorkflowDef,
 } from "../model/workflows";
@@ -32,6 +39,10 @@ export interface RunRecord {
 	undone?: boolean;
 	/** the run that started this chain (this run's changes set off by it, directly or not) */
 	root?: string;
+	/** notes the run created */
+	created?: { path: string; name: string }[];
+	/** other existing notes it changed ("Use the existing one"), with their changes */
+	others?: { path: string; name: string; changes: FieldChange[] }[];
 }
 
 /** Runs caused by one change, and the ones they cause in turn. */
@@ -64,6 +75,8 @@ export class WorkflowEngine extends Events {
 	 * continues) or an undo's (silent: no workflows).
 	 */
 	private writes = new Map<string, { chain: Chain | null; until: number }[]>();
+	/** notes runs just created: their first metadata re-reads aren't edits (no "When changed" from them) */
+	private justCreated = new Map<string, number>();
 	/** runs in progress, so their own index events wait their turn */
 	private queue: Promise<unknown> = Promise.resolve();
 	private saveLog = debounce(() => void this.writeLog(), 1000, true);
@@ -129,6 +142,12 @@ export class WorkflowEngine extends Events {
 	private async onChanged(rec: EntityRecord, before: Record<string, unknown>): Promise<void> {
 		// Body edits re-read the metadata too: only frontmatter changes count (and they consume the tag).
 		if (same(before, rec.frontmatter)) return;
+		// A note a run just created being read for the first time (the template merged in) isn't an edit.
+		const born = this.justCreated.get(rec.path);
+		if (born !== undefined) {
+			if (born > Date.now() && !this.writes.get(rec.path)?.length) return;
+			if (born <= Date.now()) this.justCreated.delete(rec.path);
+		}
 		const { silent, chain } = this.takeTag(rec.path);
 		if (silent || this.paused) return;
 		for (const wf of this.plugin.settings.workflows) {
@@ -154,11 +173,18 @@ export class WorkflowEngine extends Events {
 			const r = await new Promise<RunRecord | null>((resolve) => this.enqueue(async () => resolve(await this.run(wf, p, { chain: fresh(), manual: true }))));
 			if (r) done.push(r);
 		}
-		const changed = done.filter((r) => r.changes.length && !r.error);
-		const failed = done.filter((r) => r.error);
+		const changed = done.filter((r) => (r.changes.length || r.created?.length || r.others?.length) && !r.error);
+		const failed = done.filter((r) => r.error || r.stopped);
 		if (changed.length || !failed.length) {
+			const made = changed.flatMap((r) => r.created ?? []);
+			// Notes changed (not created): each run's own note, if it changed, and the existing notes it changed.
+			const edited = changed.flatMap((r) => [...(r.changes.length ? [r.note] : []), ...(r.others ?? []).map((o) => o.name)]);
 			const frag = createFragment((f) => {
-				f.appendText(changed.length ? `“${wf.name}” changed ${changed.length === 1 ? changed[0].note : `${changed.length} notes`}.` : `“${wf.name}” made no changes.`);
+				const parts = [
+					...(made.length ? [`created ${made.length === 1 ? made[0].name : `${made.length} notes`}`] : []),
+					...(edited.length ? [`changed ${edited.length === 1 ? edited[0] : `${edited.length} notes`}`] : []),
+				];
+				f.appendText(parts.length ? `“${wf.name}” ${parts.join(" and ")}.` : `“${wf.name}” made no changes.`);
 				if (changed.length) {
 					f.appendText(" ");
 					const a = f.createEl("a", { text: "Undo", href: "#" });
@@ -194,38 +220,129 @@ export class WorkflowEngine extends Events {
 		if (!row) return null;
 		const old: ViewRow | undefined = opts.before ? { ...row, frontmatter: opts.before, status: typeof opts.before[COMMON_KEYS.status] === "string" ? (opts.before[COMMON_KEYS.status] as string) : null } : undefined;
 		if (!passesWhen(wf, row, ctx)) return null;
-		const res = runSteps(wf, { ctx, row, old, linkText: (p) => {
+		const linkText = (p: string) => {
 			const target = app.vault.getAbstractFileByPath(p);
-			return target instanceof TFile ? app.metadataCache.fileToLinktext(target, path, true) : p.replace(/\.md$/, "");
-		} });
+			if (target instanceof TFile) return app.metadataCache.fileToLinktext(target, path, true);
+			// A note this run creates: its name, unless another note already goes by it.
+			const name = p.replace(/\.md$/, "").split("/").pop() ?? p;
+			return app.metadataCache.getFirstLinkpathDest(name, path) ? p.replace(/\.md$/, "") : name;
+		};
+		const res = runSteps(wf, { ctx, row, old, linkText, place: this.placer(rows) });
+		if (res.stopped) {
+			if (opts.manual) new Notice(`“${wf.name}” stopped: ${res.stopped}`);
+			return this.record({ ...base, stopped: res.stopped });
+		}
 		if (res.error) {
 			new Notice(`Workflow “${wf.name}” stopped on ${rec.name}: ${res.error.message}`);
 			return this.record({ ...base, error: `Step ${res.error.step + 1}: ${res.error.message}` });
 		}
 		for (const n of res.notices) new Notice(n);
-		const record: RunRecord = { ...base, changes: res.changes, notices: res.notices, ...(opts.chain.root ? { root: opts.chain.root } : {}) };
-		if (res.changes.length) {
+		const made = res.others.filter((o) => o.created);
+		const edited = res.others.filter((o) => !o.created && o.changes.length);
+		const record: RunRecord = {
+			...base,
+			changes: res.changes,
+			notices: res.notices,
+			...(opts.chain.root ? { root: opts.chain.root } : {}),
+			...(made.length ? { created: made.map((o) => ({ path: o.path, name: o.name })) } : {}),
+			...(edited.length ? { others: edited.map((o) => ({ path: o.path, name: o.name, changes: o.changes })) } : {}),
+		};
+		if (res.changes.length || made.length || edited.length) {
 			const chain: Chain = { depth: opts.chain.depth + 1, seen: new Set([...opts.chain.seen, key]), root: opts.chain.root ?? record.id };
-			this.expectWrite(path, chain);
+			// Created notes, in the order the steps made them, each kept for undo as it was written.
+			const createdFiles: { path: string; content: string }[] = [];
 			try {
-				await app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
-					for (const c of res.changes) {
-						if (c.after === undefined) delete fm[c.key];
-						else fm[c.key] = copy(c.after);
-					}
-				});
+				for (const o of made) {
+					const type = plugin.getType(o.created!.type);
+					if (!type) throw new Error(`“${o.created!.type}” isn't a type.`);
+					this.expectWrite(o.path, chain);
+					this.justCreated.set(o.path, Date.now() + TAG_MS);
+					const values = emptyFormValues(type, plugin.settings.groups, o.name, { today: todayDays(), dates: plugin.dates });
+					const file = await plugin.factory.createEntity(type, values, { open: false, path: o.path, frontmatter: o.fm, template: o.created!.template });
+					createdFiles.push({ path: file.path, content: "" });
+				}
+				if (res.changes.length) await this.write(path, res.changes, chain);
+				for (const o of edited) await this.write(o.path, o.changes, chain);
 			} catch (e) {
-				this.writes.get(path)?.pop();
-				return this.record({ ...base, error: `Couldn't save ${rec.name}: ${(e as Error).message}` });
+				return this.record({ ...base, error: `Couldn't save: ${(e as Error).message}` });
 			}
-			const undo = () => this.restore(path, res.changes);
-			this.undos.set(record.id, undo);
+			for (const c of createdFiles) {
+				const f = app.vault.getAbstractFileByPath(c.path);
+				if (f instanceof TFile) c.content = await app.vault.read(f);
+			}
+			this.undos.set(record.id, async () => {
+				let ok = true;
+				if (res.changes.length) ok = (await this.restore(path, res.changes)) && ok;
+				for (const o of edited) ok = (await this.restore(o.path, o.changes)) && ok;
+				for (const c of [...createdFiles].reverse()) ok = (await this.removeCreated(c.path, c.content)) && ok;
+				return ok;
+			});
 			// A run set off by an edit is one Ctrl/Cmd+Z step where the edit was made (the form, a table cell).
 			if (opts.before) plugin.formHistory.push(path, { key: "", before: undefined, after: undefined, undo: () => this.undo([record.id]) });
+			for (const o of made) {
+				const f = app.vault.getAbstractFileByPath(o.path);
+				if (f instanceof TFile && o.created!.open !== "no") await app.workspace.getLeaf(o.created!.open === "tab" ? "tab" : false).openFile(f);
+			}
 		}
 		return this.record(record);
 	}
 
+	/** Write a run's field changes to a note (tagged with the chain, so the changes it causes continue it). */
+	private async write(path: string, changes: FieldChange[], chain: Chain): Promise<void> {
+		const file = this.plugin.app.vault.getAbstractFileByPath(path);
+		if (!(file instanceof TFile)) throw new Error(`${path} is missing.`);
+		this.expectWrite(path, chain);
+		try {
+			await this.plugin.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+				for (const c of changes) {
+					if (c.after === undefined) delete fm[c.key];
+					else fm[c.key] = copy(c.after);
+				}
+			});
+		} catch (e) {
+			this.writes.get(path)?.pop();
+			throw e;
+		}
+	}
+
+	/**
+	 * Where "Create a note" puts a note: the type's folder (by its rules, with the parent link the step sets), under
+	 * its name. A same-named note of the same type there is "existing" (reused or a stop, as the step says); other
+	 * clashes get " 2", " 3"…
+	 */
+	private placer(rows: ViewRow[]): (req: PlaceRequest) => Placed {
+		const { app, factory, index } = this.plugin;
+		return (req) => {
+			const values = { name: req.name, status: "", tags: [], fields: req.fm as EntityFormValues["fields"] };
+			const folder = factory.folderFor(req.type, values);
+			const base = sanitizeFileName(req.name);
+			if (!base) return { stop: `“${req.name}” can't be a note's name.` };
+			const folderObj = folder ? app.vault.getAbstractFileByPath(folder) : app.vault.getRoot();
+			const inFolder = folderObj instanceof TFolder ? folderObj.children.filter((c): c is TFile => c instanceof TFile) : [];
+			const taken = (p: string) => req.taken.has(p.toLowerCase()) || inFolder.some((f) => f.path.toLowerCase() === p.toLowerCase());
+			const at = normalizePath(joinPath(folder, `${base}.md`));
+			const same = inFolder.find((f) => f.path.toLowerCase() === at.toLowerCase());
+			const rec = same ? index.get(same.path) : undefined;
+			if (rec && rec.type.key === req.type.key) {
+				if (req.exists === "stop") return { stop: `${rec.name} already exists.` };
+				if (req.exists === "use") {
+					const existing = rows.find((r) => r.path === rec.path);
+					if (existing) return { path: rec.path, existing };
+				}
+			}
+			return { path: normalizePath(uniquePath(folder, base, taken)) };
+		};
+	}
+
+	/** Undo a created note: delete it (to the trash, as the vault is set up), asking first if it changed since. */
+	private async removeCreated(path: string, content: string): Promise<boolean> {
+		const { app } = this.plugin;
+		const file = app.vault.getAbstractFileByPath(path);
+		if (!(file instanceof TFile)) return true;
+		if ((await app.vault.read(file)) !== content && !(await confirmRun(app, `Delete “${file.basename}”?`, "The workflow created this note, and it has changed since. Undoing the run deletes it.", "Delete"))) return false;
+		await app.fileManager.trashFile(file);
+		return true;
+	}
 	/** Put a run's changed fields back, where they haven't changed since. Undo writes don't trigger workflows. */
 	private async restore(path: string, changes: FieldChange[]): Promise<boolean> {
 		const file = this.plugin.app.vault.getAbstractFileByPath(path);

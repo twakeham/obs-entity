@@ -7884,3 +7884,87 @@ button.oe-calv-more:hover {
 .oe-tm span.oe-wf-insert:focus-within {
 	box-shadow: 0 0 0 2px var(--background-modifier-border-focus);
 }
+
+/* "Create a note": label / control rows */
+.oe-wf-step-body.is-create {
+	display: block;
+}
+
+.oe-wf-create {
+	display: grid;
+	grid-template-columns: max-content minmax(0, 1fr);
+	align-items: start;
+	gap: var(--size-4-2) var(--size-4-3);
+}
+
+.oe-wf-create-label {
+	line-height: 26px;
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+}
+
+.oe-wf-create-control {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--size-4-2);
+	min-width: 0;
+}
+
+.oe-wf-create-control > .oe-wf-formula {
+	max-width: 36em;
+}
+
+.oe-wf-create-fields {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: var(--size-4-2);
+	width: 100%;
+}
+
+.oe-wf-create-field {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--size-4-2);
+	width: 100%;
+}
+
+.oe-wf-create-field > .oe-wf-value,
+.oe-wf-create-field > .oe-wf-formula {
+	flex: 0 1 34em;
+}
+
+.oe-wf .oe-wf-create select.oe-wf-create-link {
+	max-width: 24em;
+}
+
+.oe-wf .oe-wf-create select.oe-wf-add-field {
+	color: var(--text-accent);
+}
+
+.oe-wf-inline {
+	display: inline-flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+.oe-wf-step-as {
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+/* "On": the note a step acts on, once earlier steps create notes */
+.oe-wf-on {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	padding-right: var(--size-4-2);
+	border-right: 1px solid var(--background-modifier-border);
+}
+
+.oe-wf-run-gone {
+	text-decoration: line-through;
+	color: var(--text-faint);
+}

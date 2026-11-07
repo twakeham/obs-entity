@@ -34,7 +34,7 @@ export class WorkflowPickerModal extends FuzzySuggestModal<WorkflowDef> {
 const wf_desc = (wf: WorkflowDef, plugin: EntitiesPlugin) => (wf.trigger.kind === "manual" && wf.trigger.label && wf.trigger.label !== wf.name ? wf.name : triggerText(wf, plugin.settings.types));
 
 /** Ask before running (a workflow's confirmation text): true when the user says Run. */
-export function confirmRun(app: App, title: string, body: string): Promise<boolean> {
+export function confirmRun(app: App, title: string, body: string, ok = "Run"): Promise<boolean> {
 	return new Promise((resolve) => {
 		let answered = false;
 		const m = new (class extends Modal {
@@ -45,7 +45,7 @@ export function confirmRun(app: App, title: string, body: string): Promise<boole
 					.addButton((b) => b.setButtonText("Cancel").onClick(() => this.close()))
 					.addButton((b) =>
 						b
-							.setButtonText("Run")
+							.setButtonText(ok)
 							.setCta()
 							.onClick(() => {
 								answered = true;
