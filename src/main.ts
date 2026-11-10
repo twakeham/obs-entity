@@ -27,7 +27,7 @@ import { TYPES_VIEW, TypesView } from "./ui/views/TypesView";
 import type { GroupDraft, TypeDraft } from "./model/typeEditing";
 import { calcCell, emptyBoard, emptyView, fieldColumn, formatCell, resolveColumn, serializeView, sourceTypes, typeViewDef, type ViewContext, type ViewDef, type ViewKind, type ViewRow, columnFromId } from "./model/views";
 import { defaultBuckets } from "./model/board";
-import { buttonIcon, buttonLabel, inScope, type WorkflowDef } from "./model/workflows";
+import { BIG_RUN, buttonIcon, buttonLabel, inScope, type WorkflowDef } from "./model/workflows";
 import { WorkflowEngine } from "./services/workflows";
 import { WORKFLOWS_VIEW, WorkflowsView } from "./ui/views/WorkflowsView";
 import type { WorkflowsRequest } from "./ui/react/workflows/WorkflowManager";
@@ -594,10 +594,13 @@ export default class EntitiesPlugin extends Plugin {
 		if (this.index?.isReady()) this.index.rebuild();
 	}
 
-	/** Run a manual workflow on notes, asking first when it has a confirmation. */
+	/** Run a manual workflow on notes, asking first when it has a confirmation or the selection is big. */
 	async runWorkflow(wf: WorkflowDef, paths: string[]): Promise<void> {
-		if (wf.trigger.kind === "manual" && wf.trigger.confirm) {
-			if (!(await confirmRun(this.app, wf.trigger.label || wf.name, wf.trigger.confirm))) return;
+		const confirm = wf.trigger.kind === "manual" ? wf.trigger.confirm : undefined;
+		const many = paths.length > BIG_RUN;
+		if (confirm || many) {
+			const body = [confirm, many ? `It runs on ${paths.length} notes, one run each. You can undo them afterwards.` : ""].filter(Boolean).join(" ");
+			if (!(await confirmRun(this.app, buttonLabel(wf), body))) return;
 		}
 		await this.workflows.runOn(wf, paths);
 	}

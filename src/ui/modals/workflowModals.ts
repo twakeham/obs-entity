@@ -1,6 +1,33 @@
-import { FuzzySuggestModal, Modal, Setting, type App, type FuzzyMatch } from "obsidian";
+import { FuzzySuggestModal, Modal, Setting, SuggestModal, type App, type FuzzyMatch } from "obsidian";
 import type EntitiesPlugin from "../../main";
 import { triggerText, type WorkflowDef } from "../../model/workflows";
+import type { EntityRecord } from "../../services/entityIndex";
+import { renderEntityMatch, searchEntities, type EntityMatch } from "../components/entityPicker";
+
+/** Pick one of some notes (fuzzy over names and aliases; most recently edited first). */
+export class NotePickerModal extends SuggestModal<EntityMatch> {
+	constructor(
+		app: App,
+		private entities: EntityRecord[],
+		placeholder: string,
+		private onPick: (entity: EntityRecord) => void,
+	) {
+		super(app);
+		this.setPlaceholder(placeholder);
+	}
+
+	getSuggestions(query: string): EntityMatch[] {
+		return searchEntities(this.entities, query);
+	}
+
+	renderSuggestion(m: EntityMatch, el: HTMLElement): void {
+		renderEntityMatch(el, m);
+	}
+
+	onChooseSuggestion(m: EntityMatch): void {
+		this.onPick(m.entity);
+	}
+}
 
 /** Pick a workflow to run (Run workflow on this note…). */
 export class WorkflowPickerModal extends FuzzySuggestModal<WorkflowDef> {

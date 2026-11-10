@@ -7510,6 +7510,91 @@ button.oe-calv-more:hover {
 	font-size: var(--font-ui-smaller);
 }
 
+/* Try on a note… */
+.oe-wf-try-modal {
+	width: min(640px, 92vw);
+}
+
+.oe-wf-try {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-3);
+	font-size: var(--font-ui-small);
+}
+
+.oe-wf-try-banner {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--size-4-2);
+	padding: var(--size-4-2) var(--size-4-3);
+	border-radius: var(--radius-m);
+	color: var(--color-orange);
+	background-color: color-mix(in srgb, var(--color-orange) 10%, transparent);
+}
+
+.oe-wf-try-banner.is-error {
+	color: var(--text-error);
+	background-color: color-mix(in srgb, var(--color-red) 10%, transparent);
+}
+
+.oe-wf-try-banner ul {
+	margin: var(--size-4-1) 0 0;
+	padding-left: var(--size-4-5);
+}
+
+.oe-wf-try-note {
+	padding: var(--size-4-2) var(--size-4-3);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+}
+
+.oe-wf-try-title {
+	margin-bottom: var(--size-4-1);
+	font-weight: var(--font-semibold);
+}
+
+.oe-wf-try-title .oe-tm-muted {
+	font-weight: normal;
+}
+
+.oe-wf-try-changes {
+	border-collapse: collapse;
+}
+
+.oe-wf-try-changes th,
+.oe-wf-try-changes td {
+	padding: 2px var(--size-4-2) 2px 0;
+	text-align: left;
+	vertical-align: baseline;
+}
+
+.oe-wf-try-changes th {
+	color: var(--text-muted);
+	font-weight: normal;
+	white-space: nowrap;
+}
+
+.oe-wf-try-before {
+	color: var(--text-faint);
+	text-decoration: line-through;
+}
+
+.oe-wf-try-arrow {
+	color: var(--text-faint);
+}
+
+.oe-wf-try-notice + .oe-wf-try-notice {
+	margin-top: var(--size-4-1);
+}
+
+.oe-wf-try-sum {
+	color: var(--text-muted);
+}
+
+.oe-wf-try-sum.is-big {
+	color: var(--color-orange);
+}
+
 .oe-wf-button-row {
 	display: flex;
 	align-items: center;

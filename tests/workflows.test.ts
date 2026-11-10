@@ -5,9 +5,13 @@ import type { MomentLike } from "../src/model/formats";
 import type { EntityTypeDef, FieldDef, GroupDef } from "../src/model/types";
 import type { ViewContext, ViewRow } from "../src/model/views";
 import {
+	BIG_RUN,
 	changeMatches,
+	isBigRun,
 	linkedSources,
 	ON_THIS,
+	reachText,
+	runReach,
 	stepScopes,
 	createLinkOptions,
 	newCreateStep,
@@ -465,5 +469,43 @@ describe("loops and running other workflows", () => {
 		expect(probs(wf({ id: "outer", name: "x", scope: ["project"], steps: [{ kind: "run", workflow: "close" }] }))).toEqual(["step:0: \u201cClose out\u201d doesn't apply to projects.", "step:0: \u201cClose out\u201d has problems, so it can't run.", "steps: It runs itself: x \u2192 Close out \u2192 x."]);
 		expect(probs(wf({ id: "outer", name: "x", scope: ["project"], steps: [{ kind: "run", workflow: "outer" }] }))).toEqual(["step:0: A workflow can't run itself.", "steps: It runs itself: x \u2192 x."]);
 		expect(probs(wf({ id: "outer", name: "x", scope: ["project"], steps: [{ kind: "each", formula: "[Budget]", items: "values", itemType: "", when: { mode: "all", items: [] }, as: "N", steps: [{ kind: "notice", text: "{[N] + 1}" }] }] }))).toEqual([]);
+	});
+});
+
+describe("big runs", () => {
+	const t1 = row("Plan", TASK, { estimate: 2, project: "[[Apollo]]" });
+	const t2 = row("Build", TASK, { estimate: 5, project: "[[Apollo]]" });
+	const all = [ROWS[0], t1, t2];
+	const at = new Map(all.map((r) => [r.path, r]));
+	const ctx2: ViewContext = {
+		...ctx,
+		resolve: (p) => (at.has(`${p}.md`) ? `${p}.md` : at.has(p) ? p : null),
+		row: (p) => at.get(p),
+		incoming: (p) => all.filter((r) => r.frontmatter.project === `[[${p.replace(/\.md$/, "")}]]`).map((r) => ({ source: r.path, sourceType: "task", fieldKey: "project" })),
+	};
+	const place = (req: PlaceRequest): Placed => ({ path: `New/${req.name}.md` });
+
+	it("count the notes a run changes and creates, and say it in words", () => {
+		const w = wf({
+			scope: ["project"],
+			steps: [
+				{ kind: "set", field: "budget", value: "1" },
+				{ kind: "linked", source: { dir: "in", type: "task", field: "project" }, when: { mode: "all", items: [] }, as: "Task", steps: [{ kind: "set", field: "estimate", value: "0" }] },
+				{ kind: "create", type: "task", name: "Kick-off", fields: [], template: true, open: "no", exists: "new", as: "New task" },
+			],
+		});
+		const res = runSteps(w, { ctx: ctx2, row: ROWS[0], linkText, place });
+		expect(res.error).toBeUndefined();
+		const reach = runReach(res);
+		expect(reach).toEqual({ changed: 3, created: 1 });
+		expect(reachText(reach)).toBe("change 3 notes and create a note");
+		expect(isBigRun(reach)).toBe(false);
+		expect(reachText({ changed: 0, created: 0 })).toBe("make no changes");
+		expect(reachText({ changed: 1, created: 0 })).toBe("change a note");
+		expect(isBigRun({ changed: BIG_RUN, created: 0 })).toBe(false);
+		expect(isBigRun({ changed: BIG_RUN, created: 1 })).toBe(true);
+		// A linked note the loop leaves as it was doesn't count.
+		const same = wf({ scope: ["project"], steps: [{ kind: "linked", source: { dir: "in", type: "task", field: "project" }, when: { mode: "all", items: [] }, as: "Task", steps: [{ kind: "set", field: "estimate", value: "[Estimate]" }] }] });
+		expect(runReach(runSteps(same, { ctx: ctx2, row: ROWS[0], linkText, place }))).toEqual({ changed: 0, created: 0 });
 	});
 });

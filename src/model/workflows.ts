@@ -101,6 +101,8 @@ export const MAX_LOOP_ITEMS = 200;
 export const MAX_RUN_DEPTH = 3;
 /** The most chained runs (a run's changes starting others) before the chain stops. */
 export const MAX_CHAIN = 5;
+/** A run (or a selection to run on) bigger than this asks first. */
+export const BIG_RUN = 20;
 
 export const newWorkflowId = () => `wf-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -1216,9 +1218,25 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 			.filter((o) => o.created || o.changes.length),
 	};
 }
+/** How many notes a run would write: existing notes it changes (its own included) and notes it creates. */
+export function runReach(res: Pick<RunResult, "changes" | "others">): { changed: number; created: number } {
+	const created = res.others.filter((o) => o.created).length;
+	return { changed: (res.changes.length ? 1 : 0) + res.others.filter((o) => !o.created && o.changes.length).length, created };
+}
+
+/** A run that would write more than BIG_RUN notes asks first. */
+export const isBigRun = (reach: { changed: number; created: number }): boolean => reach.changed + reach.created > BIG_RUN;
+
+/** "change 24 notes and create 3", "create a note", "make no changes". */
+export function reachText({ changed, created }: { changed: number; created: number }): string {
+	const n = (k: number) => (k === 1 ? "a note" : `${k} notes`);
+	const parts = [...(changed ? [`change ${n(changed)}`] : []), ...(created ? [`create ${n(created)}`] : [])];
+	return parts.length ? parts.join(" and ") : "make no changes";
+}
+
 // ---------------------------------------------------------------- in words
 
-const quoted = (vs: string[]) => vs.map((v) => `“${v}”`).join(" or ");
+const quoted =  (vs: string[]) => vs.map((v) => `“${v}”`).join(" or ");
 
 /** A trigger in words: "When Status changes to “done”", "When a Task is created", "Button: Start next session". */
 export function triggerText(wf: WorkflowDef, types: EntityTypeDef[]): string {

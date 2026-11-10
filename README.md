@@ -16,7 +16,7 @@ Derived from the Story Forge worldbuilding plugin, made domain-neutral. The full
 | M4.6 Entity views | Saved, named table and board views over entities, stored as notes: columns, roll-ups, formulas, filters, sorting, grouping, editing in place, kanban boards with drag and drop | ✅ Done |
 | M7.1 Workflows, stage 1 | Automation: when a note is created or a field changes, or from a button, set fields, tags and links or show a notice; the Workflows view, run log and undo | ✅ Done |
 | M7.2 Workflows, stage 2 | Creating notes, steps on linked notes, for each, running other workflows (done); one run per selection and form workflows | In progress |
-| M7.3 Workflows, stage 3 | Schedules and date triggers, ask, move / rename, test runs | Planned |
+| M7.3 Workflows, stage 3 | Test runs and big-run confirmation (done); schedules and date triggers, ask, move / rename, packs | In progress |
 | M5 Packs & polish | Pack picker on first run, accessibility, docs | Planned |
 
 ## How notes are stored
@@ -386,7 +386,7 @@ Any view can also be shown as a **calendar** of its notes by date: use the **Tab
 Workflows do things for you: when a note is **created**, when a **field changes** (e.g. Status becomes done), or when you press a **button**, they run a list of steps on the note. Open the **Workflows** view from the ribbon (lightning bolt), the "Open workflows" command, the settings tab, or a type's **Workflows** tab in the Entity types view.
 
 - **Sidebar:** every workflow, grouped by what starts it (When created, When changed, Run on notes), with a green dot when on, the types it applies to, and a ⚠ if it has problems. **+ New**, search, **Pause all workflows**, and **Recent runs** at the bottom.
-- **Editing** works like the type editor: changes are a draft with **Save** / **Discard**; Save with problems lists them and saves nothing. The header has an on/off switch and ⋯ (Duplicate, Delete).
+- **Editing** works like the type editor: changes are a draft with **Save** / **Discard**; Save with problems lists them and saves nothing. The header has an on/off switch, **Try on a note…** (the flask) and ⋯ (Try on a note…, Duplicate, Delete).
   - **Applies to:** the types (or groups) of note. Needed for created / changed; for buttons, empty means any note.
   - **When:** *Field changes* (pick the field; for status, choice and checkbox fields, optionally the **From** and **To** values, picked like a multiple-choice field; for others, "Changes", "Is filled in" or "Is emptied"), *Note created*, or *Run on notes* (a button: its label, icon, and an optional question to confirm first).
   - **Only if:** conditions on the note after the change, built like a view's filters. None: it always runs.
@@ -399,6 +399,8 @@ Workflows do things for you: when a note is **created**, when a **field changes*
   - **[ ]** puts a field in (a dropdown grouped like the field pickers: Built-in, Fields): in a picked value it turns the value into that formula (e.g. Due → `[Start]`). **ƒx** turns the value into a formula and opens the **formula editor** (the views' one, with autocomplete, the function list, `old` / `new`, and a preview of what the first notes would get); in a formula, it opens the editor again. **↺** goes back to a picked value. Formulas are the view formula language, checked as you type, e.g. `[Estimate] * 2` or `dateAdd([Start], 2, "weeks")`; `old([Field])` and `new([Field])` give a changed field's values before and after. `list("a", "b")` makes a list (for multiple choice and list fields). Each step sees the ones before; the note is saved once at the end, and if a step fails nothing is saved.
 - **Buttons** (*Run on notes*) show on the note's properties form (a strip at the top, and its ⋯ menu), in the right-click menu of table rows, board cards and calendar entries, in the selection bar (**Run…**, once per selected note), and through "Run workflow on this note…".
 - **Safety:** a workflow's changes can set off others, up to 5 deep, and never the same workflow twice on the same note in one chain. Changes made by undo never set off workflows.
+- **Big runs:** a run that would change or create more than 20 notes (e.g. a loop over a project's tasks) asks first, saying how many; nothing is written until you agree. Running a button on more than 20 selected notes asks once, up front.
+- **Try on a note…** (the flask in the editor's header) picks a note and shows what the workflow would do there, without saving anything: each note's fields before → after, the notes it would create and what they'd start with, its notices, or the step that would fail. It works on unsaved edits, and tells you when the note doesn't match Only if (and what would happen if it did).
 - **Undo:** a run set off by an edit in the form or a table is one more Ctrl/Cmd+Z there. Button runs show a notice with **Undo**. "Undo last workflow run" undoes the latest, and any run in **Recent runs** can be undone while its notes haven't changed since (undoing a run also undoes the runs it set off). Notes a run created are deleted (to the trash); if one was edited since, Undo asks first.
 - **Recent runs:** the last 200 runs (when, workflow, note, what changed from → to, or why it stopped), kept in `workflow-log.json` in the plugin folder. Each workflow also shows its own at the bottom of the editor.
 

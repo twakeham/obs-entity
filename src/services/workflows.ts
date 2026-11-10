@@ -5,17 +5,21 @@ import type { EntityFormValues } from "../model/frontmatter";
 import { joinPath, sanitizeFileName, uniquePath } from "../model/paths";
 import { confirmRun } from "../ui/modals/workflowModals";
 import { COMMON_KEYS } from "../model/types";
-import type { ViewRow } from "../model/views";
+import type { ViewContext, ViewRow } from "../model/views";
 import {
 	changeMatches,
 	inScope,
+	isBigRun,
 	MAX_CHAIN,
 	passesWhen,
+	reachText,
+	runReach,
 	runSteps,
 	workflowProblems,
 	type FieldChange,
 	type Placed,
 	type PlaceRequest,
+	type RunResult,
 	type TriggerKind,
 	type WorkflowDef,
 } from "../model/workflows";
@@ -45,6 +49,14 @@ export interface RunRecord {
 	others?: { path: string; name: string; changes: FieldChange[] }[];
 	/** workflows it ran ("Run another workflow") */
 	via?: string[];
+}
+
+/** What "Try on a note…" found: the workflow's problems (then no result), whether the note matches Only if, and what the steps would do. */
+export interface TryRun {
+	row: ViewRow;
+	problems: string[];
+	passes: boolean;
+	result: RunResult | null;
 }
 
 /** Runs caused by one change, and the ones they cause in turn. */
@@ -171,8 +183,10 @@ export class WorkflowEngine extends Events {
 			return [];
 		}
 		const done: RunRecord[] = [];
+		// Agreeing to one big run agrees to the rest of the selection's.
+		const big = { agreed: false };
 		for (const p of paths) {
-			const r = await new Promise<RunRecord | null>((resolve) => this.enqueue(async () => resolve(await this.run(wf, p, { chain: fresh(), manual: true }))));
+			const r = await new Promise<RunRecord | null>((resolve) => this.enqueue(async () => resolve(await this.run(wf, p, { chain: fresh(), manual: true, big }))));
 			if (r) done.push(r);
 		}
 		const changed = done.filter((r) => (r.changes.length || r.created?.length || r.others?.length) && !r.error);
@@ -205,7 +219,7 @@ export class WorkflowEngine extends Events {
 	 * Run one workflow on one note: check problems, the chain and Only if, run the steps, write the note once, keep
 	 * its undo and log it. Null when it didn't apply (Only if failed).
 	 */
-	private async run(wf: WorkflowDef, path: string, opts: { chain: Chain; before?: Record<string, unknown>; manual?: boolean }): Promise<RunRecord | null> {
+	private async run(wf: WorkflowDef, path: string, opts: { chain: Chain; before?: Record<string, unknown>; manual?: boolean; big?: { agreed: boolean } }): Promise<RunRecord | null> {
 		const { plugin } = this;
 		const { app } = plugin;
 		const file = app.vault.getAbstractFileByPath(path);
@@ -217,26 +231,28 @@ export class WorkflowEngine extends Events {
 		const key = `${wf.id}|${path}`;
 		if (opts.chain.seen.has(key)) return this.record({ ...base, stopped: "It already ran on this note in this chain of changes." });
 		if (opts.chain.depth >= MAX_CHAIN) return this.record({ ...base, stopped: `Stopped after ${MAX_CHAIN} workflows set each other off.` });
-		const { rows, ctx } = plugin.viewData();
-		const row = rows.find((r) => r.path === path);
-		if (!row) return null;
-		const old: ViewRow | undefined = opts.before ? { ...row, frontmatter: opts.before, status: typeof opts.before[COMMON_KEYS.status] === "string" ? (opts.before[COMMON_KEYS.status] as string) : null } : undefined;
-		if (!passesWhen(wf, row, ctx)) return null;
-		const linkText = (p: string) => {
-			const target = app.vault.getAbstractFileByPath(p);
-			if (target instanceof TFile) return app.metadataCache.fileToLinktext(target, path, true);
-			// A note this run creates: its name, unless another note already goes by it.
-			const name = p.replace(/\.md$/, "").split("/").pop() ?? p;
-			return app.metadataCache.getFirstLinkpathDest(name, path) ? p.replace(/\.md$/, "") : name;
-		};
-		const res = runSteps(wf, { ctx, row, old, linkText, place: this.placer(rows), workflows: plugin.settings.workflows });
-		if (res.stopped) {
-			if (opts.manual) new Notice(`“${wf.name}” stopped: ${res.stopped}`);
-			return this.record({ ...base, stopped: res.stopped });
-		}
-		if (res.error) {
-			new Notice(`Workflow “${wf.name}” stopped on ${rec.name}: ${res.error.message}`);
-			return this.record({ ...base, error: `Step ${res.error.step + 1}: ${res.error.message}` });
+		let res: RunResult;
+		for (let asked = false; ; ) {
+			const { rows, ctx } = plugin.viewData();
+			const row = rows.find((r) => r.path === path);
+			if (!row) return null;
+			const old: ViewRow | undefined = opts.before ? { ...row, frontmatter: opts.before, status: typeof opts.before[COMMON_KEYS.status] === "string" ? (opts.before[COMMON_KEYS.status] as string) : null } : undefined;
+			if (!passesWhen(wf, row, ctx)) return asked ? this.record({ ...base, stopped: "The note no longer matched Only if." }) : null;
+			res = this.simulate(wf, row, rows, ctx, old);
+			if (res.stopped) {
+				if (opts.manual) new Notice(`“${wf.name}” stopped: ${res.stopped}`);
+				return this.record({ ...base, stopped: res.stopped });
+			}
+			if (res.error) {
+				new Notice(`Workflow “${wf.name}” stopped on ${rec.name}: ${res.error.message}`);
+				return this.record({ ...base, error: `Step ${res.error.step + 1}: ${res.error.message}` });
+			}
+			const reach = runReach(res);
+			if (asked || !isBigRun(reach) || opts.big?.agreed) break;
+			if (!(await confirmRun(app, `Run “${wf.name}”?`, `On ${rec.name}, it would ${reachText(reach)}. You can undo it afterwards.`))) return this.record({ ...base, stopped: `Cancelled: it would ${reachText(reach)}.` });
+			if (opts.big) opts.big.agreed = true;
+			// Notes may have changed while the question was open: plan again from them, so nothing newer is overwritten.
+			asked = true;
 		}
 		for (const n of res.notices) new Notice(n);
 		const made = res.others.filter((o) => o.created);
@@ -288,6 +304,32 @@ export class WorkflowEngine extends Events {
 			}
 		}
 		return this.record(record);
+	}
+
+	/** What a workflow's steps would do on a note: worked out on copies, nothing written. */
+	private simulate(wf: WorkflowDef, row: ViewRow, rows: ViewRow[], ctx: ViewContext, old?: ViewRow): RunResult {
+		const { app } = this.plugin;
+		const linkText = (p: string) => {
+			const target = app.vault.getAbstractFileByPath(p);
+			if (target instanceof TFile) return app.metadataCache.fileToLinktext(target, row.path, true);
+			// A note this run creates: its name, unless another note already goes by it.
+			const name = p.replace(/\.md$/, "").split("/").pop() ?? p;
+			return app.metadataCache.getFirstLinkpathDest(name, row.path) ? p.replace(/\.md$/, "") : name;
+		};
+		return runSteps(wf, { ctx, row, old, linkText, place: this.placer(rows), workflows: this.plugin.settings.workflows });
+	}
+
+	/**
+	 * "Try on a note…": what a workflow (saved, or a draft) would do on a note, writing nothing. The steps are worked
+	 * out even when the note doesn't match Only if (`passes` says so). Null when the note isn't an entity.
+	 */
+	tryRun(wf: WorkflowDef, path: string): TryRun | null {
+		const { rows, ctx } = this.plugin.viewData();
+		const row = rows.find((r) => r.path === path);
+		if (!row) return null;
+		const problems = workflowProblems(wf, this.plugin.settings).map((p) => p.message);
+		if (problems.length) return { row, problems, passes: false, result: null };
+		return { row, problems, passes: passesWhen(wf, row, ctx), result: this.simulate(wf, row, rows, ctx) };
 	}
 
 	/** Write a run's field changes to a note (tagged with the chain, so the changes it causes continue it). */

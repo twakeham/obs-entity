@@ -52,6 +52,7 @@ import { ChoiceControl } from "../EntityForm";
 import { DateBox, FiltersPanel, LinkValues, type ColumnChoice } from "../table/popovers";
 import { ConfirmModal, SaveActions } from "../types/TypeManager";
 import { IconPicker, Row, Section, Segmented, TargetPicker, TextInput, Toggle } from "../types/controls";
+import { openTryRun } from "./TryRun";
 
 export interface WorkflowsState {
 	/** a workflow id, "new:<n>" for an unsaved one, "runs" for Recent runs, or null */
@@ -336,6 +337,12 @@ function WorkflowEditor({
 		const m = new Menu();
 		m.addItem((i) =>
 			i
+				.setTitle("Try on a note…")
+				.setIcon("flask-conical")
+				.onClick(() => openTryRun(plugin, wf)),
+		);
+		m.addItem((i) =>
+			i
 				.setTitle("Duplicate")
 				.setIcon("copy-plus")
 				.onClick(() => onDuplicate({ ...cloneWorkflow(wf), id: newWorkflow().id, name: `${wf.name || "Workflow"} copy` })),
@@ -405,6 +412,9 @@ function WorkflowEditor({
 							<Toggle label={wf.on ? "Workflow on" : "Workflow off"} value={wf.on} onChange={(v) => edit((x) => (x.on = v))} />
 							{wf.on ? "On" : "Off"}
 						</span>
+						<button className="clickable-icon" aria-label="Try on a note… (writes nothing)" onClick={() => openTryRun(plugin, wf)}>
+							<Icon name="flask-conical" />
+						</button>
 						<button className="clickable-icon" aria-label="Workflow options" onClick={menu}>
 							<Icon name="more-horizontal" />
 						</button>
