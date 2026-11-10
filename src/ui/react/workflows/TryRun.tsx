@@ -1,6 +1,7 @@
 import { Notice } from "obsidian";
 import type EntitiesPlugin from "../../../main";
 import { asArray } from "../../../model/links";
+import { formatValue, type FormatEnv } from "../../../model/fieldFormats";
 import { fieldLabel, inScope, isBigRun, reachText, runReach, type FieldChange, type WorkflowDef } from "../../../model/workflows";
 import type { EntityTypeDef } from "../../../model/types";
 import type { TryRun } from "../../../services/workflows";
@@ -21,12 +22,21 @@ export function openTryRun(plugin: EntitiesPlugin, wf: WorkflowDef): void {
 }
 
 /** A value in words: links by their names, lists joined, empty as "empty". */
-const shown = (v: unknown): string => {
+const plain = (v: unknown): string => {
 	const items = asArray(v).map((x) => (typeof x === "string" ? x.replace(/^\[\[([^\]|]*)(?:\|([^\]]*))?\]\]$/, (_m, target: string, alias?: string) => alias || target.split("/").pop()!) : typeof x === "object" ? JSON.stringify(x) : String(x)));
 	return items.length ? items.join(", ") : "empty";
 };
 
+/** A field's value as the form shows it: dates, numbers and URLs in their display format, checkboxes as Yes / No. */
+function shown(key: string, v: unknown, types: EntityTypeDef[], env: FormatEnv): string {
+	const field = types.flatMap((t) => t.fields).find((f) => f.key === key);
+	if (field?.kind === "boolean") return v === true || v === "true" ? "Yes" : v === false || v === "false" ? "No" : "empty";
+	if (field && (field.kind === "date" || field.kind === "number" || field.kind === "url")) return formatValue(field, v, env) || "empty";
+	return plain(v);
+}
+
 function Changes({ changes, types, created }: { changes: FieldChange[]; types: EntityTypeDef[]; created?: boolean }) {
+	const env = usePlugin().formatEnv();
 	// A created note lists the values it starts with; others what changes.
 	const list = created ? changes.filter((c) => asArray(c.after).length) : changes;
 	if (!list.length) return <div className="oe-tm-muted">{created ? "No fields set." : "No changes."}</div>;
@@ -36,9 +46,9 @@ function Changes({ changes, types, created }: { changes: FieldChange[]; types: E
 				{list.map((c) => (
 					<tr key={c.key}>
 						<th>{fieldLabel(c.key, types)}</th>
-						{!created && <td className="oe-wf-try-before">{shown(c.before)}</td>}
+						{!created && <td className="oe-wf-try-before">{shown(c.key, c.before, types, env)}</td>}
 						{!created && <td className="oe-wf-try-arrow">→</td>}
-						<td>{shown(c.after)}</td>
+						<td>{shown(c.key, c.after, types, env)}</td>
 					</tr>
 				))}
 			</tbody>
