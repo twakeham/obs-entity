@@ -8386,14 +8386,6 @@ button.oe-calv-more:hover {
 	background-color: color-mix(in srgb, var(--background-primary) 50%, transparent);
 }
 
-.oe-tm button.oe-wf-add-step.is-inner {
-	width: auto;
-	margin-top: var(--size-4-2);
-	padding: 2px 12px;
-	height: auto;
-	font-size: var(--font-ui-small);
-}
-
 .oe-wf-inner-empty {
 	font-size: var(--font-ui-small);
 }
