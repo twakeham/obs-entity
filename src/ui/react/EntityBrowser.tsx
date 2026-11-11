@@ -23,6 +23,8 @@ import { Icon } from "./Icon";
 import { BOARD_ICON } from "../../model/board";
 import { CALENDAR_ICON, dateFields } from "../../model/calendarView";
 import { VIEW_KIND_ICON } from "../../model/views";
+import { scopeTypes, triggerText, TRIGGER_ICONS, workflowProblems, type TriggerKind, type WorkflowDef } from "../../model/workflows";
+import { openTryRun } from "./workflows/TryRun";
 
 export interface BrowserState extends BrowserOptions {
 	search: string;
@@ -31,7 +33,7 @@ export interface BrowserState extends BrowserOptions {
 	tag: string;
 	/** expanded entity paths */
 	expanded: string[];
-	/** collapsed section ("s:<key>") and type-heading ("b:<key>") keys */
+	/** collapsed section ("s:<key>"), type-heading ("b:<key>"), Views ("v:views") and Workflows ("w:workflows") keys */
 	collapsed: string[];
 }
 
@@ -115,7 +117,7 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 	const headingKeys = (list: BrowserSection[]) => list.flatMap((s) => [sKey(s), ...s.blocks.map(bKey)]);
 	const collapseAll = () => {
 		if (filtering) setFilterClosed({ key: filterKey, items: new Set(headingKeys(shown)) });
-		else setState({ expanded: [], collapsed: headingKeys(sections) });
+		else setState({ expanded: [], collapsed: [...headingKeys(sections), "v:views", "w:workflows"] });
 	};
 	const expandAll = () => {
 		if (filtering) setFilterClosed({ key: filterKey, items: new Set() });
@@ -258,6 +260,7 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 							))}
 					</section>
 				)}
+				{!filtering && <WorkflowsSection open={!isCollapsed("w:workflows")} onToggle={() => toggleHeading("w:workflows")} />}
 				{shown.length === 0 && <div className="oe-panel-empty">{filtering ? "No matching entities." : "No entities yet. Use + to create one."}</div>}
 				{shown.map((s) => {
 					const sid = sKey(s);
@@ -285,6 +288,7 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 													m.addItem((i) => i.setSection("view").setTitle(`New board of ${s.group!.name}`).setIcon(BOARD_ICON).onClick(() => plugin.newView(`@${s.group!.key}`, "board")));
 													if (sectionTypes.some((t) => dateFields(t).length))
 														m.addItem((i) => i.setSection("view").setTitle(`New calendar of ${s.group!.name}`).setIcon(CALENDAR_ICON).onClick(() => plugin.newView(`@${s.group!.key}`, "calendar")));
+													m.addItem((i) => i.setSection("workflow").setTitle(`New workflow for ${s.group!.name}`).setIcon("zap").onClick(() => void plugin.activateWorkflows({ newFor: `@${s.group!.key}` })));
 													m.addItem((i) => i.setSection("config").setTitle("Configure group").setIcon("settings-2").onClick(() => void plugin.activateTypes(`group:${s.group!.key}`)));
 													m.showAtMouseEvent(evt.nativeEvent);
 												}
@@ -318,6 +322,7 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 														m.addItem((i) => i.setSection("view").setTitle(`New board of ${(t.plural || t.name).toLowerCase()}`).setIcon(BOARD_ICON).onClick(() => plugin.newView(t.key, "board")));
 														if (dateFields(t).length)
 															m.addItem((i) => i.setSection("view").setTitle(`New calendar of ${(t.plural || t.name).toLowerCase()}`).setIcon(CALENDAR_ICON).onClick(() => plugin.newView(t.key, "calendar")));
+														m.addItem((i) => i.setSection("workflow").setTitle(`New workflow for ${(t.plural || t.name).toLowerCase()}`).setIcon("zap").onClick(() => void plugin.activateWorkflows({ newFor: t.key })));
 														m.addItem((i) => i.setSection("config").setTitle(`Configure the ${t.name} type`).setIcon("shapes").onClick(() => void plugin.activateTypes(t.key)));
 														m.showAtMouseEvent(evt.nativeEvent);
 													}}
@@ -343,6 +348,104 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 				})}
 			</div>
 		</div>
+	);
+}
+
+/**
+ * The Workflows section: every saved workflow (by what starts it, then name), with its trigger's icon, an on dot and a
+ * warning when it has problems. Click opens it in the Workflows view; + starts a new one for no type in particular.
+ */
+function WorkflowsSection({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+	const plugin = usePlugin();
+	const [, setTick] = useState(0);
+	useEffect(() => {
+		const ref = plugin.workflows.on("log", () => setTick((t) => t + 1));
+		return () => plugin.workflows.offref(ref);
+	}, [plugin]);
+	const { settings } = plugin;
+	const order: TriggerKind[] = ["created", "changed", "manual", "schedule", "date"];
+	const list = [...settings.workflows].sort((a, b) => order.indexOf(a.trigger.kind) - order.indexOf(b.trigger.kind) || a.name.localeCompare(b.name, undefined, { numeric: true }));
+	const paused = settings.workflowsPaused;
+	const scopeText = (wf: WorkflowDef) => (wf.scope.length ? scopeTypes(wf, settings.types).map((t) => t.plural || t.name).join(", ") || wf.scope.join(", ") : "Any note");
+
+	const setOn = async (wf: WorkflowDef, on: boolean) => {
+		wf.on = on;
+		// An open draft of it follows, so saving the draft later doesn't undo this.
+		const draft = plugin.workflowDrafts.get(wf.id);
+		if (draft) draft.on = on;
+		await plugin.saveSettings();
+		plugin.workflows.trigger("log");
+	};
+	const rowMenu = (evt: MouseEvent, wf: WorkflowDef) => {
+		evt.preventDefault();
+		const m = new Menu();
+		m.addItem((i) => i.setSection("open").setTitle("Open").setIcon("zap").onClick(() => void plugin.activateWorkflows({ open: wf.id })));
+		m.addItem((i) => i.setSection("open").setTitle("Try on a note…").setIcon("flask-conical").onClick(() => openTryRun(plugin, wf)));
+		m.addItem((i) =>
+			i
+				.setSection("state")
+				.setTitle(wf.on ? "Turn off" : "Turn on")
+				.setIcon(wf.on ? "toggle-left" : "toggle-right")
+				.onClick(() => void setOn(wf, !wf.on)),
+		);
+		m.showAtMouseEvent(evt.nativeEvent);
+	};
+	const headingMenu = (evt: MouseEvent) => {
+		const m = new Menu();
+		m.addItem((i) => i.setSection("new").setTitle("New workflow").setIcon("plus").onClick(() => void plugin.activateWorkflows({ blank: true })));
+		m.addItem((i) => i.setSection("open").setTitle("Open workflows").setIcon("zap").onClick(() => void plugin.activateWorkflows()));
+		m.addItem((i) =>
+			i
+				.setSection("state")
+				.setTitle(paused ? "Resume all workflows" : "Pause all workflows")
+				.setIcon(paused ? "play" : "pause")
+				.onClick(() => void plugin.workflows.setPaused(!paused)),
+		);
+		m.showAtMouseEvent(evt.nativeEvent);
+	};
+
+	return (
+		<section className={`oe-bsection oe-bworkflows${open ? "" : " is-collapsed"}`} data-section="workflows">
+			<Heading
+				depth={0}
+				open={open}
+				icon="zap"
+				title={paused ? "Workflows (paused)" : "Workflows"}
+				count={list.length}
+				className="oe-bsection-header"
+				onToggle={onToggle}
+				onAdd={() => void plugin.activateWorkflows({ blank: true })}
+				addLabel="New workflow"
+				onMenu={headingMenu}
+			/>
+			{open && !list.length && (
+				<div className="oe-tree-empty" style={{ paddingLeft: `${INDENT + 22}px` }}>
+					No workflows yet
+				</div>
+			)}
+			{open &&
+				list.map((wf) => {
+					const problems = workflowProblems(wf, settings);
+					const live = wf.on && !paused;
+					return (
+						<div
+							key={wf.id}
+							className={`oe-tree-row oe-workflow-row${wf.on ? "" : " is-off"}`}
+							style={{ paddingLeft: `${INDENT + 4}px` }}
+							data-workflow={wf.id}
+							title={`${triggerText(wf, settings.types)} · ${scopeText(wf)}${wf.on ? "" : " · off"}${problems.length ? ` · ${problems[0].message}` : ""}`}
+							onClick={() => void plugin.activateWorkflows({ open: wf.id })}
+							onContextMenu={(evt) => rowMenu(evt, wf)}
+						>
+							<span className="oe-tree-toggle is-leaf" />
+							<Icon name={TRIGGER_ICONS[wf.trigger.kind]} className="oe-tree-icon" />
+							<span className="oe-tree-name">{wf.name || "Untitled workflow"}</span>
+							{problems.length > 0 && <Icon name="alert-triangle" className="oe-workflow-warn" />}
+							<span className={`oe-wf-dot${live ? " is-on" : ""}`} aria-label={wf.on ? "On" : "Off"} />
+						</div>
+					);
+				})}
+		</section>
 	);
 }
 

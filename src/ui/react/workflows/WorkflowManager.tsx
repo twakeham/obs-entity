@@ -69,10 +69,11 @@ export interface WorkflowsState {
 }
 export const DEFAULT_WORKFLOWS_STATE: WorkflowsState = { selected: null };
 
-/** A request to open the view on something: a workflow, or a new one for a type. */
+/** A request to open the view on something: a workflow, a new one for a type, or a new one for no type yet (`blank`). */
 export interface WorkflowsRequest {
 	open?: string;
 	newFor?: string;
+	blank?: boolean;
 }
 
 const TRIGGER_GROUPS: { kinds: TriggerKind[]; title: string; icon: string }[] = [
@@ -139,6 +140,7 @@ export function WorkflowManager({ state, setState, request, onRequestDone }: { s
 	useEffect(() => {
 		if (!request) return;
 		if (request.newFor) newDraft([request.newFor]);
+		else if (request.blank) newDraft();
 		else if (request.open) setState({ selected: request.open });
 		onRequestDone();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
@@ -476,7 +478,7 @@ function WorkflowEditor({
 					</Row>
 				</Section>
 
-				<Section title="When" desc="What starts the workflow.">
+				<Section title="When" desc="What starts the workflow." icon="zap" className="oe-wf-panel is-when">
 					<Row label="Trigger" issues={at("trigger")}>
 						<Segmented label="Trigger" value={t.kind} options={TRIGGER_OPTIONS} onChange={setTrigger} />
 					</Row>
@@ -606,7 +608,7 @@ function WorkflowEditor({
 					)}
 				</Section>
 
-				<Section title="Only if" desc={isTimed(t) ? "Conditions on each note when it runs. None: every note of these types." : "Conditions on the note, after the change. None: it always runs."}>
+				<Section title="Only if" icon="filter" className="oe-wf-panel is-only-if" desc={isTimed(t) ? "Conditions on each note when it runs. None: every note of these types." : "Conditions on the note, after the change. None: it always runs."}>
 					{at("when").map((p, i) => (
 						<div key={i} className="oe-tm-issue">
 							<Icon name="alert-circle" /> {p.message}
@@ -617,7 +619,7 @@ function WorkflowEditor({
 					</div>
 				</Section>
 
-				<Section title="Do" desc="Steps, in order. Each sees the changes of the ones before; the note is saved once at the end. If a step fails, nothing is saved.">
+				<Section title="Do" icon="list-checks" className="oe-wf-panel is-do" desc="Steps, in order. Each sees the changes of the ones before; the note is saved once at the end. If a step fails, nothing is saved.">
 					{at("steps").map((p, i) => (
 						<div key={i} className="oe-tm-issue">
 							<Icon name="alert-circle" /> {p.message}

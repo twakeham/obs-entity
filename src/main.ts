@@ -358,7 +358,7 @@ export default class EntitiesPlugin extends Plugin {
 			await leaf.setViewState({ type: WORKFLOWS_VIEW, active: true });
 		}
 		await loadIfDeferred(leaf);
-		if ((request.open || request.newFor) && leaf.view instanceof WorkflowsView) leaf.view.showRequest(request);
+		if ((request.open || request.newFor || request.blank) && leaf.view instanceof WorkflowsView) leaf.view.showRequest(request);
 		await workspace.revealLeaf(leaf);
 		workspace.setActiveLeaf(leaf, { focus: true });
 	}

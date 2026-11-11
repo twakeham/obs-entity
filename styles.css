@@ -2960,6 +2960,26 @@ button.oe-tm-typegroup-title,
 	white-space: nowrap;
 }
 
+/* Workflows in the browser: on dot at the end, off ones faint, a warning for problems */
+.oe-workflow-row .oe-wf-dot {
+	margin: 0 var(--size-4-1) 0 var(--size-4-2);
+}
+
+.oe-workflow-row.is-off .oe-tree-name,
+.oe-workflow-row.is-off .oe-tree-icon {
+	color: var(--text-faint);
+}
+
+.oe-workflow-row .oe-workflow-warn {
+	display: inline-flex;
+	color: var(--color-orange);
+}
+
+.oe-workflow-row .oe-workflow-warn svg {
+	width: 13px;
+	height: 13px;
+}
+
 .oe-tree-count {
 	font-size: var(--font-ui-smaller);
 	color: var(--text-faint);
@@ -7508,6 +7528,69 @@ button.oe-calv-more:hover {
 .oe-wf-help {
 	color: var(--text-muted);
 	font-size: var(--font-ui-smaller);
+}
+
+/* When / Only if / Do: panels with an accent each, joined by a line (the order things happen in) */
+.oe-tm-section h3:has(.oe-tm-section-icon) {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+.oe-wf-editor .oe-tm-section.oe-wf-panel {
+	--oe-wf-accent: var(--interactive-accent);
+	position: relative;
+	padding: var(--size-4-3) var(--size-4-4) var(--size-4-4);
+	border: 1px solid var(--background-modifier-border);
+	border-left: 3px solid var(--oe-wf-accent);
+	border-radius: var(--radius-m);
+	background-color: var(--background-secondary);
+}
+
+.oe-wf-editor .oe-wf-panel.is-when {
+	--oe-wf-accent: var(--color-blue);
+}
+
+.oe-wf-editor .oe-wf-panel.is-only-if {
+	--oe-wf-accent: var(--color-orange);
+}
+
+.oe-wf-editor .oe-wf-panel.is-do {
+	--oe-wf-accent: var(--color-green);
+}
+
+.oe-wf-editor .oe-wf-panel + .oe-wf-panel::before {
+	content: "";
+	position: absolute;
+	top: calc(-1 * var(--size-4-6) - 1px);
+	left: 26px;
+	height: var(--size-4-6);
+	border-left: 2px dashed var(--background-modifier-border-hover);
+}
+
+.oe-wf-panel .oe-tm-section-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 26px;
+	height: 26px;
+	border-radius: 50%;
+	color: var(--oe-wf-accent);
+	background-color: color-mix(in srgb, var(--oe-wf-accent) 16%, transparent);
+}
+
+.oe-wf-panel .oe-tm-section-icon svg {
+	width: 15px;
+	height: 15px;
+}
+
+.oe-wf-panel .oe-tm-section-desc {
+	margin-left: calc(26px + var(--size-4-2));
+}
+
+/* Inside a panel, the filter box sits on the page colour, like the step cards */
+.oe-wf-panel .oe-wf-when {
+	background-color: var(--background-primary);
 }
 
 /* Scheduled and date triggers */

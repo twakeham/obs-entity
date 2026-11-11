@@ -881,8 +881,9 @@ A left-sidebar view (ribbon `library`, command **Open entity browser**).
   - **New <child type> here**, for each type that has a parent field targeting this row's type. It prefills the parent link and inherits container folders (`folderMode: parent`).
   - Show connections
   - plus the standard file menu (`workspace.trigger("file-menu", …)`)
-- **Type heading:** a + button on hover creates that type. Right-click offers "New <type>" and "Configure the <type> type".
-- **Group heading:** + opens a picker of the group's types. Right-click offers "New <type>" for each type and **Configure group** (opens the group editor).
+- **Type heading:** a + button on hover creates that type. Right-click offers "New <type>", new views, "New workflow for <types>" (the Workflows view with a new workflow scoped to it) and "Configure the <type> type".
+- **Group heading:** + opens a picker of the group's types. Right-click offers "New <type>" for each type, new views, "New workflow for <group>" (scoped to `@group`) and **Configure group** (opens the group editor).
+- **Workflows section** (`WorkflowsSection`, under Views; collapsed key `w:workflows`; shown even when there are none, since its + is where a workflow starts): every saved workflow sorted by trigger (created, changed, manual, schedule, date) then name, with the trigger's icon (`TRIGGER_ICONS`), an on dot (green while on and not paused), faint when off, and a warning icon when it has problems; the tooltip gives the trigger in words, the scope and the first problem. Click opens it in the Workflows view; right-click: Open, Try on a note…, Turn on / off (saved at once; an open draft of it follows). **+** opens the Workflows view on a new workflow with no scope (`activateWorkflows({ blank: true })`). The heading's menu: New workflow, Open workflows, Pause / Resume all. It re-renders on the engine's `log` event and on index updates (settings saves). Collapse all folds Views and Workflows too.
 
 #### Toolbar and filters
 
@@ -1902,7 +1903,7 @@ Not planned for now: shell commands, scripts, web requests, deleting notes.
 Its own view (`WorkflowsView`, a main-area tab like Entity types), opened from the ribbon, a command, the settings tab, and the type editor:
 
 - **Sidebar:** every workflow, grouped by trigger (When created, When changed, Run on notes, Forms, Scheduled), each showing its name, scope and on/off state, with problems flagged; a search box; **+ New workflow**; the master **Pause all** switch; and **Recent runs** at the bottom.
-- **Editor** (main area), with the same draft / Save / Discard bar as the type editor:
+- **Editor** (main area), with the same draft / Save / Discard bar as the type editor. **When**, **Only if** and **Do** are panels (`Section` with `icon` and `className="oe-wf-panel is-when | is-only-if | is-do"`): the secondary background, a left border and a round icon (zap, filter, list-checks) in their accent colour (blue, orange, green), joined by a dashed line in the order they happen; the step cards and the filter box inside sit on the page colour. The Workflow (name, Applies to) and Recent runs sections stay plain.
   - **Header:** name, on/off switch, **Try on a note…** (a flask button; see Test run), ⋯ (Try on a note…, Duplicate, Delete).
   - **Applies to:** the scope (types and groups, as in relation targets); optional for manual and form workflows.
   - **When:** the trigger kind and its options (field, from / to values as pills; button label, icon, confirm text and where it shows; the form's fields, stage 2).

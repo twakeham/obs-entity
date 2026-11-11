@@ -484,12 +484,15 @@ export function IconPicker({ value, color, onChange, empty }: { value: string; c
 	);
 }
 
-/** Section heading inside a tab. */
-export function Section({ title, desc, children, actions }: { title: string; desc?: ReactNode; children: ReactNode; actions?: ReactNode }) {
+/** Section heading inside a tab. `icon` goes before the title; `className` styles it (e.g. as a panel). */
+export function Section({ title, desc, children, actions, icon, className }: { title: string; desc?: ReactNode; children: ReactNode; actions?: ReactNode; icon?: string; className?: string }) {
 	return (
-		<section className="oe-tm-section">
+		<section className={`oe-tm-section${className ? ` ${className}` : ""}`}>
 			<div className="oe-tm-section-head">
-				<h3>{title}</h3>
+				<h3>
+					{icon && <Icon name={icon} className="oe-tm-section-icon" />}
+					{title}
+				</h3>
 				{actions}
 			</div>
 			{desc && <div className="oe-tm-section-desc">{desc}</div>}

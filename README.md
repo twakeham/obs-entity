@@ -214,7 +214,11 @@ A left sidebar tree of all entities. Open it with the **library** ribbon icon or
 
 **Headings:**
 - **+** on a type heading creates that type. On a group heading it offers the group's types.
-- **Right-click** a type heading for "Configure the *type* type", or a group heading for "Configure group".
+- **Right-click** a type heading for "Configure the *type* type" and "New workflow for *types*", or a group heading for "Configure group" and "New workflow for *group*".
+
+**Workflows** (a section under Views): every workflow, with its trigger's icon, a green dot when it's on, faint when it's off, and ⚠ when it has problems; hover for what starts it and the types it applies to.
+- **Click** opens it in the Workflows view. **Right-click:** Open, Try on a note…, Turn on / off.
+- **+** starts a new workflow that isn't tied to any type yet (choose its types later, under Applies to). Right-click the heading for New workflow, Open workflows, and Pause / Resume all workflows.
 
 **Toolbar and filters:**
 - **Toolbar:** search, View, Collapse all, Expand all and New entity.
@@ -386,7 +390,8 @@ Any view can also be shown as a **calendar** of its notes by date: use the **Tab
 
 Workflows do things for you: when a note is **created**, when a **field changes** (e.g. Status becomes done), on a **schedule** (e.g. every Monday at 9:00), when a **date** is reached (e.g. 3 days before Due), or when you press a **button**, they run a list of steps on the note. Open the **Workflows** view from the ribbon (lightning bolt), the "Open workflows" command, the settings tab, or a type's **Workflows** tab in the Entity types view.
 
-- **Sidebar:** every workflow, grouped by what starts it (When created, When changed, Run on notes, Scheduled), with a green dot when on, the types it applies to, and a ⚠ if it has problems. **+ New**, search, **Pause all workflows**, and **Recent runs** at the bottom.
+- **Sidebar:** every workflow, grouped by what starts it (When created, When changed, Run on notes, Scheduled), with a green dot when on, the types it applies to, and a ⚠ if it has problems. **+ New**, search, **Pause all workflows**, and **Recent runs** at the bottom. Workflows are also listed in the entity browser, where **+** starts a new one.
+- **The editor's When, Only if and Do** are panels in their own colours (blue, orange, green), joined by a line, so it's easy to see what starts the workflow, what it checks, and what it does.
 - **Editing** works like the type editor: changes are a draft with **Save** / **Discard**; Save with problems lists them and saves nothing. The header has an on/off switch, **Try on a note…** (the flask) and ⋯ (Try on a note…, Duplicate, Delete).
   - **Applies to:** the types (or groups) of note. Needed for created / changed / scheduled / date workflows; for buttons, empty means any note.
   - **When:** *Field changes* (pick the field; for status, choice and checkbox fields, optionally the **From** and **To** values, picked like a multiple-choice field; for others, "Changes", "Is filled in" or "Is emptied"), *Note created*, *Run on notes* (a button: its label, icon, and an optional question to confirm first), *Schedule* or *Date reached* (below).
