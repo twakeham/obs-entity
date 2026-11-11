@@ -687,3 +687,14 @@ describe("schedules and dates", () => {
 		expect(probs(sched(), [{ kind: "ask", text: "Sure?" }])).toEqual(["A workflow that runs on its own can't ask a question: nobody may be there to answer."]);
 	});
 });
+describe("not setting off other workflows", () => {
+	it("read the switch back only when it's on", () => {
+		const back = readWorkflows([
+			{ id: "a", name: "A", scope: ["task"], trigger: { kind: "manual" }, steps: [], isolated: true },
+			{ id: "b", name: "B", scope: ["task"], trigger: { kind: "manual" }, steps: [], isolated: "yes" },
+			{ id: "c", name: "C", scope: ["task"], trigger: { kind: "manual" }, steps: [] },
+		]);
+		expect(back.map((w) => w.isolated)).toEqual([true, undefined, undefined]);
+		expect("isolated" in back[2]).toBe(false);
+	});
+});

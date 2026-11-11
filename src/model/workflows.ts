@@ -132,6 +132,11 @@ export interface WorkflowDef {
 	/** "Only if": a view filter group */
 	when: FilterGroup;
 	steps: WorkflowStep[];
+	/**
+	 * Its changes don't set off other workflows (When created, When changed, dates): its writes are silent, like undo's.
+	 * "Run another workflow" steps still run, as part of it.
+	 */
+	isolated?: true;
 }
 
 export const TRIGGER_LABELS: Record<TriggerKind, string> = { created: "When a note is created", changed: "When a field changes", manual: "Run on notes", schedule: "On a schedule", date: "On a date" };
@@ -278,6 +283,7 @@ export function readWorkflows(raw: unknown, types?: EntityTypeDef[]): WorkflowDe
 			trigger: readTrigger(w.trigger),
 			when: readGroup(w.when),
 			steps: (Array.isArray(w.steps) ? w.steps : []).map((s) => readStep(s)).filter((s): s is WorkflowStep => !!s),
+			...(w.isolated === true ? { isolated: true as const } : {}),
 		});
 	}
 	if (types)

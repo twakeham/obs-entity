@@ -494,6 +494,9 @@ export class WorkflowEngine extends Events {
 		};
 		if (res.changes.length || made.length || edited.length || moving.length) {
 			const chain: Chain = { depth: opts.chain.depth + 1, seen: new Set([...opts.chain.seen, key]), root: opts.chain.root ?? record.id };
+			// What its writes carry: the chain (their changes can set off other workflows), or nothing when the workflow is
+			// set not to (written like undo's writes: silent).
+			const tag = wf.isolated ? null : chain;
 			// Created notes, in the order the steps made them, each kept for undo as it was written.
 			const createdFiles: { path: string; content: string }[] = [];
 			const moved: { from: string; to: string }[] = [];
@@ -501,14 +504,14 @@ export class WorkflowEngine extends Events {
 				for (const o of made) {
 					const type = plugin.getType(o.created!.type);
 					if (!type) throw new Error(`“${o.created!.type}” isn't a type.`);
-					this.expectWrite(o.path, chain);
+					this.expectWrite(o.path, tag);
 					this.justCreated.set(o.path, Date.now() + TAG_MS);
 					const values = emptyFormValues(type, plugin.settings.groups, o.name, { today: todayDays(), dates: plugin.dates });
 					const file = await plugin.factory.createEntity(type, values, { open: false, path: o.path, frontmatter: o.fm, template: o.created!.template });
 					createdFiles.push({ path: file.path, content: "" });
 				}
-				if (res.changes.length) await this.write(path, res.changes, chain);
-				for (const o of edited) await this.write(o.path, o.changes, chain);
+				if (res.changes.length) await this.write(path, res.changes, tag);
+				for (const o of edited) await this.write(o.path, o.changes, tag);
 				// Moves and renames last, once the notes are written (a parent link a step set can decide the folder).
 				const taken = new Set<string>();
 				for (const m of moving) {
@@ -636,8 +639,8 @@ export class WorkflowEngine extends Events {
 		return { row, problems, passes: passesWhen(wf, row, ctx), result, moves };
 	}
 
-	/** Write a run's field changes to a note (tagged with the chain, so the changes it causes continue it). */
-	private async write(path: string, changes: FieldChange[], chain: Chain): Promise<void> {
+	/** Write a run's field changes to a note, tagged with the chain (the changes it causes continue it) or silent (null: none). */
+	private async write(path: string, changes: FieldChange[], chain: Chain | null): Promise<void> {
 		const file = this.plugin.app.vault.getAbstractFileByPath(path);
 		if (!(file instanceof TFile)) throw new Error(`${path} is missing.`);
 		this.expectWrite(path, chain);

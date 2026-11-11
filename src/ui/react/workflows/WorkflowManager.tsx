@@ -510,12 +510,22 @@ function WorkflowEditor({
 						<Icon name="alert-triangle" /> This workflow doesn't run until {problems.length === 1 ? "its problem is" : `its ${problems.length} problems are`} fixed.
 					</div>
 				)}
-				<Section title="Workflow" collapse={fold("workflow", `${wf.name || "New workflow"} · ${wf.scope.length ? scopeTypes(wf, settings.types).map((x) => x.plural || x.name).join(", ") || wf.scope.join(", ") : "Any note"}`)}>
+				<Section title="Workflow" collapse={fold("workflow", `${wf.name || "New workflow"} · ${wf.scope.length ? scopeTypes(wf, settings.types).map((x) => x.plural || x.name).join(", ") || wf.scope.join(", ") : "Any note"}${wf.isolated ? " · doesn't set off other workflows" : ""}`)}>
 					<Row label="Name" issues={at("name")}>
 						<TextInput label="Workflow name" value={wf.name} placeholder="e.g. Completed date" autoFocus={isNew && !wf.name} invalid={at("name").length > 0} onChange={(v) => edit((x) => (x.name = v))} />
 					</Row>
 					<Row label="Applies to" desc={needsScope(t.kind) ? "The types of note it watches." : "The types of note it can be run on. Leave empty for any note."} issues={at("scope")} stacked>
 						<TargetPicker values={wf.scope} types={settings.types} groups={settings.groups} invalid={at("scope").length > 0} onChange={(v) => edit((x) => (x.scope = v.filter((s) => s !== "*")))} />
+					</Row>
+					<Row
+						label="Set off other workflows"
+						desc={
+							wf.isolated
+								? "Off: the notes it changes or creates don't start other workflows (When created, When changed, dates). Its Run another workflow steps still run."
+								: "The notes it changes or creates can start other workflows (When created, When changed, dates), up to 5 in a row."
+						}
+					>
+						<Toggle label="Set off other workflows" value={!wf.isolated} onChange={(v) => edit((x) => (v ? delete x.isolated : (x.isolated = true)))} />
 					</Row>
 				</Section>
 
