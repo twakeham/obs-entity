@@ -33,6 +33,10 @@ import {
 	passesWhen,
 	readWorkflows,
 	runSteps,
+	flatSteps,
+	mapStepAt,
+	stepAt,
+	stepLabel,
 	storedValue,
 	triggerText,
 	workflowFields,
@@ -42,6 +46,7 @@ import {
 	type DateTrigger,
 	type ScheduleTrigger,
 	type WorkflowDef,
+	type WorkflowStep,
 } from "../src/model/workflows";
 
 const GROUPS: GroupDef[] = [{ key: "work", name: "Work", icon: "x", statuses: ["todo", "doing", "done"] }];
@@ -225,7 +230,7 @@ describe("values and steps", () => {
 
 	it("stop at a failing step, changing nothing", () => {
 		const res = run(wf({ steps: [{ kind: "set", field: "estimate", value: "9" }, { kind: "set", field: "priority", value: '"Urgent"' }] }), r);
-		expect(res.error).toEqual({ step: 1, message: "“Urgent” isn't one of Priority's choices." });
+		expect(res.error).toEqual({ step: "1", message: "“Urgent” isn't one of Priority's choices." });
 		expect(res.changes).toEqual([]);
 		expect(res.fm.estimate).toBe(3);
 	});
@@ -369,7 +374,7 @@ describe("create a note", () => {
 
 	it("fail without a place to create notes, changing nothing", () => {
 		const res = run(wf({ scope: ["project"], steps: [create()] }), apollo);
-		expect(res.error).toEqual({ step: 0, message: "Notes can't be created here." });
+		expect(res.error).toEqual({ step: "0", message: "Notes can't be created here." });
 	});
 
 	it("report create problems: names, fields, links, and steps on notes no step creates", () => {
@@ -483,6 +488,65 @@ describe("loops and running other workflows", () => {
 		expect(probs(wf({ id: "outer", name: "x", scope: ["project"], steps: [{ kind: "run", workflow: "outer" }] }))).toEqual(["step:0: A workflow can't run itself.", "steps: It runs itself: x \u2192 x."]);
 		expect(probs(wf({ id: "outer", name: "x", scope: ["project"], steps: [{ kind: "each", formula: "[Budget]", items: "values", itemType: "", when: { mode: "all", items: [] }, as: "N", steps: [{ kind: "notice", text: "{[N] + 1}" }] }] }))).toEqual([]);
 	});
+
+	describe("loops inside loops", () => {
+		const labels = (steps: WorkflowStep[]): WorkflowStep => ({ kind: "each", formula: "[Labels]", items: "values", itemType: "", when: { mode: "all", items: [] }, as: "Label", steps });
+		const projectOf = (steps: WorkflowStep[]): WorkflowStep => ({ kind: "linked", source: { dir: "out", field: "project" }, when: { mode: "all", items: [] }, as: "P", steps });
+		const nested = (inner: WorkflowStep[]) =>
+			wf({ id: "n", name: "Nested", scope: ["project"], steps: [linkedTasks({ steps: [labels([{ kind: "notice", text: "{[Task]}: {[Label]}" }]), projectOf(inner)] })] });
+
+		it("are kept when read back, and give each step its scope by its place", () => {
+			const w = nested([{ kind: "tag", op: "add", tag: "seen", on: "Task" }]);
+			expect(readWorkflows(JSON.parse(JSON.stringify([w])))[0].steps).toEqual(w.steps);
+			const sc = stepScopes(w, ctx);
+			expect([...sc.keys()]).toEqual(["0", "0.0", "0.0.0", "0.1", "0.1.0"]);
+			expect(sc.get("0.0.0")).toMatchObject({ scope: ["task"], loop: "values", defaultLabel: "Each task" });
+			// Inside the inner loop: its note by default, the outer loop's note by name.
+			expect(sc.get("0.1.0")).toMatchObject({ scope: ["project"], loop: "notes", defaultLabel: "Each p" });
+			expect(sc.get("0.1.0")!.on.map((o) => o.value)).toEqual([ON_THIS, "Task"]);
+			expect(sc.get("0.1.0")!.vars.map((v) => v.name)).toEqual(["This note", "Task", "P"]);
+			expect(workflowProblems(w, ctx)).toEqual([]);
+		});
+
+		it("run for each item of each item, starting from the outer loop's note", () => {
+			const w = nested([
+				{ kind: "set", field: "budget", value: '[Budget] + prop([Task], "Estimate")' },
+				{ kind: "tag", op: "add", tag: "seen", on: "Task" },
+			]);
+			const res = run2(w, ROWS[0]);
+			expect(res.error).toBeUndefined();
+			expect(res.notices).toEqual(["Plan: bug", "Plan: feature"]);
+			// Each task's project is this note: Build (5) then Plan (2) add to its budget.
+			expect(res.changes).toEqual([{ key: "budget", before: 10, after: 17 }]);
+			expect(res.others.map((o) => [o.path, o.fm.tags])).toEqual([
+				["Build.md", ["seen"]],
+				["Plan.md", ["seen"]],
+			]);
+		});
+
+		it("report a failing step inside by its place", () => {
+			const res = run2(nested([{ kind: "set", field: "nope", value: "1" }]), ROWS[0]);
+			expect(res.error).toEqual({ step: "0.1.0", message: "None of the types has a \u201cnope\u201d field." });
+			expect(stepLabel(res.error!.step)).toBe("1.2.1");
+			expect(workflowProblems(nested([{ kind: "set", field: "nope", value: "1" }]), ctx).map((p) => p.at)).toEqual(["step:0.1.0"]);
+		});
+
+		it("find, replace and list steps at any depth", () => {
+			const w = nested([{ kind: "tag", op: "add", tag: "a" }]);
+			expect(stepAt(w.steps, "0.1.0")).toEqual({ kind: "tag", op: "add", tag: "a" });
+			expect(stepAt(w.steps, "0.2")).toBeUndefined();
+			const next = mapStepAt(w.steps, "0.1.0", () => ({ kind: "tag", op: "remove", tag: "b" }));
+			expect(stepAt(next, "0.1.0")).toEqual({ kind: "tag", op: "remove", tag: "b" });
+			expect(stepAt(next, "0.0.0")).toEqual(stepAt(w.steps, "0.0.0"));
+			expect(flatSteps(w.steps).map((s) => s.kind)).toEqual(["linked", "each", "notice", "linked", "tag"]);
+			expect(asksQuestion({ steps: mapStepAt(w.steps, "0.0.0", () => ({ kind: "ask", text: "?" })) })).toBe(true);
+		});
+
+		it("don't ask a question in a loop inside a loop", () => {
+			const w = nested([{ kind: "ask", text: "Sure?" }]);
+			expect(workflowProblems(w, ctx).map((p) => `${p.at}: ${p.message}`)).toContain("step:0.1.0: A question can't be inside a loop: ask it before the loop.");
+		});
+	});
 });
 
 describe("big runs", () => {
@@ -534,15 +598,15 @@ describe("questions, moves and renames", () => {
 		incoming: (p) => all.filter((r) => r.frontmatter.project === `[[${p.replace(/\.md$/, "")}]]`).map((r) => ({ source: r.path, sourceType: "task", fieldKey: "project" })),
 	};
 	const place = (req: PlaceRequest): Placed => ({ path: `New/${req.name}.md` });
-	const go = (w: WorkflowDef, r: ViewRow, answers?: Set<number> | "all", workflows: WorkflowDef[] = []) => runSteps(w, { ctx: ctx2, row: r, linkText, place, answers, workflows });
+	const go = (w: WorkflowDef, r: ViewRow, answers?: Set<string> | "all", workflows: WorkflowDef[] = []) => runSteps(w, { ctx: ctx2, row: r, linkText, place, answers, workflows });
 	const tasksOf = (steps: WorkflowDef["steps"]) => ({ kind: "linked", source: { dir: "in", type: "task", field: "project" }, when: { mode: "all", items: [] }, as: "Task", steps }) as WorkflowDef["steps"][number];
 
 	it("stop at a question until it's answered Yes, then carry on (a test run takes every answer as Yes)", () => {
 		const w = wf({ scope: ["task"], steps: [{ kind: "set", field: "estimate", value: "9" }, { kind: "ask", text: "Close {[Name]} ({[Estimate]} h)?" }, { kind: "set", field: "priority", value: '"High"' }] });
 		const first = go(w, t1);
-		expect(first.pending).toEqual({ step: 1, text: "Close Plan (9 h)?" });
+		expect(first.pending).toEqual({ step: "1", text: "Close Plan (9 h)?" });
 		expect(first.changes).toEqual([]);
-		const yes = go(w, t1, new Set([1]));
+		const yes = go(w, t1, new Set(["1"]));
 		expect(yes.pending).toBeUndefined();
 		expect(yes.asked).toEqual(["Close Plan (9 h)?"]);
 		expect(yes.changes.map((c) => [c.key, c.after])).toEqual([

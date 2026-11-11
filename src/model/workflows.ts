@@ -116,13 +116,13 @@ export type NoteStep =
 export type MoveTo = "folder" | "type";
 
 /**
- * Loops (one level: their steps are NoteSteps). "For linked notes": the notes in a link field, or linking here.
- * "For each": the items of a formula's list: notes, or values (text, numbers, dates). Inside a loop of notes,
- * formulas read each note and steps act on it; `as` names it (and a value, in a loop of values).
+ * Loops, with steps inside (loops too, to any depth). "For linked notes": the notes in a link field of the note steps
+ * act on, or linking to it. "For each": the items of a formula's list: notes, or values (text, numbers, dates). Inside
+ * a loop of notes, formulas read each note and steps act on it; `as` names it (and a value, in a loop of values).
  */
 export type LoopStep =
-	| { kind: "linked"; source: LinkedSource; when: FilterGroup; as: string; steps: NoteStep[] }
-	| { kind: "each"; formula: string; items: "notes" | "values"; itemType: string; when: FilterGroup; as: string; steps: NoteStep[] };
+	| { kind: "linked"; source: LinkedSource; when: FilterGroup; as: string; steps: WorkflowStep[] }
+	| { kind: "each"; formula: string; items: "notes" | "values"; itemType: string; when: FilterGroup; as: string; steps: WorkflowStep[] };
 
 export type WorkflowStep = NoteStep | LoopStep;
 
@@ -217,20 +217,19 @@ function readFixed(v: unknown): FixedValue | undefined {
 	return Array.isArray(v) ? strList(v) : undefined;
 }
 
-function readStep(raw: unknown, inner = false): WorkflowStep | null {
+const readSteps = (raw: unknown): WorkflowStep[] => (Array.isArray(raw) ? raw : []).map(readStep).filter((s): s is WorkflowStep => !!s);
+
+function readStep(raw: unknown): WorkflowStep | null {
 	if (!isObj(raw)) return null;
 	const on = str(raw.on) ? { on: str(raw.on) } : {};
-	const innerSteps = () => (Array.isArray(raw.steps) ? raw.steps : []).map((x) => readStep(x, true)).filter((s): s is NoteStep => !!s);
 	switch (raw.kind) {
 		case "linked": {
-			if (inner) return null;
 			const sr = raw.source;
 			const source: LinkedSource = isObj(sr) && sr.dir === "in" ? { dir: "in", type: str(sr.type), field: str(sr.field) } : { dir: "out", field: isObj(sr) ? str(sr.field) : "" };
-			return { kind: "linked", source, when: readGroup(raw.when), as: str(raw.as), steps: innerSteps() };
+			return { kind: "linked", source, when: readGroup(raw.when), as: str(raw.as), steps: readSteps(raw.steps) };
 		}
 		case "each":
-			if (inner) return null;
-			return { kind: "each", formula: str(raw.formula), items: raw.items === "notes" ? "notes" : "values", itemType: str(raw.itemType), when: readGroup(raw.when), as: str(raw.as), steps: innerSteps() };
+			return { kind: "each", formula: str(raw.formula), items: raw.items === "notes" ? "notes" : "values", itemType: str(raw.itemType), when: readGroup(raw.when), as: str(raw.as), steps: readSteps(raw.steps) };
 		case "run":
 			return { kind: "run", workflow: str(raw.workflow), ...on };
 		case "set": {
@@ -296,7 +295,7 @@ export function readWorkflows(raw: unknown, types?: EntityTypeDef[]): WorkflowDe
 			scope: strList(w.scope),
 			trigger: readTrigger(w.trigger),
 			when: readGroup(w.when),
-			steps: (Array.isArray(w.steps) ? w.steps : []).map((s) => readStep(s)).filter((s): s is WorkflowStep => !!s),
+			steps: readSteps(w.steps),
 			...(w.isolated === true ? { isolated: true as const } : {}),
 		});
 	}
@@ -352,11 +351,46 @@ export function workflowFields(wf: Pick<WorkflowDef, "scope">, types: EntityType
 export const fieldLabel = (key: string, types: EntityTypeDef[]): string =>
 	key === COMMON_KEYS.status ? "Status" : key === COMMON_KEYS.tags ? "Tags" : (types.flatMap((t) => t.fields).find((f) => f.key === key)?.label ?? key);
 
-/** A loop's steps, or none. */
-export const innerSteps = (s: WorkflowStep): NoteStep[] => (s.kind === "linked" || s.kind === "each" ? s.steps : []);
+/** A step's blocks of steps inside it: a loop's one (none for other steps). */
+export const stepBlocks = (s: WorkflowStep): WorkflowStep[][] => (isLoop(s) ? [s.steps] : []);
+/** The step with new blocks (as many as it has). */
+export const withBlocks = (s: WorkflowStep, blocks: WorkflowStep[][]): WorkflowStep => (isLoop(s) ? { ...s, steps: blocks[0] ?? [] } : s);
+/** Where a block's steps start in its step's numbering: steps inside step "2" are "2.0", "2.1"…, through all its blocks. */
+export const blockOffset = (s: WorkflowStep, block: number): number => stepBlocks(s).slice(0, block).reduce((n, b) => n + b.length, 0);
+/** Steps and every step inside them, in order. */
+export const flatSteps = (steps: WorkflowStep[]): WorkflowStep[] => steps.flatMap((s) => [s, ...flatSteps(stepBlocks(s).flat())]);
 export const isLoop = (s: WorkflowStep): s is LoopStep => s.kind === "linked" || s.kind === "each";
+/** A step's number for people: "3", or "3.2" for the second step inside step 3. */
+export const stepLabel = (key: string): string =>
+	key
+		.split(".")
+		.map((n) => Number(n) + 1)
+		.join(".");
+/** The step at `key` ("2", "2.0"…). */
+export function stepAt(steps: WorkflowStep[], key: string): WorkflowStep | undefined {
+	const [head, ...rest] = key.split(".").map(Number);
+	const s = steps[head];
+	return s && rest.length ? stepAt(stepBlocks(s).flat(), rest.join(".")) : s;
+}
+/** The steps with the one at `key` ("2", "2.0"…) replaced. */
+export function mapStepAt(steps: WorkflowStep[], key: string, fn: (s: WorkflowStep) => WorkflowStep): WorkflowStep[] {
+	const [head, ...rest] = key.split(".").map(Number);
+	return steps.map((s, i) => {
+		if (i !== head) return s;
+		if (!rest.length) return fn(s);
+		// The child's place across the blocks: which block, and where in it.
+		let j = rest[0];
+		const blocks = stepBlocks(s).map((b) => {
+			const mine = j >= 0 && j < b.length;
+			const out = mine ? mapStepAt(b, [j, ...rest.slice(1)].join("."), fn) : b;
+			j -= b.length;
+			return out;
+		});
+		return withBlocks(s, blocks);
+	});
+}
 /** Whether a workflow stops to ask a question (an "Ask a question" step). */
-export const asksQuestion = (wf: Pick<WorkflowDef, "steps">): boolean => wf.steps.some((s) => s.kind === "ask" || innerSteps(s).some((x) => x.kind === "ask"));
+export const asksQuestion = (wf: Pick<WorkflowDef, "steps">): boolean => flatSteps(wf.steps).some((s) => s.kind === "ask");
 
 /** "For linked notes" choices: this note's link fields, and other types' link fields that point at these types. */
 export function linkedSources(scope: string[], types: EntityTypeDef[]): { out: WorkflowField[]; in: { type: EntityTypeDef; field: FieldDef; label: string }[] } {
@@ -394,58 +428,69 @@ export interface StepScope {
 	fields: WorkflowField[];
 	/** names formulas can use besides columns: created notes, and in loops "This note" and the item */
 	vars: VarSpec[];
-	/** "On" choices besides the default: stored value, label, the note''s types */
-	on: { value: string; label: string; types: EntityTypeDef[] }[];
+	/** "On" choices besides the default: stored value, label, the note''s types; `made`: a note this run creates */
+	on: { value: string; label: string; types: EntityTypeDef[]; made?: true }[];
 	/** the default note in the On picker: "This note", or "Each <name>" in a loop of notes */
 	defaultLabel: string;
 	/** inside a loop (of notes, or of values) */
 	loop?: "notes" | "values";
+	/** in a loop of notes: the note steps act on by default (its name, its types), for loops inside to act on */
+	item?: { name: string; types: EntityTypeDef[] };
 	/** no single note here (a run once for a whole selection, outside a loop of notes): steps can't act on one, nor formulas read one */
 	noNote?: true;
 }
 
 /**
- * Each step''s scope, by its place: "3", or "3.1" for the second step inside step 3. Created notes are seen by the
- * steps after them (inside a loop, by the loop''s later steps only); in a loop of notes formulas read each note. A run
- * once for a whole selection has no "this note": `[Selected notes]` instead, and loops over them.
+ * Each step''s scope, by its place: "3", or "3.1" for the second step inside step 3 (and "3.1.0" inside that). Created
+ * notes are seen by the steps after them in the same list, and inside those (not after the loop: they're made once
+ * per item). In a loop of notes formulas read each note, and steps act on it. A run once for a whole selection has
+ * no "this note": `[Selected notes]` instead, and loops over them.
  */
 export function stepScopes(wf: Pick<WorkflowDef, "scope" | "when" | "steps"> & Partial<Pick<WorkflowDef, "trigger">>, lookup: Lookup): Map<string, StepScope> {
 	const all = lookup.types;
 	const out = new Map<string, StepScope>();
 	const once = !!wf.trigger && runsOnce({ trigger: wf.trigger });
-	let cur: StepScope = once
+	const top: StepScope = once
 		? { def: workflowDef(wf), scope: wf.scope, types: scopeTypes(wf, all), fields: workflowFields(wf, all), vars: [{ name: SELECTION_VAR, type: "links" }], on: [], defaultLabel: "No single note", noNote: true }
 		: { def: workflowDef(wf), scope: wf.scope, types: scopeTypes(wf, all), fields: workflowFields(wf, all), vars: [], on: [], defaultLabel: "This note" };
-	const withCreated = (sc: StepScope, s: NoteStep): StepScope =>
-		s.kind === "create" && s.as.trim() ? { ...sc, vars: [...sc.vars, { name: s.as.trim(), type: "links" }], on: [...sc.on, { value: s.as.trim(), label: s.as.trim(), types: all.filter((t) => t.key === s.type) }] } : sc;
-	wf.steps.forEach((s, i) => {
-		out.set(String(i), cur);
-		if (!isLoop(s)) {
-			cur = withCreated(cur, s);
-			return;
-		}
+	const withCreated = (sc: StepScope, s: WorkflowStep): StepScope =>
+		s.kind === "create" && s.as.trim() ? { ...sc, vars: [...sc.vars, { name: s.as.trim(), type: "links" }], on: [...sc.on, { value: s.as.trim(), label: s.as.trim(), types: all.filter((t) => t.key === s.type), made: true }] } : sc;
+	/** The scope inside a loop. */
+	const loopScope = (s: LoopStep, cur: StepScope): StepScope => {
 		const as = s.as.trim() || "Item";
-		let inner: StepScope;
-		if (s.kind === "each" && s.items === "values") inner = { ...cur, vars: [...cur.vars, { name: as, type: "any" }], loop: "values" };
-		else {
-			const its = loopItemTypes(s, wf.scope, all);
-			const scope = keysOf(its, all);
-			inner = {
-				def: workflowDef({ scope, when: s.when }),
-				scope,
-				types: its,
-				fields: workflowFields({ scope }, all),
-				vars: [...cur.vars, ...(once ? [] : [{ name: THIS_NOTE_VAR, type: "links" as const }]), { name: as, type: "links" }],
-				on: [...(once ? [] : [{ value: ON_THIS, label: "This note", types: scopeTypes(wf, all) }]), ...cur.on],
-				defaultLabel: `Each ${as.toLowerCase()}`,
-				loop: "notes",
-			};
-		}
-		s.steps.forEach((x, j) => {
-			out.set(`${i}.${j}`, inner);
-			inner = withCreated(inner, x);
+		if (s.kind === "each" && s.items === "values") return { ...cur, vars: [...cur.vars, { name: as, type: "any" }], loop: "values" };
+		const its = loopItemTypes(s, cur.scope, all);
+		const scope = keysOf(its, all);
+		const hasThis = cur.on.some((o) => o.value === ON_THIS);
+		return {
+			def: workflowDef({ scope, when: s.when }),
+			scope,
+			types: its,
+			fields: workflowFields({ scope }, all),
+			vars: [...cur.vars, ...(once || cur.vars.some((v) => v.name === THIS_NOTE_VAR) ? [] : [{ name: THIS_NOTE_VAR, type: "links" as const }]), { name: as, type: "links" }],
+			// Inside a loop inside another: the outer loop's note, by its name.
+			on: [...(once || hasThis ? [] : [{ value: ON_THIS, label: "This note", types: scopeTypes(wf, all) }]), ...cur.on, ...(cur.item ? [{ value: cur.item.name, label: cur.item.name, types: cur.item.types }] : [])],
+			defaultLabel: `Each ${as.toLowerCase()}`,
+			loop: "notes",
+			item: { name: as, types: its },
+		};
+	};
+	const walk = (steps: WorkflowStep[], keyOf: (i: number) => string, start: StepScope) => {
+		let cur = start;
+		steps.forEach((s, i) => {
+			const key = keyOf(i);
+			out.set(key, cur);
+			const inner = isLoop(s) ? loopScope(s, cur) : cur;
+			let offset = 0;
+			for (const b of stepBlocks(s)) {
+				const o = offset;
+				walk(b, (j) => `${key}.${o + j}`, inner);
+				offset += b.length;
+			}
+			cur = withCreated(cur, s);
 		});
-	});
+	};
+	walk(wf.steps, String, top);
 	return out;
 }
 
@@ -460,7 +505,7 @@ export function stepTarget(s: WorkflowStep, sc: StepScope, all: EntityTypeDef[])
 }
 
 /** Workflows a workflow runs ("Run another workflow"), directly. */
-const runsOf = (wf: Pick<WorkflowDef, "steps">): string[] => wf.steps.flatMap((s) => [s, ...innerSteps(s)]).flatMap((s) => (s.kind === "run" ? [s.workflow] : []));
+const runsOf = (wf: Pick<WorkflowDef, "steps">): string[] => flatSteps(wf.steps).flatMap((s) => (s.kind === "run" ? [s.workflow] : []));
 
 /** A chain of workflows that leads back to `wf` through "Run another workflow" (names), or null. */
 export function runCycle(wf: WorkflowDef, all: WorkflowDef[]): string[] | null {
@@ -646,7 +691,7 @@ export function parseTemplate(src: string): TemplatePart[] {
 // ---------------------------------------------------------------- problems
 
 export interface WorkflowProblem {
-	/** "name", "scope", "trigger", "when", "steps" or "step:<i>" */
+	/** "name", "scope", "trigger", "when", "steps" or "step:<key>" ("step:2", "step:2.0" inside it) */
 	at: string;
 	message: string;
 }
@@ -732,7 +777,7 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 		else if (formulaRefColumns(sc.def, lookup).some((c) => c.label.toLowerCase() === as.toLowerCase())) add(at, `“${as}” is already a field's name: choose another.`);
 		names.add(as.toLowerCase());
 	};
-	const check = (s: WorkflowStep, key: string) => {
+	const checkOne = (s: WorkflowStep, key: string) => {
 		const at = `step:${key}`;
 		const sc = scopes.get(key);
 		if (!sc) return;
@@ -795,7 +840,7 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 				break;
 			}
 			case "ask": {
-				if (key.includes(".")) add(at, "A question can't be inside a loop: ask it before the loop.");
+				if (sc.loop) add(at, "A question can't be inside a loop: ask it before the loop.");
 				if (isTimed(wf.trigger)) add(at, "A workflow that runs on its own can't ask a question: nobody may be there to answer.");
 				if (!s.text.trim()) add(at, "Write the question, e.g. Also close its tasks?");
 				else {
@@ -806,7 +851,7 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 			}
 			case "move":
 			case "rename": {
-				if (s.on !== undefined && s.on !== ON_THIS) add(at, `“${s.on}” is a note this workflow creates: its Create a note step names it, and its type's folder rules place it.`);
+				if (s.on !== undefined && sc.on.some((o) => o.value === s.on && o.made)) add(at, `“${s.on}” is a note this workflow creates: its Create a note step names it, and its type's folder rules place it.`);
 				const src = s.kind === "move" ? (s.to === "folder" ? s.folder : "") : s.name;
 				if (s.kind === "move" && s.to === "folder" && !src.trim()) add(at, "Choose the folder, e.g. Archive or Archive/{year(today())}.");
 				else if (s.kind === "rename" && !src.trim()) add(at, "Write the new name, e.g. {[Code]} {[Name]}.");
@@ -874,17 +919,25 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 					}
 					if (s.items === "notes" && s.itemType && !lookup.types.some((x) => x.key === s.itemType)) add(at, `“${s.itemType}” isn't a type.`);
 				}
-				const inner = scopes.get(`${key}.0`);
+				const innerDef = workflowDef({ scope: keysOf(loopItemTypes(s, sc.scope, lookup.types), lookup.types), when: s.when });
 				if (s.kind === "linked" || s.items === "notes")
-					for (const id of filterFields(s.when)) if (!formulaColumnOk(id, inner?.def ?? sc.def, lookup)) add(at, `A condition uses “${id}”, which isn't a column of these notes.`);
+					for (const id of filterFields(s.when)) if (!formulaColumnOk(id, innerDef, lookup)) add(at, `A condition uses “${id}”, which isn't a column of these notes.`);
 				nameOk(at, s.as, sc, s.kind === "linked" || s.items === "notes" ? "each note" : "each value");
 				if (!s.steps.length) add(at, "Add a step inside the loop.");
-				s.steps.forEach((x, j) => check(x, `${key}.${j}`));
 				break;
 			}
 		}
 		const def0 = !("on" in s) || s.on === undefined;
 		if ((s.kind === "set" || s.kind === "clear" || s.kind === "link") && def0 && !sc.scope.length && sc.loop !== "notes" && !sc.noNote) add(at, "Choose the types this runs on, so its fields are known.");
+	};
+	const check = (s: WorkflowStep, key: string) => {
+		checkOne(s, key);
+		let offset = 0;
+		for (const b of stepBlocks(s)) {
+			const o = offset;
+			b.forEach((x, j) => check(x, `${key}.${o + j}`));
+			offset += b.length;
+		}
 	};
 	wf.steps.forEach((s, i) => check(s, String(i)));
 	if (lookup.workflows && !checking.length) {
@@ -1119,10 +1172,10 @@ export interface StepEnv {
 	/** every workflow, for "Run another workflow" */
 	workflows?: WorkflowDef[];
 	/**
-	 * Questions answered Yes ("Ask a question"), by step: a question not in it pauses the run (`pending`); "all"
-	 * answers every one Yes (a test run).
+	 * Questions answered Yes ("Ask a question"), by step ("2", "4.1"): a question not in it pauses the run (`pending`);
+	 * "all" answers every one Yes (a test run).
 	 */
-	answers?: Set<number> | "all";
+	answers?: Set<string> | "all";
 	/**
 	 * A run once for a whole selection: the selected notes (`row` is only the first, for link text): no "this note",
 	 * the notes as [Selected notes].
@@ -1169,9 +1222,9 @@ export interface RunResult {
 	/** the questions asked and answered Yes (or taken as Yes, in a test run) */
 	asked: string[];
 	/** a question not answered yet: the run stopped there, and runs again once it's answered Yes */
-	pending?: { step: number; text: string };
-	/** the step that failed, and why: nothing is written */
-	error?: { step: number; message: string };
+	pending?: { step: string; text: string };
+	/** the step that failed ("2", or "2.0" inside it: see stepLabel), and why: nothing is written */
+	error?: { step: string; message: string };
 	/** why the run stopped before doing anything ("If it already exists: Stop the run") */
 	stopped?: string;
 }
@@ -1203,7 +1256,7 @@ class StopRun extends Error {}
 /** A question not answered yet ("Ask a question"): the run stops there, to run again once it's answered. */
 class AskFirst extends Error {
 	constructor(
-		readonly step: number,
+		readonly step: string,
 		readonly text: string,
 	) {
 		super(text);
@@ -1233,6 +1286,8 @@ interface Frame {
 	/** the note formulas read: the workflow's, or each note in a loop of notes */
 	reader: RunNote;
 	def: ViewDef;
+	/** the types of the note steps act on by default (the workflow's; a loop's notes') */
+	scope: string[];
 	/** in a loop of notes: the note steps act on by default */
 	item?: RunNote;
 	vars: Record<string, FValue>;
@@ -1259,7 +1314,8 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 	const start = copy(mainRow.frontmatter);
 	const notices: string[] = [];
 	const asked: string[] = [];
-	let topIndex = 0;
+	/** the workflow's own step running ("2", "2.0"…): a step's error, or its question, is reported there */
+	let at = "0";
 	const via: string[] = [];
 	const main: RunNote = { path: mainRow.path, row: mainRow, start, fm: copy(mainRow.frontmatter) };
 	const notes = new Map<string, RunNote>(noMain ? [] : [[main.path, main]]);
@@ -1310,18 +1366,32 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 			return p ? [p] : [];
 		});
 	const passes = (when: FilterGroup, n: RunNote, f: Frame) => !when.items.length || runView(withThisNote({ ...emptyView([n.row.type.key]), filters: when }, f.main.path), [n.row], ctx).rows.length > 0;
-	const loopFrame = (f: Frame, s: LoopStep, n: RunNote, def: ViewDef): Frame => {
+	const loopFrame = (f: Frame, s: LoopStep, n: RunNote, def: ViewDef, scope: string[]): Frame => {
 		const as = s.as.trim() || "Item";
-		return { ...f, item: n, reader: n, def, vars: { ...f.vars, [THIS_NOTE_VAR]: linkOf(f.main), [as]: linkOf(n) }, named: new Map(f.named), inLoop: true };
+		// The note goes by its name too, so loops inside can act on it ("On").
+		const named = new Map(f.named).set(as, n);
+		return { ...f, item: n, reader: n, def, scope, vars: { ...f.vars, [THIS_NOTE_VAR]: linkOf(f.main), [as]: linkOf(n) }, named, inLoop: true };
 	};
 	const count = (as: string) => {
 		if (++items > MAX_LOOP_ITEMS) throw new Error(`More than ${MAX_LOOP_ITEMS} items in the loops (“${as}”): stopped.`);
 	};
 
-	const exec = (steps: WorkflowStep[], f: Frame) => {
-		for (const s of steps) step(s, f);
+	/** Run a list of steps; `key`: the place of the list's first step in this workflow (none in another one it runs). */
+	const exec = (steps: WorkflowStep[], f: Frame, keyOf?: (i: number) => string) => {
+		steps.forEach((s, i) => {
+			const key = keyOf?.(i);
+			if (key !== undefined) at = key;
+			step(s, f, key);
+		});
 	};
-	const step = (s: WorkflowStep, f: Frame) => {
+	/** Run a step's blocks of steps (a loop's, for one item). */
+	const execBlock = (s: WorkflowStep, block: number, f: Frame, key: string | undefined) => {
+		const o = blockOffset(s, block);
+		exec(stepBlocks(s)[block], f, key === undefined ? undefined : (j) => `${key}.${o + j}`);
+		// Back at the step itself (its next item, say).
+		if (key !== undefined) at = key;
+	};
+	const step = (s: WorkflowStep, f: Frame, key: string | undefined) => {
 		switch (s.kind) {
 			case "set":
 			case "clear": {
@@ -1364,7 +1434,7 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 				if (f.inLoop) throw new Error("A question can't be inside a loop.");
 				if (f.depth > 0) throw new Error(`“${f.wf.name}” asks a question, so it can't be run from another workflow.`);
 				const text = renderTemplate(s.text, f.reader.row, f.def, { ctx, old: f.old, vars: f.vars }).trim() || "Carry on?";
-				if (env.answers !== "all" && !env.answers?.has(topIndex)) throw new AskFirst(topIndex, text);
+				if (env.answers !== "all" && !env.answers?.has(key ?? at)) throw new AskFirst(key ?? at, text);
 				asked.push(text);
 				return;
 			}
@@ -1429,30 +1499,32 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 				if (f.depth >= MAX_RUN_DEPTH) throw new Error(`Workflows ran each other more than ${MAX_RUN_DEPTH} deep.`);
 				if (!inScope(sub, note.row.type) || !passesWhen(sub, note.row, ctx)) return;
 				via.push(sub.name);
-				exec(sub.steps, { wf: sub, main: note, reader: note, def: workflowDef(sub), vars: {}, named: new Map(), depth: f.depth + 1, stack: [...f.stack, sub.id] });
+				exec(sub.steps, { wf: sub, main: note, reader: note, def: workflowDef(sub), scope: sub.scope, vars: {}, named: new Map(), depth: f.depth + 1, stack: [...f.stack, sub.id] });
 				return;
 			}
 			case "linked": {
 				if (noMain && f.item === undefined) throw new Error("For linked notes starts from a note: use For each over [Selected notes] instead.");
-				const scope = keysOf(loopItemTypes(s, f.wf.scope, ctx.types), ctx.types);
+				// From the note steps act on here: the workflow's, or a loop's.
+				const base = f.item ?? f.main;
+				const scope = keysOf(loopItemTypes(s, f.scope, ctx.types), ctx.types);
 				const def = workflowDef({ scope, when: s.when });
 				let paths: string[];
 				const so = s.source;
-				if (so.dir === "out") paths = linkedPaths(f.main.fm[so.field], f.main.path);
+				if (so.dir === "out") paths = linkedPaths(base.fm[so.field], base.path);
 				else {
 					// Notes of the type whose field links here: the index's, and notes this run has changed or made.
-					const cands = new Set([...env.ctx.incoming(f.main.path).filter((l) => l.sourceType === so.type && l.fieldKey === so.field).map((l) => l.source), ...[...notes.values()].filter((n) => n.row.type.key === so.type).map((n) => n.path)]);
+					const cands = new Set([...env.ctx.incoming(base.path).filter((l) => l.sourceType === so.type && l.fieldKey === so.field).map((l) => l.source), ...[...notes.values()].filter((n) => n.row.type.key === so.type).map((n) => n.path)]);
 					paths = [...cands].filter((p) => {
 						const n = notes.get(p) ?? env.ctx.row(p);
 						const fm = n ? ("fm" in n ? n.fm : n.frontmatter) : undefined;
-						return !!fm && linkedPaths(fm[so.field], p).includes(f.main.path);
+						return !!fm && linkedPaths(fm[so.field], p).includes(base.path);
 					});
 				}
 				for (const p of [...new Set(paths)].sort()) {
 					const n = noteAt(p);
-					if (!n || n === f.main || !passes(s.when, n, f)) continue;
+					if (!n || n === base || !passes(s.when, n, f)) continue;
 					count(s.as);
-					exec(s.steps, loopFrame(f, s, n, def));
+					execBlock(s, 0, loopFrame(f, s, n, def, scope), key);
 				}
 				return;
 			}
@@ -1463,11 +1535,11 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 					for (const x of asArray(v) as FValue[]) {
 						if (x === null || x === "") continue;
 						count(as);
-						exec(s.steps, { ...f, vars: { ...f.vars, [as]: x }, named: new Map(f.named), inLoop: true });
+						execBlock(s, 0, { ...f, vars: { ...f.vars, [as]: x }, named: new Map(f.named), inLoop: true }, key);
 					}
 					return;
 				}
-				const scope = keysOf(loopItemTypes(s, f.wf.scope, ctx.types), ctx.types);
+				const scope = keysOf(loopItemTypes(s, f.scope, ctx.types), ctx.types);
 				const def = workflowDef({ scope, when: s.when });
 				const { paths, unknown } = targetPaths(v, f.reader.row, ctx);
 				if (unknown.length) throw new Error(`No note called “${unknown[0]}”.`);
@@ -1475,7 +1547,7 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 					const n = noteAt(p);
 					if (!n || (s.itemType && n.row.type.key !== s.itemType) || !passes(s.when, n, f)) continue;
 					count(s.as);
-					exec(s.steps, loopFrame(f, s, n, def));
+					execBlock(s, 0, loopFrame(f, s, n, def, scope), key);
 				}
 				return;
 			}
@@ -1483,17 +1555,14 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 	};
 
 	const selected: Record<string, FValue> = env.selection ? { [SELECTION_VAR]: env.selection.map((r): LinkValue => ({ path: r.path, linktext: env.linkText(r.path), name: r.name })) } : {};
-	const top: Frame = { wf, main, reader: main, def: workflowDef(wf), vars: selected, named: new Map(), old: env.old, depth: 0, stack: [wf.id] };
-	for (let i = 0; i < wf.steps.length; i++) {
-		topIndex = i;
-		try {
-			step(wf.steps[i], top);
-		} catch (e) {
-			const none = { fm: start, changes: [], notices: [], others: [], via: [], asked };
-			if (e instanceof AskFirst) return { ...none, pending: { step: e.step, text: e.text } };
-			if (e instanceof StopRun) return { ...none, stopped: e.message };
-			return { ...none, error: { step: i, message: e instanceof Error ? e.message : String(e) } };
-		}
+	const top: Frame = { wf, main, reader: main, def: workflowDef(wf), scope: wf.scope, vars: selected, named: new Map(), old: env.old, depth: 0, stack: [wf.id] };
+	try {
+		exec(wf.steps, top, String);
+	} catch (e) {
+		const none = { fm: start, changes: [], notices: [], others: [], via: [], asked };
+		if (e instanceof AskFirst) return { ...none, pending: { step: e.step, text: e.text } };
+		if (e instanceof StopRun) return { ...none, stopped: e.message };
+		return { ...none, error: { step: at, message: e instanceof Error ? e.message : String(e) } };
 	}
 	return {
 		fm: main.fm,

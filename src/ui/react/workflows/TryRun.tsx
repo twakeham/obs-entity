@@ -2,7 +2,7 @@ import { Notice } from "obsidian";
 import type EntitiesPlugin from "../../../main";
 import { asArray } from "../../../model/links";
 import { formatValue, type FormatEnv } from "../../../model/fieldFormats";
-import { fieldLabel, inScope, isBigRun, movedText, reachText, runReach, runsOnce, type FieldChange, type WorkflowDef } from "../../../model/workflows";
+import { fieldLabel, inScope, isBigRun, movedText, reachText, runReach, runsOnce, stepLabel, type FieldChange, type WorkflowDef } from "../../../model/workflows";
 import type { EntityTypeDef } from "../../../model/types";
 import type { TryRun } from "../../../services/workflows";
 import { ReactModal } from "../../modals/bulkModals";
@@ -111,7 +111,7 @@ export function TryRunResult({ wf, res, again, close }: { wf: WorkflowDef; res: 
 			)}
 			{r?.error && (
 				<div className="oe-wf-try-banner is-error">
-					<Icon name="alert-circle" /> Step {r.error.step + 1} would fail: {r.error.message} Nothing would be saved.
+					<Icon name="alert-circle" /> Step {stepLabel(r.error.step)} would fail: {r.error.message} Nothing would be saved.
 				</div>
 			)}
 			{r && reach && (

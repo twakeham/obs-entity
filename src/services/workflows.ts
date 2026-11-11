@@ -20,6 +20,7 @@ import {
 	runReach,
 	runSteps,
 	runsOnce,
+	stepLabel,
 	workflowProblems,
 	type DateTrigger,
 	type FieldChange,
@@ -68,7 +69,7 @@ export interface RunRecord {
 /** A selection run one note at a time: whether a big run was agreed to, answers kept for the rest, notes still to go. */
 interface Batch {
 	agreed: boolean;
-	answers: Map<number, boolean>;
+	answers: Map<string, boolean>;
 	left: number;
 }
 
@@ -458,7 +459,7 @@ export class WorkflowEngine extends Events {
 		if (opts.chain.seen.has(key)) return this.record({ ...base, stopped: "It already ran on this note in this chain of changes." });
 		if (opts.chain.depth >= MAX_CHAIN) return this.record({ ...base, stopped: `Stopped after ${MAX_CHAIN} workflows set each other off.` });
 		let res: RunResult;
-		const answers = new Set<number>();
+		const answers = new Set<string>();
 		for (let agreed = false; ; ) {
 			const { rows, ctx } = plugin.viewData();
 			const replanned = agreed || answers.size > 0;
@@ -486,7 +487,7 @@ export class WorkflowEngine extends Events {
 			}
 			if (res.error) {
 				if (!opts.unattended) new Notice(`Workflow “${wf.name}” stopped on ${label}: ${res.error.message}`);
-				return this.record({ ...base, error: `Step ${res.error.step + 1}: ${res.error.message}` });
+				return this.record({ ...base, error: `Step ${stepLabel(res.error.step)}: ${res.error.message}` });
 			}
 			if (res.pending) {
 				if (opts.unattended) return this.record({ ...base, stopped: "It asks a question, but it ran on its own: nobody was asked." });
@@ -643,7 +644,7 @@ export class WorkflowEngine extends Events {
 	}
 
 	/** What a workflow's steps would do on a note: worked out on copies, nothing written. */
-	private simulate(wf: WorkflowDef, row: ViewRow, rows: ViewRow[], ctx: ViewContext, old?: ViewRow, answers?: Set<number> | "all", selection?: ViewRow[]): RunResult {
+	private simulate(wf: WorkflowDef, row: ViewRow, rows: ViewRow[], ctx: ViewContext, old?: ViewRow, answers?: Set<string> | "all", selection?: ViewRow[]): RunResult {
 		const { app } = this.plugin;
 		const linkText = (p: string) => {
 			const target = app.vault.getAbstractFileByPath(p);

@@ -13,7 +13,13 @@ import {
 	newCreateStep,
 	stepScopes,
 	stepTarget,
-	innerSteps,
+	flatSteps,
+	blockOffset,
+	mapStepAt,
+	stepBlocks,
+	stepLabel,
+	stepAt,
+	withBlocks,
 	inScope,
 	isLoop,
 	linkedSources,
@@ -46,7 +52,6 @@ import {
 	type FixedValue,
 	type LinkedSource,
 	type LoopStep,
-	type NoteStep,
 	type StepScope,
 	type StepKind,
 	type TriggerKind,
@@ -800,7 +805,7 @@ function TimedStatus({ id, wf, isNew }: { id: string; wf: WorkflowDef; isNew: bo
 	const t = wf.trigger;
 	if (!isTimed(t)) return null;
 	const st = isNew ? undefined : plugin.workflows.timedState()[id];
-	const moves = wf.steps.some((s) => s.kind === "move" || s.kind === "rename" || innerSteps(s).some((x) => x.kind === "move" || x.kind === "rename"));
+	const moves = flatSteps(wf.steps).some((s) => s.kind === "move" || s.kind === "rename");
 	const warn: string[] = [];
 	if (!plugin.workflows.timedHere) warn.push("Scheduled workflows don't run on this device: turn on “Run scheduled workflows on this device” in Settings → Obsidian Entities.");
 	if (plugin.settings.workflowsPaused) warn.push("All workflows are paused.");
@@ -881,8 +886,7 @@ function FieldSelect({ value, fields, label, onChange }: { value: string; fields
 /** Names steps give notes and loop items (lower case), across the workflow: each must be unique. */
 function usedNames(wf: WorkflowDef, except?: WorkflowStep): Set<string> {
 	return new Set(
-		wf.steps
-			.flatMap((s) => [s, ...innerSteps(s)])
+		flatSteps(wf.steps)
 			.filter((s) => s !== except)
 			.flatMap((s) => (s.kind === "create" || s.kind === "linked" || s.kind === "each" ? [s.as.trim().toLowerCase()] : [])),
 	);
@@ -937,13 +941,29 @@ function blankStep(kind: StepKind, wf: WorkflowDef, sc: StepScope, workflows: Wo
 	}
 }
 
-/** The scope a step added at the end of a list would have (the list''s created notes included). */
-function scopeForNew(wf: WorkflowDef, path: string, lookup: { types: EntityTypeDef[]; groups: GroupDef[] }): StepScope {
-	const ph: NoteStep = { kind: "notice", text: "" };
-	const next: WorkflowDef = path === "" ? { ...wf, steps: [...wf.steps, ph] } : { ...wf, steps: wf.steps.map((s, i) => (String(i) === path && isLoop(s) ? { ...s, steps: [...s.steps, ph] } : s)) };
-	const list = path === "" ? next.steps : innerSteps(next.steps[Number(path)]);
-	return stepScopes(next, lookup).get(path === "" ? String(list.length - 1) : `${path}.${list.length - 1}`)!;
+/** The scope a step added at the end of a list would have (the list''s created notes included): the workflow''s steps (`path` ""), or a block of the step at `path`. */
+function scopeForNew(wf: WorkflowDef, path: string, block: number, lookup: { types: EntityTypeDef[]; groups: GroupDef[] }): StepScope {
+	const ph: WorkflowStep = { kind: "notice", text: "" };
+	if (path === "") return stepScopes({ ...wf, steps: [...wf.steps, ph] }, lookup).get(String(wf.steps.length))!;
+	let key = "";
+	const steps = mapStepAt(wf.steps, path, (s) => {
+		const blocks = stepBlocks(s);
+		key = `${path}.${blockOffset(s, block) + (blocks[block]?.length ?? 0)}`;
+		return withBlocks(
+			s,
+			blocks.map((b, i) => (i === block ? [...b, ph] : b)),
+		);
+	});
+	return stepScopes({ ...wf, steps }, lookup).get(key) ?? stepScopes(wf, lookup).get(path)!;
 }
+
+/** "Add step": the kinds of step, grouped by what they do. */
+const STEP_GROUPS: { title: string; kinds: StepKind[] }[] = [
+	{ title: "Change the note", kinds: ["set", "clear", "tag", "link", "move", "rename"] },
+	{ title: "Notes", kinds: ["create"] },
+	{ title: "Flow", kinds: ["each", "linked", "run"] },
+	{ title: "Talk", kinds: ["notice", "ask"] },
+];
 
 /** A step card''s part in dragging steps to reorder them. */
 interface StepDrag {
@@ -960,13 +980,14 @@ interface StepDrag {
 }
 
 /**
- * Steps in order, as cards that drag to reorder by their handle, with "Add step" (a menu of step kinds). `path`:
- * "" for the workflow''s steps, or a loop''s place ("2") for the steps inside it (no loops there).
+ * Steps in order, as cards that drag to reorder by their handle, with "Add step" (a menu of step kinds, by group).
+ * `path`: "" for the workflow''s steps, or the place of the step whose block (`block`: a loop''s steps) this is.
  */
 function StepList({
 	wf,
 	steps,
 	path,
+	block = 0,
 	scopes,
 	problems,
 	onChange,
@@ -974,6 +995,7 @@ function StepList({
 	wf: WorkflowDef;
 	steps: WorkflowStep[];
 	path: string;
+	block?: number;
 	scopes: Map<string, StepScope>;
 	problems: WorkflowProblem[];
 	onChange: (steps: WorkflowStep[]) => void;
@@ -982,7 +1004,9 @@ function StepList({
 	const { types, groups, workflows } = plugin.settings;
 	// `over` is the gap the dragged step would go into (0 … steps).
 	const [drag, setDrag] = useState<{ from: number; over: number | null } | null>(null);
-	const keyOf = (i: number) => (path ? `${path}.${i}` : String(i));
+	const at = path ? stepAt(wf.steps, path) : undefined;
+	const offset = at ? blockOffset(at, block) : 0;
+	const keyOf = (i: number) => (path ? `${path}.${offset + i}` : String(i));
 	const move = (from: number, to: number) => {
 		if (from === to || from + 1 === to) return;
 		const next = [...steps];
@@ -990,19 +1014,24 @@ function StepList({
 		next.splice(to > from ? to - 1 : to, 0, m);
 		onChange(next);
 	};
-	// Inside a loop: no loops, and no questions (a question is asked once, before the loop).
-	const kinds = (Object.keys(STEP_LABELS) as StepKind[]).filter((k) => !path || (k !== "linked" && k !== "each" && k !== "ask"));
 	const add = (e: ReactMouseEvent) => {
 		const m = new Menu();
-		const sc = scopeForNew(wf, path, { types, groups });
-		for (const k of kinds)
-			m.addItem((i) =>
-				i
-					.setSection(k === "linked" || k === "each" || k === "run" || k === "ask" ? "more" : "note")
-					.setTitle(STEP_LABELS[k])
-					.setIcon(STEP_ICONS[k])
-					.onClick(() => onChange([...steps, blankStep(k, wf, sc, workflows, types)])),
-			);
+		const sc = scopeForNew(wf, path, block, { types, groups });
+		// Inside a loop, no questions: a question is asked once, before the loop.
+		const allowed = (k: StepKind) => !(sc.loop && k === "ask");
+		for (const g of STEP_GROUPS) {
+			const kinds = g.kinds.filter(allowed);
+			if (!kinds.length) continue;
+			m.addItem((i) => i.setSection(g.title).setTitle(g.title).setIsLabel(true));
+			for (const k of kinds)
+				m.addItem((i) =>
+					i
+						.setSection(g.title)
+						.setTitle(STEP_LABELS[k])
+						.setIcon(STEP_ICONS[k])
+						.onClick(() => onChange([...steps, blankStep(k, wf, sc, workflows, types)])),
+				);
+		}
 		m.showAtMouseEvent(e.nativeEvent);
 	};
 	return (
@@ -1073,7 +1102,7 @@ function StepCard({
 }) {
 	const plugin = usePlugin();
 	const allTypes = plugin.settings.types;
-	const sc = scopes.get(path) ?? scopeForNew(wf, path.includes(".") ? path.split(".")[0] : "", plugin.settings);
+	const sc = scopes.get(path) ?? scopeForNew(wf, "", 0, plugin.settings);
 	const target = stepTarget(step, sc, allTypes) ?? { scope: [], types: [], fields: [] };
 	const on = "on" in step ? step.on : undefined;
 	const settable = target.fields.filter((f) => f.key !== COMMON_KEYS.tags);
@@ -1082,7 +1111,7 @@ function StepCard({
 	const placing = step.kind === "move" || step.kind === "rename";
 	const hasOn = step.kind === "set" || step.kind === "clear" || step.kind === "tag" || step.kind === "link" || step.kind === "run" || placing;
 	// Created notes are named and placed by their Create a note step: moving or renaming offers the others only.
-	const onChoices = placing ? sc.on.filter((o) => o.value === ON_THIS) : sc.on;
+	const onChoices = placing ? sc.on.filter((o) => !o.made) : sc.on;
 	const changeOn = (v: string) => {
 		if (!hasOn) return;
 		const withOn = { ...step, on: v || undefined } as WorkflowStep;
@@ -1099,10 +1128,21 @@ function StepCard({
 				<select className="dropdown oe-pop-select" aria-label="On" value={on ?? ""} onChange={(e) => changeOn(e.target.value)}>
 					<option value="">{sc.defaultLabel}</option>
 					{onChoices.some((o) => o.value === ON_THIS) && <option value={ON_THIS}>This note</option>}
-					{onChoices.some((o) => o.value !== ON_THIS) && (
+					{onChoices.some((o) => o.value !== ON_THIS && !o.made) && (
+						<optgroup label="Loops this is inside">
+							{onChoices
+								.filter((o) => o.value !== ON_THIS && !o.made)
+								.map((o) => (
+									<option key={o.value} value={o.value}>
+										{o.label}
+									</option>
+								))}
+						</optgroup>
+					)}
+					{onChoices.some((o) => o.made) && (
 						<optgroup label="Created by earlier steps">
 							{onChoices
-								.filter((o) => o.value !== ON_THIS)
+								.filter((o) => o.made)
 								.map((o) => (
 									<option key={o.value} value={o.value}>
 										{o.label}
@@ -1282,7 +1322,7 @@ function StepCard({
 	}
 	const named = step.kind === "create" || step.kind === "linked" || step.kind === "each" ? step.as.trim() : "";
 	const subtitle = step.kind === "run" ? plugin.settings.workflows.find((w) => w.id === step.workflow)?.name : named ? `“${named}”` : "";
-	const stepNo = path.includes(".") ? path.split(".").map((n) => Number(n) + 1).join(".") : String(index + 1);
+	const stepNo = stepLabel(path);
 	return (
 		<div
 			className={`oe-wf-step${mine.length ? " has-issue" : ""}${isLoop(step) ? " is-loop" : ""}${drag.dragging ? " is-dragging" : ""}${drag.before ? " drop-before" : ""}${drag.after ? " drop-after" : ""}`}
@@ -1382,7 +1422,7 @@ function LoopBody({
 	const plugin = usePlugin();
 	const { types, groups } = plugin.settings;
 	const lookup = { types, groups };
-	const sc = scopes.get(path) ?? scopeForNew(wf, "", lookup);
+	const sc = scopes.get(path) ?? scopeForNew(wf, "", 0, lookup);
 	const its = loopItemTypes(step, sc.scope, types);
 	const notesLoop = step.kind === "linked" || step.items === "notes";
 	const innerDef = workflowDef({ scope: its.length === types.length ? [] : its.map((t) => t.key), when: step.when });
@@ -1426,7 +1466,7 @@ function LoopBody({
 					>
 						{!src!.out.some((f) => `out:${f.key}` === srcValue) && !src!.in.some((x) => `in:${x.type.key}:${x.field.key}` === srcValue) && <option value={srcValue}>Choose…</option>}
 						{src!.out.length > 0 && (
-							<optgroup label="This note's links">
+							<optgroup label={sc.loop === "notes" ? `${sc.defaultLabel}'s links` : "This note's links"}>
 								{src!.out.map((f) => (
 									<option key={f.key} value={`out:${f.key}`}>
 										{f.label}
@@ -1435,7 +1475,7 @@ function LoopBody({
 							</optgroup>
 						)}
 						{src!.in.length > 0 && (
-							<optgroup label="Notes linking here">
+							<optgroup label={sc.loop === "notes" ? `Notes linking to ${sc.defaultLabel.toLowerCase()}` : "Notes linking here"}>
 								{src!.in.map((x) => (
 									<option key={`${x.type.key}:${x.field.key}`} value={`in:${x.type.key}:${x.field.key}`}>
 										{x.label}
@@ -1450,7 +1490,7 @@ function LoopBody({
 					{formRow(
 						"List",
 						<FormulaBox sc={sc} label="List formula" value={step.formula} placeholder='e.g. [Labels], [Team] or list("a", "b")' onChange={(v) => onChange({ ...step, formula: v, ...detect(v) } as LoopStep)} />,
-						"A formula that gives a list. It reads this note.",
+						sc.noNote && !sc.loop ? "A formula that gives a list." : `A formula that gives a list. It reads ${sc.defaultLabel.toLowerCase()}.`,
 					)}
 					{formRow(
 						"Items are",
@@ -1504,7 +1544,7 @@ function LoopBody({
 				</span>,
 			)}
 			<div className="oe-wf-loop-steps">
-				<StepList wf={wf} steps={step.steps} path={path} scopes={scopes} problems={problems} onChange={(steps) => set({ steps: steps as NoteStep[] })} />
+				<StepList wf={wf} steps={step.steps} path={path} scopes={scopes} problems={problems} onChange={(steps) => set({ steps })} />
 			</div>
 		</div>
 	);

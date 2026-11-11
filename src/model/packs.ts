@@ -1,7 +1,7 @@
 import { FIELD_KINDS, cloneGroup, cloneType, isValidKey, type EntityTypeDef, type GroupDef } from "./types";
 import { rewriteRefs } from "./formula";
 import { isGroup, type FilterGroup } from "./views";
-import { cloneWorkflow, innerSteps, newWorkflowId, parseTemplate, readWorkflows, scopeTypes, type NoteStep, type WorkflowDef, type WorkflowStep } from "./workflows";
+import { cloneWorkflow, flatSteps, newWorkflowId, parseTemplate, readWorkflows, scopeTypes, type NoteStep, type WorkflowDef, type WorkflowStep } from "./workflows";
 
 /** A shareable bundle of types (and the groups they use), and workflows. */
 export interface TypePack {
@@ -424,8 +424,8 @@ export function renameWorkflowKeys(wf: WorkflowDef, keys: Map<string, string>, i
 		}
 	};
 	const step = (s: WorkflowStep): WorkflowStep => {
-		if (s.kind === "linked") return { ...s, source: s.source.dir === "in" ? { ...s.source, type: renameTarget(s.source.type, keys) } : s.source, when: renameFilter(s.when, keys), steps: s.steps.map(note) };
-		if (s.kind === "each") return { ...s, formula: f(s.formula), itemType: s.itemType ? renameTarget(s.itemType, keys) : s.itemType, when: renameFilter(s.when, keys), steps: s.steps.map(note) };
+		if (s.kind === "linked") return { ...s, source: s.source.dir === "in" ? { ...s.source, type: renameTarget(s.source.type, keys) } : s.source, when: renameFilter(s.when, keys), steps: s.steps.map(step) };
+		if (s.kind === "each") return { ...s, formula: f(s.formula), itemType: s.itemType ? renameTarget(s.itemType, keys) : s.itemType, when: renameFilter(s.when, keys), steps: s.steps.map(step) };
 		return note(s);
 	};
 	return { ...wf, scope: wf.scope.map((x) => renameTarget(x, keys)), when: renameFilter(wf.when, keys), steps: wf.steps.map(step) };
@@ -441,7 +441,7 @@ export function packWorkflows(packTypes: EntityTypeDef[], all: WorkflowDef[], al
 	const add = (w: WorkflowDef) => {
 		if (picked.has(w.id)) return;
 		picked.set(w.id, w);
-		for (const s of w.steps.flatMap((x) => [x, ...innerSteps(x)]))
+		for (const s of flatSteps(w.steps))
 			if (s.kind === "run") {
 				const sub = all.find((x) => x.id === s.workflow);
 				if (sub) add(sub);
