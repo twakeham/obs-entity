@@ -1454,7 +1454,7 @@ function StepCard({
 }
 
 /** Label / control rows, as in "Create a note" and the loops. */
-const formRow = (label: string, control: ReactNode, desc?: string) => (
+const formRow = (label: ReactNode, control: ReactNode, desc?: string) => (
 	<>
 		<span className="oe-wf-create-label" title={desc}>
 			{label}
@@ -1650,7 +1650,9 @@ function IfBody({
 	return (
 		<div className="oe-wf-create oe-wf-if">
 			{formRow(
-				"If",
+				<span className="oe-wf-if-label">
+					<Icon name="split" /> If
+				</span>,
 				<span className="oe-wf-inline">
 					<Segmented
 						label="Test"
@@ -1692,20 +1694,22 @@ function IfBody({
 							<div className="oe-wf-help">True when it gives true, a number other than 0, or text or a list that isn't empty.</div>
 						</div>,
 					)}
-			<div className="oe-wf-if-divider" />
-			{formRow(
-				"Then",
-				<div className="oe-wf-if-branch">
-					<StepList wf={wf} steps={step.steps} path={path} block={0} empty="Nothing: carry on after the If." scopes={scopes} problems={problems} onChange={(steps) => set({ steps })} />
-				</div>,
-			)}
-			<div className="oe-wf-if-divider" />
-			{formRow(
-				"Otherwise",
-				<div className="oe-wf-if-branch">
-					<StepList wf={wf} steps={step.otherwise} path={path} block={1} empty="Nothing: carry on after the If." scopes={scopes} problems={problems} onChange={(otherwise) => set({ otherwise })} />
-				</div>,
-			)}
+			<div className="oe-wf-if-branches">
+				<div className="oe-wf-if-columns">
+					<div className="oe-wf-if-branch is-then">
+						<span className="oe-wf-if-label">
+							<Icon name="check" /> Then
+						</span>
+						<StepList wf={wf} steps={step.steps} path={path} block={0} empty="Nothing: carry on after the If." scopes={scopes} problems={problems} onChange={(steps) => set({ steps })} />
+					</div>
+					<div className="oe-wf-if-branch is-otherwise">
+						<span className="oe-wf-if-label">
+							<Icon name="corner-down-right" /> Otherwise
+						</span>
+						<StepList wf={wf} steps={step.otherwise} path={path} block={1} empty="Nothing: carry on after the If." scopes={scopes} problems={problems} onChange={(otherwise) => set({ otherwise })} />
+					</div>
+				</div>
+			</div>
 		</div>
 	);
 }

@@ -8414,14 +8414,70 @@ button.oe-calv-more:hover {
 	border-left-color: color-mix(in srgb, var(--text-error) 50%, var(--background-modifier-border));
 }
 
-/* An If's Then and Otherwise: labelled in the label column like its If, a dashed line above each; their steps beside */
-.oe-wf-if-divider {
+/*
+ * An If: its parts labelled with an icon (If, Then, Otherwise); Then and Otherwise side by side under the condition,
+ * a dashed line above and between them, stacked when there isn't room for two.
+ */
+.oe-wf-if-label {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	line-height: 26px;
+	font-size: var(--font-ui-small);
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
+}
+
+.oe-wf-if-label .oe-icon svg {
+	width: 14px;
+	height: 14px;
+	color: var(--text-muted);
+}
+
+.oe-wf-if-branches {
 	grid-column: 1 / -1;
+	container-type: inline-size;
 	border-top: 1px dashed var(--background-modifier-border);
 }
 
-.oe-wf-create-control:has(> .oe-wf-if-branch) {
-	display: block;
+.oe-wf-if-columns {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.oe-wf-if-branch {
+	min-width: 0;
+	padding: var(--size-4-2) 0 0;
+}
+
+.oe-wf-if-branch.is-then {
+	padding-right: var(--size-4-3);
+}
+
+.oe-wf-if-branch.is-otherwise {
+	padding-left: var(--size-4-3);
+	border-left: 1px dashed var(--background-modifier-border);
+}
+
+.oe-wf-if-branch > .oe-wf-if-label {
+	margin-bottom: var(--size-4-1);
+}
+
+@container (max-width: 640px) {
+	.oe-wf-if-columns {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.oe-wf-if-branch.is-then {
+		padding-right: 0;
+	}
+
+	.oe-wf-if-branch.is-otherwise {
+		margin-top: var(--size-4-2);
+		padding-left: 0;
+		border-left: none;
+		border-top: 1px dashed var(--background-modifier-border);
+	}
 }
 
 .oe-wf-if-branch .oe-wf-step {
@@ -8434,11 +8490,6 @@ button.oe-calv-more:hover {
 
 .oe-wf-if-branch .oe-wf-inner-empty {
 	line-height: 26px;
-}
-
-.oe-wf-if-branch > .oe-wf-steps:empty + .oe-wf-add-step,
-.oe-wf-if-branch > .oe-wf-steps:has(.oe-wf-inner-empty) + .oe-wf-add-step {
-	margin-top: 0;
 }
 
 .oe-wf .oe-wf-loop select.oe-wf-loop-source,
