@@ -21,6 +21,13 @@ import {
 	ON_THIS,
 	formulaFromFixed,
 	listsValues,
+	isTimed,
+	nextDue,
+	DEFAULT_AT,
+	DEFAULT_LIMIT,
+	WEEKDAYS,
+	type DateTrigger,
+	type ScheduleTrigger,
 	movedText,
 	needsScope,
 	newWorkflow,
@@ -68,15 +75,18 @@ export interface WorkflowsRequest {
 	newFor?: string;
 }
 
-const TRIGGER_GROUPS: { kind: TriggerKind; title: string; icon: string }[] = [
-	{ kind: "created", title: "When created", icon: "file-plus" },
-	{ kind: "changed", title: "When changed", icon: "pencil" },
-	{ kind: "manual", title: "Run on notes", icon: "mouse-pointer-click" },
+const TRIGGER_GROUPS: { kinds: TriggerKind[]; title: string; icon: string }[] = [
+	{ kinds: ["created"], title: "When created", icon: "file-plus" },
+	{ kinds: ["changed"], title: "When changed", icon: "pencil" },
+	{ kinds: ["manual"], title: "Run on notes", icon: "mouse-pointer-click" },
+	{ kinds: ["schedule", "date"], title: "Scheduled", icon: "clock" },
 ];
 const TRIGGER_OPTIONS: { value: TriggerKind; label: string; icon: string }[] = [
 	{ value: "changed", label: "Field changes", icon: "pencil" },
 	{ value: "created", label: "Note created", icon: "file-plus" },
 	{ value: "manual", label: "Run on notes", icon: "mouse-pointer-click" },
+	{ value: "schedule", label: "Schedule", icon: "clock" },
+	{ value: "date", label: "Date reached", icon: "calendar-clock" },
 ];
 const STEP_ICONS: Record<StepKind, string> = {
 	set: "pencil-line",
@@ -159,13 +169,14 @@ export function WorkflowManager({ state, setState, request, onRequestDone }: { s
 				</div>
 				<div className="oe-tm-typelist">
 					{TRIGGER_GROUPS.map((g) => {
-						const items = shown.filter((x) => x.wf.trigger.kind === g.kind);
+						const items = shown.filter((x) => g.kinds.includes(x.wf.trigger.kind));
 						if (!items.length && q) return null;
 						return (
-							<div key={g.kind} className="oe-tm-typegroup">
+							<div key={g.title} className="oe-tm-typegroup">
 								<div className="oe-tm-typegroup-title is-static">
 									<Icon name={g.icon} />
 									<span className="oe-tm-typename">{g.title}</span>
+									{g.kinds.includes("schedule") && !plugin.workflows.timedHere && items.length > 0 && <span className="oe-tm-badge" title="Scheduled and date workflows don't run on this device (Settings → Workflows).">not here</span>}
 								</div>
 								{items.map(({ id, wf, isNew }) => {
 									const problems = workflowProblems(wf, settings);
@@ -373,10 +384,21 @@ function WorkflowEditor({
 	const choices: ColumnChoice[] = useMemo(() => columnChoices(def, lookup), [scopeKey, settings.types]);
 	const valuesOf = (colId: string) => columnValues(choices, colId, rows, scopeTypes(wf, settings.types));
 
+	const dateFields = fields.filter((f) => f.kind === "date");
 	const setTrigger = (kind: TriggerKind) =>
 		edit((x) => {
 			if (x.trigger.kind === kind) return;
-			x.trigger = kind === "changed" ? { kind, field: COMMON_KEYS.status } : kind === "created" ? { kind } : { kind, label: x.name || "Run" };
+			const keep = isTimed(x.trigger) ? { at: x.trigger.at, limit: x.trigger.limit } : { at: DEFAULT_AT, limit: DEFAULT_LIMIT };
+			x.trigger =
+				kind === "changed"
+					? { kind, field: COMMON_KEYS.status }
+					: kind === "created"
+						? { kind }
+						: kind === "schedule"
+							? { kind, every: "day", day: 1, hours: 4, ...keep }
+							: kind === "date"
+								? { kind, field: dateFields[0]?.key ?? "", offset: 0, ...keep }
+								: { kind, label: x.name || "Run" };
 		});
 	const watched = t.kind === "changed" ? fields.find((f) => f.key === t.field) : undefined;
 	const valueChoices = (f: WorkflowField | undefined): { value: string; label: string }[] => {
@@ -393,6 +415,9 @@ function WorkflowEditor({
 		f?.kind === "status" ? statusColors(statusUnion(scopeTypes(wf, settings.types), settings.groups), settings.types, settings.groups) : f?.field?.colors;
 	const editChanged = (fn: (tr: Extract<WorkflowDef["trigger"], { kind: "changed" }>) => void) => edit((x) => x.trigger.kind === "changed" && fn(x.trigger));
 	const editManual = (fn: (tr: Extract<WorkflowDef["trigger"], { kind: "manual" }>) => void) => edit((x) => x.trigger.kind === "manual" && fn(x.trigger));
+	const editTimed = (fn: (tr: ScheduleTrigger | DateTrigger) => void) => edit((x) => isTimed(x.trigger) && fn(x.trigger));
+	const editSchedule = (fn: (tr: ScheduleTrigger) => void) => edit((x) => x.trigger.kind === "schedule" && fn(x.trigger));
+	const editDate = (fn: (tr: DateTrigger) => void) => edit((x) => x.trigger.kind === "date" && fn(x.trigger));
 
 	const recent = plugin.workflows.log.filter((r) => r.workflow === id).slice(0, 10);
 
@@ -505,9 +530,83 @@ function WorkflowEditor({
 							</Row>
 						</>
 					)}
+					{t.kind === "schedule" && (
+						<>
+							<Row label="Every">
+								<Segmented
+									label="Every"
+									value={t.every}
+									options={[
+										{ value: "day", label: "Day" },
+										{ value: "week", label: "Week" },
+										{ value: "hours", label: "Few hours" },
+									]}
+									onChange={(v) => editSchedule((tr) => (tr.every = v))}
+								/>
+							</Row>
+							{t.every === "week" && (
+								<Row label="On">
+									<select className="dropdown" aria-label="Day of the week" value={t.day} onChange={(e) => editSchedule((tr) => (tr.day = Number(e.target.value)))}>
+										{[1, 2, 3, 4, 5, 6, 0].map((d) => (
+											<option key={d} value={d}>
+												{WEEKDAYS[d]}
+											</option>
+										))}
+									</select>
+								</Row>
+							)}
+							{t.every === "hours" ? (
+								<Row label="Hours" desc="How many hours after it last ran (1 to 168).">
+									<WholeNumber label="Hours" value={t.hours} min={1} max={168} onChange={(v) => editSchedule((tr) => (tr.hours = v))} />
+								</Row>
+							) : (
+								<Row label="At" desc="Local time.">
+									<input type="time" className="oe-wf-time" aria-label="Time" value={t.at} onChange={(e) => e.target.value && editSchedule((tr) => (tr.at = e.target.value))} />
+								</Row>
+							)}
+							<div className="oe-wf-help">Runs on every note of these types that matches Only if, one run each.</div>
+						</>
+					)}
+					{t.kind === "date" && (
+						<>
+							<Row label="Date field">
+								{dateFields.length ? <FieldSelect label="Date field" value={t.field} fields={dateFields} onChange={(k) => editDate((tr) => (tr.field = k))} /> : <span className="oe-tm-muted">These types have no date fields.</span>}
+							</Row>
+							<Row label="When">
+								<span className="oe-wf-date-when">
+									{t.offset !== 0 && <WholeNumber label="Days" value={Math.abs(t.offset)} min={1} max={3650} onChange={(v) => editDate((tr) => (tr.offset = Math.sign(tr.offset) * v))} />}
+									{t.offset !== 0 && <span className="oe-wf-to">{Math.abs(t.offset) === 1 ? "day" : "days"}</span>}
+									<Segmented
+										label="When"
+										value={t.offset < 0 ? "before" : t.offset > 0 ? "after" : "on"}
+										options={[
+											{ value: "before", label: "Before" },
+											{ value: "on", label: "On the day" },
+											{ value: "after", label: "After" },
+										]}
+										onChange={(v) => editDate((tr) => (tr.offset = v === "on" ? 0 : (v === "before" ? -1 : 1) * Math.max(1, Math.abs(tr.offset))))}
+									/>
+								</span>
+							</Row>
+							<Row label="Check at" desc="Checked once a day, at this time (or when Obsidian next opens). Dates passed while it was closed are caught up, once per note; a date set to today after the check runs straight away.">
+								<input type="time" className="oe-wf-time" aria-label="Check at" value={t.at} onChange={(e) => e.target.value && editDate((tr) => (tr.at = e.target.value))} />
+							</Row>
+						</>
+					)}
+					{isTimed(t) && (
+						<>
+							<Row label="At most" desc="Notes per run. When more notes match, it doesn't run at all, and Recent runs says why.">
+								<span className="oe-wf-date-when">
+									<WholeNumber label="At most" value={t.limit} min={1} max={10000} onChange={(v) => editTimed((tr) => (tr.limit = v))} />
+									<span className="oe-wf-to">notes</span>
+								</span>
+							</Row>
+							<TimedStatus id={id} wf={wf} isNew={isNew} />
+						</>
+					)}
 				</Section>
 
-				<Section title="Only if" desc="Conditions on the note, after the change. None: it always runs.">
+				<Section title="Only if" desc={isTimed(t) ? "Conditions on each note when it runs. None: every note of these types." : "Conditions on the note, after the change. None: it always runs."}>
 					{at("when").map((p, i) => (
 						<div key={i} className="oe-tm-issue">
 							<Icon name="alert-circle" /> {p.message}
@@ -534,6 +633,68 @@ function WorkflowEditor({
 				)}
 			</div>
 		</main>
+	);
+}
+
+/** A whole number box: saved when it's left or Enter is pressed; out-of-range or non-numbers go back. */
+function WholeNumber({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (v: number) => void }) {
+	const [text, setText] = useState(String(value));
+	useEffect(() => setText(String(value)), [value]);
+	const commit = () => {
+		const n = Number(text.trim());
+		if (Number.isInteger(n) && n >= min && n <= max) {
+			if (n !== value) onChange(n);
+		} else setText(String(value));
+	};
+	return (
+		<input
+			type="number"
+			className="oe-wf-number"
+			aria-label={label}
+			min={min}
+			max={max}
+			step={1}
+			value={text}
+			onChange={(e) => setText(e.target.value)}
+			onBlur={commit}
+			onKeyDown={(e) => e.key === "Enter" && commit()}
+		/>
+	);
+}
+
+/**
+ * When a scheduled or date workflow last ran and runs next on this device, and why it might not: off on this device,
+ * off or paused, or (moves and renames) Obsidian asking before it updates links.
+ */
+function TimedStatus({ id, wf, isNew }: { id: string; wf: WorkflowDef; isNew: boolean }) {
+	const plugin = usePlugin();
+	const t = wf.trigger;
+	if (!isTimed(t)) return null;
+	const st = isNew ? undefined : plugin.workflows.timedState()[id];
+	const moves = wf.steps.some((s) => s.kind === "move" || s.kind === "rename" || innerSteps(s).some((x) => x.kind === "move" || x.kind === "rename"));
+	const warn: string[] = [];
+	if (!plugin.workflows.timedHere) warn.push("Scheduled workflows don't run on this device: turn on “Run scheduled workflows on this device” in Settings → Obsidian Entities.");
+	if (plugin.settings.workflowsPaused) warn.push("All workflows are paused.");
+	else if (!wf.on) warn.push("It's off.");
+	if (moves && !plugin.workflows.linksFollow()) warn.push("Its move and rename steps won't run on their own: Obsidian asks before updating links (Settings → Files and links → Automatically update internal links).");
+	const next = st ? nextDue(t, st.last) : nextDue(t, Date.now());
+	return (
+		<div className="oe-wf-timed">
+			<div className="oe-wf-help">
+				It runs on its own while Obsidian is open on a device that runs scheduled workflows. A missed run catches up once, the next time Obsidian is open.
+				{wf.on && !plugin.settings.workflowsPaused && plugin.workflows.timedHere && (
+					<>
+						{" "}
+						{st ? `Last ${t.kind === "date" ? "checked" : "ran"} ${when(st.last)}; next ${when(next)}.` : isNew ? "Save it to start." : `First ${t.kind === "date" ? "check" : "run"}: ${when(next)}.`}
+					</>
+				)}
+			</div>
+			{warn.map((w, i) => (
+				<div key={i} className="oe-wf-banner">
+					<Icon name="alert-triangle" /> {w}
+				</div>
+			))}
+		</div>
 	);
 }
 

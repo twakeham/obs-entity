@@ -7510,6 +7510,35 @@ button.oe-calv-more:hover {
 	font-size: var(--font-ui-smaller);
 }
 
+/* Scheduled and date triggers */
+.oe-wf input.oe-wf-time,
+.oe-wf input.oe-wf-number {
+	height: 26px;
+	font-size: var(--font-ui-small);
+}
+
+.oe-wf input.oe-wf-number {
+	width: 6em;
+}
+
+.oe-wf-date-when {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+.oe-wf-timed {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+	margin-top: var(--size-4-2);
+}
+
+.oe-wf-timed .oe-wf-banner {
+	margin-bottom: 0;
+}
+
 /* Try on a note… */
 .oe-wf-try-modal {
 	width: min(640px, 92vw);

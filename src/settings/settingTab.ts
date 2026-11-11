@@ -243,7 +243,7 @@ export class EntitiesSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Workflows")
 			.setDesc(
-				`${s.workflows.length} workflow${s.workflows.length === 1 ? "" : "s"} (${wfOn} on)${s.workflowsPaused ? ", all paused" : ""}. Set fields, tags and links automatically when notes are created or changed, or from buttons.`,
+				`${s.workflows.length} workflow${s.workflows.length === 1 ? "" : "s"} (${wfOn} on)${s.workflowsPaused ? ", all paused" : ""}. Set fields, tags and links automatically when notes are created or changed, on a schedule or a date, or from buttons.`,
 			)
 			.addButton((b) =>
 				b.setButtonText("Open workflows").onClick(() => {
@@ -260,6 +260,12 @@ export class EntitiesSettingTab extends PluginSettingTab {
 					this.display();
 				}),
 			);
+		new Setting(containerEl)
+			.setName("Run scheduled workflows on this device")
+			.setDesc(
+				"Scheduled and date workflows run while Obsidian is open on a device where this is on. With a synced vault, turn it on for one device only, or each would run them. Kept on this device only (on for desktops at first, off for phones and tablets).",
+			)
+			.addToggle((t) => t.setValue(this.plugin.workflows.timedHere).onChange((v) => this.plugin.workflows.setTimedHere(v)));
 	}
 
 	/** Date display format: presets (shown for today) or a custom moment.js pattern. */

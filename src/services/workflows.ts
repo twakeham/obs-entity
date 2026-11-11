@@ -1,4 +1,4 @@
-import { Events, Notice, TFile, TFolder, debounce, normalizePath } from "obsidian";
+import { Events, Notice, Platform, TFile, TFolder, debounce, normalizePath } from "obsidian";
 import { emptyFormValues } from "../model/defaults";
 import { todayDays } from "../model/formConditions";
 import type { EntityFormValues } from "../model/frontmatter";
@@ -8,19 +8,25 @@ import { COMMON_KEYS } from "../model/types";
 import type { ViewContext, ViewRow } from "../model/views";
 import {
 	changeMatches,
+	dateCheckDue,
+	dateReached,
+	dueAt,
 	inScope,
 	isBigRun,
+	isTimed,
 	MAX_CHAIN,
 	passesWhen,
 	reachText,
 	runReach,
 	runSteps,
 	workflowProblems,
+	type DateTrigger,
 	type FieldChange,
 	type NoteMove,
 	type Placed,
 	type PlaceRequest,
 	type RunResult,
+	type ScheduleTrigger,
 	type TriggerKind,
 	type WorkflowDef,
 } from "../model/workflows";
@@ -84,6 +90,16 @@ interface Chain {
 
 /** How long a tag on a written note waits for the index to report the write. */
 const TAG_MS = 5000;
+/** This device's choice: run scheduled and date workflows here ("on" / "off"; unset: desktop yes, mobile no). */
+const DEVICE_KEY = "obs-entities-timed-device";
+/** When each scheduled / date workflow last ran or checked on this device. */
+const STATE_KEY = "obs-entities-timed-state";
+
+/** A timed workflow on this device: when it last ran or checked (ms), and for date triggers the last day checked. */
+export interface TimedState {
+	last: number;
+	day?: number;
+}
 const LOG_LIMIT = 200;
 const fresh = (): Chain => ({ depth: 0, seen: new Set() });
 const copy = <T>(v: T): T => (v === undefined ? v : (JSON.parse(JSON.stringify(v)) as T));
@@ -128,6 +144,7 @@ export class WorkflowEngine extends Events {
 			}),
 		);
 		void this.readLog();
+		this.startTimers();
 	}
 
 	get paused(): boolean {
@@ -175,6 +192,7 @@ export class WorkflowEngine extends Events {
 		if (silent || this.paused) return;
 		for (const wf of this.plugin.settings.workflows)
 			if (wf.on && wf.trigger.kind === "created" && inScope(wf, rec.type) && wf.scope.length) await this.run(wf, rec.path, { chain });
+		await this.datesNowToday(rec, {}, chain);
 	}
 
 	private async onChanged(rec: EntityRecord, before: Record<string, unknown>): Promise<void> {
@@ -193,6 +211,157 @@ export class WorkflowEngine extends Events {
 			if (!wf.on || t.kind !== "changed" || !wf.scope.length || !inScope(wf, rec.type) || !changeMatches(t, before, rec.frontmatter, rec.type)) continue;
 			await this.run(wf, rec.path, { chain, before });
 		}
+		await this.datesNowToday(rec, before, chain);
+	}
+
+	// ---------------------------------------------------------------- schedules and dates
+
+	/** Whether scheduled and date workflows run on this device (each device decides: desktop yes, mobile no, at first). */
+	get timedHere(): boolean {
+		const v = this.plugin.app.loadLocalStorage(DEVICE_KEY) as unknown;
+		return v === "on" ? true : v === "off" ? false : Platform.isDesktop;
+	}
+
+	setTimedHere(on: boolean): void {
+		// Turned on: start from now, rather than catching up on everything since this device last ran them.
+		if (on && !this.timedHere) this.saveTimed({});
+		this.plugin.app.saveLocalStorage(DEVICE_KEY, on ? "on" : "off");
+		this.trigger("log");
+	}
+
+	/** When each timed workflow last ran or checked on this device (local storage, so devices keep their own). */
+	timedState(): Record<string, TimedState> {
+		const raw = this.plugin.app.loadLocalStorage(STATE_KEY) as unknown;
+		try {
+			const v = typeof raw === "string" ? (JSON.parse(raw) as unknown) : raw;
+			return v && typeof v === "object" ? (v as Record<string, TimedState>) : {};
+		} catch {
+			return {};
+		}
+	}
+
+	private saveTimed(state: Record<string, TimedState>): void {
+		this.plugin.app.saveLocalStorage(STATE_KEY, JSON.stringify(state));
+	}
+
+	/** Start checking scheduled and date workflows: soon after startup, then every minute. */
+	startTimers(): void {
+		this.plugin.app.workspace.onLayoutReady(() => window.setTimeout(() => void this.checkTimed(), 3000));
+		this.plugin.registerInterval(window.setInterval(() => void this.checkTimed(), 60_000));
+	}
+
+	private checking = false;
+
+	/**
+	 * Run the scheduled and date workflows that are due. A missed run catches up once. Workflows that are off or
+	 * paused (or have problems) don't build up runs to catch up on: they start again from now.
+	 */
+	async checkTimed(now = Date.now()): Promise<void> {
+		const { plugin } = this;
+		if (this.checking || !plugin.index.isReady() || !this.timedHere) return;
+		this.checking = true;
+		try {
+			const state = this.timedState();
+			const today = todayDays();
+			const live = new Set<string>();
+			for (const wf of plugin.settings.workflows) {
+				const t = wf.trigger;
+				if (!isTimed(t)) continue;
+				live.add(wf.id);
+				const st = state[wf.id];
+				const idle = !wf.on || this.paused || workflowProblems(wf, plugin.settings).length > 0;
+				if (t.kind === "schedule") {
+					// New (or idle): start from now, so it doesn't run for a time that's already gone.
+					if (!st || idle) {
+						state[wf.id] = { last: now };
+						continue;
+					}
+					if (dueAt(t, st.last, now) === null) continue;
+					state[wf.id] = { last: now };
+					this.saveTimed(state);
+					await this.runTimed(wf, this.scheduledNotes(wf));
+				} else {
+					if (!st || idle) {
+						// Today counts from its check time on; earlier days are done.
+						if (!st || st.day === undefined || idle) state[wf.id] = { last: now, day: today - 1 };
+						if (idle) continue;
+					}
+					const cur = state[wf.id];
+					if (!dateCheckDue(t, cur.day ?? today - 1, today, now)) continue;
+					const notes = this.dateNotes(wf, cur.day ?? today - 1, today);
+					state[wf.id] = { last: now, day: today };
+					this.saveTimed(state);
+					await this.runTimed(wf, notes);
+				}
+			}
+			for (const id of Object.keys(state)) if (!live.has(id)) delete state[id];
+			this.saveTimed(state);
+		} finally {
+			this.checking = false;
+		}
+	}
+
+	/** The scoped notes a scheduled workflow runs on (matching Only if). */
+	private scheduledNotes(wf: WorkflowDef): string[] {
+		const { rows, ctx } = this.plugin.viewData();
+		return rows.filter((r) => inScope(wf, r.type) && passesWhen(wf, r, ctx)).map((r) => r.path);
+	}
+
+	/** The scoped notes whose date (with the offset) was reached after `after`, up to today, matching Only if. */
+	private dateNotes(wf: WorkflowDef, after: number, today: number): string[] {
+		const t = wf.trigger as DateTrigger;
+		const { rows, ctx } = this.plugin.viewData();
+		return rows.filter((r) => inScope(wf, r.type) && dateReached(t, r.frontmatter[t.field], this.plugin.dates, after, today) && passesWhen(wf, r, ctx)).map((r) => r.path);
+	}
+
+	/**
+	 * A date edited (or a note made) after today's check, so that it's reached today: its date workflows run now
+	 * rather than never.
+	 */
+	private async datesNowToday(rec: EntityRecord, before: Record<string, unknown>, chain: Chain): Promise<void> {
+		if (this.paused || !this.timedHere) return;
+		const today = todayDays();
+		const state = this.timedState();
+		for (const wf of this.plugin.settings.workflows) {
+			const t = wf.trigger;
+			if (!wf.on || t.kind !== "date" || !inScope(wf, rec.type) || state[wf.id]?.day !== today) continue;
+			if (!dateReached(t, rec.frontmatter[t.field], this.plugin.dates, today - 1, today) || dateReached(t, before[t.field], this.plugin.dates, today - 1, today)) continue;
+			await this.run(wf, rec.path, { chain, unattended: true, limit: t.limit });
+		}
+	}
+
+	/** One run per note, unattended: not over the workflow's limit (else none, logged), then a summary notice with Undo. */
+	private async runTimed(wf: WorkflowDef, paths: string[]): Promise<void> {
+		const t = wf.trigger as ScheduleTrigger | DateTrigger;
+		if (!paths.length) return;
+		if (paths.length > t.limit) {
+			const first = this.plugin.index.get(paths[0]);
+			this.record({ id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, time: Date.now(), workflow: wf.id, name: wf.name, path: paths[0], note: first?.name ?? paths[0], trigger: t.kind, changes: [], notices: [], stopped: `It would run on ${paths.length} notes, over its limit of ${t.limit}: nothing was run.` });
+			new Notice(`“${wf.name}” didn't run: it would run on ${paths.length} notes, over its limit of ${t.limit}.`);
+			return;
+		}
+		const done: RunRecord[] = [];
+		for (const p of paths) {
+			const r = await new Promise<RunRecord | null>((resolve) => this.enqueue(async () => resolve(await this.run(wf, p, { chain: fresh(), unattended: true, limit: t.limit }))));
+			if (r) done.push(r);
+		}
+		const changed = done.filter((r) => (r.changes.length || r.created?.length || r.others?.length || r.moved?.length) && !r.error && !r.stopped);
+		const failed = done.filter((r) => r.error || r.stopped);
+		if (!changed.length && !failed.length) return;
+		const frag = createFragment((f) => {
+			f.appendText(`“${wf.name}” ran on ${changed.length === 1 ? changed[0].note : `${changed.length} notes`}`);
+			if (failed.length) f.appendText(`; ${failed.length} didn't (see Recent runs)`);
+			f.appendText(".");
+			if (changed.length) {
+				f.appendText(" ");
+				const a = f.createEl("a", { text: "Undo", href: "#" });
+				a.addEventListener("click", (e) => {
+					e.preventDefault();
+					void this.undo(changed.map((r) => r.id));
+				});
+			}
+		});
+		new Notice(frag, 10000);
 	}
 
 	/** Run a workflow on notes by hand: one run each, then a notice with Undo. */
@@ -250,7 +419,7 @@ export class WorkflowEngine extends Events {
 	 * Run one workflow on one note: check problems, the chain and Only if, run the steps, write the note once, keep
 	 * its undo and log it. Null when it didn't apply (Only if failed).
 	 */
-	private async run(wf: WorkflowDef, path: string, opts: { chain: Chain; before?: Record<string, unknown>; manual?: boolean; batch?: Batch }): Promise<RunRecord | null> {
+	private async run(wf: WorkflowDef, path: string, opts: { chain: Chain; before?: Record<string, unknown>; manual?: boolean; batch?: Batch; unattended?: boolean; limit?: number }): Promise<RunRecord | null> {
 		const { plugin } = this;
 		const { app } = plugin;
 		const file = app.vault.getAbstractFileByPath(path);
@@ -277,10 +446,11 @@ export class WorkflowEngine extends Events {
 				return this.record({ ...base, stopped: res.stopped });
 			}
 			if (res.error) {
-				new Notice(`Workflow “${wf.name}” stopped on ${rec.name}: ${res.error.message}`);
+				if (!opts.unattended) new Notice(`Workflow “${wf.name}” stopped on ${rec.name}: ${res.error.message}`);
 				return this.record({ ...base, error: `Step ${res.error.step + 1}: ${res.error.message}` });
 			}
 			if (res.pending) {
+				if (opts.unattended) return this.record({ ...base, stopped: "It asks a question, but it ran on its own: nobody was asked." });
 				const { step, text } = res.pending;
 				let yes = opts.batch?.answers.get(step);
 				if (yes === undefined) {
@@ -294,16 +464,24 @@ export class WorkflowEngine extends Events {
 				continue;
 			}
 			const reach = runReach(res);
+			if (opts.unattended) {
+				// Nobody to ask: the workflow's limit decides instead.
+				const n = reach.changed + reach.created;
+				if (opts.limit !== undefined && n > opts.limit) return this.record({ ...base, stopped: `It would ${reachText(reach)}, over its limit of ${opts.limit}: nothing was done.` });
+				break;
+			}
 			if (agreed || !isBigRun(reach) || opts.batch?.agreed) break;
 			if (!(await confirmRun(app, `Run “${wf.name}”?`, `On ${rec.name}, it would ${reachText(reach)}. You can undo it afterwards.`))) return this.record({ ...base, stopped: `Cancelled: it would ${reachText(reach)}.` });
 			if (opts.batch) opts.batch.agreed = true;
 			// Plan again from the notes as they are now, so nothing newer is overwritten.
 			agreed = true;
 		}
+		const moving = this.moving(path, res);
+		// Obsidian asks before updating links when its "Automatically update internal links" is off: nobody would answer.
+		if (opts.unattended && moving.length && !this.linksFollow()) return this.record({ ...base, stopped: "It moves or renames notes, and Obsidian asks before updating links (Automatically update internal links is off), so it doesn't when it runs on its own." });
 		for (const n of res.notices) new Notice(n);
 		const made = res.others.filter((o) => o.created);
 		const edited = res.others.filter((o) => !o.created && o.changes.length);
-		const moving = this.moving(path, res);
 		const record: RunRecord = {
 			...base,
 			changes: res.changes,
@@ -370,6 +548,12 @@ export class WorkflowEngine extends Events {
 	/** The existing notes a run moves or renames (this note first), with their planned frontmatter. */
 	private moving(path: string, res: RunResult): { path: string; fm: Record<string, unknown>; move: NoteMove }[] {
 		return [...(res.move ? [{ path, fm: res.fm, move: res.move }] : []), ...res.others.filter((o) => !o.created && o.move).map((o) => ({ path: o.path, fm: o.fm, move: o.move! }))];
+	}
+
+	/** Whether Obsidian updates links on its own when a note moves (its "Automatically update internal links"), rather than asking. */
+	linksFollow(): boolean {
+		const vault = this.plugin.app.vault as unknown as { getConfig?: (key: string) => unknown };
+		return vault.getConfig?.("alwaysUpdateLinks") === true;
 	}
 
 	/**

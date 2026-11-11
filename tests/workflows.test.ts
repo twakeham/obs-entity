@@ -8,10 +8,15 @@ import {
 	asksQuestion,
 	BIG_RUN,
 	changeMatches,
+	dateCheckDue,
+	dateReached,
+	dueAt,
 	folderPath,
 	isBigRun,
+	isTimed,
 	linkedSources,
 	movedText,
+	nextDue,
 	ON_THIS,
 	reachText,
 	runReach,
@@ -31,6 +36,8 @@ import {
 	workflowProblems,
 	type Placed,
 	type PlaceRequest,
+	type DateTrigger,
+	type ScheduleTrigger,
 	type WorkflowDef,
 } from "../src/model/workflows";
 
@@ -606,5 +613,77 @@ describe("questions, moves and renames", () => {
 		expect(movedText("A/Plan.md", "Archive/Plan.md")).toBe("moved to Archive");
 		expect(movedText("A/Plan.md", "Plan.md")).toBe("moved to the vault's top folder");
 		expect(movedText("A/Plan.md", "B/Done.md")).toBe("moved to B/Done");
+	});
+});
+describe("schedules and dates", () => {
+	const at = (d: number, h: number, m = 0) => new Date(2026, 0, d, h, m).getTime();
+	const sched = (over: Partial<ScheduleTrigger> = {}): ScheduleTrigger => ({ kind: "schedule", every: "day", at: "09:00", day: 1, hours: 4, limit: 50, ...over });
+	const dateT = (over: Partial<DateTrigger> = {}): DateTrigger => ({ kind: "date", field: "due", offset: 0, at: "09:00", limit: 50, ...over });
+	const day = (iso: string) => (isoDateAdapter.parse(iso) as { value: number }).value;
+
+	it("say when a schedule is due: the latest time missed, once", () => {
+		expect(new Date(at(5, 9)).getDay()).toBe(1);
+		const daily = sched();
+		expect(dueAt(daily, at(5, 9, 5), at(6, 8, 59))).toBeNull();
+		expect(dueAt(daily, at(5, 9, 5), at(6, 9))).toBe(at(6, 9));
+		// Closed for days: one run, for the latest time.
+		expect(dueAt(daily, at(2, 10), at(6, 12))).toBe(at(6, 9));
+		const weekly = sched({ every: "week", day: 1 });
+		expect(dueAt(weekly, at(5, 9, 30), at(11, 23))).toBeNull();
+		expect(dueAt(weekly, at(5, 9, 30), at(12, 9))).toBe(at(12, 9));
+		expect(dueAt(weekly, at(5, 8), at(5, 9, 1))).toBe(at(5, 9));
+		const hourly = sched({ every: "hours", hours: 4 });
+		expect(dueAt(hourly, at(5, 9), at(5, 12, 59))).toBeNull();
+		expect(dueAt(hourly, at(5, 9), at(5, 13))).toBe(at(5, 13));
+	});
+
+	it("say when it runs next, and when a date check is due", () => {
+		expect(nextDue(sched(), at(5, 9, 30))).toBe(at(6, 9));
+		expect(nextDue(sched(), at(5, 8))).toBe(at(5, 9));
+		expect(nextDue(sched({ every: "week", day: 1 }), at(5, 9, 30))).toBe(at(12, 9));
+		expect(nextDue(sched({ every: "week", day: 3 }), at(5, 9, 30))).toBe(at(7, 9));
+		expect(nextDue(sched({ every: "hours", hours: 4 }), at(5, 9))).toBe(at(5, 13));
+		expect(nextDue(dateT({ at: "07:30" }), at(5, 9))).toBe(at(6, 7, 30));
+		const today = day("2026-01-05");
+		expect(dateCheckDue(dateT(), today - 1, today, at(5, 8, 59))).toBe(false);
+		expect(dateCheckDue(dateT(), today - 1, today, at(5, 9))).toBe(true);
+		expect(dateCheckDue(dateT(), today, today, at(5, 23))).toBe(false);
+	});
+
+	it("find dates reached since the last check, with the offset, catching up a gap", () => {
+		const before = dateT({ offset: -3 });
+		const jan = (d: number) => day(`2026-01-${String(d).padStart(2, "0")}`);
+		expect(dateReached(before, "2026-01-10", isoDateAdapter, jan(6), jan(7))).toBe(true);
+		expect(dateReached(before, "2026-01-10", isoDateAdapter, jan(5), jan(6))).toBe(false);
+		expect(dateReached(before, "2026-01-10", isoDateAdapter, jan(7), jan(8))).toBe(false);
+		expect(dateReached(before, "2026-01-10", isoDateAdapter, jan(1), jan(9))).toBe(true);
+		expect(dateReached(dateT({ offset: 2 }), "2026-01-10", isoDateAdapter, jan(11), jan(12))).toBe(true);
+		expect(dateReached(dateT(), "not a date", isoDateAdapter, jan(1), jan(9))).toBe(false);
+		expect(dateReached(dateT(), "", isoDateAdapter, jan(1), jan(9))).toBe(false);
+	});
+
+	it("read timed triggers back tidied, say them in words, and check them", () => {
+		const back = readWorkflows([
+			{ id: "s", name: "S", scope: ["task"], trigger: { kind: "schedule", every: "week", at: "25:00", day: 9, limit: 0 }, steps: [] },
+			{ id: "d", name: "D", scope: ["task"], trigger: { kind: "date", field: "due", offset: -3, at: "07:15", limit: 10 }, steps: [] },
+		]);
+		expect(back[0].trigger).toEqual({ kind: "schedule", every: "week", at: "09:00", day: 1, hours: 4, limit: 50 });
+		expect(back[1].trigger).toEqual({ kind: "date", field: "due", offset: -3, at: "07:15", limit: 10 });
+		expect(isTimed(back[0].trigger) && isTimed(back[1].trigger)).toBe(true);
+		const text = (t: WorkflowDef["trigger"]) => triggerText(wf({ trigger: t }), TYPES);
+		expect(text(sched())).toBe("Every day at 09:00");
+		expect(text(sched({ every: "week", day: 1 }))).toBe("Every Monday at 09:00");
+		expect(text(sched({ every: "hours", hours: 1 }))).toBe("Every hour");
+		expect(text(dateT({ offset: -3 }))).toBe("3 days before Due, at 09:00");
+		expect(text(dateT({ offset: 1 }))).toBe("1 day after Due, at 09:00");
+		expect(text(dateT())).toBe("When Due is today, at 09:00");
+		const probs = (t: WorkflowDef["trigger"], steps: WorkflowDef["steps"] = [{ kind: "tag", op: "add", tag: "x" }], scope = ["task"]) => workflowProblems(wf({ name: "x", scope, trigger: t, steps }), ctx).map((p) => p.message);
+		expect(probs(dateT())).toEqual([]);
+		expect(probs(dateT({ field: "estimate" }))).toEqual(["Estimate isn't a date field."]);
+		expect(probs(dateT({ field: "" }))).toEqual(["Choose the date field."]);
+		expect(probs(sched({ at: "9am" }))).toEqual(["Choose the time, e.g. 09:00."]);
+		expect(probs(sched({ every: "hours", hours: 0, limit: 0 }))).toEqual(["Every 1 to 168 hours.", "Allow at least 1 note per run."]);
+		expect(probs(sched(), [{ kind: "tag", op: "add", tag: "x" }], [])).toEqual(["Choose the types this workflow watches."]);
+		expect(probs(sched(), [{ kind: "ask", text: "Sure?" }])).toEqual(["A workflow that runs on its own can't ask a question: nobody may be there to answer."]);
 	});
 });

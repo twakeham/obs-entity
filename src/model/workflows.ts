@@ -9,6 +9,7 @@ import { writeDay } from "./calendarView";
 import { DateVal, FormulaError, isLink, toText, truthy, type FValue } from "./formula";
 import { isEmptyValue } from "./frontmatter";
 import { asArray, parseLink, toWikilink } from "./links";
+import type { DateAdapter } from "./dates";
 import { joinPath } from "./paths";
 import { COMMON_KEYS, isCalculated, isListValued, statusesFor, typeExplicitlyTargeted, typeMatchesTarget, type EntityTypeDef, type FieldDef, type GroupDef } from "./types";
 import { compileFormula, dateValue, emptyView, evaluateFormula, formulaRefColumns, filterFields, runView, withThisNote, type FilterGroup, type LinkValue, type VarSpec, type ViewContext, type ViewDef, type ViewRow } from "./views";
@@ -21,7 +22,40 @@ export type ChangedTo = string[] | "filled" | "empty";
 export type WorkflowTrigger =
 	| { kind: "created" }
 	| { kind: "changed"; field: string; from?: string[]; to?: ChangedTo }
-	| { kind: "manual"; label?: string; icon?: string; confirm?: string };
+	| { kind: "manual"; label?: string; icon?: string; confirm?: string }
+	| ScheduleTrigger
+	| DateTrigger;
+
+/**
+ * "On a schedule": every day at a time, every week on a day at a time, or every N hours; one run per scoped note
+ * matching Only if, at most `limit` notes (else it doesn't run).
+ */
+export interface ScheduleTrigger {
+	kind: "schedule";
+	every: "day" | "week" | "hours";
+	/** "HH:MM", local time (day, week) */
+	at: string;
+	/** 0 Sunday … 6 Saturday (week) */
+	day: number;
+	/** every N hours (hours) */
+	hours: number;
+	limit: number;
+}
+
+/** "On a date": when a date field (moved by `offset` days: -3 is three days before) reaches today; checked daily at `at`. */
+export interface DateTrigger {
+	kind: "date";
+	field: string;
+	offset: number;
+	at: string;
+	limit: number;
+}
+
+/** Triggers that run on their own: nobody may be there to answer a question. */
+export const isTimed = (t: WorkflowTrigger): t is ScheduleTrigger | DateTrigger => t.kind === "schedule" || t.kind === "date";
+/** The most notes a scheduled run goes through by default. */
+export const DEFAULT_LIMIT = 50;
+export const DEFAULT_AT = "09:00";
 
 /**
  * A value picked in the editor instead of written as a formula: text, a number, a checkbox, choices, a date (as in
@@ -100,7 +134,7 @@ export interface WorkflowDef {
 	steps: WorkflowStep[];
 }
 
-export const TRIGGER_LABELS: Record<TriggerKind, string> = { created: "When a note is created", changed: "When a field changes", manual: "Run on notes" };
+export const TRIGGER_LABELS: Record<TriggerKind, string> = { created: "When a note is created", changed: "When a field changes", manual: "Run on notes", schedule: "On a schedule", date: "On a date" };
 export const STEP_LABELS: Record<StepKind, string> = {
 	set: "Set a field",
 	clear: "Clear a field",
@@ -134,9 +168,22 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 const str = (v: unknown) => (typeof v === "string" ? v : "");
 const strList = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
+const isTime = (v: unknown): v is string => typeof v === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
+const wholeIn = (v: unknown, min: number, max: number, dflt: number) => (typeof v === "number" && Number.isInteger(v) && v >= min && v <= max ? v : dflt);
+
 function readTrigger(raw: unknown): WorkflowTrigger {
 	if (!isObj(raw)) return { kind: "manual" };
 	if (raw.kind === "created") return { kind: "created" };
+	if (raw.kind === "schedule")
+		return {
+			kind: "schedule",
+			every: raw.every === "week" || raw.every === "hours" ? raw.every : "day",
+			at: isTime(raw.at) ? raw.at : DEFAULT_AT,
+			day: wholeIn(raw.day, 0, 6, 1),
+			hours: wholeIn(raw.hours, 1, 168, 4),
+			limit: wholeIn(raw.limit, 1, 10000, DEFAULT_LIMIT),
+		};
+	if (raw.kind === "date") return { kind: "date", field: str(raw.field), offset: wholeIn(raw.offset, -3650, 3650, 0), at: isTime(raw.at) ? raw.at : DEFAULT_AT, limit: wholeIn(raw.limit, 1, 10000, DEFAULT_LIMIT) };
 	if (raw.kind === "changed") {
 		const to = raw.to === "filled" || raw.to === "empty" ? raw.to : Array.isArray(raw.to) ? strList(raw.to) : undefined;
 		const from = Array.isArray(raw.from) ? strList(raw.from) : undefined;
@@ -262,7 +309,7 @@ export const buttonLabel = (wf: WorkflowDef): string => (wf.trigger.kind === "ma
 export const buttonIcon = (wf: WorkflowDef): string => (wf.trigger.kind === "manual" && wf.trigger.icon) || "zap";
 
 /** Triggers that need types (they react to notes of those types). */
-export const needsScope = (k: TriggerKind) => k === "created" || k === "changed";
+export const needsScope = (k: TriggerKind) => k === "created" || k === "changed" || k === "schedule" || k === "date";
 
 /** A field a workflow can set or watch: status, tags (watch only) or one of the scoped types' stored fields. */
 export interface WorkflowField {
@@ -472,6 +519,58 @@ export function passesWhen(wf: WorkflowDef, row: ViewRow, ctx: ViewContext): boo
 	return runView(withThisNote({ ...workflowDef(wf), types: [row.type.key] }, row.path), [row], ctx).rows.length > 0;
 }
 
+// ---------------------------------------------------------------- time
+
+const HOUR = 3_600_000;
+const hm = (at: string): [number, number] => {
+	const [h, m] = (isTime(at) ? at : DEFAULT_AT).split(":").map(Number);
+	return [h, m];
+};
+
+/**
+ * The time a schedule is due at, if it's due: the latest time it should have run in (since, now] (once, however
+ * many were missed), or null. Day and week schedules use local time; "every N hours" is due N hours after it last ran.
+ */
+export function dueAt(t: ScheduleTrigger, since: number, now: number): number | null {
+	if (t.every === "hours") return now - since >= Math.max(1, t.hours) * HOUR ? now : null;
+	const [h, m] = hm(t.at);
+	const d = new Date(now);
+	d.setHours(h, m, 0, 0);
+	if (t.every === "day") {
+		if (d.getTime() > now) d.setDate(d.getDate() - 1);
+	} else {
+		d.setDate(d.getDate() - ((d.getDay() - t.day + 7) % 7));
+		if (d.getTime() > now) d.setDate(d.getDate() - 7);
+	}
+	return d.getTime() > since ? d.getTime() : null;
+}
+
+/** When a schedule (or a date trigger's daily check) runs next, after it last ran at `since`. */
+export function nextDue(t: ScheduleTrigger | DateTrigger, since: number): number {
+	if (t.kind === "schedule" && t.every === "hours") return since + Math.max(1, t.hours) * HOUR;
+	const [h, m] = hm(t.at);
+	const d = new Date(since);
+	d.setHours(h, m, 0, 0);
+	while (d.getTime() <= since || (t.kind === "schedule" && t.every === "week" && d.getDay() !== t.day)) d.setDate(d.getDate() + 1);
+	return d.getTime();
+}
+
+/** Whether a date trigger's daily check is due: it's past its time today, and today hasn't been checked. */
+export function dateCheckDue(t: DateTrigger, lastDay: number, today: number, now: number): boolean {
+	if (lastDay >= today) return false;
+	const [h, m] = hm(t.at);
+	const d = new Date(now);
+	return d.getHours() * 60 + d.getMinutes() >= h * 60 + m;
+}
+
+/** Whether a note's date (moved by the trigger's offset) falls in (after, today]: reached since the last check. */
+export function dateReached(t: DateTrigger, raw: unknown, dates: DateAdapter, after: number, today: number): boolean {
+	const p = dates.parse(raw);
+	if (!p || !p.ok || typeof p.value !== "number") return false;
+	const d = p.value + t.offset;
+	return d > after && d <= today;
+}
+
 // ---------------------------------------------------------------- templates
 
 export type TemplatePart = { text: string } | { formula: string; from: number };
@@ -563,6 +662,19 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 		else if (!fields.some((f) => f.key === t.field)) add("trigger", `None of the types has a “${t.field}” field.`);
 	}
 	if (t.kind === "manual" && t.label !== undefined && !t.label.trim()) add("trigger", "Give the button a label.");
+	if (t.kind === "schedule") {
+		if (t.every !== "hours" && !isTime(t.at)) add("trigger", "Choose the time, e.g. 09:00.");
+		if (t.every === "hours" && !(Number.isInteger(t.hours) && t.hours >= 1 && t.hours <= 168)) add("trigger", "Every 1 to 168 hours.");
+	}
+	if (t.kind === "date") {
+		const f = fields.find((x) => x.key === t.field);
+		if (!t.field) add("trigger", "Choose the date field.");
+		else if (!f) add("trigger", `None of the types has a “${t.field}” field.`);
+		else if (f.kind !== "date") add("trigger", `${f.label} isn't a date field.`);
+		if (!isTime(t.at)) add("trigger", "Choose the time to check, e.g. 09:00.");
+		if (!Number.isInteger(t.offset)) add("trigger", "The number of days must be a whole number.");
+	}
+	if (isTimed(t) && !(Number.isInteger(t.limit) && t.limit >= 1)) add("trigger", "Allow at least 1 note per run.");
 	for (const id of filterFields(wf.when)) if (!formulaColumnOk(id, def, lookup)) add("when", `A condition uses “${id}”, which isn't a column of these types.`);
 	if (!wf.steps.length) add("steps", "Add a step.");
 	const scopes = stepScopes(wf, lookup);
@@ -633,6 +745,7 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 			}
 			case "ask": {
 				if (key.includes(".")) add(at, "A question can't be inside a loop: ask it before the loop.");
+				if (isTimed(wf.trigger)) add(at, "A workflow that runs on its own can't ask a question: nobody may be there to answer.");
 				if (!s.text.trim()) add(at, "Write the question, e.g. Also close its tasks?");
 				else {
 					const e = templateError(s.text, sc.def, lookup, sc.vars);
@@ -1383,5 +1496,17 @@ export function triggerText(wf: WorkflowDef, types: EntityTypeDef[]): string {
 		}
 		case "manual":
 			return `Button: ${t.label || wf.name}`;
+		case "schedule": {
+			if (t.every === "hours") return t.hours === 1 ? "Every hour" : `Every ${t.hours} hours`;
+			return t.every === "day" ? `Every day at ${t.at}` : `Every ${WEEKDAYS[t.day] ?? "week"} at ${t.at}`;
+		}
+		case "date": {
+			const label = fieldLabel(t.field, types);
+			const n = Math.abs(t.offset);
+			const days = `${n} day${n === 1 ? "" : "s"}`;
+			return `${t.offset === 0 ? `When ${label} is today` : t.offset < 0 ? `${days} before ${label}` : `${days} after ${label}`}, at ${t.at}`;
+		}
 	}
 }
+
+export const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
