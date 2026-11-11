@@ -8416,11 +8416,9 @@ button.oe-calv-more:hover {
 
 .oe-wf-branch-label {
 	margin-bottom: var(--size-4-2);
+	line-height: 26px;
 	font-size: var(--font-ui-small);
-	font-weight: var(--font-semibold);
-	color: var(--color-cyan);
-	text-transform: uppercase;
-	letter-spacing: 0.05em;
+	color: var(--text-muted);
 }
 
 .oe-wf .oe-wf-loop select.oe-wf-loop-source,
