@@ -25,6 +25,7 @@ import { CALENDAR_ICON, dateFields } from "../../model/calendarView";
 import { VIEW_KIND_ICON } from "../../model/views";
 import { scopeTypes, triggerText, TRIGGER_ICONS, workflowProblems, type TriggerKind, type WorkflowDef } from "../../model/workflows";
 import { openTryRun } from "./workflows/TryRun";
+import { ConfirmModal } from "./types/TypeManager";
 
 export interface BrowserState extends BrowserOptions {
 	search: string;
@@ -568,6 +569,29 @@ function TreeRow({
 				}),
 		);
 		app.workspace.trigger("file-menu", m, e.file as TFile, "obs-entities-browser");
+		m.addItem((i) =>
+			i
+				.setSection("danger")
+				.setTitle("Delete")
+				.setIcon("trash-2")
+				.setWarning(true)
+				.onClick(() => {
+					// What's left pointing at it: notes linking to it (their links stop working), and its children here.
+					const linking = Object.entries(app.metadataCache.resolvedLinks).filter(([src, to]) => src !== e.path && to[e.path]).length;
+					const kids = node.children.length;
+					const after = [
+						linking ? `${linking === 1 ? "1 note links" : `${linking} notes link`} to it; those links will point to a missing note.` : "",
+						kids ? `${kids === 1 ? "Its 1 child stays" : `Its ${kids} children stay`}, linking to it.` : "",
+					].filter(Boolean);
+					new ConfirmModal(
+						app,
+						`Delete “${e.name}”?`,
+						`The note goes to the trash (following Obsidian's “Deleted files” setting), so it can be restored from there or with File recovery.${after.length ? ` ${after.join(" ")}` : ""}`,
+						"Delete",
+						() => plugin.bulk.delete([e.path]),
+					).open();
+				}),
+		);
 		m.showAtMouseEvent(evt.nativeEvent);
 	};
 

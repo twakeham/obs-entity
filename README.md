@@ -210,7 +210,7 @@ A left sidebar tree of all entities. Open it with the **library** ribbon icon or
 **Rows:**
 - Each row shows the type icon, the name, a child count and a status dot. The subtitle shows as a tooltip.
 - **Click:** opens the note. Ctrl/Cmd-click or middle-click opens it in a new tab, and Ctrl + hover shows a preview.
-- **Right-click:** Open in new tab / to the right, **New *child type* here** (prefills the parent link and the folder), Show connections, then the usual file menu.
+- **Right-click:** Open in new tab / to the right, **New *child type* here** (prefills the parent link and the folder), Show connections, then the usual file menu, and **Delete** last: it asks first, saying how many notes link to it and how many children it has (they stay), then moves the note to the trash (as Obsidian's "Deleted files" setting says), so it can be restored.
 
 **Headings:**
 - **+** on a type heading creates that type. On a group heading it offers the group's types.
