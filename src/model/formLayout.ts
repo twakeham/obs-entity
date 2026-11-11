@@ -121,8 +121,13 @@ export const NOTE_ITEMS = {
 } as const;
 export const READ_ONLY_ITEMS: readonly string[] = [NOTE_ITEMS.type, NOTE_ITEMS.subtitle, NOTE_ITEMS.typeSubtitle, NOTE_ITEMS.created, NOTE_ITEMS.modified];
 export const isNoteItem = (key: string) => key.startsWith("@");
-/** Where a slot's label goes: as set, else above (hidden for the note items, which speak for themselves). */
-export const slotLabel = (slot: LayoutField): LabelPosition => slot.label ?? (isNoteItem(slot.key) ? "hidden" : "above");
+/** A workflow's button placed on the form: "wf:<workflow id>" (a button workflow that applies to the type). */
+export const WORKFLOW_ITEM = "wf:";
+export const isWorkflowItem = (key: string) => key.startsWith(WORKFLOW_ITEM);
+export const workflowItem = (id: string) => `${WORKFLOW_ITEM}${id}`;
+export const workflowOfItem = (key: string) => key.slice(WORKFLOW_ITEM.length);
+/** Where a slot's label goes: as set, else above (hidden for the note items and buttons, which speak for themselves). */
+export const slotLabel = (slot: LayoutField): LabelPosition => slot.label ?? (isNoteItem(slot.key) || isWorkflowItem(slot.key) ? "hidden" : "above");
 export const MIN_COLUMNS = 2;
 export const MAX_COLUMNS = 4;
 
@@ -169,8 +174,9 @@ function readField(raw: unknown): LayoutField | null {
 	const key = typeof raw === "string" ? raw : isObj(raw) && typeof raw.key === "string" ? raw.key : "";
 	if (!key.trim()) return null;
 	if (!isObj(raw)) return { kind: "field", key: key.trim() };
-	// "above" is the default (so not kept), except for the note items, whose default is hidden.
-	const label = raw.label === "beside" || (raw.label === "hidden" && !isNoteItem(key.trim())) || (raw.label === "above" && isNoteItem(key.trim())) ? raw.label : undefined;
+	// "above" is the default (so not kept), except for the note items and buttons, whose default is hidden.
+	const hiddenFirst = isNoteItem(key.trim()) || isWorkflowItem(key.trim());
+	const label = raw.label === "beside" || (raw.label === "hidden" && !hiddenFirst) || (raw.label === "above" && hiddenFirst) ? raw.label : undefined;
 	const caption = text(raw.caption).trim();
 	const placeholder = text(raw.placeholder).trim();
 	const help = raw.help === "description" ? "description" : isObj(raw.help) && text(raw.help.text).trim() ? { text: text(raw.help.text).trim() } : undefined;
@@ -318,10 +324,13 @@ export function slotHelp(slot: LayoutField | undefined, description: string | un
 	return slot.help === "description" ? description?.trim() || undefined : slot.help.text;
 }
 
-/** Keys a type can place: its fields, status, related, tags, aliases, and order when it has parent fields. */
-export function placeableKeys(type: EntityTypeDef): string[] {
+/**
+ * Keys a type can place: its fields, status, related, tags, aliases, order when it has parent fields, the note items,
+ * and the buttons of its button workflows (`buttons`: their ids).
+ */
+export function placeableKeys(type: EntityTypeDef, buttons: string[] = []): string[] {
 	const builtins = LAYOUT_BUILTINS.filter((k) => k !== COMMON_KEYS.order || !!type.parentFields?.length);
-	return [...type.fields.map((f) => f.key), ...builtins, ...Object.values(NOTE_ITEMS)];
+	return [...type.fields.map((f) => f.key), ...builtins, ...Object.values(NOTE_ITEMS), ...buttons.map(workflowItem)];
 }
 
 /** The layout with every field slot mapped (to none, one or several slots), containers kept. */
@@ -354,11 +363,13 @@ export interface ResolvedLayout {
 	/** whether the type, and the subtitle, are placed (on their own or as "type + subtitle"; then they leave the top line) */
 	placesType: boolean;
 	placesSubtitle: boolean;
+	/** the workflows whose buttons are placed (the others stay in the strip at the top) */
+	placedButtons: string[];
 }
 
-/** The layout as the form shows it for a type. */
-export function resolveLayout(layout: FormLayout, type: EntityTypeDef): ResolvedLayout {
-	const allowed = new Set(placeableKeys(type));
+/** The layout as the form shows it for a type; `buttons`: the ids of the button workflows it can show (others' slots are left out). */
+export function resolveLayout(layout: FormLayout, type: EntityTypeDef, buttons: string[] = []): ResolvedLayout {
+	const allowed = new Set(placeableKeys(type, buttons));
 	const seen = new Set<string>();
 	const items = mapFields(layout.items, (f) => {
 		if (!allowed.has(f.key) || seen.has(f.key)) return [];
@@ -368,10 +379,11 @@ export function resolveLayout(layout: FormLayout, type: EntityTypeDef): Resolved
 	return {
 		items,
 		unplaced: type.fields.map((f) => f.key).filter((k) => !seen.has(k)),
-		unplacedBuiltins: [...allowed].filter((k) => !seen.has(k) && !type.fields.some((f) => f.key === k)),
+		unplacedBuiltins: [...allowed].filter((k) => !seen.has(k) && !type.fields.some((f) => f.key === k) && !isWorkflowItem(k)),
 		placesStatus: seen.has(COMMON_KEYS.status),
 		placesType: seen.has(NOTE_ITEMS.type) || seen.has(NOTE_ITEMS.typeSubtitle),
 		placesSubtitle: seen.has(NOTE_ITEMS.subtitle) || seen.has(NOTE_ITEMS.typeSubtitle),
+		placedButtons: [...seen].filter(isWorkflowItem).map(workflowOfItem),
 	};
 }
 
@@ -427,27 +439,33 @@ export function layoutFromFields(type: EntityTypeDef): FormLayout {
 	return { items: [{ kind: "frame", caption: type.name, items: type.fields.map((f) => ({ kind: "field", key: f.key })) }] };
 }
 
-/** Problems with a type's layout, for the type editor's validation. */
+/**
+ * Problems with a type's layout, for the type editor's validation. Workflow buttons aren't checked here (whether one
+ * still applies depends on the workflows: the Layout tab says, and the form leaves out one that doesn't).
+ */
 export function layoutIssues(layout: FormLayout, type: EntityTypeDef): string[] {
 	const allowed = new Set(placeableKeys(type));
 	const out: string[] = [];
 	const seen = new Set<string>();
 	for (const f of layoutFields(layout)) {
-		if (!allowed.has(f.key)) out.push(`The form layout places "${f.key}", which isn't a field of this type.`);
+		if (!allowed.has(f.key) && !isWorkflowItem(f.key)) out.push(`The form layout places "${f.key}", which isn't a field of this type.`);
 		else if (seen.has(f.key)) out.push(`The form layout places "${f.key}" more than once.`);
 		seen.add(f.key);
 	}
 	return out;
 }
 
-/** Problems with field slots, by path ("1.0"): keys the type doesn't have, and keys placed twice. */
-export function slotProblems(layout: FormLayout, type: EntityTypeDef): Map<string, string> {
-	const allowed = new Set(placeableKeys(type));
+/**
+ * Problems with field slots, by path ("1.0"): keys the type doesn't have, and keys placed twice. `buttons`: the button
+ * workflows that apply to the type (a button slot for another workflow is a problem).
+ */
+export function slotProblems(layout: FormLayout, type: EntityTypeDef, buttons: string[] = []): Map<string, string> {
+	const allowed = new Set(placeableKeys(type, buttons));
 	const seen = new Set<string>();
 	const out = new Map<string, string>();
 	for (const { path, field } of fieldSlots(layout)) {
 		const at = path.join(".");
-		if (!allowed.has(field.key)) out.set(at, `“${field.key}” isn't a field of this type`);
+		if (!allowed.has(field.key)) out.set(at, isWorkflowItem(field.key) ? "This workflow isn't a button for this type any more (deleted, or changed): it isn't shown" : `“${field.key}” isn't a field of this type`);
 		else if (seen.has(field.key)) out.set(at, `“${field.key}” is placed more than once`);
 		seen.add(field.key);
 	}

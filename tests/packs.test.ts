@@ -45,6 +45,15 @@ describe("packs with workflows", () => {
 		expect(JSON.parse(exportPack([PROJECT], GROUPS)).workflows).toBeUndefined();
 	});
 
+	it("keep a form's placed buttons on workflows that get new ids", () => {
+		const withButton: EntityTypeDef = { ...TASK, form: { layout: { items: [{ kind: "field", key: "estimate" }, { kind: "field", key: "wf:wf-close", caption: "Done" }] } } };
+		const r = importAsDrafts(exportPack([PROJECT, withButton], GROUPS, "Work", [closeOut]), GROUPS, [PROJECT, TASK], [closeOut]);
+		if ("error" in r) throw new Error(r.error);
+		const close = r.workflows.find((w) => w.name === "Close out")!;
+		expect(close.id).not.toBe("wf-close");
+		expect(r.types[1].form?.layout?.items).toEqual([{ kind: "field", key: "estimate" }, { kind: "field", key: `wf:${close.id}`, caption: "Done" }]);
+	});
+
 	it("import with clashing keys and ids: every reference follows, and workflows come in off", () => {
 		const text = exportPack([PROJECT, TASK], GROUPS, "Work", [onProject, closeOut]);
 		const r = importAsDrafts(text, GROUPS, [PROJECT, TASK], [closeOut]);

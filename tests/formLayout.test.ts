@@ -29,6 +29,9 @@ import {
 	resolveLayout,
 	setColumnCount,
 	isNoteItem,
+	isWorkflowItem,
+	workflowItem,
+	workflowOfItem,
 	NOTE_ITEMS,
 	READ_ONLY_ITEMS,
 	slotHelp,
@@ -344,6 +347,28 @@ describe("slot options and frame styling", () => {
 		expect(slotHelp({ kind: "field", key: "a", help: "description" }, "Desc")).toBe("Desc");
 		expect(slotHelp({ kind: "field", key: "a", help: "description" }, " ")).toBeUndefined();
 		expect(slotHelp({ kind: "field", key: "a", help: { text: "Own" } }, "Desc")).toBe("Own");
+	});
+
+	it("places workflow buttons: shown when they're the type's buttons, flagged in the editor otherwise", () => {
+		const l = normaliseLayout({ items: ["owner", { key: "wf:close", caption: "Close it", when: { all: [{ field: "status", op: "is", value: "active" }] } }, "wf:gone", { key: "wf:hidden", label: "above" }] })!;
+		// Buttons' labels are hidden unless set (as note items').
+		expect(l.items.map((n) => slotLabel(n as LayoutField))).toEqual(["above", "hidden", "hidden", "above"]);
+		expect(isWorkflowItem("wf:close") && !isWorkflowItem("owner")).toBe(true);
+		expect(workflowOfItem(workflowItem("abc"))).toBe("abc");
+		expect(placeableKeys(project(), ["close"])).toContain("wf:close");
+		const r = resolveLayout(l, project(), ["close", "other"]);
+		expect(nodeKeys(r.items)).toEqual(["owner", "wf:close"]);
+		expect(r.placedButtons).toEqual(["close"]);
+		expect(r.unplacedBuiltins.some(isWorkflowItem)).toBe(false);
+		// Without the workflows (the create dialog), no buttons.
+		expect(nodeKeys(resolveLayout(l, project()).items)).toEqual(["owner"]);
+		// Type validation doesn't know the workflows: buttons aren't its problem; the Layout tab's slot problems are.
+		expect(layoutIssues(l, project())).toEqual([]);
+		expect([...slotProblems(l, project(), ["close"]).entries()]).toEqual([
+			["2", "This workflow isn't a button for this type any more (deleted, or changed): it isn't shown"],
+			["3", "This workflow isn't a button for this type any more (deleted, or changed): it isn't shown"],
+		]);
+		expect(layoutIssues({ items: [...l.items, { kind: "field", key: "wf:close" }] }, project())).toEqual(['The form layout places "wf:close" more than once.']);
 	});
 });
 

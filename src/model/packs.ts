@@ -2,6 +2,7 @@ import { FIELD_KINDS, cloneGroup, cloneType, isValidKey, type EntityTypeDef, typ
 import { rewriteRefs } from "./formula";
 import { isGroup, type FilterGroup } from "./views";
 import { cloneWorkflow, flatSteps, newWorkflowId, parseTemplate, readWorkflows, scopeTypes, type NoteStep, type WorkflowDef, type WorkflowStep } from "./workflows";
+import { normaliseLayout, renameLayoutKey, workflowItem } from "./formLayout";
 
 /** A shareable bundle of types (and the groups they use), and workflows. */
 export interface TypePack {
@@ -343,6 +344,14 @@ export function installPack(pack: TypePack, groups: GroupDef[], types: EntityTyp
 		w.id = id;
 	});
 	const outWorkflows = read.map((w) => ({ ...renameWorkflowKeys(w, keyMap, idMap), on: false }));
+	// The new types' forms place buttons of the pack's workflows: they follow those that got new ids.
+	if (idMap.size)
+		for (const t of outTypes.filter((x) => added.includes(x.key))) {
+			let layout = t.form?.layout ? normaliseLayout(t.form.layout) : null;
+			if (!layout) continue;
+			for (const [from, to] of idMap) layout = renameLayoutKey(layout, workflowItem(from), workflowItem(to));
+			t.form = { ...t.form, layout };
+		}
 	return { groups: outGroups, types: outTypes, added, renamed, addedGroups, workflows: outWorkflows };
 }
 

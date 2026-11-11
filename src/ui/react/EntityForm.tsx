@@ -9,7 +9,7 @@ import { asArray, parseLabelledEntry, parseLink } from "../../model/links";
 import { addLink, type Edge, type RelationItem } from "../../model/relations";
 import { calcCell, fieldColumn, formatCell, resolveColumn, typeViewDef, type ViewContext, type ViewRow } from "../../model/views";
 import { COMMON_KEYS, isCalculated, isListValued, statusesFor, type EntityTypeDef, type FieldDef, type FieldKind, type RelationTarget } from "../../model/types";
-import { fieldSlots, isNoteItem, NOTE_ITEMS, nodeKeys, normaliseLayout, readableOn, resolveLayout, slotHelp, slotLabel, tabsOnPath, walkLayout, type LabelPosition, type LayoutField, type LayoutFrame, type LayoutNode, type LayoutTab, type LayoutWhen } from "../../model/formLayout";
+import { fieldSlots, isNoteItem, isWorkflowItem, NOTE_ITEMS, nodeKeys, normaliseLayout, readableOn, resolveLayout, slotHelp, slotLabel, tabsOnPath, walkLayout, workflowOfItem, type LabelPosition, type LayoutField, type LayoutFrame, type LayoutNode, type LayoutTab, type LayoutWhen } from "../../model/formLayout";
 import { evalWhen, todayDays, whenText, type WhenContext } from "../../model/formConditions";
 import type { EntityRecord } from "../../services/entityIndex";
 import { CalendarPopover } from "./Calendar";
@@ -557,6 +557,7 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 	};
 	/** The row for a field or a built-in property (status, order, related, tags, aliases); null when hidden. */
 	const propFor = (key: string, slot?: LayoutField): ReactNode | null => {
+		if (isWorkflowItem(key)) return buttonRow(key, slot);
 		if (isNoteItem(key)) return noteRow(key, slot);
 		const ed = editable && !slot?.readOnly;
 		const ph = slot?.placeholder;
@@ -721,8 +722,26 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 	/** Built-in properties in the order the form has always listed them after the fields. */
 	const TAIL = [COMMON_KEYS.order, COMMON_KEYS.related, COMMON_KEYS.tags, COMMON_KEYS.aliases];
 
+	// Button workflows for this type (on): placed ones go where the layout puts them, the rest in the strip at the top.
+	const buttonFlows = plugin.manualWorkflows([type]);
+	const live = mode !== "preview" && !!file && !!plugin.index.get(file.path);
+	/** A workflow's button placed by the layout (in the preview, as it would look); null when it isn't a button here. */
+	const buttonRow = (key: string, slot?: LayoutField): ReactNode | null => {
+		const wf = buttonFlows.find((w) => w.id === workflowOfItem(key));
+		if (!wf) return null;
+		const text = slot?.caption || buttonLabel(wf);
+		return (
+			<PropRow key={key} k={key} label={text} icon={buttonIcon(wf)} problems={[]} empty={false} editable={editable} onFix={() => {}} labelPos="hidden" help={typeof slot?.help === "object" ? slot.help.text : undefined}>
+				<button type="button" className="oe-form-wf-button" data-workflow={wf.id} disabled={!live} title={wf.name} onClick={() => live && file && void plugin.runWorkflow(wf, [file.path])}>
+					<Icon name={buttonIcon(wf)} />
+					{text}
+				</button>
+			</PropRow>
+		);
+	};
+
 	const layout = type.form?.layout ? normaliseLayout(type.form.layout) : null;
-	const resolved = layout ? resolveLayout(layout, type) : null;
+	const resolved = layout ? resolveLayout(layout, type, buttonFlows.map((w) => w.id)) : null;
 	let body: ReactNode;
 	if (!resolved) {
 		// No layout: one list, in field order, then the built-ins.
@@ -765,7 +784,7 @@ function FormView({ type, fm, path, file, mode, editing, setEditing }: FormViewP
 	const others = mode === "preview" ? [] : otherKeys(type, values);
 	const subtitle = subtitleOf(type, values, plugin.formatEnv(), (f) => calc.get(f.key)?.text ?? "");
 	const statusProblem = problemsAt(COMMON_KEYS.status)[0];
-	const workflowButtons = mode !== "preview" && file && plugin.index.get(file.path) ? plugin.manualWorkflows([type]) : [];
+	const workflowButtons = live ? buttonFlows.filter((w) => !resolved?.placedButtons.includes(w.id)) : [];
 
 	return (
 		<div

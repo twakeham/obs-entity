@@ -36,6 +36,8 @@ import {
 	slotHelp,
 	slotLabel,
 	isNoteItem,
+	isWorkflowItem,
+	workflowOfItem,
 	NOTE_ITEMS,
 	READ_ONLY_ITEMS,
 	slotProblems,
@@ -59,6 +61,7 @@ import {
 } from "../../../model/formLayout";
 import { conditionProblems, todayDays, whenColumns, whenText, type WhenContext } from "../../../model/formConditions";
 import { COMMON_KEYS } from "../../../model/types";
+import { buttonIcon, buttonLabel, inScope } from "../../../model/workflows";
 import { FiltersPanel, type ColumnChoice } from "../table/popovers";
 import { PluginContext, usePlugin } from "../context";
 import { Icon } from "../Icon";
@@ -245,7 +248,7 @@ class ComponentModal extends Modal {
 
 /** Palette sections that are folded away, per type, in the vault's local storage. */
 const PALETTE_STORAGE = "obs-entities-layout-palette";
-type PalSection = "fields" | "properties" | "readonly" | "saved" | "layout";
+type PalSection = "fields" | "properties" | "readonly" | "buttons" | "saved" | "layout";
 function foldedSections(app: App, typeKey: string | undefined): Set<PalSection> {
 	const all: unknown = typeKey ? app.loadLocalStorage(PALETTE_STORAGE) : null;
 	const list = all && typeof all === "object" ? (all as Record<string, unknown>)[typeKey!] : null;
@@ -394,14 +397,18 @@ export function LayoutTab() {
 	const canRedo = !!h && h.current === json && h.future.length > 0;
 
 	// ---- what's placed
-	const placeable = placeableKeys(type);
+	// Button workflows for this type (on or off): their buttons can be placed.
+	const buttonFlows = plugin.settings.workflows.filter((w) => w.trigger.kind === "manual" && inScope(w, type));
+	const flowOf = (k: string) => (isWorkflowItem(k) ? plugin.settings.workflows.find((w) => w.id === workflowOfItem(k)) : undefined);
+	const placeable = placeableKeys(type, buttonFlows.map((w) => w.id));
 	const placedAt = new Map<string, LayoutPath>();
 	for (const s of fieldSlots(base)) if (!placedAt.has(s.field.key)) placedAt.set(s.field.key, s.path);
-	const problems = slotProblems(base, type);
+	const problems = slotProblems(base, type, buttonFlows.map((w) => w.id));
 	const fieldOf = (k: string) => type.fields.find((f) => f.key === k);
 	const labelOf = (k: string) => {
 		const f = fieldOf(k);
-		return f ? f.label || f.key : (BUILTINS[k]?.label ?? k);
+		const wf = flowOf(k);
+		return f ? f.label || f.key : wf ? buttonLabel(wf) : isWorkflowItem(k) ? "Deleted workflow" : (BUILTINS[k]?.label ?? k);
 	};
 	/** the label a property has without a custom one */
 	const baseLabel = labelOf;
@@ -443,7 +450,8 @@ export function LayoutTab() {
 	};
 	const iconOf = (k: string) => {
 		const f = fieldOf(k);
-		return f ? KIND_INFO[f.kind].icon : (BUILTINS[k]?.icon ?? "help-circle");
+		const wf = flowOf(k);
+		return f ? KIND_INFO[f.kind].icon : wf ? buttonIcon(wf) : (BUILTINS[k]?.icon ?? "help-circle");
 	};
 	const notPlaced = placeable.filter((k) => !placedAt.has(k));
 	const unplacedFields = type.fields.filter((f) => !placedAt.has(f.key)).map((f) => f.key);
@@ -1271,8 +1279,21 @@ export function LayoutTab() {
 				const label = labelOf(n.key);
 				const pos = slotLabel(n);
 				const p = nodeProps(path, n, `oe-ld-field${pos === "beside" ? " is-beside" : pos === "hidden" ? " is-label-hidden" : ""}${problem ? " has-problem" : ""}`, list, i, count);
-				const kind = def ? KIND_INFO[def.kind].label : (BUILTINS[n.key]?.kind ?? "");
+				const kind = def ? KIND_INFO[def.kind].label : isWorkflowItem(n.key) ? "Workflow button" : (BUILTINS[n.key]?.kind ?? "");
 				const help = slotHelp(n, descOf(n.key));
+				if (isWorkflowItem(n.key))
+					return (
+						<div key={key} {...p} onPointerDown={(e) => startPointer(e, { from: "canvas", path, node: n })} title={problem}>
+							{n.when && <span className="oe-ld-field-when">{whenBadge(n.when)}</span>}
+							<span className="oe-ld-wf-button">
+								<Icon name={problem ? "alert-triangle" : iconOf(n.key)} />
+								{n.caption || label}
+							</span>
+							{problem && <span className="oe-ld-help">{problem}</span>}
+							{help && <span className="oe-ld-help">{help}</span>}
+							{nodeMore(path, n.caption || label)}
+						</div>
+					);
 				return (
 					<div key={key} {...p} onPointerDown={(e) => startPointer(e, { from: "canvas", path, node: n })} title={problem}>
 						<span className="oe-ld-label">
@@ -1444,7 +1465,8 @@ export function LayoutTab() {
 			</button>
 		);
 	};
-	const builtinKeys = placeable.filter((k) => !fieldOf(k) && !READ_ONLY_ITEMS.includes(k));
+	const builtinKeys = placeable.filter((k) => !fieldOf(k) && !READ_ONLY_ITEMS.includes(k) && !isWorkflowItem(k));
+	const buttonKeys = placeable.filter(isWorkflowItem);
 	const fieldsLeft = notPlaced.filter((k) => fieldOf(k)).length;
 	/** a folded section's note of what's in it */
 	const placedOf = (keys: readonly string[]) => {
@@ -1710,6 +1732,40 @@ export function LayoutTab() {
 				</>
 			);
 		}
+		if (selected.kind === "field" && isWorkflowItem(selected.key)) {
+			const f = selected;
+			const wf = flowOf(f.key);
+			const problem = problems.get(pk(sel));
+			const setSlot = (patch: Partial<LayoutField>, tag?: string) => change(sel, (n) => ({ ...(n as LayoutField), ...patch }), tag);
+			return (
+				<>
+					<div className="oe-ld-props-title">
+						<Icon name={iconOf(f.key)} /> {labelOf(f.key)}
+					</div>
+					<p className="oe-tm-muted oe-ld-note">
+						{wf ? <>Runs the workflow “{wf.name}” on the note{wf.on ? "" : " (it's off: the button shows once it's on)"}.</> : "Its workflow has been deleted."}
+					</p>
+					{problem && <Issues issues={[{ at: "form:layout", message: problem }]} />}
+					<label className="oe-ld-prop-col">
+						<span>Button text</span>
+						<LocalText value={f.caption ?? ""} placeholder={wf ? buttonLabel(wf) : ""} label="Button text" onChange={(v) => setSlot({ caption: v.trim() ? v : undefined }, `caption:${pk(sel)}`)} />
+					</label>
+					<label className="oe-ld-prop-col">
+						<span>Help text</span>
+						<LocalText multiline value={typeof f.help === "object" ? f.help.text : ""} placeholder="None" label="Help text" onChange={(v) => setSlot({ help: v.trim() ? { text: v } : undefined }, `help:${pk(sel)}`)} />
+					</label>
+					{whenEditor(f.when, (w, tag) => setSlot({ when: w }, tag), `when:${pk(sel)}`)}
+					<div className="oe-ld-prop-buttons">
+						{wf && (
+							<button type="button" onClick={() => void plugin.activateWorkflows({ open: wf.id, tab: "edit" })}>
+								<Icon name="zap" /> Open workflow
+							</button>
+						)}
+						{removeBtn("Remove from layout")}
+					</div>
+				</>
+			);
+		}
 		if (selected.kind === "field") {
 			const f = selected;
 			const def = fieldOf(f.key);
@@ -1849,6 +1905,19 @@ export function LayoutTab() {
 						{READ_ONLY_ITEMS.map(paletteField)}
 						<p className="oe-tm-muted oe-ld-note">Not placed, the name is the note's title, status, type and subtitle are in the form's top line, and the others are at the end.</p>
 					</>,
+				)}
+				{palSection(
+					"buttons",
+					"Workflow buttons",
+					buttonKeys.length ? placedOf(buttonKeys) : null,
+					buttonKeys.length ? (
+						<>
+							{buttonKeys.map(paletteField)}
+							<p className="oe-tm-muted oe-ld-note">Buttons of workflows that run on notes of this type. Not placed, they're in a strip at the top of the form.</p>
+						</>
+					) : (
+						<p className="oe-tm-muted oe-ld-note">No workflows run on these notes from a button yet: make one with “Run on notes” in Workflows.</p>
+					),
 				)}
 				{palSection(
 					"saved",

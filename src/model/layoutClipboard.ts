@@ -3,7 +3,7 @@
  * layout, possibly another type's or another vault's. A copy carries the definitions of the fields it places, so
  * fields the target type doesn't have can be added. Also the saved "My components".
  */
-import { canHold, childPath, isNoteItem, LAYOUT_BUILTINS, listItems, nodeAt, nodeKeys, normaliseLayout, parentList, pathOfNode, placeableKeys, renameLayoutKey, fieldSlots, type FormLayout, type LayoutList, type LayoutNode, type LayoutPath, type LayoutTab } from "./formLayout";
+import { canHold, childPath, isNoteItem, isWorkflowItem, LAYOUT_BUILTINS, listItems, nodeAt, nodeKeys, normaliseLayout, parentList, pathOfNode, placeableKeys, renameLayoutKey, fieldSlots, type FormLayout, type LayoutList, type LayoutNode, type LayoutPath, type LayoutTab } from "./formLayout";
 import { FIELD_KINDS, isValidKey, type EntityTypeDef, type FieldDef } from "./types";
 
 /** A copied item: one node or one tab, and the fields it places. */
@@ -103,6 +103,9 @@ export function planPaste(clip: LayoutClip, type: EntityTypeDef, layout: FormLay
 		if (isNoteItem(key) || (LAYOUT_BUILTINS as readonly string[]).includes(key)) {
 			if (placeable.has(key)) plan.map[key] = key;
 			else plan.unusable.push(key);
+		} else if (isWorkflowItem(key)) {
+			// A workflow's button: kept as it is (the Layout tab flags it when that workflow isn't a button for this type).
+			plan.map[key] = key;
 		} else {
 			const def = clip.fields.find((f) => f.key === key);
 			const target = type.fields.find((f) => f.key === key) ?? (def?.label ? type.fields.find((f) => norm(f.label) === norm(def.label)) : undefined);

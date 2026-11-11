@@ -6707,6 +6707,29 @@ td.is-wrap .oe-bar-value {
 	text-overflow: ellipsis;
 }
 
+/* A workflow's button on the layout canvas: drawn as a button, its own width */
+.oe-ld-wf-button {
+	grid-area: control;
+	justify-self: start;
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	max-width: 100%;
+	padding: 2px 10px;
+	border-radius: var(--radius-s);
+	background-color: var(--interactive-normal);
+	box-shadow: var(--input-shadow);
+	font-size: var(--font-ui-smaller);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.oe-ld-wf-button .oe-icon svg {
+	width: 12px;
+	height: 12px;
+}
+
 .oe-ld-field > .oe-ld-more {
 	grid-area: more;
 }
@@ -8070,16 +8093,23 @@ button.oe-calv-more:hover {
 	margin: var(--size-4-2) 0;
 }
 
-.oe-wf-buttons button {
+.oe-wf-buttons button,
+.oe-form button.oe-form-wf-button {
 	gap: var(--size-4-1);
 	height: auto;
 	padding: 4px 10px;
 	font-size: var(--font-ui-small);
 }
 
-.oe-wf-buttons .oe-icon svg {
+.oe-wf-buttons .oe-icon svg,
+.oe-form-wf-button .oe-icon svg {
 	width: 14px;
 	height: 14px;
+}
+
+/* A workflow button placed in a form layout: its own width, not the row's */
+.oe-prop[data-key^="wf:"] .oe-prop-value {
+	align-items: flex-start;
 }
 
 /* Workflow fields and values: the views' compact pickers (Group, filter values) */
