@@ -4,7 +4,7 @@ import { todayDays } from "../model/formConditions";
 import type { EntityFormValues } from "../model/frontmatter";
 import { joinPath, sanitizeFileName, uniquePath } from "../model/paths";
 import { renderTemplate as renderNoteTemplate } from "../model/templates";
-import { askQuestion, confirmRun } from "../ui/modals/workflowModals";
+import { askQuestion, askText, confirmRun } from "../ui/modals/workflowModals";
 import { COMMON_KEYS } from "../model/types";
 import type { ViewContext, ViewRow } from "../model/views";
 import {
@@ -64,8 +64,10 @@ export interface RunRecord {
 	via?: string[];
 	/** a run once for a whole selection: the selected notes (`path` is the first, `note` says how many) */
 	selection?: string[];
-	/** questions it asked, answered Yes */
+	/** confirmations it asked, answered Yes */
 	asked?: string[];
+	/** questions it asked ("Ask a question"), and the answers given */
+	inputs?: { question: string; answer: string }[];
 	/** notes it moved or renamed: old path → new path */
 	moved?: { from: string; to: string }[];
 }
@@ -74,6 +76,8 @@ export interface RunRecord {
 interface Batch {
 	agreed: boolean;
 	answers: Map<string, boolean>;
+	/** answers to "Ask a question" steps, kept for the rest ("Same answer for the other notes") */
+	inputs: Map<string, string>;
 	left: number;
 }
 
@@ -390,7 +394,7 @@ export class WorkflowEngine extends Events {
 			if (r) done.push(r);
 		}
 		// Agreeing to one big run agrees to the rest of the selection's; an answer can be kept for the rest too.
-		const batch: Batch = { agreed: false, answers: new Map(), left: 0 };
+		const batch: Batch = { agreed: false, answers: new Map(), inputs: new Map(), left: 0 };
 		for (const [i, p] of (runsOnce(wf) ? [] : paths).entries()) {
 			batch.left = paths.length - i - 1;
 			const r = await new Promise<RunRecord | null>((resolve) => this.enqueue(async () => resolve(await this.run(wf, p, { chain: fresh(), manual: true, batch }))));
@@ -464,9 +468,10 @@ export class WorkflowEngine extends Events {
 		if (opts.chain.depth >= MAX_CHAIN) return this.record({ ...base, stopped: `Stopped after ${MAX_CHAIN} workflows set each other off.` });
 		let res: RunResult;
 		const answers = new Set<string>();
+		const inputs = new Map<string, string>();
 		for (let agreed = false; ; ) {
 			const { rows, ctx } = plugin.viewData();
-			const replanned = agreed || answers.size > 0;
+			const replanned = agreed || answers.size > 0 || inputs.size > 0;
 			if (sel) {
 				// Once for the selection: the selected notes it applies to (its types, Only if); none, no run.
 				const chosen = sel.flatMap((p) => rows.filter((r) => r.path === p)).filter((r) => inScope(wf, r.type) && passesWhen(wf, r, ctx));
@@ -477,13 +482,13 @@ export class WorkflowEngine extends Events {
 				// The log says which notes it ran on: those that matched.
 				if (chosen.length < sel.length) base.note = `${chosen.length} of ${sel.length} selected notes`;
 				base.selection = chosen.map((r) => r.path);
-				res = this.simulate(wf, chosen[0], rows, ctx, undefined, answers, chosen);
+				res = this.simulate(wf, chosen[0], rows, ctx, undefined, answers, chosen, inputs);
 			} else {
 				const row = rows.find((r) => r.path === path);
 				if (!row) return null;
 				const old: ViewRow | undefined = opts.before ? { ...row, frontmatter: opts.before, status: typeof opts.before[COMMON_KEYS.status] === "string" ? (opts.before[COMMON_KEYS.status] as string) : null } : undefined;
 				if (!passesWhen(wf, row, ctx)) return replanned ? this.record({ ...base, stopped: "The note no longer matched Only if." }) : null;
-				res = this.simulate(wf, row, rows, ctx, old, answers);
+				res = this.simulate(wf, row, rows, ctx, old, answers, undefined, inputs);
 			}
 			if (res.stopped) {
 				if (opts.manual) new Notice(`“${wf.name}” stopped: ${res.stopped}`);
@@ -494,8 +499,20 @@ export class WorkflowEngine extends Events {
 				return this.record({ ...base, error: `Step ${stepLabel(res.error.step)}: ${res.error.message}` });
 			}
 			if (res.pending) {
-				if (opts.unattended) return this.record({ ...base, stopped: "It asks a question, but it ran on its own: nobody was asked." });
-				const { step, text } = res.pending;
+				if (opts.unattended) return this.record({ ...base, stopped: "It stops to ask something, but it ran on its own: nobody was asked." });
+				const { step, text, input } = res.pending;
+				if (input) {
+					let answer = opts.batch?.inputs.get(step);
+					if (answer === undefined) {
+						const a = await askText(app, `${wf.name} · ${label}`, text, { ...input, rest: opts.batch?.left ?? 0 });
+						if (a.answer === null) return this.record({ ...base, stopped: `Cancelled at “${text}”` });
+						answer = a.answer;
+						if (a.all && opts.batch) opts.batch.inputs.set(step, answer);
+					}
+					// As for a confirmation: plan again from the notes as they are now, with this answer.
+					inputs.set(step, answer);
+					continue;
+				}
 				let yes = opts.batch?.answers.get(step);
 				if (yes === undefined) {
 					const a = await askQuestion(app, `${wf.name} · ${label}`, text, opts.batch?.left ?? 0);
@@ -535,6 +552,7 @@ export class WorkflowEngine extends Events {
 			...(edited.length ? { others: edited.map((o) => ({ path: o.path, name: o.name, changes: o.changes })) } : {}),
 			...(res.via.length ? { via: res.via } : {}),
 			...(res.asked.length ? { asked: res.asked } : {}),
+			...(res.inputs.length ? { inputs: res.inputs } : {}),
 		};
 		if (res.changes.length || made.length || edited.length || moving.length) {
 			const chain: Chain = { depth: opts.chain.depth + 1, seen: new Set([...opts.chain.seen, key]), root: opts.chain.root ?? record.id };
@@ -652,7 +670,7 @@ export class WorkflowEngine extends Events {
 	}
 
 	/** What a workflow's steps would do on a note: worked out on copies, nothing written. */
-	private simulate(wf: WorkflowDef, row: ViewRow, rows: ViewRow[], ctx: ViewContext, old?: ViewRow, answers?: Set<string> | "all", selection?: ViewRow[]): RunResult {
+	private simulate(wf: WorkflowDef, row: ViewRow, rows: ViewRow[], ctx: ViewContext, old?: ViewRow, answers?: Set<string> | "all", selection?: ViewRow[], inputs?: Map<string, string>): RunResult {
 		const { app } = this.plugin;
 		const linkText = (p: string) => {
 			const target = app.vault.getAbstractFileByPath(p);
@@ -661,7 +679,7 @@ export class WorkflowEngine extends Events {
 			const name = p.replace(/\.md$/, "").split("/").pop() ?? p;
 			return app.metadataCache.getFirstLinkpathDest(name, row.path) ? p.replace(/\.md$/, "") : name;
 		};
-		return runSteps(wf, { ctx, row, old, linkText, place: this.placer(rows), workflows: this.plugin.settings.workflows, rows, answers, ...(selection ? { selection } : {}) });
+		return runSteps(wf, { ctx, row, old, linkText, place: this.placer(rows), workflows: this.plugin.settings.workflows, rows, answers, ...(inputs ? { inputs } : {}), ...(selection ? { selection } : {}) });
 	}
 
 	/**

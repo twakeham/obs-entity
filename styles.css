@@ -4365,6 +4365,16 @@ button.oe-tm-typegroup-title,
 	font-style: italic;
 }
 
+/* A workflow's "Ask a question" dialog: the answer box the dialog's width */
+.oe-wf-ask .oe-wf-ask-input {
+	width: 100%;
+}
+
+.oe-wf-ask textarea.oe-wf-ask-input {
+	min-height: 7em;
+	resize: vertical;
+}
+
 .oe-fx-buttons {
 	display: flex;
 	align-items: center;

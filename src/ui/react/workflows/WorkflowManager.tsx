@@ -123,7 +123,8 @@ const STEP_ICONS: Record<StepKind, string> = {
 	linked: "git-fork",
 	each: "repeat",
 	run: "play",
-	ask: "message-circle-question",
+	ask: "circle-check",
+	input: "message-circle-question",
 	var: "variable",
 	if: "split",
 	find: "search",
@@ -896,7 +897,7 @@ function usedNames(wf: WorkflowDef, except?: WorkflowStep): Set<string> {
 	return new Set(
 		flatSteps(wf.steps)
 			.filter((s) => s !== except)
-			.flatMap((s) => (s.kind === "create" || s.kind === "linked" || s.kind === "each" || s.kind === "find" ? [s.as.trim().toLowerCase()] : s.kind === "var" ? [s.name.trim().toLowerCase()] : [])),
+			.flatMap((s) => (s.kind === "create" || s.kind === "linked" || s.kind === "each" || s.kind === "find" || s.kind === "input" ? [s.as.trim().toLowerCase()] : s.kind === "var" ? [s.name.trim().toLowerCase()] : [])),
 	);
 }
 
@@ -925,6 +926,8 @@ function blankStep(kind: StepKind, wf: WorkflowDef, sc: StepScope, workflows: Wo
 			return { kind, text: "" };
 		case "ask":
 			return { kind, text: "" };
+		case "input":
+			return { kind, text: "", as: uniqueName("Answer", used) };
 		case "move":
 			return { kind, to: "folder", folder: "" };
 		case "rename":
@@ -987,7 +990,7 @@ const STEP_GROUPS: { title: string; kinds: StepKind[] }[] = [
 	{ title: "Notes", kinds: ["create", "find"] },
 	{ title: "Values", kinds: ["var"] },
 	{ title: "Flow", kinds: ["if", "each", "linked", "run"] },
-	{ title: "Talk", kinds: ["notice", "ask"] },
+	{ title: "Talk", kinds: ["notice", "ask", "input"] },
 ];
 
 /** A step card''s part in dragging steps to reorder them. */
@@ -1045,8 +1048,8 @@ function StepList({
 	const add = (e: ReactMouseEvent) => {
 		const m = new Menu();
 		const sc = scopeForNew(wf, path, block, { types, groups });
-		// Inside a loop, no questions: a question is asked once, before the loop.
-		const allowed = (k: StepKind) => !(sc.loop && k === "ask");
+		// Inside a loop, nothing that asks: it's asked once, before the loop.
+		const allowed = (k: StepKind) => !(sc.loop && (k === "ask" || k === "input"));
 		for (const g of STEP_GROUPS) {
 			const kinds = g.kinds.filter(allowed);
 			if (!kinds.length) continue;
@@ -1320,6 +1323,52 @@ function StepCard({
 				</div>
 			);
 			break;
+		case "input":
+			body = (
+				<div className="oe-wf-create">
+					{formRow("Question", <FormulaBox sc={sc} template label="Question" value={step.text} placeholder="e.g. What's the summary for {[Name]}?" onChange={(v) => onChange({ ...step, text: v })} />)}
+					{formRow(
+						"Answer",
+						<span className="oe-wf-inline">
+							<Segmented
+								label="Answer"
+								value={step.multiline ? "lines" : "line"}
+								options={[
+									{ value: "line", label: "One line" },
+									{ value: "lines", label: "Several lines" },
+								]}
+								onChange={(v) => {
+									const { multiline: _m, ...rest } = step;
+									onChange(v === "lines" ? { ...rest, multiline: true } : rest);
+								}}
+							/>
+						</span>,
+					)}
+					{formRow(
+						"Default",
+						<FormulaBox
+							sc={sc}
+							template
+							label="Default answer"
+							value={step.default ?? ""}
+							placeholder="Empty  ·  e.g. {[Summary]}"
+							onChange={(v) => {
+								const { default: _d, ...rest } = step;
+								onChange(v ? { ...rest, default: v } : rest);
+							}}
+						/>,
+						"What the answer box starts with (and what a test run takes as the answer).",
+					)}
+					{formRow(
+						"Call it",
+						<span className="oe-wf-inline">
+							<TextInput label="Call it" className="oe-wf-text" value={step.as} placeholder="e.g. Summary" onChange={(v) => onChange({ ...step, as: v })} />
+							<span className="oe-tm-muted">Later steps use the answer as [{step.as.trim() || "…"}] (text). Cancel stops the run, and nothing is saved.</span>
+						</span>,
+					)}
+				</div>
+			);
+			break;
 		case "move":
 			body = (
 				<div className="oe-wf-stack">
@@ -1387,7 +1436,7 @@ function StepCard({
 			body = <FindBody sc={sc} step={step} onChange={onChange} />;
 			break;
 	}
-	const named = step.kind === "create" || step.kind === "linked" || step.kind === "each" || step.kind === "find" ? step.as.trim() : step.kind === "var" ? step.name.trim() : "";
+	const named = step.kind === "create" || step.kind === "linked" || step.kind === "each" || step.kind === "find" || step.kind === "input" ? step.as.trim() : step.kind === "var" ? step.name.trim() : "";
 	const subtitle = step.kind === "run" ? plugin.settings.workflows.find((w) => w.id === step.workflow)?.name : named ? `“${named}”` : "";
 	const stepNo = stepLabel(path);
 	return (
@@ -1446,7 +1495,7 @@ function StepCard({
 						<Icon name="trash-2" />
 					</button>
 				</div>
-				<div className={`oe-wf-step-body${step.kind === "create" || isLoop(step) || step.kind === "if" || step.kind === "find" ? " is-create" : ""}`}>{body}</div>
+				<div className={`oe-wf-step-body${step.kind === "create" || isLoop(step) || step.kind === "if" || step.kind === "find" || step.kind === "input" ? " is-create" : ""}`}>{body}</div>
 				{mine.map((p, i) => (
 					<div key={i} className="oe-tm-issue">
 						<Icon name="alert-circle" /> {p.message}
@@ -2477,6 +2526,7 @@ function RunList({ runs, showWorkflow, empty = "No runs yet." }: { runs: RunReco
 													: " — no changes"}
 								{!r.error && !r.stopped && ownMove ? ` — ${movedText(ownMove.from, ownMove.to)}` : ""}
 								{!r.error && !r.stopped && r.asked?.length ? ` (asked: ${r.asked.map((q) => `“${q}” Yes`).join(", ")})` : ""}
+								{!r.error && !r.stopped && r.inputs?.length ? ` (answered: ${r.inputs.map((a) => `“${a.question}” “${a.answer}”`).join(", ")})` : ""}
 							</span>
 							{!r.error && !r.stopped && (r.created ?? []).map((n) => (
 								<span key={n.path} className="oe-wf-run-detail">

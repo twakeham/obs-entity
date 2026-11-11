@@ -413,6 +413,8 @@ export function renameWorkflowKeys(wf: WorkflowDef, keys: Map<string, string>, i
 			case "notice":
 			case "ask":
 				return { ...s, text: tx(s.text) };
+			case "input":
+				return { ...s, text: tx(s.text), ...(s.default ? { default: tx(s.default) } : {}) };
 			case "move":
 				return { ...s, folder: tx(s.folder) };
 			case "rename":

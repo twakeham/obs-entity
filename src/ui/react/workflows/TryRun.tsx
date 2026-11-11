@@ -118,7 +118,12 @@ export function TryRunResult({ wf, res, again, close }: { wf: WorkflowDef; res: 
 				<>
 					{r.asked.map((q, i) => (
 						<div key={i} className="oe-wf-try-banner is-ask">
-							<Icon name="message-circle-question" /> It asks “{q}” first. Taken as Yes here; No would stop the run.
+							<Icon name="circle-check" /> It asks you to confirm “{q}” first. Taken as Yes here; No would stop the run.
+						</div>
+					))}
+					{r.inputs.map((a, i) => (
+						<div key={`i${i}`} className="oe-wf-try-banner is-ask">
+							<Icon name="message-circle-question" /> It asks “{a.question}”. Taken as {a.answer ? `“${a.answer}” (its default answer)` : "an empty answer"} here.
 						</div>
 					))}
 					<div className="oe-wf-try-note">

@@ -61,8 +61,8 @@ export class WorkflowPickerModal extends FuzzySuggestModal<WorkflowDef> {
 const wf_desc = (wf: WorkflowDef, plugin: EntitiesPlugin) => (wf.trigger.kind === "manual" && wf.trigger.label && wf.trigger.label !== wf.name ? wf.name : triggerText(wf, plugin.settings.types));
 
 /**
- * "Ask a question": Yes or No (closing it is No). `rest`: notes still to go in a selection, offered "Same answer for
- * the other N notes" (`all`).
+ * "Confirm": Yes or No (closing it is No). `rest`: notes still to go in a selection, offered "Same answer for the
+ * other N notes" (`all`).
  */
 export function askQuestion(app: App, title: string, text: string, rest = 0): Promise<{ yes: boolean; all: boolean }> {
 	return new Promise((resolve) => {
@@ -83,6 +83,51 @@ export function askQuestion(app: App, title: string, text: string, rest = 0): Pr
 			}
 			onClose(): void {
 				resolve({ yes: answer === true, all: answer !== null && all });
+			}
+		})(app);
+		m.open();
+	});
+}
+
+/**
+ * "Ask a question": a text answer (the default filled in; several lines when `multiline`). Cancel (or closing it) is
+ * `answer: null`. `rest`: notes still to go in a selection, offered "Same answer for the other N notes" (`all`).
+ */
+export function askText(app: App, title: string, question: string, opts: { default: string; multiline: boolean; rest?: number }): Promise<{ answer: string | null; all: boolean }> {
+	return new Promise((resolve) => {
+		let answer: string | null = null;
+		let all = false;
+		const m = new (class extends Modal {
+			onOpen(): void {
+				this.setTitle(title);
+				this.modalEl.addClass("oe-wf-ask");
+				this.contentEl.createEl("p", { text: question });
+				const box = opts.multiline ? this.contentEl.createEl("textarea", { cls: "oe-wf-ask-input" }) : this.contentEl.createEl("input", { type: "text", cls: "oe-wf-ask-input" });
+				box.value = opts.default;
+				box.setAttr("aria-label", "Answer");
+				const done = () => {
+					answer = box.value;
+					this.close();
+				};
+				// Enter answers (Ctrl/Cmd+Enter with several lines).
+				(box as HTMLElement).addEventListener("keydown", (e: KeyboardEvent) => {
+					if (e.key === "Enter" && !e.isComposing && (!opts.multiline || e.ctrlKey || e.metaKey)) {
+						e.preventDefault();
+						done();
+					}
+				});
+				if ((opts.rest ?? 0) > 0)
+					new Setting(this.contentEl).setName(`Same answer for the other ${opts.rest === 1 ? "note" : `${opts.rest} notes`}`).addToggle((t) => t.setValue(false).onChange((v) => (all = v)));
+				new Setting(this.contentEl).addButton((b) => b.setButtonText("Cancel").onClick(() => this.close())).addButton((b) => b.setButtonText("OK").setCta().onClick(done));
+				window.setTimeout(() => {
+					box.focus();
+					// One line: typing replaces the default; several: carry on after it.
+					if (opts.multiline) box.setSelectionRange(box.value.length, box.value.length);
+					else box.select();
+				}, 0);
+			}
+			onClose(): void {
+				resolve({ answer, all: answer !== null && all });
 			}
 		})(app);
 		m.open();

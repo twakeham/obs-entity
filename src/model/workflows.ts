@@ -116,6 +116,7 @@ export type NoteStep =
 	| { kind: "create"; type: string; name: string; fields: CreateField[]; link?: CreateLink; template: boolean; open: CreateOpen; exists: CreateExists; as: string; folder?: string; body?: CreateBody }
 	| { kind: "run"; workflow: string; on?: string }
 	| { kind: "ask"; text: string }
+	| { kind: "input"; text: string; as: string; default?: string; multiline?: true }
 	| { kind: "move"; to: MoveTo; folder: string; on?: string }
 	| { kind: "rename"; name: string; on?: string }
 	| { kind: "var"; name: string; value: string };
@@ -182,7 +183,8 @@ export const STEP_LABELS: Record<StepKind, string> = {
 	linked: "For linked notes",
 	each: "For each",
 	run: "Run another workflow",
-	ask: "Ask a question",
+	ask: "Confirm",
+	input: "Ask a question",
 	var: "Set a variable",
 	if: "If",
 	find: "Find notes",
@@ -270,6 +272,8 @@ function readStep(raw: unknown): WorkflowStep | null {
 			return { kind: "notice", text: str(raw.text) };
 		case "ask":
 			return { kind: "ask", text: str(raw.text) };
+		case "input":
+			return { kind: "input", text: str(raw.text), as: str(raw.as), ...(str(raw.default) ? { default: str(raw.default) } : {}), ...(raw.multiline === true ? { multiline: true as const } : {}) };
 		case "move":
 			return { kind: "move", to: raw.to === "type" ? "type" : "folder", folder: str(raw.folder), ...on };
 		case "rename":
@@ -432,8 +436,8 @@ export function mapStepAt(steps: WorkflowStep[], key: string, fn: (s: WorkflowSt
 		return withBlocks(s, blocks);
 	});
 }
-/** Whether a workflow stops to ask a question (an "Ask a question" step). */
-export const asksQuestion = (wf: Pick<WorkflowDef, "steps">): boolean => flatSteps(wf.steps).some((s) => s.kind === "ask");
+/** Whether a workflow stops to ask something ("Confirm", "Ask a question"). */
+export const asksQuestion = (wf: Pick<WorkflowDef, "steps">): boolean => flatSteps(wf.steps).some((s) => s.kind === "ask" || s.kind === "input");
 
 /** "For linked notes" choices: this note's link fields, and other types' link fields that point at these types. */
 export function linkedSources(scope: string[], types: EntityTypeDef[]): { out: WorkflowField[]; in: { type: EntityTypeDef; field: FieldDef; label: string }[] } {
@@ -468,6 +472,7 @@ const VAR_GROUPS: { role: VarSpec["role"]; title: string }[] = [
 	{ role: "item", title: "Loop items" },
 	{ role: "created", title: "Created notes" },
 	{ role: "found", title: "Found notes" },
+	{ role: "answer", title: "Answers" },
 	{ role: "variable", title: "Variables" },
 	{ role: undefined, title: "Notes and values" },
 ];
@@ -488,7 +493,7 @@ export interface StepScope {
 	fields: WorkflowField[];
 	/** names formulas can use besides columns (`role` says what each is): this note or the selection, loop items, created and found notes, variables */
 	vars: VarSpec[];
-	/** which of `vars` are variables ("Set a variable" steps before this one) */
+	/** which of `vars` have no value until the run: variables and answers ("Set a variable", "Ask a question" before this step) */
 	variables?: string[];
 	/** "On" choices besides the default: stored value, label, the note''s types; `made`: a note this run creates (`plain`: with no type); `found`: a "Find notes" step's first */
 	on: { value: string; label: string; types: EntityTypeDef[]; made?: true; plain?: true; found?: true }[];
@@ -549,12 +554,13 @@ export function stepScopes(wf: Pick<WorkflowDef, "scope" | "when" | "steps"> & P
 					? {
 							...cur,
 							vars: [...cur.vars, ...globals.filter((g) => !cur.vars.some((v) => v.name === g.name))],
-							variables: globals.filter((g) => g.role === "variable").map((g) => g.name),
+							variables: globals.filter((g) => g.role === "variable" || g.role === "answer").map((g) => g.name),
 							on: [...cur.on, ...globalOn.filter((g) => !cur.on.some((o) => o.value === g.value))],
 						}
 					: cur;
 			out.set(key, sc);
 			if (s.kind === "var" && s.name.trim()) setVar(s.name.trim(), varType(s.value, sc), "variable");
+			if (s.kind === "input" && s.as.trim()) setVar(s.as.trim(), "text", "answer");
 			if (s.kind === "find" && s.as.trim()) {
 				setVar(s.as.trim(), "links", "found");
 				if (s.keep === "first" && !globalOn.some((g) => g.value === s.as.trim())) globalOn.push({ value: s.as.trim(), label: s.as.trim(), types: scopeTypes({ scope: s.types }, all), found: true });
@@ -581,7 +587,7 @@ export function stepScopes(wf: Pick<WorkflowDef, "scope" | "when" | "steps"> & P
 		}
 	};
 	// Set again with another kind of value: it can be either.
-	const setVar = (name: string, type: FType, role: "variable" | "found") => {
+	const setVar = (name: string, type: FType, role: "variable" | "found" | "answer") => {
 		const had = globals.find((g) => g.name.toLowerCase() === name.toLowerCase());
 		if (!had) globals.push({ name, type, role });
 		else if (had.type !== type) had.type = "any";
@@ -954,13 +960,20 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 				}
 				break;
 			}
-			case "ask": {
-				if (sc.loop) add(at, "A question can't be inside a loop: ask it before the loop.");
-				if (isTimed(wf.trigger)) add(at, "A workflow that runs on its own can't ask a question: nobody may be there to answer.");
-				if (!s.text.trim()) add(at, "Write the question, e.g. Also close its tasks?");
+			case "ask":
+			case "input": {
+				const what = s.kind === "ask" ? "confirm" : "ask a question";
+				if (sc.loop) add(at, `It can't ${what} inside a loop: ${s.kind === "ask" ? "confirm" : "ask"} before the loop.`);
+				if (isTimed(wf.trigger)) add(at, `A workflow that runs on its own can't ${what}: nobody may be there to answer.`);
+				if (!s.text.trim()) add(at, s.kind === "ask" ? "Write the question, e.g. Also close its tasks?" : "Write the question, e.g. What's the summary?");
 				else {
 					const e = tErr(s.text);
 					if (e) add(at, e);
+				}
+				if (s.kind === "input") {
+					const de = s.default?.trim() ? tErr(s.default) : null;
+					if (de) add(at, `Default answer: ${de}`);
+					nameOk(at, s.as, sc, "the answer");
 				}
 				break;
 			}
@@ -1062,7 +1075,7 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 				else if (!sub) add(at, "The workflow it runs has been deleted.");
 				else {
 					if (tTypes.length && !tTypes.some((x) => inScope(sub, x))) add(at, `“${sub.name}” doesn't apply to ${tTypes.length === 1 ? (tTypes[0].plural || tTypes[0].name) : "these notes"}.`);
-					if (asksQuestion(sub)) add(at, `“${sub.name}” asks a question, so it can't be run from another workflow.`);
+					if (asksQuestion(sub)) add(at, `“${sub.name}” stops to ask you something, so it can't be run from another workflow.`);
 					if (!checking.includes(sub.id) && workflowProblems(sub, lookup, [...checking, wf.id]).length) add(at, `“${sub.name}” has problems, so it can't run.`);
 				}
 				break;
@@ -1340,10 +1353,12 @@ export interface StepEnv {
 	/** every note, for "Find notes" (without it, Find finds only notes this run makes) */
 	rows?: ViewRow[];
 	/**
-	 * Questions answered Yes ("Ask a question"), by step ("2", "4.1"): a question not in it pauses the run (`pending`);
-	 * "all" answers every one Yes (a test run).
+	 * Confirmations answered Yes ("Confirm"), by step ("2", "4.1"): one not in it pauses the run (`pending`); "all"
+	 * answers every one Yes, and every question with its default answer (a test run).
 	 */
 	answers?: Set<string> | "all";
+	/** Answers to "Ask a question" steps, by step: one not in it pauses the run (`pending`, with `input`). */
+	inputs?: Map<string, string>;
 	/**
 	 * A run once for a whole selection: the selected notes (`row` is only the first, for link text): no "this note",
 	 * the notes as [Selected notes].
@@ -1387,10 +1402,15 @@ export interface RunResult {
 	via: string[];
 	/** where this note moves to (and its new name) */
 	move?: NoteMove;
-	/** the questions asked and answered Yes (or taken as Yes, in a test run) */
+	/** the confirmations asked and answered Yes (or taken as Yes, in a test run) */
 	asked: string[];
-	/** a question not answered yet: the run stopped there, and runs again once it's answered Yes */
-	pending?: { step: string; text: string };
+	/** the questions asked ("Ask a question") and their answers (the default answers, in a test run) */
+	inputs: { question: string; answer: string }[];
+	/**
+	 * Something not answered yet: the run stopped there, and runs again once it's answered (a confirmation Yes; a
+	 * question, with `input`, its answer: the default answer to offer, and whether it takes several lines).
+	 */
+	pending?: { step: string; text: string; input?: { default: string; multiline: boolean } };
 	/** the step that failed ("2", or "2.0" inside it: see stepLabel), and why: nothing is written */
 	error?: { step: string; message: string };
 	/** why the run stopped before doing anything ("If it already exists: Stop the run") */
@@ -1423,11 +1443,12 @@ const diffOf = (start: Record<string, unknown>, fm: Record<string, unknown>): Fi
 class StopRun extends Error {}
 /** A step acting on a note a "Find notes" step didn't find: the step is skipped. */
 class SkipStep extends Error {}
-/** A question not answered yet ("Ask a question"): the run stops there, to run again once it's answered. */
+/** Something not answered yet ("Confirm", "Ask a question"): the run stops there, to run again once it's answered. */
 class AskFirst extends Error {
 	constructor(
 		readonly step: string,
 		readonly text: string,
+		readonly input?: { default: string; multiline: boolean },
 	) {
 		super(text);
 	}
@@ -1488,6 +1509,7 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 	const start = copy(mainRow.frontmatter);
 	const notices: string[] = [];
 	const asked: string[] = [];
+	const inputs: RunResult["inputs"] = [];
 	/** the workflow's own step running ("2", "2.0"…): a step's error, or its question, is reported there */
 	let at = "0";
 	const via: string[] = [];
@@ -1518,7 +1540,15 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 	/** A workflow's notes found first: none until its Find notes step runs. */
 	const foundOf = (w: WorkflowDef) => new Map<string, RunNote | null>(flatSteps(w.steps).flatMap((s) => (s.kind === "find" && s.keep === "first" && s.as.trim() ? [[s.as.trim(), null] as const] : [])));
 	const globalsOf = (w: WorkflowDef): Record<string, FValue> =>
-		Object.fromEntries(flatSteps(w.steps).flatMap((s) => (s.kind === "var" && s.name.trim() ? [[s.name.trim(), null as FValue] as const] : s.kind === "find" && s.as.trim() ? [[s.as.trim(), [] as FValue] as const] : [])));
+		Object.fromEntries(
+			flatSteps(w.steps).flatMap((s) =>
+				(s.kind === "var" || s.kind === "input") && (s.kind === "var" ? s.name : s.as).trim()
+					? [[(s.kind === "var" ? s.name : s.as).trim(), null as FValue] as const]
+					: s.kind === "find" && s.as.trim()
+						? [[s.as.trim(), [] as FValue] as const]
+						: [],
+			),
+		);
 	const evalIn = (f: Frame, src: string) => evaluateFormula(src, f.reader.row, f.def, ctx, { workflow: true, old: f.reader === f.main ? f.old : undefined, vars: varsOf(f) });
 	/** A picked value or formula, as the note's field stores it (the note's own type's definition of the field). */
 	const valueFor = (f: Frame, wfield: WorkflowField, n: RunNote, fixed: FixedValue | undefined, formula: string): unknown => {
@@ -1648,11 +1678,28 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 				return;
 			}
 			case "ask": {
-				if (f.inLoop) throw new Error("A question can't be inside a loop.");
-				if (f.depth > 0) throw new Error(`“${f.wf.name}” asks a question, so it can't be run from another workflow.`);
+				if (f.inLoop) throw new Error("It can't confirm inside a loop.");
+				if (f.depth > 0) throw new Error(`“${f.wf.name}” stops to ask you something, so it can't be run from another workflow.`);
 				const text = renderTemplate(s.text, f.reader.row, f.def, { ctx, old: f.old, vars: varsOf(f) }).trim() || "Carry on?";
 				if (env.answers !== "all" && !env.answers?.has(key ?? at)) throw new AskFirst(key ?? at, text);
 				asked.push(text);
+				return;
+			}
+			case "input": {
+				if (f.inLoop) throw new Error("It can't ask a question inside a loop.");
+				if (f.depth > 0) throw new Error(`“${f.wf.name}” stops to ask you something, so it can't be run from another workflow.`);
+				const tx = (src: string) => renderTemplate(src, f.reader.row, f.def, { ctx, old: f.old, vars: varsOf(f) });
+				const question = tx(s.text).trim() || "Your answer?";
+				const k = key ?? at;
+				let answer = env.inputs?.get(k);
+				if (answer === undefined) {
+					const def = s.default?.trim() ? tx(s.default) : "";
+					// A test run takes the default answer.
+					if (env.answers !== "all") throw new AskFirst(k, question, { default: def, multiline: !!s.multiline });
+					answer = def;
+				}
+				f.globals[s.as.trim()] = answer;
+				inputs.push({ question, answer });
 				return;
 			}
 			case "move":
@@ -1782,8 +1829,8 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 	try {
 		exec(wf.steps, top, String);
 	} catch (e) {
-		const none = { fm: start, changes: [], notices: [], others: [], via: [], asked };
-		if (e instanceof AskFirst) return { ...none, pending: { step: e.step, text: e.text } };
+		const none = { fm: start, changes: [], notices: [], others: [], via: [], asked, inputs };
+		if (e instanceof AskFirst) return { ...none, pending: { step: e.step, text: e.text, ...(e.input ? { input: e.input } : {}) } };
 		if (e instanceof StopRun) return { ...none, stopped: e.message };
 		return { ...none, error: { step: at, message: e instanceof Error ? e.message : String(e) } };
 	}
@@ -1794,6 +1841,7 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 		via: [...new Set(via)],
 		...(main.move ? { move: main.move } : {}),
 		asked,
+		inputs,
 		others: order
 			.map((n): OtherNote => ({ path: n.path, name: n.row.name, ...(n.created ? { created: n.created } : {}), fm: n.fm, changes: diffOf(n.start, n.fm), ...(n.move ? { move: n.move } : {}) }))
 			.filter((o) => o.created || o.changes.length || o.move),

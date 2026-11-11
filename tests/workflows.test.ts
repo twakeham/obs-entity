@@ -602,7 +602,7 @@ describe("loops and running other workflows", () => {
 
 		it("don't ask a question in a loop inside a loop", () => {
 			const w = nested([{ kind: "ask", text: "Sure?" }]);
-			expect(workflowProblems(w, ctx).map((p) => `${p.at}: ${p.message}`)).toContain("step:0.1.0: A question can't be inside a loop: ask it before the loop.");
+			expect(workflowProblems(w, ctx).map((p) => `${p.at}: ${p.message}`)).toContain("step:0.1.0: It can't confirm inside a loop: confirm before the loop.");
 		});
 	});
 
@@ -929,15 +929,54 @@ describe("questions, moves and renames", () => {
 
 	it("don't ask inside loops or from another workflow", () => {
 		const inLoop = wf({ id: "loop", name: "x", scope: ["project"], steps: [tasksOf([{ kind: "ask", text: "Sure?" }])] });
-		expect(go(inLoop, ROWS[0], "all").error?.message).toBe("A question can't be inside a loop.");
-		expect(workflowProblems(inLoop, ctx).map((p) => p.message)).toContain("A question can't be inside a loop: ask it before the loop.");
+		expect(go(inLoop, ROWS[0], "all").error?.message).toBe("It can't confirm inside a loop.");
+		expect(workflowProblems(inLoop, ctx).map((p) => p.message)).toContain("It can't confirm inside a loop: confirm before the loop.");
 		const asks = wf({ id: "asks", name: "Asks", scope: ["task"], steps: [{ kind: "ask", text: "Sure?" }, { kind: "tag", op: "add", tag: "x" }] });
 		const runs = wf({ id: "runs", name: "Runs", scope: ["task"], steps: [{ kind: "run", workflow: "asks" }] });
 		expect(asksQuestion(asks)).toBe(true);
 		expect(asksQuestion(runs)).toBe(false);
-		expect(workflowProblems(runs, { ...ctx, workflows: [asks, runs] }).map((p) => p.message)).toContain("\u201cAsks\u201d asks a question, so it can't be run from another workflow.");
-		expect(go(runs, t1, "all", [asks, runs]).error?.message).toBe("\u201cAsks\u201d asks a question, so it can't be run from another workflow.");
+		expect(workflowProblems(runs, { ...ctx, workflows: [asks, runs] }).map((p) => p.message)).toContain("\u201cAsks\u201d stops to ask you something, so it can't be run from another workflow.");
+		expect(go(runs, t1, "all", [asks, runs]).error?.message).toBe("\u201cAsks\u201d stops to ask you something, so it can't be run from another workflow.");
 		expect(workflowProblems(wf({ name: "x", scope: ["task"], steps: [{ kind: "ask", text: "" }] }), ctx).map((p) => p.message)).toEqual(["Write the question, e.g. Also close its tasks?"]);
+	});
+
+	describe("ask a question (a text answer)", () => {
+		const q = (over: Partial<Extract<WorkflowStep, { kind: "input" }>> = {}): WorkflowStep => ({ kind: "input", text: "Summary for {[Name]}?", as: "Summary", ...over });
+		const goIn = (w: WorkflowDef, r: ViewRow, inputs?: Map<string, string>, answers?: Set<string> | "all") => runSteps(w, { ctx: ctx2, row: r, linkText, place, ...(inputs ? { inputs } : {}), ...(answers ? { answers } : {}) });
+
+		it("stop for the answer, then use it as [Name] in later steps", () => {
+			const w = wf({ name: "x", scope: ["task"], steps: [q({ default: "{[Name]} went well", multiline: true }), { kind: "notice", text: "{[Summary]}!" }, { kind: "set", field: "priority", value: "if([Summary] = \"urgent\", \"High\", \"Low\")" }] });
+			expect(workflowProblems(w, ctx)).toEqual([]);
+			expect(readWorkflows(JSON.parse(JSON.stringify([w])))[0].steps).toEqual(w.steps);
+			const first = goIn(w, t1);
+			expect(first.pending).toEqual({ step: "0", text: "Summary for Plan?", input: { default: "Plan went well", multiline: true } });
+			expect(first.changes).toEqual([]);
+			const done = goIn(w, t1, new Map([["0", "urgent"]]));
+			expect(done.pending).toBeUndefined();
+			expect(done.notices).toEqual(["urgent!"]);
+			expect(done.inputs).toEqual([{ question: "Summary for Plan?", answer: "urgent" }]);
+			expect(done.changes).toEqual([{ key: "priority", before: "Low", after: "High" }]);
+			// A test run takes the default answer.
+			expect(goIn(w, t1, undefined, "all").notices).toEqual(["Plan went well!"]);
+		});
+
+		it("is a run-wide text name, grouped as an answer", () => {
+			const w = wf({ name: "x", scope: ["task"], steps: [q(), { kind: "notice", text: "x" }] });
+			const sc = stepScopes(w, ctx).get("1")!;
+			expect(sc.vars.find((v) => v.name === "Summary")).toEqual({ name: "Summary", type: "text", role: "answer" });
+			expect(varGroups(sc.vars).map((g) => g.title)).toEqual(["This note", "Answers"]);
+			expect(sc.variables).toEqual(["Summary"]);
+		});
+
+		it("follow the same rules as Confirm, and need a name", () => {
+			const probs = (steps: WorkflowStep[], trigger?: WorkflowDef["trigger"]) => workflowProblems(wf({ name: "x", scope: ["project"], ...(trigger ? { trigger } : {}), steps }), ctx).map((p) => p.message);
+			expect(probs([tasksOf([q()])])).toContain("It can't ask a question inside a loop: ask before the loop.");
+			expect(probs([q()], { kind: "schedule", every: "day", at: "09:00", day: 1, hours: 1, limit: 50 })).toContain("A workflow that runs on its own can't ask a question: nobody may be there to answer.");
+			expect(probs([q({ text: "", as: "" })])).toEqual(["Write the question, e.g. What's the summary?", "Name the answer for later steps (Call it)."]);
+			expect(probs([q({ as: "Budget" })])).toEqual(["\u201cBudget\u201d is already a field's name: choose another."]);
+			expect(probs([q({ default: "{[Nope]}" })])).toEqual(["Default answer: Unknown column [Nope]."]);
+			expect(asksQuestion({ steps: [q()] })).toBe(true);
+		});
 	});
 
 	it("plan moves and renames from templates, for this note and each linked note", () => {
@@ -1061,7 +1100,7 @@ describe("schedules and dates", () => {
 		expect(probs(sched({ at: "9am" }))).toEqual(["Choose the time, e.g. 09:00."]);
 		expect(probs(sched({ every: "hours", hours: 0, limit: 0 }))).toEqual(["Every 1 to 168 hours.", "Allow at least 1 note per run."]);
 		expect(probs(sched(), [{ kind: "tag", op: "add", tag: "x" }], [])).toEqual(["Choose the types this workflow watches."]);
-		expect(probs(sched(), [{ kind: "ask", text: "Sure?" }])).toEqual(["A workflow that runs on its own can't ask a question: nobody may be there to answer."]);
+		expect(probs(sched(), [{ kind: "ask", text: "Sure?" }])).toEqual(["A workflow that runs on its own can't confirm: nobody may be there to answer."]);
 	});
 });
 describe("not setting off other workflows", () => {

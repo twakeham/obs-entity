@@ -1636,7 +1636,7 @@ export const VAR_PREFIX = "var:";
 export interface VarSpec {
 	name: string;
 	type: FType;
-	role?: "this" | "selection" | "item" | "created" | "found" | "variable";
+	role?: "this" | "selection" | "item" | "created" | "found" | "answer" | "variable";
 }
 export const varColumns = (vars: (string | VarSpec)[]): RefColumn[] =>
 	vars.map((v) => (typeof v === "string" ? { id: `${VAR_PREFIX}${v}`, label: v, type: "links" as FType } : { id: `${VAR_PREFIX}${v.name}`, label: v.name, type: v.type }));
