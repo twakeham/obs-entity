@@ -118,7 +118,6 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 const FOLD_KEY = "obs-entities-workflow-folded";
 /** The problems each foldable section of the editor holds (by where they're reported), by its key. */
 const SECTION_ATS: Record<string, (at: string) => boolean> = {
-	workflow: (a) => a === "name" || a === "scope",
 	when: (a) => a === "trigger",
 	"only-if": (a) => a === "when",
 	do: (a) => a === "steps" || a.startsWith("step:"),
@@ -553,7 +552,7 @@ function WorkflowEditor({
 							<Icon name="alert-triangle" /> This workflow doesn't run until {problems.length === 1 ? "its problem is" : `its ${problems.length} problems are`} fixed.
 						</div>
 					)}
-					<Section title="Workflow" collapse={fold("workflow", `${wf.name || "New workflow"} · ${wf.scope.length ? scopeTypes(wf, settings.types).map((x) => x.plural || x.name).join(", ") || wf.scope.join(", ") : "Any note"}${wf.isolated ? " · doesn't set off other workflows" : ""}`)}>
+					<Section title="Workflow" desc="Its name, the notes it's for, and whether its changes set off other workflows." icon="sliders-horizontal" className="oe-wf-panel is-workflow">
 						<Row label="Name" issues={at("name")}>
 							<TextInput label="Workflow name" value={wf.name} placeholder="e.g. Completed date" autoFocus={isNew && !wf.name} invalid={at("name").length > 0} onChange={(v) => edit((x) => (x.name = v))} />
 						</Row>

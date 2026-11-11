@@ -7596,6 +7596,15 @@ button.oe-calv-more:hover {
 	background-color: var(--background-secondary);
 }
 
+.oe-wf-editor .oe-wf-panel.is-workflow {
+	--oe-wf-accent: var(--color-purple);
+}
+
+/* A panel that doesn't fold keeps its icon in line with the others' (which have a chevron before it) */
+.oe-wf-editor .oe-wf-panel:not(.is-collapsible) > .oe-tm-section-head h3 {
+	padding-left: calc(16px - 4px + var(--size-4-2));
+}
+
 .oe-wf-editor .oe-wf-panel.is-when {
 	--oe-wf-accent: var(--color-blue);
 }
@@ -7615,6 +7624,11 @@ button.oe-calv-more:hover {
 	left: 26px;
 	height: var(--size-4-6);
 	border-left: 2px dashed var(--background-modifier-border-hover);
+}
+
+/* The Workflow panel says what the workflow is; the line only joins the steps of what it does */
+.oe-wf-editor .oe-wf-panel.is-workflow + .oe-wf-panel::before {
+	display: none;
 }
 
 .oe-wf-panel .oe-tm-section-icon {
