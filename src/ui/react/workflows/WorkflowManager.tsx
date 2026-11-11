@@ -972,7 +972,7 @@ function StepList({
 	steps: WorkflowStep[];
 	path: string;
 	block?: number;
-	/** what an empty list inside a step says */
+	/** what an empty list inside a step says ("": nothing) */
 	empty?: string;
 	scopes: Map<string, StepScope>;
 	problems: WorkflowProblem[];
@@ -1043,7 +1043,7 @@ function StepList({
 						onRemove={() => onChange(steps.filter((_, j) => j !== i))}
 					/>
 				))}
-				{!steps.length && path && <div className="oe-tm-muted oe-wf-inner-empty">{empty}</div>}
+				{!steps.length && path && empty && <div className="oe-tm-muted oe-wf-inner-empty">{empty}</div>}
 			</div>
 			<button className={`oe-wf-add-step${path ? " is-inner" : ""}`} onClick={add}>
 				<Icon name="plus" /> {path ? "Add a step inside" : "Add step"}
@@ -1700,13 +1700,13 @@ function IfBody({
 						<span className="oe-wf-if-label">
 							<Icon name="check" /> Then
 						</span>
-						<StepList wf={wf} steps={step.steps} path={path} block={0} empty="Nothing: carry on after the If." scopes={scopes} problems={problems} onChange={(steps) => set({ steps })} />
+						<StepList wf={wf} steps={step.steps} path={path} block={0} empty="" scopes={scopes} problems={problems} onChange={(steps) => set({ steps })} />
 					</div>
 					<div className="oe-wf-if-branch is-otherwise">
 						<span className="oe-wf-if-label">
 							<Icon name="corner-down-right" /> Otherwise
 						</span>
-						<StepList wf={wf} steps={step.otherwise} path={path} block={1} empty="Nothing: carry on after the If." scopes={scopes} problems={problems} onChange={(otherwise) => set({ otherwise })} />
+						<StepList wf={wf} steps={step.otherwise} path={path} block={1} empty="" scopes={scopes} problems={problems} onChange={(otherwise) => set({ otherwise })} />
 					</div>
 				</div>
 			</div>
