@@ -119,6 +119,7 @@ const STEP_ICONS: Record<StepKind, string> = {
 	each: "repeat",
 	run: "play",
 	ask: "message-circle-question",
+	var: "variable",
 };
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -888,7 +889,7 @@ function usedNames(wf: WorkflowDef, except?: WorkflowStep): Set<string> {
 	return new Set(
 		flatSteps(wf.steps)
 			.filter((s) => s !== except)
-			.flatMap((s) => (s.kind === "create" || s.kind === "linked" || s.kind === "each" ? [s.as.trim().toLowerCase()] : [])),
+			.flatMap((s) => (s.kind === "create" || s.kind === "linked" || s.kind === "each" ? [s.as.trim().toLowerCase()] : s.kind === "var" ? [s.name.trim().toLowerCase()] : [])),
 	);
 }
 
@@ -921,6 +922,8 @@ function blankStep(kind: StepKind, wf: WorkflowDef, sc: StepScope, workflows: Wo
 			return { kind, to: "folder", folder: "" };
 		case "rename":
 			return { kind, name: "" };
+		case "var":
+			return { kind, name: uniqueName("Value", used), value: "" };
 		case "create": {
 			const s = newCreateStep({ scope: sc.scope, steps: [], trigger: wf.trigger }, types);
 			return { ...s, as: uniqueName(s.as, used) };
@@ -961,6 +964,7 @@ function scopeForNew(wf: WorkflowDef, path: string, block: number, lookup: { typ
 const STEP_GROUPS: { title: string; kinds: StepKind[] }[] = [
 	{ title: "Change the note", kinds: ["set", "clear", "tag", "link", "move", "rename"] },
 	{ title: "Notes", kinds: ["create"] },
+	{ title: "Values", kinds: ["var"] },
 	{ title: "Flow", kinds: ["each", "linked", "run"] },
 	{ title: "Talk", kinds: ["notice", "ask"] },
 ];
@@ -1251,6 +1255,20 @@ function StepCard({
 		case "notice":
 			body = <FormulaBox sc={sc} template value={step.text} placeholder="e.g. {[Name]} is done" onChange={(v) => onChange({ ...step, text: v })} />;
 			break;
+		case "var":
+			body = (
+				<div className="oe-wf-stack">
+					<div className="oe-wf-step-row">
+						<TextInput label="Variable name" className="oe-wf-text" value={step.name} placeholder="e.g. Total" onChange={(v) => onChange({ ...step, name: v })} />
+						<span className="oe-wf-to">to</span>
+						<FormulaBox sc={sc} label="Value" value={step.value} placeholder="e.g. 0, [Estimate] * 2 or [Total] + 1" onChange={(v) => onChange({ ...step, value: v })} />
+					</div>
+					<div className="oe-wf-help">
+						Later steps use it as [{step.name.trim() || "name"}], after loops too. Set it again to change it, e.g. to [{step.name.trim() || "Total"}] + [Estimate] inside a loop.
+					</div>
+				</div>
+			);
+			break;
 		case "ask":
 			body = (
 				<div className="oe-wf-stack">
@@ -1320,7 +1338,7 @@ function StepCard({
 			body = <LoopBody wf={wf} path={path} step={step} scopes={scopes} problems={problems} onChange={onChange} />;
 			break;
 	}
-	const named = step.kind === "create" || step.kind === "linked" || step.kind === "each" ? step.as.trim() : "";
+	const named = step.kind === "create" || step.kind === "linked" || step.kind === "each" ? step.as.trim() : step.kind === "var" ? step.name.trim() : "";
 	const subtitle = step.kind === "run" ? plugin.settings.workflows.find((w) => w.id === step.workflow)?.name : named ? `“${named}”` : "";
 	const stepNo = stepLabel(path);
 	return (
@@ -1778,16 +1796,17 @@ function valueHint(f: WorkflowField | undefined): string {
 /** The fields [ ] offers, grouped like the field pickers: Built-in (Name, Status, Type, Created…) and Fields. */
 function insertableFields(sc: StepScope, lookup: { types: EntityTypeDef[]; groups: GroupDef[] }): { group: string; labels: string[] }[] {
 	const def = sc.def;
-	const vars = sc.vars.map((v) => v.name);
+	const variables = sc.variables ?? [];
+	const vars = sc.vars.map((v) => v.name).filter((n) => !variables.includes(n));
+	const named = [
+		{ group: sc.noNote && !sc.loop ? "The selection and created notes" : sc.loop ? "Notes and values" : "Created notes", labels: vars },
+		{ group: "Variables", labels: variables },
+	];
 	// No single note (a run for the whole selection): only named notes and values can be read.
-	if (sc.noNote) return vars.length ? [{ group: sc.loop ? "Notes and values" : "The selection and created notes", labels: vars }] : [];
+	if (sc.noNote) return named.filter((g) => g.labels.length);
 	const cols = availableColumns(def, lookup);
 	const labels = (list: ColumnDef[]) => [...new Set(list.map((c) => resolveColumn(c, def, lookup).label))];
-	return [
-		{ group: "Built-in", labels: labels([{ kind: "builtin", id: "name", key: "name" } as ColumnDef, ...cols.builtins]) },
-		{ group: "Fields", labels: labels(cols.fields) },
-		{ group: sc.loop ? "Notes and values" : "Created notes", labels: vars },
-	].filter((g) => g.labels.length);
+	return [{ group: "Built-in", labels: labels([{ kind: "builtin", id: "name", key: "name" } as ColumnDef, ...cols.builtins]) }, { group: "Fields", labels: labels(cols.fields) }, ...named].filter((g) => g.labels.length);
 }
 
 /**

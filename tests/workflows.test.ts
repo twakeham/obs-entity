@@ -547,6 +547,62 @@ describe("loops and running other workflows", () => {
 			expect(workflowProblems(w, ctx).map((p) => `${p.at}: ${p.message}`)).toContain("step:0.1.0: A question can't be inside a loop: ask it before the loop.");
 		});
 	});
+
+	describe("variables", () => {
+		const total = (steps: WorkflowStep[]) =>
+			wf({
+				id: "v",
+				name: "Totals",
+				scope: ["project"],
+				steps: [{ kind: "var", name: "Total", value: "0" }, linkedTasks({ steps: [{ kind: "var", name: "Total", value: "[Total] + [Estimate]" }] }), ...steps],
+			});
+
+		it("keep their value for the rest of the run, after loops too", () => {
+			const w = total([
+				{ kind: "set", field: "budget", value: "[Total]" },
+				{ kind: "notice", text: "{[Total]} hours" },
+			]);
+			expect(workflowProblems(w, ctx)).toEqual([]);
+			expect(readWorkflows(JSON.parse(JSON.stringify([w])))[0].steps).toEqual(w.steps);
+			const res = run2(w, ROWS[0]);
+			expect(res.error).toBeUndefined();
+			expect(res.changes).toEqual([{ key: "budget", before: 10, after: 7 }]);
+			expect(res.notices).toEqual(["7 hours"]);
+		});
+
+		it("are seen from the step after the first that sets them, with that formula's type", () => {
+			const w = total([{ kind: "var", name: "Total", value: '"lots"' }, { kind: "notice", text: "{[Total]}" }]);
+			const sc = stepScopes(w, ctx);
+			expect(sc.get("0")!.vars.map((v) => v.name)).toEqual([]);
+			expect(sc.get("1.0")!.vars.find((v) => v.name === "Total")).toBeDefined();
+			expect(sc.get("1.0")!.variables).toEqual(["Total"]);
+			// Set to a number, then to text: it can be either.
+			expect(sc.get("3")!.vars.find((v) => v.name === "Total")!.type).toBe("any");
+			expect(stepScopes(total([]), ctx).get("1.0")!.vars.find((v) => v.name === "Total")!.type).toBe("number");
+		});
+
+		it("report a variable used before it's set, and names already taken", () => {
+			const probs = (steps: WorkflowStep[]) => workflowProblems(wf({ name: "x", scope: ["project"], steps }), ctx).map((p) => `${p.at}: ${p.message}`);
+			expect(probs([{ kind: "var", name: "Total", value: "[Total] + 1" }])[0]).toMatch(/^step:0: .*Total/);
+			expect(probs([{ kind: "var", name: "", value: "1" }])).toEqual(["step:0: Name the variable, e.g. Total."]);
+			expect(probs([{ kind: "var", name: "Budget", value: "1" }])).toEqual(["step:0: \u201cBudget\u201d is already a field's name: choose another."]);
+			expect(probs([{ kind: "var", name: "a[b]", value: "1" }])).toEqual(["step:0: A variable's name can't have brackets or braces in it."]);
+			expect(probs([{ kind: "var", name: "N", value: "" }])).toEqual(["step:0: Write the formula, e.g. 0, [Estimate] * 2 or [Total] + 1."]);
+			expect(probs([linkedTasks({ steps: [{ kind: "tag", op: "add", tag: "x" }] }), { kind: "var", name: "task", value: "1" }])).toEqual(["step:1: \u201ctask\u201d is already the name of a note or loop item: choose another."]);
+			expect(probs([{ kind: "var", name: "Task", value: "1" }, linkedTasks({ steps: [{ kind: "tag", op: "add", tag: "x" }] })])).toEqual(["step:1: Another step already uses the name \u201cTask\u201d: choose another."]);
+		});
+
+		it("are empty when the step that sets them didn't run", () => {
+			const w = wf({ scope: ["project"], steps: [{ kind: "each", formula: "list()", items: "values", itemType: "", when: { mode: "all", items: [] }, as: "X", steps: [{ kind: "var", name: "Seen", value: "1" }] }, { kind: "notice", text: "[{[Seen]}]" }] });
+			expect(run2(w, ROWS[0]).notices).toEqual(["[]"]);
+		});
+
+		it("are their own in another workflow that's run", () => {
+			const sub = wf({ id: "sub", name: "Sub", scope: ["project"], steps: [{ kind: "var", name: "Total", value: "100" }] });
+			const w = total([{ kind: "run", workflow: "sub" }, { kind: "notice", text: "{[Total]}" }]);
+			expect(run2(w, ROWS[0], [sub, w]).notices).toEqual(["7"]);
+		});
+	});
 });
 
 describe("big runs", () => {

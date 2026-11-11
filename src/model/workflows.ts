@@ -6,7 +6,7 @@
  */
 import { applyChange, type BulkChange } from "./bulk";
 import { writeDay } from "./calendarView";
-import { DateVal, FormulaError, isLink, toText, truthy, type FValue } from "./formula";
+import { DateVal, FormulaError, isLink, toText, truthy, type FType, type FValue } from "./formula";
 import { isEmptyValue } from "./frontmatter";
 import { asArray, parseLink, toWikilink } from "./links";
 import type { DateAdapter } from "./dates";
@@ -96,9 +96,10 @@ export const NO_NOTE = "A run for the whole selection has no single note: put th
 export type LinkedSource = { dir: "out"; field: string } | { dir: "in"; type: string; field: string };
 
 /**
- * Steps that act on one note. `set` and `link` use `fixed` when it's there, else the formula in `value` / `target`.
- * `on`: the note a step acts on: unset for the default (this note; each linked note inside a loop), `ON_THIS` for the
- * workflow's note inside a loop, or the name a "Create a note" step gave its note.
+ * Steps that act on one note, or none. `set` and `link` use `fixed` when it's there, else the formula in `value` /
+ * `target`. `on`: the note a step acts on: unset for the default (this note; each linked note inside a loop), `ON_THIS`
+ * for the workflow's note inside a loop, or the name a "Create a note" step gave its note. `var`: "Set a variable", a
+ * value (a formula's) later steps use by its name, for the rest of the run (after loops too); setting it again changes it.
  */
 export type NoteStep =
 	| { kind: "set"; field: string; value: string; fixed?: FixedValue; on?: string }
@@ -110,7 +111,8 @@ export type NoteStep =
 	| { kind: "run"; workflow: string; on?: string }
 	| { kind: "ask"; text: string }
 	| { kind: "move"; to: MoveTo; folder: string; on?: string }
-	| { kind: "rename"; name: string; on?: string };
+	| { kind: "rename"; name: string; on?: string }
+	| { kind: "var"; name: string; value: string };
 
 /** "Move the note": to a folder (a template, e.g. "Archive/{year(today())}"), or where its type's folder rules put it now. */
 export type MoveTo = "folder" | "type";
@@ -162,6 +164,7 @@ export const STEP_LABELS: Record<StepKind, string> = {
 	each: "For each",
 	run: "Run another workflow",
 	ask: "Ask a question",
+	var: "Set a variable",
 };
 /** The most notes (or values) loops go through in one run; past it the run stops. */
 export const MAX_LOOP_ITEMS = 200;
@@ -250,6 +253,8 @@ function readStep(raw: unknown): WorkflowStep | null {
 			return { kind: "move", to: raw.to === "type" ? "type" : "folder", folder: str(raw.folder), ...on };
 		case "rename":
 			return { kind: "rename", name: str(raw.name), ...on };
+		case "var":
+			return { kind: "var", name: str(raw.name), value: str(raw.value) };
 		case "create": {
 			const l = raw.link;
 			const link = isObj(l) && (l.dir === "from-new" || l.dir === "to-new") && str(l.field) ? ({ dir: l.dir, field: str(l.field) } as CreateLink) : undefined;
@@ -426,8 +431,10 @@ export interface StepScope {
 	scope: string[];
 	types: EntityTypeDef[];
 	fields: WorkflowField[];
-	/** names formulas can use besides columns: created notes, and in loops "This note" and the item */
+	/** names formulas can use besides columns: created notes, in loops "This note" and the item, and variables */
 	vars: VarSpec[];
+	/** which of `vars` are variables ("Set a variable" steps before this one) */
+	variables?: string[];
 	/** "On" choices besides the default: stored value, label, the note''s types; `made`: a note this run creates */
 	on: { value: string; label: string; types: EntityTypeDef[]; made?: true }[];
 	/** the default note in the On picker: "This note", or "Each <name>" in a loop of notes */
@@ -479,7 +486,10 @@ export function stepScopes(wf: Pick<WorkflowDef, "scope" | "when" | "steps"> & P
 		let cur = start;
 		steps.forEach((s, i) => {
 			const key = keyOf(i);
-			out.set(key, cur);
+			// Variables are seen by every step after the first that sets them, in or out of loops.
+			const sc = globals.length ? { ...cur, vars: [...cur.vars, ...globals.filter((g) => !cur.vars.some((v) => v.name === g.name))], variables: globals.map((g) => g.name) } : cur;
+			out.set(key, sc);
+			if (s.kind === "var" && s.name.trim()) setVar(s.name.trim(), varType(s.value, sc));
 			const inner = isLoop(s) ? loopScope(s, cur) : cur;
 			let offset = 0;
 			for (const b of stepBlocks(s)) {
@@ -489,6 +499,21 @@ export function stepScopes(wf: Pick<WorkflowDef, "scope" | "when" | "steps"> & P
 			}
 			cur = withCreated(cur, s);
 		});
+	};
+	/** Variables so far, in the order they're first set. */
+	const globals: VarSpec[] = [];
+	const varType = (src: string, sc: StepScope): FType => {
+		try {
+			return compileFormula(src, sc.def, lookup, { workflow: true, vars: sc.vars }).compiled.type;
+		} catch {
+			return "any";
+		}
+	};
+	// Set again with another kind of value: it can be either.
+	const setVar = (name: string, type: FType) => {
+		const had = globals.find((g) => g.name.toLowerCase() === name.toLowerCase());
+		if (!had) globals.push({ name, type });
+		else if (had.type !== type) had.type = "any";
 	};
 	walk(wf.steps, String, top);
 	return out;
@@ -769,12 +794,15 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 	if (!wf.steps.length) add("steps", "Add a step.");
 	const scopes = stepScopes(wf, lookup);
 	const names = new Set<string>();
+	const varNames = new Set<string>();
+	const reserved = (lower: string) => lower === THIS_NOTE_VAR.toLowerCase() || lower === SELECTION_VAR.toLowerCase();
+	const isField = (lower: string, sc: StepScope) => formulaRefColumns(sc.def, lookup).some((c) => c.label.toLowerCase() === lower);
 	/** A name later steps use (a created note, a loop's item): unique, and not a column's label. */
 	const nameOk = (at: string, raw: string, sc: StepScope, what: string) => {
 		const as = raw.trim();
 		if (!as) return add(at, `Name ${what} for later steps (Call it).`);
-		if (names.has(as.toLowerCase()) || as.toLowerCase() === THIS_NOTE_VAR.toLowerCase()) add(at, `Another step already uses the name “${as}”: choose another.`);
-		else if (formulaRefColumns(sc.def, lookup).some((c) => c.label.toLowerCase() === as.toLowerCase())) add(at, `“${as}” is already a field's name: choose another.`);
+		if (names.has(as.toLowerCase()) || varNames.has(as.toLowerCase()) || reserved(as.toLowerCase())) add(at, `Another step already uses the name “${as}”: choose another.`);
+		else if (isField(as.toLowerCase(), sc)) add(at, `“${as}” is already a field's name: choose another.`);
 		names.add(as.toLowerCase());
 	};
 	const checkOne = (s: WorkflowStep, key: string) => {
@@ -845,6 +873,22 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 				if (!s.text.trim()) add(at, "Write the question, e.g. Also close its tasks?");
 				else {
 					const e = tErr(s.text);
+					if (e) add(at, e);
+				}
+				break;
+			}
+			case "var": {
+				const name = s.name.trim();
+				const lower = name.toLowerCase();
+				// Setting a variable again is fine; its name can't be a note's, a loop item's or a field's.
+				if (!name) add(at, "Name the variable, e.g. Total.");
+				else if (names.has(lower) || reserved(lower)) add(at, `“${name}” is already the name of a note or loop item: choose another.`);
+				else if (isField(lower, sc)) add(at, `“${name}” is already a field's name: choose another.`);
+				else if (/[[\]{}]/.test(name)) add(at, "A variable's name can't have brackets or braces in it.");
+				if (name) varNames.add(lower);
+				if (!s.value.trim()) add(at, "Write the formula, e.g. 0, [Estimate] * 2 or [Total] + 1.");
+				else {
+					const e = fErr(s.value);
 					if (e) add(at, e);
 				}
 				break;
@@ -1291,6 +1335,8 @@ interface Frame {
 	/** in a loop of notes: the note steps act on by default */
 	item?: RunNote;
 	vars: Record<string, FValue>;
+	/** variables ("Set a variable"): one object for the whole run of this workflow, so loops' changes last */
+	globals: Record<string, FValue>;
 	/** notes by the names steps give them ("On") */
 	named: Map<string, RunNote>;
 	old?: ViewRow;
@@ -1338,7 +1384,11 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 	const linkOf = (n: RunNote): LinkValue => ({ path: n.path, linktext: env.linkText(n.path), name: n.row.name });
 	const sync = (n: RunNote) => (n.row = withFrontmatter(n.row, n.fm));
 	const allFields = workflowFields({ scope: [] }, ctx.types);
-	const evalIn = (f: Frame, src: string) => evaluateFormula(src, f.reader.row, f.def, ctx, { workflow: true, old: f.reader === f.main ? f.old : undefined, vars: f.vars });
+	/** The names formulas can use here: variables, then created notes and loop items. */
+	const varsOf = (f: Frame): Record<string, FValue> => ({ ...f.globals, ...f.vars });
+	/** A workflow's variables, all empty until a step sets them (one that doesn't run leaves its variable empty). */
+	const globalsOf = (w: WorkflowDef): Record<string, FValue> => Object.fromEntries(flatSteps(w.steps).flatMap((s) => (s.kind === "var" && s.name.trim() ? [[s.name.trim(), null]] : [])));
+	const evalIn = (f: Frame, src: string) => evaluateFormula(src, f.reader.row, f.def, ctx, { workflow: true, old: f.reader === f.main ? f.old : undefined, vars: varsOf(f) });
 	/** A picked value or formula, as the note's field stores it (the note's own type's definition of the field). */
 	const valueFor = (f: Frame, wfield: WorkflowField, n: RunNote, fixed: FixedValue | undefined, formula: string): unknown => {
 		const own = n.row.type.fields.find((x) => x.key === wfield.key);
@@ -1428,12 +1478,15 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 				return;
 			}
 			case "notice":
-				notices.push(renderTemplate(s.text, f.reader.row, f.def, { ctx, old: f.reader === f.main ? f.old : undefined, vars: f.vars }));
+				notices.push(renderTemplate(s.text, f.reader.row, f.def, { ctx, old: f.reader === f.main ? f.old : undefined, vars: varsOf(f) }));
+				return;
+			case "var":
+				f.globals[s.name.trim()] = evalIn(f, s.value);
 				return;
 			case "ask": {
 				if (f.inLoop) throw new Error("A question can't be inside a loop.");
 				if (f.depth > 0) throw new Error(`“${f.wf.name}” asks a question, so it can't be run from another workflow.`);
-				const text = renderTemplate(s.text, f.reader.row, f.def, { ctx, old: f.old, vars: f.vars }).trim() || "Carry on?";
+				const text = renderTemplate(s.text, f.reader.row, f.def, { ctx, old: f.old, vars: varsOf(f) }).trim() || "Carry on?";
 				if (env.answers !== "all" && !env.answers?.has(key ?? at)) throw new AskFirst(key ?? at, text);
 				asked.push(text);
 				return;
@@ -1442,7 +1495,7 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 			case "rename": {
 				const note = targetOf(f, s.on);
 				if (note.created) throw new Error("A note this workflow creates is named and placed by its Create a note step.");
-				const text = (src: string) => renderTemplate(src, f.reader.row, f.def, { ctx, old: f.reader === f.main ? f.old : undefined, vars: f.vars });
+				const text = (src: string) => renderTemplate(src, f.reader.row, f.def, { ctx, old: f.reader === f.main ? f.old : undefined, vars: varsOf(f) });
 				if (s.kind === "rename") {
 					const name = text(s.name).trim();
 					if (!name) throw new Error("The new name is empty.");
@@ -1457,7 +1510,7 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 				if (!type) throw new Error(s.type ? `“${s.type}” isn't a type.` : "Choose the type of note to create.");
 				const base = f.item ?? f.main;
 				if (s.link && noMain && base === main) throw new Error("There's no single note to link the new note to.");
-				const name = (s.name.trim() ? renderTemplate(s.name, f.reader.row, f.def, { ctx, old: f.reader === f.main ? f.old : undefined, vars: f.vars }) : "").trim() || `New ${type.name.toLowerCase()}`;
+				const name = (s.name.trim() ? renderTemplate(s.name, f.reader.row, f.def, { ctx, old: f.reader === f.main ? f.old : undefined, vars: varsOf(f) }) : "").trim() || `New ${type.name.toLowerCase()}`;
 				const fm: Record<string, unknown> = {};
 				const draft: RunNote = { path: "", row: { path: "", name, type, status: null, subtitle: null, tags: [], aliases: [], folder: "", mtime: 0, order: null, frontmatter: fm }, start: {}, fm };
 				const nf = workflowFields({ scope: [type.key] }, ctx.types);
@@ -1499,7 +1552,7 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 				if (f.depth >= MAX_RUN_DEPTH) throw new Error(`Workflows ran each other more than ${MAX_RUN_DEPTH} deep.`);
 				if (!inScope(sub, note.row.type) || !passesWhen(sub, note.row, ctx)) return;
 				via.push(sub.name);
-				exec(sub.steps, { wf: sub, main: note, reader: note, def: workflowDef(sub), scope: sub.scope, vars: {}, named: new Map(), depth: f.depth + 1, stack: [...f.stack, sub.id] });
+				exec(sub.steps, { wf: sub, main: note, reader: note, def: workflowDef(sub), scope: sub.scope, vars: {}, globals: globalsOf(sub), named: new Map(), depth: f.depth + 1, stack: [...f.stack, sub.id] });
 				return;
 			}
 			case "linked": {
@@ -1555,7 +1608,7 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 	};
 
 	const selected: Record<string, FValue> = env.selection ? { [SELECTION_VAR]: env.selection.map((r): LinkValue => ({ path: r.path, linktext: env.linkText(r.path), name: r.name })) } : {};
-	const top: Frame = { wf, main, reader: main, def: workflowDef(wf), scope: wf.scope, vars: selected, named: new Map(), old: env.old, depth: 0, stack: [wf.id] };
+	const top: Frame = { wf, main, reader: main, def: workflowDef(wf), scope: wf.scope, vars: selected, globals: globalsOf(wf), named: new Map(), old: env.old, depth: 0, stack: [wf.id] };
 	try {
 		exec(wf.steps, top, String);
 	} catch (e) {

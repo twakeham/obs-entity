@@ -406,6 +406,8 @@ export function renameWorkflowKeys(wf: WorkflowDef, keys: Map<string, string>, i
 		switch (s.kind) {
 			case "set":
 				return { ...s, value: f(s.value) };
+			case "var":
+				return { ...s, value: f(s.value) };
 			case "link":
 				return { ...s, target: f(s.target) };
 			case "notice":

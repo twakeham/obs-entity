@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { packWorkflows, parsePack, renameFormula } from "../src/model/packs";
 import { exportPack, importAsDrafts } from "../src/model/typeEditing";
 import type { EntityTypeDef, FieldDef, GroupDef } from "../src/model/types";
-import { newWorkflow, type WorkflowDef } from "../src/model/workflows";
+import { newWorkflow, stepAt, type WorkflowDef } from "../src/model/workflows";
 
 const GROUPS: GroupDef[] = [{ key: "work", name: "Work", icon: "x", statuses: ["todo", "done"] }];
 const f = (key: string, label: string, kind: FieldDef["kind"], extra: Partial<FieldDef> = {}): FieldDef => ({ key, label, kind, ...extra });
@@ -25,7 +25,7 @@ describe("packs with workflows", () => {
 		steps: [
 			{ kind: "create", type: "task", name: "{[Name]} kick-off ({{draft}}, {count([in:task.project])})", fields: [{ field: "estimate", value: "count([in:task.project]) + 1" }], link: { dir: "from-new", field: "project" }, template: true, open: "no", exists: "new", as: "New task" },
 			{ kind: "linked", source: { dir: "in", type: "task", field: "project" }, when: { mode: "all", items: [{ field: "estimate", op: "gt", value: 1 }] }, as: "Task", steps: [{ kind: "run", workflow: "wf-close" }] },
-			{ kind: "each", formula: "[in:task.project]", items: "notes", itemType: "task", when: { mode: "all", items: [] }, as: "Each", steps: [{ kind: "notice", text: "{[Each]}" }] },
+			{ kind: "each", formula: "[in:task.project]", items: "notes", itemType: "task", when: { mode: "all", items: [] }, as: "Each", steps: [{ kind: "notice", text: "{[Each]}" }, { kind: "each", formula: "[in:task.project]", items: "notes", itemType: "task", when: { mode: "all", items: [] }, as: "Inner", steps: [{ kind: "var", name: "N", value: "count([in:task.project])" }] }] },
 			{ kind: "notice", text: "{count([in:task.project])} tasks" },
 		],
 	});
@@ -70,6 +70,8 @@ describe("packs with workflows", () => {
 		expect(linked.steps[0]).toEqual({ kind: "run", workflow: close.id });
 		expect(each.formula).toBe("[in:task_2.project]");
 		expect(each.itemType).toBe("task_2");
+		// Inside a loop inside a loop: a variable's formula follows too.
+		expect(stepAt(kick.steps, "2.1.0")).toEqual({ kind: "var", name: "N", value: "count([in:task_2.project])" });
 		expect(notice.text).toBe("{count([in:task_2.project])} tasks");
 	});
 
