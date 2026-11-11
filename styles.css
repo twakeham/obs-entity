@@ -4360,6 +4360,11 @@ button.oe-tm-typegroup-title,
 	color: var(--text-error);
 }
 
+.oe-fx-preview td.oe-fx-preview-pending {
+	color: var(--text-faint);
+	font-style: italic;
+}
+
 .oe-fx-buttons {
 	display: flex;
 	align-items: center;

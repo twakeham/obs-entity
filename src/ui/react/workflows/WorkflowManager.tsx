@@ -2142,6 +2142,7 @@ function StepValue({
 			title,
 			value: src,
 			vars: sc.vars,
+			variables: sc.variables,
 			field: multiple || !preview ? undefined : field,
 			done: (v) => onChange({ formula: v }),
 		}).open();
@@ -2328,6 +2329,7 @@ function FormulaBox({
 			title: title ?? (template ? `${name}: ${part ? "a {formula} part" : "add a {formula} part"}` : name),
 			value: part ? value.slice(part.from, part.to) : "",
 			vars,
+			variables: sc.variables,
 			field: template ? undefined : field,
 			done: (v) => {
 				if (part) return onChange(value.slice(0, part.from) + v + value.slice(part.to));

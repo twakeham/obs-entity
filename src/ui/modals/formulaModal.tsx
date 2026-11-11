@@ -8,10 +8,10 @@ import { Modal } from "obsidian";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type EntitiesPlugin from "../../main";
-import { compile, findColumn, FormulaError, FTYPE_LABEL, FTYPES, FUNCTIONS, functionDef, toDisplay, toStored, toText, type FnCategory, type FnDef, type FType, type RefColumn } from "../../model/formula";
+import { compile, findColumn, FormulaError, FTYPE_LABEL, FTYPES, FUNCTIONS, functionDef, toDisplay, toStored, toText, type FnCategory, type FnDef, type FType, type FValue, type RefColumn } from "../../model/formula";
 import { storedValue, type WorkflowField } from "../../model/workflows";
 import { toKey, type EntityTypeDef } from "../../model/types";
-import { cellOf, compileFormula, evaluateFormula, formulaRefColumns, resolveColumn, runView, varColumns, type VarSpec, type ColumnDef, type ViewDef, type ViewRow } from "../../model/views";
+import { cellOf, compileFormula, evaluateFormula, formulaRefColumns, resolveColumn, runView, VAR_PREFIX, varColumns, type VarSpec, type ColumnDef, type ViewDef, type ViewRow } from "../../model/views";
 import { PluginContext } from "../react/context";
 import { Icon } from "../react/Icon";
 
@@ -32,8 +32,10 @@ const VIEW_FUNCTIONS = FUNCTIONS.filter((f) => !f.workflow);
 export interface WorkflowFormulaOpts {
 	title: string;
 	value: string;
-	/** notes earlier steps create, by name (`[New session]`) */
+	/** notes earlier steps create, by name (`[New session]`), loop items and variables */
 	vars?: (string | VarSpec)[];
+	/** which of `vars` are variables ("Set a variable"): listed on their own, and shown in the preview as `[Name]` */
+	variables?: string[];
 	/** the field the result goes in (the preview shows the value it would store, or why it can't) */
 	field?: WorkflowField;
 	done: (src: string) => void;
@@ -309,18 +311,34 @@ function FormulaEditor({
 	};
 
 	// ---- preview
+	const variables = useMemo(() => new Set((workflow?.variables ?? []).map((n) => `${VAR_PREFIX}${n}`)), [workflow]);
 	const preview = useMemo(() => {
 		if (workflow) {
 			if (status.error) return [];
+			// Variables only have values when it runs: the preview shows them by name, [Total].
+			let usedVars: string[] = [];
+			try {
+				usedVars = compile(text, refCols, { workflow: true }).refs.filter((r) => variables.has(r)).map((r) => r.slice(VAR_PREFIX.length));
+			} catch {
+				// Checked above.
+			}
 			return sample.map((row) => {
 				try {
 					// A created note doesn't exist yet: it previews as its name.
-					const vars = Object.fromEntries((workflow.vars ?? []).map((v) => (typeof v === "string" ? v : v.name)).map((n) => [n, { path: null, linktext: n, name: n }]));
-					const v = evaluateFormula(text, row, def, data.ctx, { workflow: true, vars });
+					const vars: Record<string, FValue> = Object.fromEntries((workflow.vars ?? []).map((v) => (typeof v === "string" ? v : v.name)).map((n) => [n, { path: null, linktext: n, name: n }]));
+					for (const n of workflow.variables ?? []) vars[n] = `[${n}]`;
+					let v: FValue;
+					try {
+						v = evaluateFormula(text, row, def, data.ctx, { workflow: true, vars });
+					} catch (e) {
+						// Sums and dates with a variable in them can't be worked out from its name.
+						if (usedVars.length) return { name: row.name, cell: { text: "", pending: `Uses ${usedVars.map((n) => `[${n}]`).join(", ")}: worked out when it runs` } };
+						throw e;
+					}
 					const shown = toText(v, { dateText: (d) => data.ctx.dates.format(d, "short") });
 					const f = workflow.field;
 					const own = f && row.type.fields.find((x) => x.key === f.key);
-					if (!f || (f.kind !== "status" && !own)) return { name: row.name, cell: { text: shown } };
+					if (usedVars.length || !f || (f.kind !== "status" && !own)) return { name: row.name, cell: { text: shown } };
 					const r = storedValue(own ? { ...f, kind: own.kind, field: own } : f, v, row, data.ctx, (p) => p.replace(/\.md$/, "").split("/").pop() ?? p);
 					return { name: row.name, cell: "error" in r ? { text: shown, error: r.error } : { text: shown } };
 				} catch (e) {
@@ -330,11 +348,17 @@ function FormulaEditor({
 		}
 		if (!status.resolved) return [];
 		return sample.map((row) => ({ name: row.name, cell: cellOf(row, status.resolved!, data.ctx) }));
-	}, [status, sample, data, text]); // eslint-disable-line react-hooks/exhaustive-deps
+	}, [status, sample, data, text, variables]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	const q = search.trim().toLowerCase();
 	const fnList = functions.filter((f) => !q || f.name.includes(q) || f.desc.toLowerCase().includes(q));
-	const colList = refCols.filter((c) => !q || c.label.toLowerCase().includes(q));
+	const matching = refCols.filter((c) => !q || c.label.toLowerCase().includes(q));
+	// Variables, then the run's other names (created notes, loop items, the selection), then the notes' columns.
+	const refGroups: { title: string; cols: RefColumn[] }[] = [
+		{ title: "Variables", cols: matching.filter((c) => variables.has(c.id)) },
+		{ title: "Notes and values", cols: matching.filter((c) => c.id.startsWith(VAR_PREFIX) && !variables.has(c.id)) },
+		{ title: "Columns", cols: matching.filter((c) => !c.id.startsWith(VAR_PREFIX)) },
+	].filter((g) => g.cols.length);
 
 	return (
 		<div className="oe-fx">
@@ -387,7 +411,11 @@ function FormulaEditor({
 								{preview.map((p, i) => (
 									<tr key={i}>
 										<td className="oe-fx-preview-name">{p.name}</td>
-										<td className={p.cell.error ? "is-error" : ""}>{p.cell.error ? `– ${p.cell.error}` : p.cell.text || <span className="oe-pop-empty">(empty)</span>}</td>
+										{"pending" in p.cell ? (
+											<td className="oe-fx-preview-pending">{p.cell.pending}</td>
+										) : (
+											<td className={p.cell.error ? "is-error" : ""}>{p.cell.error ? `– ${p.cell.error}` : p.cell.text || <span className="oe-pop-empty">(empty)</span>}</td>
+										)}
 									</tr>
 								))}
 							</tbody>
@@ -406,17 +434,17 @@ function FormulaEditor({
 			<div className="oe-fx-side">
 				<input type="search" placeholder="Search functions and columns…" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search functions and columns" />
 				<div className="oe-fx-ref-list">
-					{colList.length > 0 && (
-						<div className="oe-fx-ref-cat">
-							<div className="oe-pop-heading">Columns</div>
-							{colList.map((c) => (
-								<button key={c.id} className="oe-fx-ref-item" onClick={() => insert(`[${c.label}]`, c.label.length + 2)} aria-label={`${FTYPE_LABEL[c.type]} column`}>
+					{refGroups.map((g) => (
+						<div key={g.title} className="oe-fx-ref-cat">
+							<div className="oe-pop-heading">{g.title}</div>
+							{g.cols.map((c) => (
+								<button key={c.id} className="oe-fx-ref-item" onClick={() => insert(`[${c.label}]`, c.label.length + 2)} aria-label={`${FTYPE_LABEL[c.type]} ${g.title === "Variables" ? "variable" : "column"}`}>
 									<span className="oe-fx-ref">[{c.label}]</span>
 									<span className="oe-fx-ref-type">{FTYPE_LABEL[c.type]}</span>
 								</button>
 							))}
 						</div>
-					)}
+					))}
 					{categories.map((cat) => {
 						const fs = fnList.filter((f) => f.cat === cat);
 						if (!fs.length) return null;
