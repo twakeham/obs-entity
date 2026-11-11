@@ -44,12 +44,13 @@ export class WorkflowsView extends ItemView {
 
 	getState(): Record<string, unknown> {
 		// Unsaved new workflows don't survive a restart; don't restore a selection pointing at one.
-		return { selected: this.state.selected?.startsWith("new:") ? null : this.state.selected };
+		return { selected: this.state.selected?.startsWith("new:") ? null : this.state.selected, tab: this.state.tab };
 	}
 
 	async setState(state: unknown, result: ViewStateResult): Promise<void> {
 		if (state && typeof state === "object") {
-			this.state = { ...DEFAULT_WORKFLOWS_STATE, ...this.state, ...(state as Partial<WorkflowsState>) };
+			const s = state as Partial<WorkflowsState>;
+			this.state = { ...DEFAULT_WORKFLOWS_STATE, ...this.state, ...s, tab: s.tab === "runs" ? "runs" : s.tab === "edit" ? "edit" : this.state.tab };
 			this.render();
 		}
 		await super.setState(state, result);

@@ -63,15 +63,24 @@ import { IconPicker, Row, Section, Segmented, TargetPicker, TextInput, Toggle, t
 import { openTryRun } from "./TryRun";
 import { FolderPickerModal } from "../../modals/bulkModals";
 
+/** The workflow editor's tabs: the workflow itself, and its recent runs. */
+export type WorkflowTab = "edit" | "runs";
+
 export interface WorkflowsState {
 	/** a workflow id, "new:<n>" for an unsaved one, "runs" for Recent runs, or null */
 	selected: string | null;
+	/** the editor's tab (kept when another workflow is picked) */
+	tab: WorkflowTab;
 }
-export const DEFAULT_WORKFLOWS_STATE: WorkflowsState = { selected: null };
+export const DEFAULT_WORKFLOWS_STATE: WorkflowsState = { selected: null, tab: "edit" };
 
-/** A request to open the view on something: a workflow, a new one for a type, or a new one for no type yet (`blank`). */
+/**
+ * A request to open the view on something: a workflow (on a tab), a new one for a type, or a new one for no type yet
+ * (`blank`).
+ */
 export interface WorkflowsRequest {
 	open?: string;
+	tab?: WorkflowTab;
 	newFor?: string;
 	blank?: boolean;
 }
@@ -150,7 +159,7 @@ export function WorkflowManager({ state, setState, request, onRequestDone }: { s
 		if (!request) return;
 		if (request.newFor) newDraft([request.newFor]);
 		else if (request.blank) newDraft();
-		else if (request.open) setState({ selected: request.open });
+		else if (request.open) setState({ selected: request.open, ...(request.tab ? { tab: request.tab } : {}) });
 		onRequestDone();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [request]);
@@ -265,6 +274,8 @@ export function WorkflowManager({ state, setState, request, onRequestDone }: { s
 						drafts.set(`new:${n}`, copy);
 						setState({ selected: `new:${n}` });
 					}}
+					tab={state.tab}
+					setTab={(tab) => setState({ tab })}
 				/>
 			) : (
 				<main className="oe-tm-main oe-tm-empty">
@@ -310,7 +321,10 @@ function columnValues(choices: ColumnChoice[], colId: string, rows: ViewRow[], t
 	return [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 }
 
-/** The editor for one workflow: header with on/off and ⋯, Applies to, When, Only if, Do, and its recent runs. */
+/**
+ * The editor for one workflow: header with on/off, Try and ⋯, and two tabs: Editor (Workflow, When, Only if, Do) and
+ * its Recent runs.
+ */
 function WorkflowEditor({
 	id,
 	wf,
@@ -321,6 +335,8 @@ function WorkflowEditor({
 	onDiscarded,
 	onDeleted,
 	onDuplicate,
+	tab: wantTab,
+	setTab,
 }: {
 	id: string;
 	wf: WorkflowDef;
@@ -331,9 +347,13 @@ function WorkflowEditor({
 	onDiscarded: () => void;
 	onDeleted: () => void;
 	onDuplicate: (copy: WorkflowDef) => void;
+	tab: WorkflowTab;
+	setTab: (tab: WorkflowTab) => void;
 }) {
 	const plugin = usePlugin();
 	const settings = plugin.settings;
+	// A new workflow hasn't run: it only has the editor.
+	const tab: WorkflowTab = isNew ? "edit" : wantTab;
 	const lookup = { types: settings.types, groups: settings.groups };
 	const dirty = isNew || (!!saved && !sameJson(wf, saved));
 	const [attempted, setAttempted] = useState(false);
@@ -430,7 +450,7 @@ function WorkflowEditor({
 	const editSchedule = (fn: (tr: ScheduleTrigger) => void) => edit((x) => x.trigger.kind === "schedule" && fn(x.trigger));
 	const editDate = (fn: (tr: DateTrigger) => void) => edit((x) => x.trigger.kind === "date" && fn(x.trigger));
 
-	const recent = plugin.workflows.log.filter((r) => r.workflow === id).slice(0, 10);
+	const runs = plugin.workflows.log.filter((r) => r.workflow === id);
 
 	// Folded sections: the same for every workflow, kept on this device.
 	const [folded, setFolded] = useState<string[]>(() => {
@@ -480,11 +500,12 @@ function WorkflowEditor({
 							<SaveActions
 								label={isNew ? "New workflow, not saved yet" : "Unsaved changes"}
 								problems={attempted ? problems.length : 0}
-								onProblems={() => (setAttempted(true), unfoldProblems())}
+								onProblems={() => (setAttempted(true), setTab("edit"), unfoldProblems())}
 								onDiscard={onDiscarded}
 								onSave={() => {
 									setAttempted(true);
 									if (problems.length) {
+										setTab("edit");
 										unfoldProblems();
 										new Notice(`Fix ${plural(problems.length, "problem")} before saving.`);
 									} else void save();
@@ -503,200 +524,217 @@ function WorkflowEditor({
 						</button>
 					</div>
 				</div>
+				<nav className="oe-tm-tabs" role="tablist">
+					<button role="tab" aria-selected={tab === "edit"} data-tab="edit" className={`oe-tm-tab${tab === "edit" ? " is-active" : ""}`} onClick={() => setTab("edit")}>
+						<Icon name="pencil-ruler" />
+						Editor
+						{shownProblems.length > 0 && <Icon name="alert-circle" className="oe-tm-issue-dot" />}
+					</button>
+					{!isNew && (
+						<button role="tab" aria-selected={tab === "runs"} data-tab="runs" className={`oe-tm-tab${tab === "runs" ? " is-active" : ""}`} onClick={() => setTab("runs")}>
+							<Icon name="history" />
+							Recent runs
+							<span className="oe-tm-tabcount">{runs.length}</span>
+						</button>
+					)}
+				</nav>
 			</header>
-			<div className="oe-tm-body">
-				{problems.length > 0 && !isNew && (
-					<div className="oe-wf-banner">
-						<Icon name="alert-triangle" /> This workflow doesn't run until {problems.length === 1 ? "its problem is" : `its ${problems.length} problems are`} fixed.
+			{tab === "runs" ? (
+				<div className="oe-tm-body is-runs">
+					<div className="oe-tm-muted oe-wf-runs-intro">
+						{runs.length ? `Its last ${plural(runs.length, "run")}, newest first (Recent runs in the sidebar keeps the last 200 of every workflow).` : "It hasn't run yet."} Undo puts back what a run changed, while its notes haven't changed since.
 					</div>
-				)}
-				<Section title="Workflow" collapse={fold("workflow", `${wf.name || "New workflow"} · ${wf.scope.length ? scopeTypes(wf, settings.types).map((x) => x.plural || x.name).join(", ") || wf.scope.join(", ") : "Any note"}${wf.isolated ? " · doesn't set off other workflows" : ""}`)}>
-					<Row label="Name" issues={at("name")}>
-						<TextInput label="Workflow name" value={wf.name} placeholder="e.g. Completed date" autoFocus={isNew && !wf.name} invalid={at("name").length > 0} onChange={(v) => edit((x) => (x.name = v))} />
-					</Row>
-					<Row label="Applies to" desc={needsScope(t.kind) ? "The types of note it watches." : "The types of note it can be run on. Leave empty for any note."} issues={at("scope")} stacked>
-						<TargetPicker values={wf.scope} types={settings.types} groups={settings.groups} invalid={at("scope").length > 0} onChange={(v) => edit((x) => (x.scope = v.filter((s) => s !== "*")))} />
-					</Row>
-					<Row
-						label="Set off other workflows"
-						desc={
-							wf.isolated
-								? "Off: the notes it changes or creates don't start other workflows (When created, When changed, dates). Its Run another workflow steps still run."
-								: "The notes it changes or creates can start other workflows (When created, When changed, dates), up to 5 in a row."
-						}
-					>
-						<Toggle label="Set off other workflows" value={!wf.isolated} onChange={(v) => edit((x) => (v ? delete x.isolated : (x.isolated = true)))} />
-					</Row>
-				</Section>
-
-				<Section title="When" desc="What starts the workflow." icon="zap" className="oe-wf-panel is-when" collapse={fold("when", triggerText(wf, settings.types))}>
-					<Row label="Trigger" issues={at("trigger")}>
-						<Segmented label="Trigger" value={t.kind} options={TRIGGER_OPTIONS} onChange={setTrigger} />
-					</Row>
-					{t.kind === "created" && <div className="oe-wf-help">Runs when a note of these types is created (the Create dialog, + New, a calendar day, converting a note), or appears by sync. Not for renames.</div>}
-					{t.kind === "changed" && (
-						<>
-							<Row label="Field" desc="Changes from anywhere count: the form, tables, boards, other workflows, or the note edited by hand.">
-								<FieldSelect label="Field" value={t.field} fields={fields} onChange={(k) => edit((x) => (x.trigger = { kind: "changed", field: k }))} />
-							</Row>
-							{listsValues(watched) ? (
-								<>
-									<Row label="From" desc="Only when the old value is one of these. None picked: any.">
-										<ValuePills label="From" options={valueChoices(watched)} colors={valueColors(watched)} value={t.from ?? []} onChange={(v) => editChanged((tr) => (v.length ? (tr.from = v) : delete tr.from))} />
-									</Row>
-									<Row label="To" desc="Only when the new value is one of these. None picked: any.">
-										<ValuePills label="To" options={valueChoices(watched)} colors={valueColors(watched)} value={Array.isArray(t.to) ? t.to : []} onChange={(v) => editChanged((tr) => (v.length ? (tr.to = v) : delete tr.to))} />
-									</Row>
-								</>
-							) : (
-								<Row label="When it">
-									<Segmented
-										label="When it"
-										value={t.to === "filled" ? "filled" : t.to === "empty" ? "empty" : "any"}
-										options={[
-											{ value: "any", label: "Changes" },
-											{ value: "filled", label: "Is filled in" },
-											{ value: "empty", label: "Is emptied" },
-										]}
-										onChange={(v) =>
-											editChanged((tr) => {
-												delete tr.from;
-												if (v === "any") delete tr.to;
-												else tr.to = v;
-											})
-										}
-									/>
-								</Row>
-							)}
-						</>
-					)}
-					{t.kind === "manual" && (
-						<>
-							<Row label="Button" desc="Shown on the note's properties form and its ⋯ menu, in tables' row menus and selection bar, and in the command palette (Run workflow on this note…).">
-								<div className="oe-wf-button-row">
-									<IconPicker value={t.icon ?? ""} color="var(--text-muted)" empty="zap" onChange={(v) => editManual((tr) => (v ? (tr.icon = v) : delete tr.icon))} />
-									<TextInput label="Button label" value={t.label ?? ""} placeholder={wf.name || "Run"} onChange={(v) => editManual((tr) => (tr.label = v))} />
-								</div>
-							</Row>
-							<Row label="Ask first" desc="A question to confirm before it runs, e.g. “Close this task?”. Empty: it runs straight away.">
-								<TextInput label="Confirmation" value={t.confirm ?? ""} placeholder="No confirmation" onChange={(v) => editManual((tr) => (v.trim() ? (tr.confirm = v) : delete tr.confirm))} />
-							</Row>
-						</>
-					)}
-					{t.kind === "schedule" && (
-						<>
-							<Row label="Every">
-								<Segmented
-									label="Every"
-									value={t.every}
-									options={[
-										{ value: "day", label: "Day" },
-										{ value: "week", label: "Week" },
-										{ value: "hours", label: "Few hours" },
-									]}
-									onChange={(v) => editSchedule((tr) => (tr.every = v))}
-								/>
-							</Row>
-							{t.every === "week" && (
-								<Row label="On">
-									<select className="dropdown" aria-label="Day of the week" value={t.day} onChange={(e) => editSchedule((tr) => (tr.day = Number(e.target.value)))}>
-										{[1, 2, 3, 4, 5, 6, 0].map((d) => (
-											<option key={d} value={d}>
-												{WEEKDAYS[d]}
-											</option>
-										))}
-									</select>
-								</Row>
-							)}
-							{t.every === "hours" ? (
-								<Row label="Hours" desc="How many hours after it last ran (1 to 168).">
-									<WholeNumber label="Hours" value={t.hours} min={1} max={168} onChange={(v) => editSchedule((tr) => (tr.hours = v))} />
-								</Row>
-							) : (
-								<Row label="At" desc="Local time.">
-									<input type="time" className="oe-wf-time" aria-label="Time" value={t.at} onChange={(e) => e.target.value && editSchedule((tr) => (tr.at = e.target.value))} />
-								</Row>
-							)}
-							<div className="oe-wf-help">Runs on every note of these types that matches Only if, one run each.</div>
-						</>
-					)}
-					{t.kind === "date" && (
-						<>
-							<Row label="Date field">
-								{dateFields.length ? <FieldSelect label="Date field" value={t.field} fields={dateFields} onChange={(k) => editDate((tr) => (tr.field = k))} /> : <span className="oe-tm-muted">These types have no date fields.</span>}
-							</Row>
-							<Row label="When">
-								<span className="oe-wf-date-when">
-									{t.offset !== 0 && <WholeNumber label="Days" value={Math.abs(t.offset)} min={1} max={3650} onChange={(v) => editDate((tr) => (tr.offset = Math.sign(tr.offset) * v))} />}
-									{t.offset !== 0 && <span className="oe-wf-to">{Math.abs(t.offset) === 1 ? "day" : "days"}</span>}
-									<Segmented
-										label="When"
-										value={t.offset < 0 ? "before" : t.offset > 0 ? "after" : "on"}
-										options={[
-											{ value: "before", label: "Before" },
-											{ value: "on", label: "On the day" },
-											{ value: "after", label: "After" },
-										]}
-										onChange={(v) => editDate((tr) => (tr.offset = v === "on" ? 0 : (v === "before" ? -1 : 1) * Math.max(1, Math.abs(tr.offset))))}
-									/>
-								</span>
-							</Row>
-							<Row label="Check at" desc="Checked once a day, at this time (or when Obsidian next opens). Dates passed while it was closed are caught up, once per note; a date set to today after the check runs straight away.">
-								<input type="time" className="oe-wf-time" aria-label="Check at" value={t.at} onChange={(e) => e.target.value && editDate((tr) => (tr.at = e.target.value))} />
-							</Row>
-						</>
-					)}
-					{isTimed(t) && (
-						<>
-							<Row label="At most" desc="Notes per run. When more notes match, it doesn't run at all, and Recent runs says why.">
-								<span className="oe-wf-date-when">
-									<WholeNumber label="At most" value={t.limit} min={1} max={10000} onChange={(v) => editTimed((tr) => (tr.limit = v))} />
-									<span className="oe-wf-to">notes</span>
-								</span>
-							</Row>
-							<TimedStatus id={id} wf={wf} isNew={isNew} />
-						</>
-					)}
-				</Section>
-
-				<Section
-					title="Only if"
-					icon="filter"
-					className="oe-wf-panel is-only-if"
-					desc={isTimed(t) ? "Conditions on each note when it runs. None: every note of these types." : "Conditions on the note, after the change. None: it always runs."}
-					collapse={fold("only-if", conditionCount ? `${plural(conditionCount, "condition")}${wf.when.items.length > 1 ? (wf.when.mode === "all" ? ", all must match" : ", any can match") : ""}` : "No conditions: it always runs.")}
-				>
-					{at("when").map((p, i) => (
-						<div key={i} className="oe-tm-issue">
-							<Icon name="alert-circle" /> {p.message}
+					{runs.length > 0 && <RunList runs={runs} />}
+				</div>
+			) : (
+				<div className="oe-tm-body">
+					{problems.length > 0 && !isNew && (
+						<div className="oe-wf-banner">
+							<Icon name="alert-triangle" /> This workflow doesn't run until {problems.length === 1 ? "its problem is" : `its ${problems.length} problems are`} fixed.
 						</div>
-					))}
-					<div className="oe-wf-when">
-						<FiltersPanel filters={wf.when} choices={choices} ctx={ctx} valuesOf={valuesOf} heading="Run only for notes that match" emptyText="No conditions: it runs for every note." onChange={(g) => edit((x) => (x.when = g))} />
-					</div>
-				</Section>
-
-				<Section
-					title="Do"
-					icon="list-checks"
-					className="oe-wf-panel is-do"
-					desc="Steps, in order. Each sees the changes of the ones before; the note is saved once at the end. If a step fails, nothing is saved."
-					collapse={fold("do", wf.steps.length ? `${plural(wf.steps.length, "step")}: ${wf.steps.map((s) => STEP_LABELS[s.kind]).join(" → ")}` : "No steps yet.")}
-				>
-					{at("steps").map((p, i) => (
-						<div key={i} className="oe-tm-issue">
-							<Icon name="alert-circle" /> {p.message}
-						</div>
-					))}
-					<StepList wf={wf} steps={wf.steps} path="" scopes={scopes} problems={shownProblems} onChange={(steps) => edit((x) => (x.steps = steps))} />
-				</Section>
-
-				{!isNew && (
-					<Section title="Recent runs" collapse={fold("runs", recent.length ? `${plural(recent.length, "run")}, the last ${when(recent[0].time)}` : "It hasn't run yet.")}>
-						<RunList runs={recent} empty="It hasn't run yet." />
+					)}
+					<Section title="Workflow" collapse={fold("workflow", `${wf.name || "New workflow"} · ${wf.scope.length ? scopeTypes(wf, settings.types).map((x) => x.plural || x.name).join(", ") || wf.scope.join(", ") : "Any note"}${wf.isolated ? " · doesn't set off other workflows" : ""}`)}>
+						<Row label="Name" issues={at("name")}>
+							<TextInput label="Workflow name" value={wf.name} placeholder="e.g. Completed date" autoFocus={isNew && !wf.name} invalid={at("name").length > 0} onChange={(v) => edit((x) => (x.name = v))} />
+						</Row>
+						<Row label="Applies to" desc={needsScope(t.kind) ? "The types of note it watches." : "The types of note it can be run on. Leave empty for any note."} issues={at("scope")} stacked>
+							<TargetPicker values={wf.scope} types={settings.types} groups={settings.groups} invalid={at("scope").length > 0} onChange={(v) => edit((x) => (x.scope = v.filter((s) => s !== "*")))} />
+						</Row>
+						<Row
+							label="Set off other workflows"
+							desc={
+								wf.isolated
+									? "Off: the notes it changes or creates don't start other workflows (When created, When changed, dates). Its Run another workflow steps still run."
+									: "The notes it changes or creates can start other workflows (When created, When changed, dates), up to 5 in a row."
+							}
+						>
+							<Toggle label="Set off other workflows" value={!wf.isolated} onChange={(v) => edit((x) => (v ? delete x.isolated : (x.isolated = true)))} />
+						</Row>
 					</Section>
-				)}
-			</div>
+
+					<Section title="When" desc="What starts the workflow." icon="zap" className="oe-wf-panel is-when" collapse={fold("when", triggerText(wf, settings.types))}>
+						<Row label="Trigger" issues={at("trigger")}>
+							<Segmented label="Trigger" value={t.kind} options={TRIGGER_OPTIONS} onChange={setTrigger} />
+						</Row>
+						{t.kind === "created" && <div className="oe-wf-help">Runs when a note of these types is created (the Create dialog, + New, a calendar day, converting a note), or appears by sync. Not for renames.</div>}
+						{t.kind === "changed" && (
+							<>
+								<Row label="Field" desc="Changes from anywhere count: the form, tables, boards, other workflows, or the note edited by hand.">
+									<FieldSelect label="Field" value={t.field} fields={fields} onChange={(k) => edit((x) => (x.trigger = { kind: "changed", field: k }))} />
+								</Row>
+								{listsValues(watched) ? (
+									<>
+										<Row label="From" desc="Only when the old value is one of these. None picked: any.">
+											<ValuePills label="From" options={valueChoices(watched)} colors={valueColors(watched)} value={t.from ?? []} onChange={(v) => editChanged((tr) => (v.length ? (tr.from = v) : delete tr.from))} />
+										</Row>
+										<Row label="To" desc="Only when the new value is one of these. None picked: any.">
+											<ValuePills label="To" options={valueChoices(watched)} colors={valueColors(watched)} value={Array.isArray(t.to) ? t.to : []} onChange={(v) => editChanged((tr) => (v.length ? (tr.to = v) : delete tr.to))} />
+										</Row>
+									</>
+								) : (
+									<Row label="When it">
+										<Segmented
+											label="When it"
+											value={t.to === "filled" ? "filled" : t.to === "empty" ? "empty" : "any"}
+											options={[
+												{ value: "any", label: "Changes" },
+												{ value: "filled", label: "Is filled in" },
+												{ value: "empty", label: "Is emptied" },
+											]}
+											onChange={(v) =>
+												editChanged((tr) => {
+													delete tr.from;
+													if (v === "any") delete tr.to;
+													else tr.to = v;
+												})
+											}
+										/>
+									</Row>
+								)}
+							</>
+						)}
+						{t.kind === "manual" && (
+							<>
+								<Row label="Button" desc="Shown on the note's properties form and its ⋯ menu, in tables' row menus and selection bar, and in the command palette (Run workflow on this note…).">
+									<div className="oe-wf-button-row">
+										<IconPicker value={t.icon ?? ""} color="var(--text-muted)" empty="zap" onChange={(v) => editManual((tr) => (v ? (tr.icon = v) : delete tr.icon))} />
+										<TextInput label="Button label" value={t.label ?? ""} placeholder={wf.name || "Run"} onChange={(v) => editManual((tr) => (tr.label = v))} />
+									</div>
+								</Row>
+								<Row label="Ask first" desc="A question to confirm before it runs, e.g. “Close this task?”. Empty: it runs straight away.">
+									<TextInput label="Confirmation" value={t.confirm ?? ""} placeholder="No confirmation" onChange={(v) => editManual((tr) => (v.trim() ? (tr.confirm = v) : delete tr.confirm))} />
+								</Row>
+							</>
+						)}
+						{t.kind === "schedule" && (
+							<>
+								<Row label="Every">
+									<Segmented
+										label="Every"
+										value={t.every}
+										options={[
+											{ value: "day", label: "Day" },
+											{ value: "week", label: "Week" },
+											{ value: "hours", label: "Few hours" },
+										]}
+										onChange={(v) => editSchedule((tr) => (tr.every = v))}
+									/>
+								</Row>
+								{t.every === "week" && (
+									<Row label="On">
+										<select className="dropdown" aria-label="Day of the week" value={t.day} onChange={(e) => editSchedule((tr) => (tr.day = Number(e.target.value)))}>
+											{[1, 2, 3, 4, 5, 6, 0].map((d) => (
+												<option key={d} value={d}>
+													{WEEKDAYS[d]}
+												</option>
+											))}
+										</select>
+									</Row>
+								)}
+								{t.every === "hours" ? (
+									<Row label="Hours" desc="How many hours after it last ran (1 to 168).">
+										<WholeNumber label="Hours" value={t.hours} min={1} max={168} onChange={(v) => editSchedule((tr) => (tr.hours = v))} />
+									</Row>
+								) : (
+									<Row label="At" desc="Local time.">
+										<input type="time" className="oe-wf-time" aria-label="Time" value={t.at} onChange={(e) => e.target.value && editSchedule((tr) => (tr.at = e.target.value))} />
+									</Row>
+								)}
+								<div className="oe-wf-help">Runs on every note of these types that matches Only if, one run each.</div>
+							</>
+						)}
+						{t.kind === "date" && (
+							<>
+								<Row label="Date field">
+									{dateFields.length ? <FieldSelect label="Date field" value={t.field} fields={dateFields} onChange={(k) => editDate((tr) => (tr.field = k))} /> : <span className="oe-tm-muted">These types have no date fields.</span>}
+								</Row>
+								<Row label="When">
+									<span className="oe-wf-date-when">
+										{t.offset !== 0 && <WholeNumber label="Days" value={Math.abs(t.offset)} min={1} max={3650} onChange={(v) => editDate((tr) => (tr.offset = Math.sign(tr.offset) * v))} />}
+										{t.offset !== 0 && <span className="oe-wf-to">{Math.abs(t.offset) === 1 ? "day" : "days"}</span>}
+										<Segmented
+											label="When"
+											value={t.offset < 0 ? "before" : t.offset > 0 ? "after" : "on"}
+											options={[
+												{ value: "before", label: "Before" },
+												{ value: "on", label: "On the day" },
+												{ value: "after", label: "After" },
+											]}
+											onChange={(v) => editDate((tr) => (tr.offset = v === "on" ? 0 : (v === "before" ? -1 : 1) * Math.max(1, Math.abs(tr.offset))))}
+										/>
+									</span>
+								</Row>
+								<Row label="Check at" desc="Checked once a day, at this time (or when Obsidian next opens). Dates passed while it was closed are caught up, once per note; a date set to today after the check runs straight away.">
+									<input type="time" className="oe-wf-time" aria-label="Check at" value={t.at} onChange={(e) => e.target.value && editDate((tr) => (tr.at = e.target.value))} />
+								</Row>
+							</>
+						)}
+						{isTimed(t) && (
+							<>
+								<Row label="At most" desc="Notes per run. When more notes match, it doesn't run at all, and Recent runs says why.">
+									<span className="oe-wf-date-when">
+										<WholeNumber label="At most" value={t.limit} min={1} max={10000} onChange={(v) => editTimed((tr) => (tr.limit = v))} />
+										<span className="oe-wf-to">notes</span>
+									</span>
+								</Row>
+								<TimedStatus id={id} wf={wf} isNew={isNew} />
+							</>
+						)}
+					</Section>
+
+					<Section
+						title="Only if"
+						icon="filter"
+						className="oe-wf-panel is-only-if"
+						desc={isTimed(t) ? "Conditions on each note when it runs. None: every note of these types." : "Conditions on the note, after the change. None: it always runs."}
+						collapse={fold("only-if", conditionCount ? `${plural(conditionCount, "condition")}${wf.when.items.length > 1 ? (wf.when.mode === "all" ? ", all must match" : ", any can match") : ""}` : "No conditions: it always runs.")}
+					>
+						{at("when").map((p, i) => (
+							<div key={i} className="oe-tm-issue">
+								<Icon name="alert-circle" /> {p.message}
+							</div>
+						))}
+						<div className="oe-wf-when">
+							<FiltersPanel filters={wf.when} choices={choices} ctx={ctx} valuesOf={valuesOf} heading="Run only for notes that match" emptyText="No conditions: it runs for every note." onChange={(g) => edit((x) => (x.when = g))} />
+						</div>
+					</Section>
+
+					<Section
+						title="Do"
+						icon="list-checks"
+						className="oe-wf-panel is-do"
+						desc="Steps, in order. Each sees the changes of the ones before; the note is saved once at the end. If a step fails, nothing is saved."
+						collapse={fold("do", wf.steps.length ? `${plural(wf.steps.length, "step")}: ${wf.steps.map((s) => STEP_LABELS[s.kind]).join(" → ")}` : "No steps yet.")}
+					>
+						{at("steps").map((p, i) => (
+							<div key={i} className="oe-tm-issue">
+								<Icon name="alert-circle" /> {p.message}
+							</div>
+						))}
+						<StepList wf={wf} steps={wf.steps} path="" scopes={scopes} problems={shownProblems} onChange={(steps) => edit((x) => (x.steps = steps))} />
+					</Section>
+				</div>
+			)}
 		</main>
 	);
 }

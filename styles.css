@@ -7953,6 +7953,12 @@ button.oe-calv-more:hover {
 	overflow: hidden;
 }
 
+/* The editor's Recent runs tab: a line about the list, then the list */
+.oe-wf-runs-intro {
+	margin-bottom: var(--size-4-3);
+	font-size: var(--font-ui-small);
+}
+
 .oe-wf-run {
 	display: flex;
 	align-items: baseline;

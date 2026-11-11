@@ -217,7 +217,7 @@ A left sidebar tree of all entities. Open it with the **library** ribbon icon or
 - **Right-click** a type heading for "Configure the *type* type" and "New workflow for *types*", or a group heading for "Configure group" and "New workflow for *group*".
 
 **Workflows** (a section under Views): every workflow, with its trigger's icon, a green dot when it's on, faint when it's off, and ⚠ when it has problems; hover for what starts it and the types it applies to.
-- **Click** opens it in the Workflows view. **Right-click:** Open, Try on a note…, Turn on / off.
+- **Click** opens it in the Workflows view. **Right-click:** Open, Recent runs, Try on a note…, Turn on / off.
 - **+** starts a new workflow that isn't tied to any type yet (choose its types later, under Applies to). Right-click the heading for New workflow, Open workflows, and Pause / Resume all workflows.
 
 **Toolbar and filters:**
@@ -392,7 +392,8 @@ Workflows do things for you: when a note is **created**, when a **field changes*
 
 - **Sidebar:** every workflow, grouped by what starts it (When created, When changed, Run on notes, Scheduled), with a green dot when on, the types it applies to, and a ⚠ if it has problems. **+ New**, search, **Pause all workflows**, and **Recent runs** at the bottom. Workflows are also listed in the entity browser, where **+** starts a new one.
 - **The editor's When, Only if and Do** are panels in their own colours (blue, orange, green), joined by a line, so it's easy to see what starts the workflow, what it checks, and what it does.
-- **Folding:** click a section's heading (Workflow, When, Only if, Do, Recent runs) to fold it to one line: the trigger in words, "2 conditions, all must match", "3 steps: Set a field → Move the note → Show a notice"… A folded section with a problem in it shows a red mark, and pressing Save opens it. Folded sections stay folded for every workflow, on this device.
+- **Two tabs** under a workflow's name: **Editor** (Workflow, When, Only if and Do; a red mark when it has a problem) and **Recent runs** (that workflow's runs, with Undo). A new workflow has only the Editor until it's saved; Save with problems goes back to the Editor.
+- **Folding:** click a section's heading (Workflow, When, Only if, Do) to fold it to one line: the trigger in words, "2 conditions, all must match", "3 steps: Set a field → Move the note → Show a notice"… A folded section with a problem in it shows a red mark, and pressing Save opens it. Folded sections stay folded for every workflow, on this device.
 - **Editing** works like the type editor: changes are a draft with **Save** / **Discard**; Save with problems lists them and saves nothing. The header has an on/off switch, **Try on a note…** (the flask) and ⋯ (Try on a note…, Duplicate, Delete).
   - **Applies to:** the types (or groups) of note. Needed for created / changed / scheduled / date workflows; for buttons, empty means any note.
   - **Set off other workflows** (on to start with): turn it off so the notes this workflow changes or creates don't start other workflows (When created, When changed, dates). Its own **Run another workflow** steps still run.
@@ -415,7 +416,7 @@ Workflows do things for you: when a note is **created**, when a **field changes*
 - **Big runs:** a run that would change or create more than 20 notes (e.g. a loop over a project's tasks) asks first, saying how many; nothing is written until you agree. Running a button on more than 20 selected notes asks once, up front.
 - **Try on a note…** (the flask in the editor's header) picks a note and shows what the workflow would do there, without saving anything: each note's fields before → after, the notes it would create and what they'd start with, its notices, or the step that would fail. It works on unsaved edits, and tells you when the note doesn't match Only if (and what would happen if it did).
 - **Undo:** a run set off by an edit in the form or a table is one more Ctrl/Cmd+Z there. Button runs show a notice with **Undo**. "Undo last workflow run" undoes the latest, and any run in **Recent runs** can be undone while its notes haven't changed since (undoing a run also undoes the runs it set off). Notes a run created are deleted (to the trash); if one was edited since, Undo asks first.
-- **Recent runs:** the last 200 runs (when, workflow, note, what changed from → to, notes moved or renamed, questions answered, or why it stopped), kept in `workflow-log.json` in the plugin folder. Each workflow also shows its own at the bottom of the editor.
+- **Recent runs:** the last 200 runs (when, workflow, note, what changed from → to, notes moved or renamed, questions answered, or why it stopped), kept in `workflow-log.json` in the plugin folder. Each workflow also shows its own on the editor's **Recent runs** tab.
 
 ## Commands
 

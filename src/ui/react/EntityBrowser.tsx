@@ -379,7 +379,8 @@ function WorkflowsSection({ open, onToggle }: { open: boolean; onToggle: () => v
 	const rowMenu = (evt: MouseEvent, wf: WorkflowDef) => {
 		evt.preventDefault();
 		const m = new Menu();
-		m.addItem((i) => i.setSection("open").setTitle("Open").setIcon("zap").onClick(() => void plugin.activateWorkflows({ open: wf.id })));
+		m.addItem((i) => i.setSection("open").setTitle("Open").setIcon("zap").onClick(() => void plugin.activateWorkflows({ open: wf.id, tab: "edit" })));
+		m.addItem((i) => i.setSection("open").setTitle("Recent runs").setIcon("history").onClick(() => void plugin.activateWorkflows({ open: wf.id, tab: "runs" })));
 		m.addItem((i) => i.setSection("open").setTitle("Try on a note…").setIcon("flask-conical").onClick(() => openTryRun(plugin, wf)));
 		m.addItem((i) =>
 			i
