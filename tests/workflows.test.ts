@@ -257,6 +257,29 @@ describe("values and steps", () => {
 		expect(res.notices).toEqual(["3 more"]);
 		expect(res.fm.project ?? null).toBeNull();
 	});
+
+	it("set, clear and link fields on any entity, leaving notes without the field alone", () => {
+		const any = wf({
+			name: "Any",
+			scope: [],
+			trigger: { kind: "manual" },
+			steps: [
+				{ kind: "set", field: "budget", value: "5" },
+				{ kind: "clear", field: "estimate" },
+				{ kind: "link", op: "add", field: "people", target: '"Zeus"' },
+				{ kind: "set", field: "status", value: '"done"' },
+			],
+		});
+		expect(workflowProblems(any, ctx)).toEqual([]);
+		const task = run(any, r);
+		expect(task.error).toBeUndefined();
+		expect(task.fm).toMatchObject({ estimate: null, people: ["[[Zeus]]"], status: "done" });
+		expect(task.fm).not.toHaveProperty("budget");
+		const project = run(any, ROWS[0]);
+		expect(project.error).toBeUndefined();
+		expect(project.fm).toMatchObject({ budget: 5, status: "done" });
+		expect(project.fm).not.toHaveProperty("people");
+	});
 });
 
 describe("fixed values", () => {

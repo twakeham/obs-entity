@@ -1111,8 +1111,6 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 				break;
 			}
 		}
-		const def0 = !("on" in s) || s.on === undefined;
-		if ((s.kind === "set" || s.kind === "clear" || s.kind === "link") && def0 && !sc.scope.length && sc.loop !== "notes" && !sc.noNote) add(at, "Choose the types this runs on, so its fields are known.");
 	};
 	const check = (s: WorkflowStep, key: string) => {
 		checkOne(s, key);
