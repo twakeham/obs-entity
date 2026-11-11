@@ -7778,6 +7778,26 @@ button.oe-calv-more:hover {
 	color: var(--text-error);
 }
 
+.oe-wf-try-add {
+	margin-top: var(--size-4-1);
+}
+
+.oe-wf-try-add > .oe-tm-muted {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+}
+
+.oe-wf-try-add-text {
+	margin: var(--size-2-2) 0 0;
+	padding: var(--size-2-3) var(--size-4-2);
+	background: var(--background-secondary);
+	border-radius: var(--radius-s);
+	font-size: var(--font-ui-small);
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
 .oe-wf-try-banner ul {
 	margin: var(--size-4-1) 0 0;
 	padding-left: var(--size-4-5);

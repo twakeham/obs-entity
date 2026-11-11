@@ -11,6 +11,7 @@ import { isEmptyValue } from "./frontmatter";
 import { asArray, parseLink, toWikilink } from "./links";
 import type { DateAdapter } from "./dates";
 import { joinPath } from "./paths";
+import type { AddWhere, BodyAdd } from "./noteBody";
 import { COMMON_KEYS, isCalculated, isListValued, statusesFor, typeExplicitlyTargeted, typeMatchesTarget, type EntityTypeDef, type FieldDef, type GroupDef } from "./types";
 import { compileFormula, dateValue, emptyView, evaluateFormula, formulaRefColumns, filterFields, runView, withThisNote, type FilterGroup, type LinkValue, type SortLevel, type VarSpec, type ViewContext, type ViewDef, type ViewRow } from "./views";
 
@@ -119,6 +120,7 @@ export type NoteStep =
 	| { kind: "input"; text: string; as: string; default?: string; multiline?: true }
 	| { kind: "move"; to: MoveTo; folder: string; on?: string }
 	| { kind: "rename"; name: string; on?: string }
+	| { kind: "append"; text: string; where: AddWhere; heading: string; blank?: true; on?: string }
 	| { kind: "var"; name: string; value: string };
 
 /** "Move the note": to a folder (a template, e.g. "Archive/{year(today())}"), or where its type's folder rules put it now. */
@@ -186,6 +188,7 @@ export const STEP_LABELS: Record<StepKind, string> = {
 	notice: "Show a notice",
 	move: "Move the note",
 	rename: "Rename the note",
+	append: "Add text to a note",
 	create: "Create a note",
 	linked: "For linked notes",
 	each: "For each",
@@ -285,6 +288,8 @@ function readStep(raw: unknown): WorkflowStep | null {
 			return { kind: "move", to: raw.to === "type" ? "type" : "folder", folder: str(raw.folder), ...on };
 		case "rename":
 			return { kind: "rename", name: str(raw.name), ...on };
+		case "append":
+			return { kind: "append", text: str(raw.text), where: raw.where === "start" || raw.where === "heading" ? raw.where : "end", heading: str(raw.heading), ...(raw.blank === true ? { blank: true as const } : {}), ...on };
 		case "var":
 			return { kind: "var", name: str(raw.name), value: str(raw.value) };
 		case "if":
@@ -917,7 +922,7 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 		const tFields = target.fields;
 		const fErr = (src: string) => formulaError(src, sc.def, lookup, sc.vars, !!sc.noNote);
 		const tErr = (src: string) => templateError(src, sc.def, lookup, sc.vars, !!sc.noNote);
-		if (sc.noNote && !("on" in s && s.on !== undefined) && (s.kind === "set" || s.kind === "clear" || s.kind === "tag" || s.kind === "link" || s.kind === "move" || s.kind === "rename" || s.kind === "run" || (s.kind === "if" && s.test === "filter"))) add(at, NO_NOTE);
+		if (sc.noNote && !("on" in s && s.on !== undefined) && (s.kind === "set" || s.kind === "clear" || s.kind === "tag" || s.kind === "link" || s.kind === "append" || s.kind === "move" || s.kind === "rename" || s.kind === "run" || (s.kind === "if" && s.test === "filter"))) add(at, NO_NOTE);
 		if (sc.noNote && s.kind === "create" && s.link && s.type !== PLAIN_NOTE) add(at, "There's no single note to link the new note to: link it inside a For each over [Selected notes], or leave Link empty.");
 		if (sc.noNote && s.kind === "linked") add(at, "For linked notes starts from a note: use For each over [Selected notes] instead.");
 		const fieldOk = (fkey: string, what: string) => {
@@ -1021,6 +1026,21 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 				else {
 					const e = fErr(s.value);
 					if (e) add(at, e);
+				}
+				break;
+			}
+			case "append": {
+				if (!s.text.trim()) add(at, "Write the text to add, e.g. - {format(today(), \"D MMM\")}: {[Status]}.");
+				else {
+					const e = tErr(s.text);
+					if (e) add(at, e);
+				}
+				if (s.where === "heading") {
+					if (!s.heading.trim()) add(at, "Write the heading, e.g. Log or ## Log.");
+					else {
+						const e = tErr(s.heading);
+						if (e) add(at, `Heading: ${e}`);
+					}
 				}
 				break;
 			}
@@ -1392,6 +1412,8 @@ export interface OtherNote {
 	created?: { type: string; template: boolean; open: CreateOpen; body?: { path: string } | { text: string } };
 	fm: Record<string, unknown>;
 	changes: FieldChange[];
+	/** text to add to its body, in order ("Add text to a note") */
+	adds?: BodyAdd[];
 	/** where it moves to (and its new name), when a step moves or renames it */
 	move?: NoteMove;
 }
@@ -1400,6 +1422,8 @@ export interface RunResult {
 	/** the note's frontmatter after the steps (unchanged when there's an error) */
 	fm: Record<string, unknown>;
 	changes: FieldChange[];
+	/** text to add to the note's body, in order */
+	adds: BodyAdd[];
 	notices: string[];
 	/** notes created or changed besides this one, in the order the steps reached them */
 	others: OtherNote[];
@@ -1472,6 +1496,7 @@ interface RunNote {
 	fm: Record<string, unknown>;
 	created?: OtherNote["created"];
 	move?: NoteMove;
+	adds?: BodyAdd[];
 }
 
 /** Where steps run: the workflow (its note, columns), the note formulas read, a loop's note, and the names in use. */
@@ -1720,6 +1745,16 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 				else note.move = { ...(note.move?.name !== undefined ? { name: note.move.name } : {}), folder: folderPath(text(s.folder)) };
 				return;
 			}
+			case "append": {
+				const note = targetOf(f, s.on);
+				const text = (src: string) => renderTemplate(src, f.reader.row, f.def, { ctx, old: f.reader === f.main ? f.old : undefined, vars: varsOf(f) });
+				const body = text(s.text);
+				if (!body.trim()) return;
+				const heading = s.where === "heading" ? text(s.heading).trim() : "";
+				if (s.where === "heading" && !heading.replace(/^#+/, "").trim()) throw new Error("The heading is empty.");
+				(note.adds ??= []).push({ text: body, where: s.where, ...(heading ? { heading } : {}), ...(s.blank ? { blank: true } : {}) });
+				return;
+			}
 			case "create": {
 				if (!env.place) throw new Error("Notes can't be created here.");
 				const plain = s.type === PLAIN_NOTE;
@@ -1834,7 +1869,7 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 	try {
 		exec(wf.steps, top, String);
 	} catch (e) {
-		const none = { fm: start, changes: [], notices: [], others: [], via: [], asked, inputs };
+		const none = { fm: start, changes: [], adds: [], notices: [], others: [], via: [], asked, inputs };
 		if (e instanceof AskFirst) return { ...none, pending: { step: e.step, text: e.text, ...(e.input ? { input: e.input } : {}) } };
 		if (e instanceof StopRun) return { ...none, stopped: e.message };
 		return { ...none, error: { step: at, message: e instanceof Error ? e.message : String(e) } };
@@ -1842,20 +1877,21 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 	return {
 		fm: main.fm,
 		changes: diffOf(start, main.fm),
+		adds: main.adds ?? [],
 		notices,
 		via: [...new Set(via)],
 		...(main.move ? { move: main.move } : {}),
 		asked,
 		inputs,
 		others: order
-			.map((n): OtherNote => ({ path: n.path, name: n.row.name, ...(n.created ? { created: n.created } : {}), fm: n.fm, changes: diffOf(n.start, n.fm), ...(n.move ? { move: n.move } : {}) }))
-			.filter((o) => o.created || o.changes.length || o.move),
+			.map((n): OtherNote => ({ path: n.path, name: n.row.name, ...(n.created ? { created: n.created } : {}), fm: n.fm, changes: diffOf(n.start, n.fm), ...(n.adds?.length ? { adds: n.adds } : {}), ...(n.move ? { move: n.move } : {}) }))
+			.filter((o) => o.created || o.changes.length || o.adds || o.move),
 	};
 }
-/** How many notes a run would write: existing notes it changes or moves (its own included) and notes it creates. */
-export function runReach(res: Pick<RunResult, "changes" | "others" | "move">): { changed: number; created: number } {
+/** How many notes a run would write: existing notes it changes, adds text to or moves (its own included) and notes it creates. */
+export function runReach(res: Pick<RunResult, "changes" | "others" | "move"> & { adds?: BodyAdd[] }): { changed: number; created: number } {
 	const created = res.others.filter((o) => o.created).length;
-	return { changed: (res.changes.length || res.move ? 1 : 0) + res.others.filter((o) => !o.created && (o.changes.length || o.move)).length, created };
+	return { changed: (res.changes.length || res.adds?.length || res.move ? 1 : 0) + res.others.filter((o) => !o.created && (o.changes.length || o.adds || o.move)).length, created };
 }
 
 /** A run that would write more than BIG_RUN notes asks first. */

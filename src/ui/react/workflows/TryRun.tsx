@@ -4,6 +4,7 @@ import { asArray } from "../../../model/links";
 import { formatValue, type FormatEnv } from "../../../model/fieldFormats";
 import { fieldLabel, inScope, isBigRun, movedText, reachText, runReach, runsOnce, stepLabel, type FieldChange, type WorkflowDef } from "../../../model/workflows";
 import type { EntityTypeDef } from "../../../model/types";
+import type { BodyAdd } from "../../../model/noteBody";
 import type { TryRun } from "../../../services/workflows";
 import { ReactModal } from "../../modals/bulkModals";
 import { NotePickerModal } from "../../modals/workflowModals";
@@ -53,6 +54,24 @@ function Changes({ changes, types, created, quiet }: { changes: FieldChange[]; t
 				))}
 			</tbody>
 		</table>
+	);
+}
+
+/** Text a run would add to a note's body: where, and the text. */
+function Adds({ adds }: { adds?: BodyAdd[] }) {
+	if (!adds?.length) return null;
+	const where = (a: BodyAdd) => (a.where === "start" ? "at the start" : a.where === "heading" ? `under “${a.heading ?? ""}”` : "at the end");
+	return (
+		<div className="oe-wf-try-adds">
+			{adds.map((a, i) => (
+				<div key={i} className="oe-wf-try-add">
+					<div className="oe-tm-muted">
+						<Icon name="file-text" /> Adds text {where(a)}:
+					</div>
+					<pre className="oe-wf-try-add-text">{a.text}</pre>
+				</div>
+			))}
+		</div>
 	);
 }
 
@@ -128,7 +147,8 @@ export function TryRunResult({ wf, res, again, close }: { wf: WorkflowDef; res: 
 					))}
 					<div className="oe-wf-try-note">
 						<div className="oe-wf-try-title">{res.row.name}</div>
-						<Changes changes={r.changes} types={types} quiet={!!moveOf(res.row.path)} />
+						<Changes changes={r.changes} types={types} quiet={!!moveOf(res.row.path) || r.adds.length > 0} />
+						<Adds adds={r.adds} />
 						<MoveLine move={moveOf(res.row.path)} />
 					</div>
 					{others.map((o) => (
@@ -137,7 +157,8 @@ export function TryRunResult({ wf, res, again, close }: { wf: WorkflowDef; res: 
 								{o.created ? <span className="oe-tm-badge is-new">new</span> : null} {o.name}
 								<span className="oe-tm-muted"> · {o.path}</span>
 							</div>
-							<Changes changes={o.changes} types={types} created={!!o.created} quiet={!!moveOf(o.path)} />
+							<Changes changes={o.changes} types={types} created={!!o.created} quiet={!!moveOf(o.path) || !!o.adds} />
+							<Adds adds={o.adds} />
 							<MoveLine move={moveOf(o.path)} />
 						</div>
 					))}

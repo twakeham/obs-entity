@@ -3,6 +3,7 @@ import { emptyFormValues } from "../model/defaults";
 import { todayDays } from "../model/formConditions";
 import type { EntityFormValues } from "../model/frontmatter";
 import { joinPath, sanitizeFileName, uniquePath } from "../model/paths";
+import { addToBody, removeAdded, type BodyAdd } from "../model/noteBody";
 import { renderTemplate as renderNoteTemplate } from "../model/templates";
 import { askQuestion, askText, confirmRun } from "../ui/modals/workflowModals";
 import { COMMON_KEYS } from "../model/types";
@@ -58,8 +59,10 @@ export interface RunRecord {
 	root?: string;
 	/** notes the run created */
 	created?: { path: string; name: string }[];
-	/** other existing notes it changed (linked notes, "Use the existing one"), with their changes */
-	others?: { path: string; name: string; changes: FieldChange[] }[];
+	/** other existing notes it changed (linked notes, "Use the existing one"), with their changes (and how many texts it added) */
+	others?: { path: string; name: string; changes: FieldChange[]; added?: number }[];
+	/** how many texts it added to its note's body ("Add text to a note") */
+	added?: number;
 	/** workflows it ran ("Run another workflow") */
 	via?: string[];
 	/** a run once for a whole selection: the selected notes (`path` is the first, `note` says how many) */
@@ -357,7 +360,7 @@ export class WorkflowEngine extends Events {
 			const r = await new Promise<RunRecord | null>((resolve) => this.enqueue(async () => resolve(await this.run(wf, p, { chain: fresh(), unattended: true, limit: t.limit }))));
 			if (r) done.push(r);
 		}
-		const changed = done.filter((r) => (r.changes.length || r.created?.length || r.others?.length || r.moved?.length) && !r.error && !r.stopped);
+		const changed = done.filter((r) => (r.changes.length || r.added || r.created?.length || r.others?.length || r.moved?.length) && !r.error && !r.stopped);
 		const failed = done.filter((r) => r.error || r.stopped);
 		if (!changed.length && !failed.length) return;
 		const frag = createFragment((f) => {
@@ -400,14 +403,14 @@ export class WorkflowEngine extends Events {
 			const r = await new Promise<RunRecord | null>((resolve) => this.enqueue(async () => resolve(await this.run(wf, p, { chain: fresh(), manual: true, batch }))));
 			if (r) done.push(r);
 		}
-		const changed = done.filter((r) => (r.changes.length || r.created?.length || r.others?.length || r.moved?.length) && !r.error);
+		const changed = done.filter((r) => (r.changes.length || r.added || r.created?.length || r.others?.length || r.moved?.length) && !r.error);
 		const failed = done.filter((r) => r.error || r.stopped);
 		if (changed.length || !failed.length) {
 			const made = changed.flatMap((r) => r.created ?? []);
 			// Notes changed (not created): each run's own note, if it changed or moved, and the other notes it changed or moved.
 			const edited = changed.flatMap((r) => {
 				const names = new Set<string>();
-				if (r.changes.length || r.moved?.some((m) => m.from === r.path)) names.add(r.path);
+				if (r.changes.length || r.added || r.moved?.some((m) => m.from === r.path)) names.add(r.path);
 				for (const o of r.others ?? []) names.add(o.path);
 				for (const m of r.moved ?? []) names.add(m.from);
 				return [...names].map((p) => (p === r.path ? r.note : (r.others?.find((o) => o.path === p)?.name ?? (p.split("/").pop() ?? p).replace(/\.md$/, ""))));
@@ -542,19 +545,20 @@ export class WorkflowEngine extends Events {
 		if (opts.unattended && moving.length && !this.linksFollow()) return this.record({ ...base, stopped: "It moves or renames notes, and Obsidian asks before updating links (Automatically update internal links is off), so it doesn't when it runs on its own." });
 		for (const n of res.notices) new Notice(n);
 		const made = res.others.filter((o) => o.created);
-		const edited = res.others.filter((o) => !o.created && o.changes.length);
+		const edited = res.others.filter((o) => !o.created && (o.changes.length || o.adds));
 		const record: RunRecord = {
 			...base,
 			changes: res.changes,
+			...(res.adds.length ? { added: res.adds.length } : {}),
 			notices: res.notices,
 			...(opts.chain.root ? { root: opts.chain.root } : {}),
 			...(made.length ? { created: made.map((o) => ({ path: o.path, name: o.name })) } : {}),
-			...(edited.length ? { others: edited.map((o) => ({ path: o.path, name: o.name, changes: o.changes })) } : {}),
+			...(edited.length ? { others: edited.map((o) => ({ path: o.path, name: o.name, changes: o.changes, ...(o.adds ? { added: o.adds.length } : {}) })) } : {}),
 			...(res.via.length ? { via: res.via } : {}),
 			...(res.asked.length ? { asked: res.asked } : {}),
 			...(res.inputs.length ? { inputs: res.inputs } : {}),
 		};
-		if (res.changes.length || made.length || edited.length || moving.length) {
+		if (res.changes.length || res.adds.length || made.length || edited.length || moving.length) {
 			const chain: Chain = { depth: opts.chain.depth + 1, seen: new Set([...opts.chain.seen, key]), root: opts.chain.root ?? record.id };
 			// What its writes carry: the chain (their changes can set off other workflows), or nothing when the workflow is
 			// set not to (written like undo's writes: silent).
@@ -562,22 +566,31 @@ export class WorkflowEngine extends Events {
 			// Created notes, in the order the steps made them, each kept for undo as it was written.
 			const createdFiles: { path: string; content: string }[] = [];
 			const moved: { from: string; to: string }[] = [];
+			// Text added to existing notes' bodies, for undo (created notes are deleted whole).
+			const bodies: { path: string; added: { at: number; chunk: string }[] }[] = [];
 			try {
 				for (const o of made) {
 					this.expectWrite(o.path, tag);
 					this.justCreated.set(o.path, Date.now() + TAG_MS);
 					if (o.created!.type === PLAIN_NOTE) {
-						createdFiles.push({ path: (await this.createPlain(o)).path, content: "" });
+						const file = await this.createPlain(o);
+						if (o.adds) await this.addBody(file.path, o.adds);
+						createdFiles.push({ path: file.path, content: "" });
 						continue;
 					}
 					const type = plugin.getType(o.created!.type);
 					if (!type) throw new Error(`“${o.created!.type}” isn't a type.`);
 					const values = emptyFormValues(type, plugin.settings.groups, o.name, { today: todayDays(), dates: plugin.dates });
 					const file = await plugin.factory.createEntity(type, values, { open: false, path: o.path, frontmatter: o.fm, template: o.created!.template });
+					if (o.adds) await this.addBody(file.path, o.adds);
 					createdFiles.push({ path: file.path, content: "" });
 				}
 				if (res.changes.length) await this.write(path, res.changes, tag);
-				for (const o of edited) await this.write(o.path, o.changes, tag);
+				if (res.adds.length) bodies.push({ path, added: await this.addBody(path, res.adds) });
+				for (const o of edited) {
+					if (o.changes.length) await this.write(o.path, o.changes, tag);
+					if (o.adds) bodies.push({ path: o.path, added: await this.addBody(o.path, o.adds) });
+				}
 				// Moves and renames last, once the notes are written (a parent link a step set can decide the folder).
 				const taken = new Set<string>();
 				for (const m of moving) {
@@ -598,8 +611,10 @@ export class WorkflowEngine extends Events {
 				let ok = true;
 				// Back where they were first, so the fields are put back at their old paths.
 				for (const m of [...moved].reverse()) ok = (await this.moveBack(m.from, m.to)) && ok;
+				// Added text out first, while the notes' properties are as the run left them.
+				for (const b of [...bodies].reverse()) ok = (await this.removeBody(b.path, b.added)) && ok;
 				if (res.changes.length) ok = (await this.restore(path, res.changes)) && ok;
-				for (const o of edited) ok = (await this.restore(o.path, o.changes)) && ok;
+				for (const o of edited) if (o.changes.length) ok = (await this.restore(o.path, o.changes)) && ok;
 				for (const c of [...createdFiles].reverse()) ok = (await this.removeCreated(c.path, c.content)) && ok;
 				return ok;
 			});
@@ -823,6 +838,43 @@ export class WorkflowEngine extends Events {
 		return !skipped;
 	}
 
+	/**
+	 * Add text to a note's body ("Add text to a note"), in order; where each went, for undo. Body writes aren't tagged:
+	 * the index ignores changes that leave the frontmatter as it was.
+	 */
+	private async addBody(path: string, adds: BodyAdd[]): Promise<{ at: number; chunk: string }[]> {
+		const file = this.plugin.app.vault.getAbstractFileByPath(path);
+		if (!(file instanceof TFile)) throw new Error(`${path} is missing.`);
+		let added: { at: number; chunk: string }[] = [];
+		await this.plugin.app.vault.process(file, (content) => {
+			added = [];
+			for (const a of adds) {
+				const r = addToBody(content, a);
+				if (!r) continue;
+				content = r.content;
+				added.push({ at: r.at, chunk: r.chunk });
+			}
+			return content;
+		});
+		return added;
+	}
+
+	/** Undo added text: take each piece out (newest first), where it's still there unchanged. */
+	private async removeBody(path: string, added: { at: number; chunk: string }[]): Promise<boolean> {
+		const file = this.plugin.app.vault.getAbstractFileByPath(path);
+		if (!(file instanceof TFile)) return false;
+		let ok = true;
+		await this.plugin.app.vault.process(file, (content) => {
+			for (const a of [...added].reverse()) {
+				const r = removeAdded(content, a.at, a.chunk);
+				if (r === null) ok = false;
+				else content = r;
+			}
+			return content;
+		});
+		return ok;
+	}
+
 	/** Undo runs, with the runs they set off (newest first). */
 	async undo(ids: string[]): Promise<void> {
 		let skipped = false;
@@ -841,7 +893,7 @@ export class WorkflowEngine extends Events {
 			this.trigger("log");
 			this.saveLog();
 		}
-		new Notice(n ? `Undid ${n === 1 ? "the workflow run" : `${n} workflow runs`}.${skipped ? " Fields changed since were left as they are." : ""}` : "Nothing to undo.");
+		new Notice(n ? `Undid ${n === 1 ? "the workflow run" : `${n} workflow runs`}.${skipped ? " Fields and text changed since were left as they are." : ""}` : "Nothing to undo.");
 	}
 
 	/** Undo the newest run that can be undone. */

@@ -280,6 +280,32 @@ describe("values and steps", () => {
 		expect(project.fm).toMatchObject({ budget: 5, status: "done" });
 		expect(project.fm).not.toHaveProperty("people");
 	});
+
+	it("add text to a note: rendered, in order, on the note it's On; empty text adds nothing", () => {
+		const steps: WorkflowStep[] = [
+			{ kind: "append", text: "- {[Name]}: {[Estimate]} h", where: "end", heading: "" },
+			{ kind: "append", text: "{if([Estimate] > 9, \"big\", \"\")}", where: "start", heading: "" },
+			{ kind: "append", text: "Done", where: "heading", heading: "## {[Name]}", blank: true },
+		];
+		const w = wf({ name: "Log", trigger: { kind: "manual" }, steps });
+		expect(workflowProblems(w, ctx)).toEqual([]);
+		const res = run(w, r);
+		expect(res.error).toBeUndefined();
+		expect(res.adds).toEqual([
+			{ text: "- Write docs: 3 h", where: "end" },
+			{ text: "Done", where: "heading", heading: "## Write docs", blank: true },
+		]);
+		expect(res.changes).toEqual([]);
+		expect(runReach(res)).toEqual({ changed: 1, created: 0 });
+		expect(readWorkflows([{ ...w, steps: [{ kind: "append", text: "x", where: "nowhere", heading: 3, blank: "yes", on: "Project" }] }])[0].steps).toEqual([{ kind: "append", text: "x", where: "end", heading: "", on: "Project" }]);
+	});
+
+	it("flag add-text steps with no text or heading", () => {
+		const probs = (s: WorkflowStep) => workflowProblems(wf({ name: "x", trigger: { kind: "manual" }, steps: [s] }), ctx).map((p) => p.message);
+		expect(probs({ kind: "append", text: " ", where: "end", heading: "" })).toEqual(["Write the text to add, e.g. - {format(today(), \"D MMM\")}: {[Status]}."]);
+		expect(probs({ kind: "append", text: "x", where: "heading", heading: "" })).toEqual(["Write the heading, e.g. Log or ## Log."]);
+		expect(probs({ kind: "append", text: "{[Nope]}", where: "end", heading: "" })).toHaveLength(1);
+	});
 });
 
 describe("fixed values", () => {
@@ -363,6 +389,22 @@ describe("create a note", () => {
 	const runP = (w: WorkflowDef, r: ViewRow) => runSteps(w, { ctx, row: r, linkText, place });
 	const create = (over: Partial<Extract<WorkflowDef["steps"][number], { kind: "create" }>> = {}) =>
 		({ kind: "create", type: "task", name: "{[Name]} kickoff", fields: [], link: { dir: "from-new", field: "project" }, template: true, open: "no", exists: "new", as: "Kickoff", ...over }) as Extract<WorkflowDef["steps"][number], { kind: "create" }>;
+
+	it("add text to a created note and to an existing one, by name", () => {
+		const res = runP(
+			wf({
+				name: "x",
+				scope: ["project"],
+				trigger: { kind: "manual" },
+				steps: [create(), { kind: "append", text: "Kick-off for [[{[Name]}]]", where: "end", heading: "", on: "Kickoff" }, { kind: "append", text: "- kicked off", where: "heading", heading: "Log" }],
+			}),
+			apollo,
+		);
+		expect(res.error).toBeUndefined();
+		expect(res.adds).toEqual([{ text: "- kicked off", where: "heading", heading: "Log" }]);
+		expect(res.others).toHaveLength(1);
+		expect(res.others[0]).toMatchObject({ path: "Tasks/Apollo kickoff.md", created: { type: "task" }, adds: [{ text: "Kick-off for [[Apollo]]", where: "end" }] });
+	});
 
 	it("offer link fields both ways, and a new step that links back", () => {
 		const o = createLinkOptions({ scope: ["project"] }, "task", TYPES);

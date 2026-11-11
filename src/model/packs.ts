@@ -428,6 +428,8 @@ export function renameWorkflowKeys(wf: WorkflowDef, keys: Map<string, string>, i
 				return { ...s, folder: tx(s.folder) };
 			case "rename":
 				return { ...s, name: tx(s.name) };
+			case "append":
+				return { ...s, text: tx(s.text), heading: tx(s.heading) };
 			case "create":
 				return {
 					...s,

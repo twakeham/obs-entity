@@ -113,6 +113,7 @@ const STEP_ICONS: Record<StepKind, string> = {
 	notice: "message-square",
 	move: "folder-input",
 	rename: "text-cursor-input",
+	append: "file-text",
 	create: "file-plus",
 	linked: "git-fork",
 	each: "repeat",
@@ -882,6 +883,8 @@ function blankStep(kind: StepKind, wf: WorkflowDef, sc: StepScope, workflows: Wo
 			return { kind, to: "folder", folder: "" };
 		case "rename":
 			return { kind, name: "" };
+		case "append":
+			return { kind, text: "", where: "end", heading: "" };
 		case "var":
 			return { kind, name: uniqueName("Value", used), value: "" };
 		case "if":
@@ -936,7 +939,7 @@ const editorContext = (sc: StepScope) => ({ thisIsRow: !sc.item && !sc.noNote, .
 
 /** "Add step": the kinds of step, grouped by what they do. */
 const STEP_GROUPS: { title: string; kinds: StepKind[] }[] = [
-	{ title: "Change the note", kinds: ["set", "clear", "tag", "link", "move", "rename"] },
+	{ title: "Change the note", kinds: ["set", "clear", "tag", "link", "append", "move", "rename"] },
 	{ title: "Notes", kinds: ["create", "find"] },
 	{ title: "Values", kinds: ["var"] },
 	{ title: "Flow", kinds: ["if", "each", "linked", "run"] },
@@ -1090,7 +1093,7 @@ function StepCard({
 	const relations = target.fields.filter((f) => f.kind === "relation");
 	const mine = problems.filter((p) => p.at === `step:${path}`);
 	const placing = step.kind === "move" || step.kind === "rename";
-	const hasOn = step.kind === "set" || step.kind === "clear" || step.kind === "tag" || step.kind === "link" || step.kind === "run" || placing || (step.kind === "if" && step.test === "filter");
+	const hasOn = step.kind === "set" || step.kind === "clear" || step.kind === "tag" || step.kind === "link" || step.kind === "append" || step.kind === "run" || placing || (step.kind === "if" && step.test === "filter");
 	// Created notes are named and placed by their Create a note step: moving or renaming offers the others only. A
 	// plain note has no fields to set, clear or link.
 	const onChoices = placing ? sc.on.filter((o) => !o.made) : step.kind === "set" || step.kind === "clear" || step.kind === "link" ? sc.on.filter((o) => !o.plain) : sc.on;
@@ -1100,7 +1103,7 @@ function StepCard({
 		const t2 = stepTarget(withOn, sc, allTypes);
 		// Another note may have other fields: an If's conditions start again, other steps start afresh.
 		const next = (
-			step.kind === "tag" || step.kind === "run" || placing
+			step.kind === "tag" || step.kind === "append" || step.kind === "run" || placing
 				? { ...step }
 				: step.kind === "if"
 					? { ...step, when: { mode: "all", items: [] } }
@@ -1316,6 +1319,59 @@ function StepCard({
 							<span className="oe-tm-muted">Later steps use the answer as [{step.as.trim() || "…"}] (text). Cancel stops the run, and nothing is saved.</span>
 						</span>,
 					)}
+				</div>
+			);
+			break;
+		case "append":
+			body = (
+				<div className="oe-wf-stack">
+					{onPicker && <div className="oe-wf-step-row">{onPicker}</div>}
+					<div className="oe-wf-create">
+						{formRow(
+							"Text",
+							<div className="oe-wf-stack">
+								<FormulaBox sc={sc} template multiline label="Text" value={step.text} placeholder={'e.g. - {format(today(), "D MMM")}: {[Status]}'} onChange={(v) => onChange({ ...step, text: v })} />
+							</div>,
+						)}
+						{formRow(
+							"Where",
+							<span className="oe-wf-inline">
+								<Segmented
+									label="Where"
+									value={step.where}
+									options={[
+										{ value: "end", label: "At the end" },
+										{ value: "start", label: "At the start" },
+										{ value: "heading", label: "Under a heading" },
+									]}
+									onChange={(v) => onChange({ ...step, where: v })}
+								/>
+							</span>,
+						)}
+						{step.where === "heading" && formRow("Heading", <FormulaBox sc={sc} template label="Heading" value={step.heading} placeholder="e.g. Log or ## Log" onChange={(v) => onChange({ ...step, heading: v })} />)}
+						{formRow(
+							"Spacing",
+							<span className="oe-wf-inline">
+								<Segmented
+									label="Spacing"
+									value={step.blank ? "blank" : "line"}
+									options={[
+										{ value: "line", label: "On its own line" },
+										{ value: "blank", label: "With a blank line" },
+									]}
+									onChange={(v) => {
+										const { blank: _b, ...rest } = step;
+										onChange(v === "blank" ? { ...rest, blank: true } : rest);
+									}}
+								/>
+							</span>,
+							step.where === "start" ? "A blank line between it and the rest of the note." : "A blank line between it and what's before it.",
+						)}
+					</div>
+					<div className="oe-wf-help">
+						{step.where === "start" ? "After the note's properties. " : step.where === "heading" ? "At the end of that heading's section. “## Log” only matches a level 2 heading, “Log” any level; a note without it gets the heading added at the end. " : ""}
+						It doesn't change any fields, so it doesn't set off When changed workflows. Undo takes the text out again.
+					</div>
 				</div>
 			);
 			break;
@@ -2427,6 +2483,7 @@ function FormulaBox({
 	);
 }
 const changesText = (changes: { key: string; before: unknown; after: unknown }[]) => changes.map((c) => `${c.key}: ${valueText(c.before)} → ${valueText(c.after)}`).join("; ");
+const addedText = (n: number) => (n === 1 ? "added text" : `added text (${n} times)`);
 
 /** A note's name, opening it (Ctrl/Cmd: a new tab); struck through when it's gone (an undone created note). */
 function NoteLink({ path, name }: { path: string; name: string }) {
@@ -2477,8 +2534,8 @@ function RunList({ runs, showWorkflow, empty = "No runs yet." }: { runs: RunReco
 									? ` — ${r.error}`
 									: r.stopped
 										? ` — ${r.stopped}`
-										: r.changes.length
-											? ` — ${changesText(r.changes)}`
+										: r.changes.length || r.added
+											? ` — ${[...(r.changes.length ? [changesText(r.changes)] : []), ...(r.added ? [addedText(r.added)] : [])].join("; ")}`
 											: r.created?.length || r.others?.length || r.moved?.length
 												? ""
 												: r.notices.length
@@ -2500,7 +2557,7 @@ function RunList({ runs, showWorkflow, empty = "No runs yet." }: { runs: RunReco
 									<span key={n.path} className="oe-wf-run-detail">
 										{" — "}
 										<NoteLink path={now(n.path)} name={n.name} />
-										{`: ${changesText(n.changes)}${m ? `, ${movedText(m.from, m.to)}` : ""}`}
+										{`: ${[...(n.changes.length ? [changesText(n.changes)] : []), ...(n.added ? [addedText(n.added)] : [])].join("; ")}${m ? `, ${movedText(m.from, m.to)}` : ""}`}
 									</span>
 								);
 							})}
