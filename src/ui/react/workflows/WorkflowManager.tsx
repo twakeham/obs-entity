@@ -21,6 +21,7 @@ import {
 	ON_THIS,
 	formulaFromFixed,
 	listsValues,
+	movedText,
 	needsScope,
 	newWorkflow,
 	parseTemplate,
@@ -53,6 +54,7 @@ import { DateBox, FiltersPanel, LinkValues, type ColumnChoice } from "../table/p
 import { ConfirmModal, SaveActions } from "../types/TypeManager";
 import { IconPicker, Row, Section, Segmented, TargetPicker, TextInput, Toggle } from "../types/controls";
 import { openTryRun } from "./TryRun";
+import { FolderPickerModal } from "../../modals/bulkModals";
 
 export interface WorkflowsState {
 	/** a workflow id, "new:<n>" for an unsaved one, "runs" for Recent runs, or null */
@@ -76,7 +78,20 @@ const TRIGGER_OPTIONS: { value: TriggerKind; label: string; icon: string }[] = [
 	{ value: "created", label: "Note created", icon: "file-plus" },
 	{ value: "manual", label: "Run on notes", icon: "mouse-pointer-click" },
 ];
-const STEP_ICONS: Record<StepKind, string> = { set: "pencil-line", clear: "eraser", tag: "tag", link: "link", notice: "message-square", create: "file-plus", linked: "git-fork", each: "repeat", run: "play" };
+const STEP_ICONS: Record<StepKind, string> = {
+	set: "pencil-line",
+	clear: "eraser",
+	tag: "tag",
+	link: "link",
+	notice: "message-square",
+	move: "folder-input",
+	rename: "text-cursor-input",
+	create: "file-plus",
+	linked: "git-fork",
+	each: "repeat",
+	run: "play",
+	ask: "message-circle-question",
+};
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -606,6 +621,12 @@ function blankStep(kind: StepKind, wf: WorkflowDef, sc: StepScope, workflows: Wo
 			return { kind, op: "add", field: fields.find((f) => f.kind === "relation")?.key ?? "", target: "", fixed: [] };
 		case "notice":
 			return { kind, text: "" };
+		case "ask":
+			return { kind, text: "" };
+		case "move":
+			return { kind, to: "folder", folder: "" };
+		case "rename":
+			return { kind, name: "" };
 		case "create": {
 			const s = newCreateStep({ scope: sc.scope, steps: [], trigger: wf.trigger }, types);
 			return { ...s, as: uniqueName(s.as, used) };
@@ -677,14 +698,15 @@ function StepList({
 		next.splice(to > from ? to - 1 : to, 0, m);
 		onChange(next);
 	};
-	const kinds = (Object.keys(STEP_LABELS) as StepKind[]).filter((k) => !path || (k !== "linked" && k !== "each"));
+	// Inside a loop: no loops, and no questions (a question is asked once, before the loop).
+	const kinds = (Object.keys(STEP_LABELS) as StepKind[]).filter((k) => !path || (k !== "linked" && k !== "each" && k !== "ask"));
 	const add = (e: ReactMouseEvent) => {
 		const m = new Menu();
 		const sc = scopeForNew(wf, path, { types, groups });
 		for (const k of kinds)
 			m.addItem((i) =>
 				i
-					.setSection(k === "linked" || k === "each" || k === "run" ? "more" : "note")
+					.setSection(k === "linked" || k === "each" || k === "run" || k === "ask" ? "more" : "note")
 					.setTitle(STEP_LABELS[k])
 					.setIcon(STEP_ICONS[k])
 					.onClick(() => onChange([...steps, blankStep(k, wf, sc, workflows, types)])),
@@ -765,25 +787,29 @@ function StepCard({
 	const settable = target.fields.filter((f) => f.key !== COMMON_KEYS.tags);
 	const relations = target.fields.filter((f) => f.kind === "relation");
 	const mine = problems.filter((p) => p.at === `step:${path}`);
+	const placing = step.kind === "move" || step.kind === "rename";
+	const hasOn = step.kind === "set" || step.kind === "clear" || step.kind === "tag" || step.kind === "link" || step.kind === "run" || placing;
+	// Created notes are named and placed by their Create a note step: moving or renaming offers the others only.
+	const onChoices = placing ? sc.on.filter((o) => o.value === ON_THIS) : sc.on;
 	const changeOn = (v: string) => {
-		if (!("on" in step) && step.kind !== "set" && step.kind !== "clear" && step.kind !== "tag" && step.kind !== "link" && step.kind !== "run") return;
+		if (!hasOn) return;
 		const withOn = { ...step, on: v || undefined } as WorkflowStep;
 		const t2 = stepTarget(withOn, sc, allTypes);
-		const next = (step.kind === "tag" || step.kind === "run" ? { ...step } : blankStep(step.kind, wf, { ...sc, fields: t2?.fields ?? [], scope: t2?.scope ?? [] }, plugin.settings.workflows, allTypes)) as WorkflowStep & { on?: string };
+		const next = (step.kind === "tag" || step.kind === "run" || placing ? { ...step } : blankStep(step.kind, wf, { ...sc, fields: t2?.fields ?? [], scope: t2?.scope ?? [] }, plugin.settings.workflows, allTypes)) as WorkflowStep & { on?: string };
 		if (v) next.on = v;
 		else delete next.on;
 		onChange(next);
 	};
 	const onPicker =
-		sc.on.length > 0 && (step.kind === "set" || step.kind === "clear" || step.kind === "tag" || step.kind === "link" || step.kind === "run") ? (
+		onChoices.length > 0 && hasOn ? (
 			<span className="oe-wf-on">
 				<span className="oe-wf-to">On</span>
 				<select className="dropdown oe-pop-select" aria-label="On" value={on ?? ""} onChange={(e) => changeOn(e.target.value)}>
 					<option value="">{sc.defaultLabel}</option>
-					{sc.on.some((o) => o.value === ON_THIS) && <option value={ON_THIS}>This note</option>}
-					{sc.on.some((o) => o.value !== ON_THIS) && (
+					{onChoices.some((o) => o.value === ON_THIS) && <option value={ON_THIS}>This note</option>}
+					{onChoices.some((o) => o.value !== ON_THIS) && (
 						<optgroup label="Created by earlier steps">
-							{sc.on
+							{onChoices
 								.filter((o) => o.value !== ON_THIS)
 								.map((o) => (
 									<option key={o.value} value={o.value}>
@@ -792,7 +818,7 @@ function StepCard({
 								))}
 						</optgroup>
 					)}
-					{on && !sc.on.some((o) => o.value === on) && <option value={on}>{on}</option>}
+					{on && !onChoices.some((o) => o.value === on) && <option value={on}>{on}</option>}
 				</select>
 			</span>
 		) : null;
@@ -892,6 +918,59 @@ function StepCard({
 		}
 		case "notice":
 			body = <FormulaBox sc={sc} template value={step.text} placeholder="e.g. {[Name]} is done" onChange={(v) => onChange({ ...step, text: v })} />;
+			break;
+		case "ask":
+			body = (
+				<div className="oe-wf-stack">
+					<FormulaBox sc={sc} template label="Question" value={step.text} placeholder="e.g. Also close its {count([Tasks])} tasks?" onChange={(v) => onChange({ ...step, text: v })} />
+					<div className="oe-wf-help">Yes carries on with the next steps; No stops the run, and nothing is saved. Not for workflows that run on their own schedule.</div>
+				</div>
+			);
+			break;
+		case "move":
+			body = (
+				<div className="oe-wf-stack">
+					<div className="oe-wf-step-row">
+						{onPicker}
+						<span className="oe-wf-to">to</span>
+						<Segmented
+							label="Move to"
+							value={step.to}
+							options={[
+								{ value: "folder", label: "A folder" },
+								{ value: "type", label: "Its type's folder" },
+							]}
+							onChange={(v) => onChange({ ...step, to: v })}
+						/>
+					</div>
+					{step.to === "folder" ? (
+						<FormulaBox sc={sc} template label="Folder" value={step.folder} placeholder="e.g. Archive/{year(today())}" onChange={(v) => onChange({ ...step, folder: v })}>
+							<button
+								className="oe-wf-fxbtn"
+								title="Pick a folder"
+								aria-label="Pick a folder"
+								onClick={() => new FolderPickerModal(plugin, (f) => onChange({ ...step, folder: f.isRoot() ? "/" : f.path.replace(/[{}]/g, (c) => c + c) }), "Move to folder…").open()}
+							>
+								<Icon name="folder" />
+							</button>
+						</FormulaBox>
+					) : (
+						<div className="oe-wf-help">Where its type's folder rules put it now: its type's folder, or inside its parent's after the parent link changes.</div>
+					)}
+					<div className="oe-wf-help">Links to it are updated. A note already there with the same name gets “2” added.</div>
+				</div>
+			);
+			break;
+		case "rename":
+			body = (
+				<div className="oe-wf-stack">
+					<div className="oe-wf-step-row">
+						{onPicker}
+						<FormulaBox sc={sc} template label="New name" value={step.name} placeholder="e.g. {[Code]} {[Name]}" onChange={(v) => onChange({ ...step, name: v })} />
+					</div>
+					<div className="oe-wf-help">It stays in its folder, and links to it are updated. Characters a file name can't have are left out.</div>
+				</div>
+			);
 			break;
 		case "create":
 			body = <CreateBody wf={wf} sc={sc} step={step} onChange={onChange} />;
@@ -1646,57 +1725,67 @@ function RunList({ runs, showWorkflow, empty = "No runs yet." }: { runs: RunReco
 	if (!runs.length) return <div className="oe-tm-muted">{empty}</div>;
 	return (
 		<div className="oe-wf-runs">
-			{runs.map((r) => (
-				<div key={r.id} className={`oe-wf-run${r.error ? " is-error" : r.stopped ? " is-stopped" : ""}${r.undone ? " is-undone" : ""}`}>
-					<span className="oe-wf-run-time">{when(r.time)}</span>
-					<span className="oe-wf-run-what">
-						{showWorkflow && <span className="oe-wf-run-name">{r.name} · </span>}
-						<a
-							href="#"
-							className="oe-wf-run-note"
-							onClick={(e) => {
-								e.preventDefault();
-								plugin.openPath(r.path, e.nativeEvent);
-							}}
-						>
-							{r.note}
-						</a>
-						<span className="oe-wf-run-detail">
-							{r.error
-								? ` — ${r.error}`
-								: r.stopped
-									? ` — ${r.stopped}`
-									: r.changes.length
-										? ` — ${changesText(r.changes)}`
-										: r.created?.length || r.others?.length
-											? ""
-											: r.notices.length
-												? ` — notice: ${r.notices.join(" / ")}`
-												: " — no changes"}
+			{runs.map((r) => {
+				// A note the run moved is linked where it went (until the run is undone).
+				const now = (p: string) => (r.undone ? p : (r.moved?.find((m) => m.from === p)?.to ?? p));
+				const ownMove = r.moved?.find((m) => m.from === r.path);
+				const otherMoves = (r.moved ?? []).filter((m) => m.from !== r.path && !r.others?.some((o) => o.path === m.from));
+				const moveOf = (p: string) => r.moved?.find((m) => m.from === p);
+				return (
+					<div key={r.id} className={`oe-wf-run${r.error ? " is-error" : r.stopped ? " is-stopped" : ""}${r.undone ? " is-undone" : ""}`}>
+						<span className="oe-wf-run-time">{when(r.time)}</span>
+						<span className="oe-wf-run-what">
+							{showWorkflow && <span className="oe-wf-run-name">{r.name} · </span>}
+							<NoteLink path={now(r.path)} name={r.note} />
+							<span className="oe-wf-run-detail">
+								{r.error
+									? ` — ${r.error}`
+									: r.stopped
+										? ` — ${r.stopped}`
+										: r.changes.length
+											? ` — ${changesText(r.changes)}`
+											: r.created?.length || r.others?.length || r.moved?.length
+												? ""
+												: r.notices.length
+													? ` — notice: ${r.notices.join(" / ")}`
+													: " — no changes"}
+								{!r.error && !r.stopped && ownMove ? ` — ${movedText(ownMove.from, ownMove.to)}` : ""}
+								{!r.error && !r.stopped && r.asked?.length ? ` (asked: ${r.asked.map((q) => `“${q}” Yes`).join(", ")})` : ""}
+							</span>
+							{!r.error && !r.stopped && (r.created ?? []).map((n) => (
+								<span key={n.path} className="oe-wf-run-detail">
+									{" — created "}
+									<NoteLink path={n.path} name={n.name} />
+								</span>
+							))}
+							{!r.error && !r.stopped && (r.others ?? []).map((n) => {
+								const m = moveOf(n.path);
+								return (
+									<span key={n.path} className="oe-wf-run-detail">
+										{" — "}
+										<NoteLink path={now(n.path)} name={n.name} />
+										{`: ${changesText(n.changes)}${m ? `, ${movedText(m.from, m.to)}` : ""}`}
+									</span>
+								);
+							})}
+							{!r.error && !r.stopped && otherMoves.map((m) => (
+								<span key={m.from} className="oe-wf-run-detail">
+									{" — "}
+									<NoteLink path={now(m.from)} name={(m.from.split("/").pop() ?? m.from).replace(/\.md$/, "")} />
+									{` ${movedText(m.from, m.to)}`}
+								</span>
+							))}
 						</span>
-						{!r.error && !r.stopped && (r.created ?? []).map((n) => (
-							<span key={n.path} className="oe-wf-run-detail">
-								{" — created "}
-								<NoteLink path={n.path} name={n.name} />
-							</span>
-						))}
-						{!r.error && !r.stopped && (r.others ?? []).map((n) => (
-							<span key={n.path} className="oe-wf-run-detail">
-								{" — "}
-								<NoteLink path={n.path} name={n.name} />
-								{`: ${changesText(n.changes)}`}
-							</span>
-						))}
-					</span>
-					{r.undone ? (
-						<span className="oe-tm-muted">undone</span>
-					) : plugin.workflows.canUndo(r.id) ? (
-						<button className="oe-wf-run-undo" onClick={() => void plugin.workflows.undo([r.id])}>
-							Undo
-						</button>
-					) : null}
-				</div>
-			))}
+						{r.undone ? (
+							<span className="oe-tm-muted">undone</span>
+						) : plugin.workflows.canUndo(r.id) ? (
+							<button className="oe-wf-run-undo" onClick={() => void plugin.workflows.undo([r.id])}>
+								Undo
+							</button>
+						) : null}
+					</div>
+				);
+			})}
 		</div>
 	);
 }

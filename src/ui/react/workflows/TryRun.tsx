@@ -2,7 +2,7 @@ import { Notice } from "obsidian";
 import type EntitiesPlugin from "../../../main";
 import { asArray } from "../../../model/links";
 import { formatValue, type FormatEnv } from "../../../model/fieldFormats";
-import { fieldLabel, inScope, isBigRun, reachText, runReach, type FieldChange, type WorkflowDef } from "../../../model/workflows";
+import { fieldLabel, inScope, isBigRun, movedText, reachText, runReach, type FieldChange, type WorkflowDef } from "../../../model/workflows";
 import type { EntityTypeDef } from "../../../model/types";
 import type { TryRun } from "../../../services/workflows";
 import { ReactModal } from "../../modals/bulkModals";
@@ -35,11 +35,11 @@ function shown(key: string, v: unknown, types: EntityTypeDef[], env: FormatEnv):
 	return plain(v);
 }
 
-function Changes({ changes, types, created }: { changes: FieldChange[]; types: EntityTypeDef[]; created?: boolean }) {
+function Changes({ changes, types, created, quiet }: { changes: FieldChange[]; types: EntityTypeDef[]; created?: boolean; quiet?: boolean }) {
 	const env = usePlugin().formatEnv();
 	// A created note lists the values it starts with; others what changes.
 	const list = created ? changes.filter((c) => asArray(c.after).length) : changes;
-	if (!list.length) return <div className="oe-tm-muted">{created ? "No fields set." : "No changes."}</div>;
+	if (!list.length) return quiet ? null : <div className="oe-tm-muted">{created ? "No fields set." : "No changes."}</div>;
 	return (
 		<table className="oe-wf-try-changes">
 			<tbody>
@@ -56,6 +56,19 @@ function Changes({ changes, types, created }: { changes: FieldChange[]; types: E
 	);
 }
 
+/** Where a moved or renamed note would go, or why it can't. */
+function MoveLine({ move }: { move?: TryRun["moves"][number] }) {
+	if (!move) return null;
+	if (move.error) return <div className="oe-wf-try-move is-error">Can't move or rename it: {move.error}</div>;
+	if (!move.to) return <div className="oe-wf-try-move oe-tm-muted">It's already where the step would put it.</div>;
+	return (
+		<div className="oe-wf-try-move">
+			<Icon name="folder-input" /> {movedText(move.path, move.to)[0].toUpperCase() + movedText(move.path, move.to).slice(1)}
+			<span className="oe-tm-muted"> ({move.to})</span>
+		</div>
+	);
+}
+
 /** What a test run found: problems, Only if, an error or stop, or every note it would change or create, its notices. */
 export function TryRunResult({ wf, res, again, close }: { wf: WorkflowDef; res: TryRun; again: () => void; close: () => void }) {
 	const plugin = usePlugin();
@@ -64,6 +77,7 @@ export function TryRunResult({ wf, res, again, close }: { wf: WorkflowDef; res: 
 	const t = wf.trigger;
 	const reach = r && !r.error && !r.stopped ? runReach(r) : null;
 	const others = r?.others.filter((o) => o.path !== res.row.path) ?? [];
+	const moveOf = (path: string) => res.moves.find((m) => m.path === path);
 	return (
 		<div className="oe-wf-try">
 			<div className="oe-wf-try-on">
@@ -101,9 +115,15 @@ export function TryRunResult({ wf, res, again, close }: { wf: WorkflowDef; res: 
 			)}
 			{r && reach && (
 				<>
+					{r.asked.map((q, i) => (
+						<div key={i} className="oe-wf-try-banner is-ask">
+							<Icon name="message-circle-question" /> It asks “{q}” first. Taken as Yes here; No would stop the run.
+						</div>
+					))}
 					<div className="oe-wf-try-note">
 						<div className="oe-wf-try-title">{res.row.name}</div>
-						<Changes changes={r.changes} types={types} />
+						<Changes changes={r.changes} types={types} quiet={!!moveOf(res.row.path)} />
+						<MoveLine move={moveOf(res.row.path)} />
 					</div>
 					{others.map((o) => (
 						<div key={o.path} className="oe-wf-try-note">
@@ -111,7 +131,8 @@ export function TryRunResult({ wf, res, again, close }: { wf: WorkflowDef; res: 
 								{o.created ? <span className="oe-tm-badge is-new">new</span> : null} {o.name}
 								<span className="oe-tm-muted"> · {o.path}</span>
 							</div>
-							<Changes changes={o.changes} types={types} created={!!o.created} />
+							<Changes changes={o.changes} types={types} created={!!o.created} quiet={!!moveOf(o.path)} />
+							<MoveLine move={moveOf(o.path)} />
 						</div>
 					))}
 					{r.notices.length > 0 && (

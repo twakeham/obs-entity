@@ -60,6 +60,35 @@ export class WorkflowPickerModal extends FuzzySuggestModal<WorkflowDef> {
 
 const wf_desc = (wf: WorkflowDef, plugin: EntitiesPlugin) => (wf.trigger.kind === "manual" && wf.trigger.label && wf.trigger.label !== wf.name ? wf.name : triggerText(wf, plugin.settings.types));
 
+/**
+ * "Ask a question": Yes or No (closing it is No). `rest`: notes still to go in a selection, offered "Same answer for
+ * the other N notes" (`all`).
+ */
+export function askQuestion(app: App, title: string, text: string, rest = 0): Promise<{ yes: boolean; all: boolean }> {
+	return new Promise((resolve) => {
+		let answer: boolean | null = null;
+		let all = false;
+		const m = new (class extends Modal {
+			onOpen(): void {
+				this.setTitle(title);
+				this.modalEl.addClass("oe-wf-ask");
+				this.contentEl.createEl("p", { text });
+				if (rest > 0)
+					new Setting(this.contentEl).setName(`Same answer for the other ${rest === 1 ? "note" : `${rest} notes`}`).addToggle((t) => t.setValue(false).onChange((v) => (all = v)));
+				const done = (yes: boolean) => {
+					answer = yes;
+					this.close();
+				};
+				new Setting(this.contentEl).addButton((b) => b.setButtonText("No").onClick(() => done(false))).addButton((b) => b.setButtonText("Yes").setCta().onClick(() => done(true)));
+			}
+			onClose(): void {
+				resolve({ yes: answer === true, all: answer !== null && all });
+			}
+		})(app);
+		m.open();
+	});
+}
+
 /** Ask before running (a workflow's confirmation text): true when the user says Run. */
 export function confirmRun(app: App, title: string, body: string, ok = "Run"): Promise<boolean> {
 	return new Promise((resolve) => {

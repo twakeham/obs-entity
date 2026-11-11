@@ -5,10 +5,13 @@ import type { MomentLike } from "../src/model/formats";
 import type { EntityTypeDef, FieldDef, GroupDef } from "../src/model/types";
 import type { ViewContext, ViewRow } from "../src/model/views";
 import {
+	asksQuestion,
 	BIG_RUN,
 	changeMatches,
+	folderPath,
 	isBigRun,
 	linkedSources,
+	movedText,
 	ON_THIS,
 	reachText,
 	runReach,
@@ -507,5 +510,101 @@ describe("big runs", () => {
 		// A linked note the loop leaves as it was doesn't count.
 		const same = wf({ scope: ["project"], steps: [{ kind: "linked", source: { dir: "in", type: "task", field: "project" }, when: { mode: "all", items: [] }, as: "Task", steps: [{ kind: "set", field: "estimate", value: "[Estimate]" }] }] });
 		expect(runReach(runSteps(same, { ctx: ctx2, row: ROWS[0], linkText, place }))).toEqual({ changed: 0, created: 0 });
+	});
+});
+describe("questions, moves and renames", () => {
+	const t1 = row("Plan", TASK, { estimate: 2, project: "[[Apollo]]", priority: "Low" });
+	const t2 = row("Build", TASK, { estimate: 5, project: "[[Apollo]]", priority: "High" });
+	const all = [ROWS[0], t1, t2];
+	const at = new Map(all.map((r) => [r.path, r]));
+	const ctx2: ViewContext = {
+		...ctx,
+		resolve: (p) => (at.has(`${p}.md`) ? `${p}.md` : at.has(p) ? p : null),
+		row: (p) => at.get(p),
+		incoming: (p) => all.filter((r) => r.frontmatter.project === `[[${p.replace(/\.md$/, "")}]]`).map((r) => ({ source: r.path, sourceType: "task", fieldKey: "project" })),
+	};
+	const place = (req: PlaceRequest): Placed => ({ path: `New/${req.name}.md` });
+	const go = (w: WorkflowDef, r: ViewRow, answers?: Set<number> | "all", workflows: WorkflowDef[] = []) => runSteps(w, { ctx: ctx2, row: r, linkText, place, answers, workflows });
+	const tasksOf = (steps: WorkflowDef["steps"]) => ({ kind: "linked", source: { dir: "in", type: "task", field: "project" }, when: { mode: "all", items: [] }, as: "Task", steps }) as WorkflowDef["steps"][number];
+
+	it("stop at a question until it's answered Yes, then carry on (a test run takes every answer as Yes)", () => {
+		const w = wf({ scope: ["task"], steps: [{ kind: "set", field: "estimate", value: "9" }, { kind: "ask", text: "Close {[Name]} ({[Estimate]} h)?" }, { kind: "set", field: "priority", value: '"High"' }] });
+		const first = go(w, t1);
+		expect(first.pending).toEqual({ step: 1, text: "Close Plan (9 h)?" });
+		expect(first.changes).toEqual([]);
+		const yes = go(w, t1, new Set([1]));
+		expect(yes.pending).toBeUndefined();
+		expect(yes.asked).toEqual(["Close Plan (9 h)?"]);
+		expect(yes.changes.map((c) => [c.key, c.after])).toEqual([
+			["estimate", 9],
+			["priority", "High"],
+		]);
+		expect(go(w, t1, "all").asked).toEqual(["Close Plan (9 h)?"]);
+		expect(go(wf({ scope: ["task"], steps: [{ kind: "ask", text: "  " }] }), t1).pending?.text).toBe("Carry on?");
+	});
+
+	it("don't ask inside loops or from another workflow", () => {
+		const inLoop = wf({ id: "loop", name: "x", scope: ["project"], steps: [tasksOf([{ kind: "ask", text: "Sure?" }])] });
+		expect(go(inLoop, ROWS[0], "all").error?.message).toBe("A question can't be inside a loop.");
+		expect(workflowProblems(inLoop, ctx).map((p) => p.message)).toContain("A question can't be inside a loop: ask it before the loop.");
+		const asks = wf({ id: "asks", name: "Asks", scope: ["task"], steps: [{ kind: "ask", text: "Sure?" }, { kind: "tag", op: "add", tag: "x" }] });
+		const runs = wf({ id: "runs", name: "Runs", scope: ["task"], steps: [{ kind: "run", workflow: "asks" }] });
+		expect(asksQuestion(asks)).toBe(true);
+		expect(asksQuestion(runs)).toBe(false);
+		expect(workflowProblems(runs, { ...ctx, workflows: [asks, runs] }).map((p) => p.message)).toContain("\u201cAsks\u201d asks a question, so it can't be run from another workflow.");
+		expect(go(runs, t1, "all", [asks, runs]).error?.message).toBe("\u201cAsks\u201d asks a question, so it can't be run from another workflow.");
+		expect(workflowProblems(wf({ name: "x", scope: ["task"], steps: [{ kind: "ask", text: "" }] }), ctx).map((p) => p.message)).toEqual(["Write the question, e.g. Also close its tasks?"]);
+	});
+
+	it("plan moves and renames from templates, for this note and each linked note", () => {
+		const w = wf({
+			scope: ["project"],
+			steps: [
+				{ kind: "rename", name: "{[Name]} (closed)" },
+				{ kind: "move", to: "folder", folder: "Archive/{2026}" },
+				tasksOf([{ kind: "move", to: "folder", folder: "Archive/Tasks/{[Priority]}" }, { kind: "rename", name: "{[Task]} done" }]),
+			],
+		});
+		const res = go(w, ROWS[0]);
+		expect(res.error).toBeUndefined();
+		expect(res.changes).toEqual([]);
+		// A move keeps an earlier rename, and the other way round.
+		expect(res.move).toEqual({ name: "Apollo (closed)", folder: "Archive/2026" });
+		expect(res.others.map((o) => [o.path, o.changes.length, o.move])).toEqual([
+			["Build.md", 0, { folder: "Archive/Tasks/High", name: "Build done" }],
+			["Plan.md", 0, { folder: "Archive/Tasks/Low", name: "Plan done" }],
+		]);
+		expect(runReach(res)).toEqual({ changed: 3, created: 0 });
+		const byType = go(wf({ scope: ["task"], steps: [{ kind: "rename", name: "X" }, { kind: "move", to: "type", folder: "" }] }), t1);
+		expect(byType.move).toEqual({ name: "X", byType: true });
+		expect(folderPath("  Archive\\\\2026//Q1: plans?/ ")).toBe("Archive/2026/Q1 plans");
+		expect(folderPath("/")).toBe("");
+	});
+
+	it("leave created notes to their Create a note step, and check templates", () => {
+		const create: WorkflowDef["steps"][number] = { kind: "create", type: "task", name: "Kick-off", fields: [], template: true, open: "no", exists: "new", as: "New task" };
+		const w = wf({ name: "x", scope: ["project"], steps: [create, { kind: "rename", name: "Other", on: "New task" }] });
+		expect(go(w, ROWS[0]).error?.message).toBe("A note this workflow creates is named and placed by its Create a note step.");
+		expect(workflowProblems(w, ctx).map((p) => p.message)).toEqual(["\u201cNew task\u201d is a note this workflow creates: its Create a note step names it, and its type's folder rules place it."]);
+		const probs = (steps: WorkflowDef["steps"]) => workflowProblems(wf({ name: "x", scope: ["task"], steps }), ctx).map((p) => p.message);
+		expect(probs([{ kind: "move", to: "folder", folder: " " }])).toEqual(["Choose the folder, e.g. Archive or Archive/{year(today())}."]);
+		expect(probs([{ kind: "move", to: "type", folder: "" }])).toEqual([]);
+		expect(probs([{ kind: "rename", name: "" }])).toEqual(["Write the new name, e.g. {[Code]} {[Name]}."]);
+		expect(probs([{ kind: "rename", name: "{[Nope]}" }])[0]).toMatch(/Nope/);
+		expect(go(wf({ scope: ["task"], steps: [{ kind: "rename", name: "{[Labels]}" }] }), t1).error?.message).toBe("The new name is empty.");
+	});
+
+	it("read the new steps back, and say moves in words", () => {
+		const back = readWorkflows([{ id: "a", name: "A", scope: ["task"], trigger: { kind: "manual" }, steps: [{ kind: "ask", text: "Q?" }, { kind: "move", to: "type", on: "@this" }, { kind: "move", folder: "X" }, { kind: "rename", name: "N" }] }]);
+		expect(back[0].steps).toEqual([
+			{ kind: "ask", text: "Q?" },
+			{ kind: "move", to: "type", folder: "", on: "@this" },
+			{ kind: "move", to: "folder", folder: "X" },
+			{ kind: "rename", name: "N" },
+		]);
+		expect(movedText("A/Plan.md", "A/Plan done.md")).toBe("renamed to Plan done");
+		expect(movedText("A/Plan.md", "Archive/Plan.md")).toBe("moved to Archive");
+		expect(movedText("A/Plan.md", "Plan.md")).toBe("moved to the vault's top folder");
+		expect(movedText("A/Plan.md", "B/Done.md")).toBe("moved to B/Done");
 	});
 });

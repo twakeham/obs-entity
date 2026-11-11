@@ -9,6 +9,7 @@ import { writeDay } from "./calendarView";
 import { DateVal, FormulaError, isLink, toText, truthy, type FValue } from "./formula";
 import { isEmptyValue } from "./frontmatter";
 import { asArray, parseLink, toWikilink } from "./links";
+import { joinPath } from "./paths";
 import { COMMON_KEYS, isCalculated, isListValued, statusesFor, typeExplicitlyTargeted, typeMatchesTarget, type EntityTypeDef, type FieldDef, type GroupDef } from "./types";
 import { compileFormula, dateValue, emptyView, evaluateFormula, formulaRefColumns, filterFields, runView, withThisNote, type FilterGroup, type LinkValue, type VarSpec, type ViewContext, type ViewDef, type ViewRow } from "./views";
 
@@ -64,7 +65,13 @@ export type NoteStep =
 	| { kind: "link"; op: "add" | "remove"; field: string; target: string; fixed?: string[]; on?: string }
 	| { kind: "notice"; text: string }
 	| { kind: "create"; type: string; name: string; fields: CreateField[]; link?: CreateLink; template: boolean; open: CreateOpen; exists: CreateExists; as: string }
-	| { kind: "run"; workflow: string; on?: string };
+	| { kind: "run"; workflow: string; on?: string }
+	| { kind: "ask"; text: string }
+	| { kind: "move"; to: MoveTo; folder: string; on?: string }
+	| { kind: "rename"; name: string; on?: string };
+
+/** "Move the note": to a folder (a template, e.g. "Archive/{year(today())}"), or where its type's folder rules put it now. */
+export type MoveTo = "folder" | "type";
 
 /**
  * Loops (one level: their steps are NoteSteps). "For linked notes": the notes in a link field, or linking here.
@@ -94,7 +101,20 @@ export interface WorkflowDef {
 }
 
 export const TRIGGER_LABELS: Record<TriggerKind, string> = { created: "When a note is created", changed: "When a field changes", manual: "Run on notes" };
-export const STEP_LABELS: Record<StepKind, string> = { set: "Set a field", clear: "Clear a field", tag: "Add or remove a tag", link: "Add or remove a link", notice: "Show a notice", create: "Create a note", linked: "For linked notes", each: "For each", run: "Run another workflow" };
+export const STEP_LABELS: Record<StepKind, string> = {
+	set: "Set a field",
+	clear: "Clear a field",
+	tag: "Add or remove a tag",
+	link: "Add or remove a link",
+	notice: "Show a notice",
+	move: "Move the note",
+	rename: "Rename the note",
+	create: "Create a note",
+	linked: "For linked notes",
+	each: "For each",
+	run: "Run another workflow",
+	ask: "Ask a question",
+};
 /** The most notes (or values) loops go through in one run; past it the run stops. */
 export const MAX_LOOP_ITEMS = 200;
 /** How deep "Run another workflow" goes (a workflow running one that runs one…). */
@@ -158,6 +178,12 @@ function readStep(raw: unknown, inner = false): WorkflowStep | null {
 			return { kind: "link", op: raw.op === "remove" ? "remove" : "add", field: str(raw.field), target: str(raw.target), ...(Array.isArray(raw.fixed) ? { fixed: strList(raw.fixed) } : {}), ...on };
 		case "notice":
 			return { kind: "notice", text: str(raw.text) };
+		case "ask":
+			return { kind: "ask", text: str(raw.text) };
+		case "move":
+			return { kind: "move", to: raw.to === "type" ? "type" : "folder", folder: str(raw.folder), ...on };
+		case "rename":
+			return { kind: "rename", name: str(raw.name), ...on };
 		case "create": {
 			const l = raw.link;
 			const link = isObj(l) && (l.dir === "from-new" || l.dir === "to-new") && str(l.field) ? ({ dir: l.dir, field: str(l.field) } as CreateLink) : undefined;
@@ -261,6 +287,8 @@ export const fieldLabel = (key: string, types: EntityTypeDef[]): string =>
 /** A loop's steps, or none. */
 export const innerSteps = (s: WorkflowStep): NoteStep[] => (s.kind === "linked" || s.kind === "each" ? s.steps : []);
 export const isLoop = (s: WorkflowStep): s is LoopStep => s.kind === "linked" || s.kind === "each";
+/** Whether a workflow stops to ask a question (an "Ask a question" step). */
+export const asksQuestion = (wf: Pick<WorkflowDef, "steps">): boolean => wf.steps.some((s) => s.kind === "ask" || innerSteps(s).some((x) => x.kind === "ask"));
 
 /** "For linked notes" choices: this note's link fields, and other types' link fields that point at these types. */
 export function linkedSources(scope: string[], types: EntityTypeDef[]): { out: WorkflowField[]; in: { type: EntityTypeDef; field: FieldDef; label: string }[] } {
@@ -603,6 +631,27 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 				}
 				break;
 			}
+			case "ask": {
+				if (key.includes(".")) add(at, "A question can't be inside a loop: ask it before the loop.");
+				if (!s.text.trim()) add(at, "Write the question, e.g. Also close its tasks?");
+				else {
+					const e = templateError(s.text, sc.def, lookup, sc.vars);
+					if (e) add(at, e);
+				}
+				break;
+			}
+			case "move":
+			case "rename": {
+				if (s.on !== undefined && s.on !== ON_THIS) add(at, `“${s.on}” is a note this workflow creates: its Create a note step names it, and its type's folder rules place it.`);
+				const src = s.kind === "move" ? (s.to === "folder" ? s.folder : "") : s.name;
+				if (s.kind === "move" && s.to === "folder" && !src.trim()) add(at, "Choose the folder, e.g. Archive or Archive/{year(today())}.");
+				else if (s.kind === "rename" && !src.trim()) add(at, "Write the new name, e.g. {[Code]} {[Name]}.");
+				else if (src.trim()) {
+					const e = templateError(src, sc.def, lookup, sc.vars);
+					if (e) add(at, e);
+				}
+				break;
+			}
 			case "create": {
 				const nt = lookup.types.find((x) => x.key === s.type);
 				if (!nt) add(at, s.type ? `“${s.type}” isn't a type.` : "Choose the type of note to create.");
@@ -640,6 +689,7 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 				else if (!sub) add(at, "The workflow it runs has been deleted.");
 				else {
 					if (tTypes.length && !tTypes.some((x) => inScope(sub, x))) add(at, `“${sub.name}” doesn't apply to ${tTypes.length === 1 ? (tTypes[0].plural || tTypes[0].name) : "these notes"}.`);
+					if (asksQuestion(sub)) add(at, `“${sub.name}” asks a question, so it can't be run from another workflow.`);
 					if (!checking.includes(sub.id) && workflowProblems(sub, lookup, [...checking, wf.id]).length) add(at, `“${sub.name}” has problems, so it can't run.`);
 				}
 				break;
@@ -904,6 +954,18 @@ export interface StepEnv {
 	place?: (req: PlaceRequest) => Placed;
 	/** every workflow, for "Run another workflow" */
 	workflows?: WorkflowDef[];
+	/**
+	 * Questions answered Yes ("Ask a question"), by step: a question not in it pauses the run (`pending`); "all"
+	 * answers every one Yes (a test run).
+	 */
+	answers?: Set<number> | "all";
+}
+
+/** Where "Move the note" / "Rename the note" send a note: a folder (vault root ""), its type's folder rules, a new name. */
+export interface NoteMove {
+	folder?: string;
+	byType?: true;
+	name?: string;
 }
 
 export interface FieldChange {
@@ -920,6 +982,8 @@ export interface OtherNote {
 	created?: { type: string; template: boolean; open: CreateOpen };
 	fm: Record<string, unknown>;
 	changes: FieldChange[];
+	/** where it moves to (and its new name), when a step moves or renames it */
+	move?: NoteMove;
 }
 
 export interface RunResult {
@@ -931,6 +995,12 @@ export interface RunResult {
 	others: OtherNote[];
 	/** workflows "Run another workflow" ran (names) */
 	via: string[];
+	/** where this note moves to (and its new name) */
+	move?: NoteMove;
+	/** the questions asked and answered Yes (or taken as Yes, in a test run) */
+	asked: string[];
+	/** a question not answered yet: the run stopped there, and runs again once it's answered Yes */
+	pending?: { step: number; text: string };
 	/** the step that failed, and why: nothing is written */
 	error?: { step: number; message: string };
 	/** why the run stopped before doing anything ("If it already exists: Stop the run") */
@@ -961,6 +1031,20 @@ const diffOf = (start: Record<string, unknown>, fm: Record<string, unknown>): Fi
 };
 
 class StopRun extends Error {}
+/** A question not answered yet ("Ask a question"): the run stops there, to run again once it's answered. */
+class AskFirst extends Error {
+	constructor(
+		readonly step: number,
+		readonly text: string,
+	) {
+		super(text);
+	}
+}
+
+/** A folder from a template: slashes tidied, each part made safe ("" is the vault root). */
+export function folderPath(raw: string): string {
+	return joinPath(...raw.split(/[\\/]+/).map((p) => p.replace(/[:*?"<>|]/g, "").trim()));
+}
 
 /** A note a run is working on: this one, one a step created, or another it changes (a linked note, an existing one). */
 interface RunNote {
@@ -969,6 +1053,7 @@ interface RunNote {
 	start: Record<string, unknown>;
 	fm: Record<string, unknown>;
 	created?: OtherNote["created"];
+	move?: NoteMove;
 }
 
 /** Where steps run: the workflow (its note, columns), the note formulas read, a loop's note, and the names in use. */
@@ -988,6 +1073,8 @@ interface Frame {
 	depth: number;
 	/** workflows running, outermost first (a workflow can't run itself) */
 	stack: string[];
+	/** inside a loop (of notes or of values) */
+	inLoop?: true;
 }
 
 /**
@@ -999,6 +1086,8 @@ interface Frame {
 export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 	const start = copy(env.row.frontmatter);
 	const notices: string[] = [];
+	const asked: string[] = [];
+	let topIndex = 0;
 	const via: string[] = [];
 	const main: RunNote = { path: env.row.path, row: env.row, start, fm: copy(env.row.frontmatter) };
 	const notes = new Map<string, RunNote>([[main.path, main]]);
@@ -1052,7 +1141,7 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 	const passes = (when: FilterGroup, n: RunNote, f: Frame) => !when.items.length || runView(withThisNote({ ...emptyView([n.row.type.key]), filters: when }, f.main.path), [n.row], ctx).rows.length > 0;
 	const loopFrame = (f: Frame, s: LoopStep, n: RunNote, def: ViewDef): Frame => {
 		const as = s.as.trim() || "Item";
-		return { ...f, item: n, reader: n, def, vars: { ...f.vars, [THIS_NOTE_VAR]: linkOf(f.main), [as]: linkOf(n) }, named: new Map(f.named) };
+		return { ...f, item: n, reader: n, def, vars: { ...f.vars, [THIS_NOTE_VAR]: linkOf(f.main), [as]: linkOf(n) }, named: new Map(f.named), inLoop: true };
 	};
 	const count = (as: string) => {
 		if (++items > MAX_LOOP_ITEMS) throw new Error(`More than ${MAX_LOOP_ITEMS} items in the loops (“${as}”): stopped.`);
@@ -1100,6 +1189,27 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 			case "notice":
 				notices.push(renderTemplate(s.text, f.reader.row, f.def, { ctx, old: f.reader === f.main ? f.old : undefined, vars: f.vars }));
 				return;
+			case "ask": {
+				if (f.inLoop) throw new Error("A question can't be inside a loop.");
+				if (f.depth > 0) throw new Error(`“${f.wf.name}” asks a question, so it can't be run from another workflow.`);
+				const text = renderTemplate(s.text, f.reader.row, f.def, { ctx, old: f.old, vars: f.vars }).trim() || "Carry on?";
+				if (env.answers !== "all" && !env.answers?.has(topIndex)) throw new AskFirst(topIndex, text);
+				asked.push(text);
+				return;
+			}
+			case "move":
+			case "rename": {
+				const note = targetOf(f, s.on);
+				if (note.created) throw new Error("A note this workflow creates is named and placed by its Create a note step.");
+				const text = (src: string) => renderTemplate(src, f.reader.row, f.def, { ctx, old: f.reader === f.main ? f.old : undefined, vars: f.vars });
+				if (s.kind === "rename") {
+					const name = text(s.name).trim();
+					if (!name) throw new Error("The new name is empty.");
+					note.move = { ...note.move, name };
+				} else if (s.to === "type") note.move = { ...(note.move?.name !== undefined ? { name: note.move.name } : {}), byType: true };
+				else note.move = { ...(note.move?.name !== undefined ? { name: note.move.name } : {}), folder: folderPath(text(s.folder)) };
+				return;
+			}
 			case "create": {
 				if (!env.place) throw new Error("Notes can't be created here.");
 				const type = ctx.types.find((x) => x.key === s.type);
@@ -1180,7 +1290,7 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 					for (const x of asArray(v) as FValue[]) {
 						if (x === null || x === "") continue;
 						count(as);
-						exec(s.steps, { ...f, vars: { ...f.vars, [as]: x }, named: new Map(f.named) });
+						exec(s.steps, { ...f, vars: { ...f.vars, [as]: x }, named: new Map(f.named), inLoop: true });
 					}
 					return;
 				}
@@ -1201,11 +1311,14 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 
 	const top: Frame = { wf, main, reader: main, def: workflowDef(wf), vars: {}, named: new Map(), old: env.old, depth: 0, stack: [wf.id] };
 	for (let i = 0; i < wf.steps.length; i++) {
+		topIndex = i;
 		try {
 			step(wf.steps[i], top);
 		} catch (e) {
-			if (e instanceof StopRun) return { fm: start, changes: [], notices: [], others: [], via: [], stopped: e.message };
-			return { fm: start, changes: [], notices: [], others: [], via: [], error: { step: i, message: e instanceof Error ? e.message : String(e) } };
+			const none = { fm: start, changes: [], notices: [], others: [], via: [], asked };
+			if (e instanceof AskFirst) return { ...none, pending: { step: e.step, text: e.text } };
+			if (e instanceof StopRun) return { ...none, stopped: e.message };
+			return { ...none, error: { step: i, message: e instanceof Error ? e.message : String(e) } };
 		}
 	}
 	return {
@@ -1213,15 +1326,17 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 		changes: diffOf(start, main.fm),
 		notices,
 		via: [...new Set(via)],
+		...(main.move ? { move: main.move } : {}),
+		asked,
 		others: order
-			.map((n): OtherNote => ({ path: n.path, name: n.row.name, ...(n.created ? { created: n.created } : {}), fm: n.fm, changes: diffOf(n.start, n.fm) }))
-			.filter((o) => o.created || o.changes.length),
+			.map((n): OtherNote => ({ path: n.path, name: n.row.name, ...(n.created ? { created: n.created } : {}), fm: n.fm, changes: diffOf(n.start, n.fm), ...(n.move ? { move: n.move } : {}) }))
+			.filter((o) => o.created || o.changes.length || o.move),
 	};
 }
-/** How many notes a run would write: existing notes it changes (its own included) and notes it creates. */
-export function runReach(res: Pick<RunResult, "changes" | "others">): { changed: number; created: number } {
+/** How many notes a run would write: existing notes it changes or moves (its own included) and notes it creates. */
+export function runReach(res: Pick<RunResult, "changes" | "others" | "move">): { changed: number; created: number } {
 	const created = res.others.filter((o) => o.created).length;
-	return { changed: (res.changes.length ? 1 : 0) + res.others.filter((o) => !o.created && o.changes.length).length, created };
+	return { changed: (res.changes.length || res.move ? 1 : 0) + res.others.filter((o) => !o.created && (o.changes.length || o.move)).length, created };
 }
 
 /** A run that would write more than BIG_RUN notes asks first. */
@@ -1235,6 +1350,19 @@ export function reachText({ changed, created }: { changed: number; created: numb
 }
 
 // ---------------------------------------------------------------- in words
+
+/** A move in words: "renamed to X" (same folder), "moved to Archive" (same name), else "moved to Archive/X". */
+export function movedText(from: string, to: string): string {
+	const split = (p: string) => {
+		const i = p.lastIndexOf("/");
+		return { folder: i < 0 ? "" : p.slice(0, i), name: p.slice(i + 1).replace(/\.md$/, "") };
+	};
+	const a = split(from);
+	const b = split(to);
+	if (a.folder === b.folder) return `renamed to ${b.name}`;
+	if (a.name === b.name) return `moved to ${b.folder || "the vault's top folder"}`;
+	return `moved to ${to.replace(/\.md$/, "")}`;
+}
 
 const quoted =  (vs: string[]) => vs.map((v) => `“${v}”`).join(" or ");
 

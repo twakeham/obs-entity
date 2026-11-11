@@ -3,7 +3,7 @@ import { emptyFormValues } from "../model/defaults";
 import { todayDays } from "../model/formConditions";
 import type { EntityFormValues } from "../model/frontmatter";
 import { joinPath, sanitizeFileName, uniquePath } from "../model/paths";
-import { confirmRun } from "../ui/modals/workflowModals";
+import { askQuestion, confirmRun } from "../ui/modals/workflowModals";
 import { COMMON_KEYS } from "../model/types";
 import type { ViewContext, ViewRow } from "../model/views";
 import {
@@ -17,6 +17,7 @@ import {
 	runSteps,
 	workflowProblems,
 	type FieldChange,
+	type NoteMove,
 	type Placed,
 	type PlaceRequest,
 	type RunResult,
@@ -49,6 +50,17 @@ export interface RunRecord {
 	others?: { path: string; name: string; changes: FieldChange[] }[];
 	/** workflows it ran ("Run another workflow") */
 	via?: string[];
+	/** questions it asked, answered Yes */
+	asked?: string[];
+	/** notes it moved or renamed: old path → new path */
+	moved?: { from: string; to: string }[];
+}
+
+/** A selection run one note at a time: whether a big run was agreed to, answers kept for the rest, notes still to go. */
+interface Batch {
+	agreed: boolean;
+	answers: Map<number, boolean>;
+	left: number;
 }
 
 /** What "Try on a note…" found: the workflow's problems (then no result), whether the note matches Only if, and what the steps would do. */
@@ -57,6 +69,8 @@ export interface TryRun {
 	problems: string[];
 	passes: boolean;
 	result: RunResult | null;
+	/** where moved and renamed notes would go (null: they'd stay put), or why they can't */
+	moves: { path: string; to: string | null; error?: string }[];
 }
 
 /** Runs caused by one change, and the ones they cause in turn. */
@@ -103,6 +117,16 @@ export class WorkflowEngine extends Events {
 		const { index } = this.plugin;
 		this.plugin.registerEvent(index.on("entity-created", (...a: unknown[]) => this.enqueue(() => this.onCreated(a[0] as EntityRecord))));
 		this.plugin.registerEvent(index.on("entity-changed", (...a: unknown[]) => this.enqueue(() => this.onChanged(a[0] as EntityRecord, a[1] as Record<string, unknown>))));
+		// A run that writes a note and then moves it: the write's change event comes under the new path.
+		this.plugin.registerEvent(
+			this.plugin.app.vault.on("rename", (file, oldPath) => {
+				for (const map of [this.writes, this.justCreated] as Map<string, unknown>[]) {
+					if (!map.has(oldPath)) continue;
+					map.set(file.path, map.get(oldPath));
+					map.delete(oldPath);
+				}
+			}),
+		);
 		void this.readLog();
 	}
 
@@ -183,18 +207,25 @@ export class WorkflowEngine extends Events {
 			return [];
 		}
 		const done: RunRecord[] = [];
-		// Agreeing to one big run agrees to the rest of the selection's.
-		const big = { agreed: false };
-		for (const p of paths) {
-			const r = await new Promise<RunRecord | null>((resolve) => this.enqueue(async () => resolve(await this.run(wf, p, { chain: fresh(), manual: true, big }))));
+		// Agreeing to one big run agrees to the rest of the selection's; an answer can be kept for the rest too.
+		const batch: Batch = { agreed: false, answers: new Map(), left: 0 };
+		for (const [i, p] of paths.entries()) {
+			batch.left = paths.length - i - 1;
+			const r = await new Promise<RunRecord | null>((resolve) => this.enqueue(async () => resolve(await this.run(wf, p, { chain: fresh(), manual: true, batch }))));
 			if (r) done.push(r);
 		}
-		const changed = done.filter((r) => (r.changes.length || r.created?.length || r.others?.length) && !r.error);
+		const changed = done.filter((r) => (r.changes.length || r.created?.length || r.others?.length || r.moved?.length) && !r.error);
 		const failed = done.filter((r) => r.error || r.stopped);
 		if (changed.length || !failed.length) {
 			const made = changed.flatMap((r) => r.created ?? []);
-			// Notes changed (not created): each run's own note, if it changed, and the existing notes it changed.
-			const edited = changed.flatMap((r) => [...(r.changes.length ? [r.note] : []), ...(r.others ?? []).map((o) => o.name)]);
+			// Notes changed (not created): each run's own note, if it changed or moved, and the other notes it changed or moved.
+			const edited = changed.flatMap((r) => {
+				const names = new Set<string>();
+				if (r.changes.length || r.moved?.some((m) => m.from === r.path)) names.add(r.path);
+				for (const o of r.others ?? []) names.add(o.path);
+				for (const m of r.moved ?? []) names.add(m.from);
+				return [...names].map((p) => (p === r.path ? r.note : (r.others?.find((o) => o.path === p)?.name ?? (p.split("/").pop() ?? p).replace(/\.md$/, ""))));
+			});
 			const frag = createFragment((f) => {
 				const parts = [
 					...(made.length ? [`created ${made.length === 1 ? made[0].name : `${made.length} notes`}`] : []),
@@ -219,7 +250,7 @@ export class WorkflowEngine extends Events {
 	 * Run one workflow on one note: check problems, the chain and Only if, run the steps, write the note once, keep
 	 * its undo and log it. Null when it didn't apply (Only if failed).
 	 */
-	private async run(wf: WorkflowDef, path: string, opts: { chain: Chain; before?: Record<string, unknown>; manual?: boolean; big?: { agreed: boolean } }): Promise<RunRecord | null> {
+	private async run(wf: WorkflowDef, path: string, opts: { chain: Chain; before?: Record<string, unknown>; manual?: boolean; batch?: Batch }): Promise<RunRecord | null> {
 		const { plugin } = this;
 		const { app } = plugin;
 		const file = app.vault.getAbstractFileByPath(path);
@@ -232,13 +263,15 @@ export class WorkflowEngine extends Events {
 		if (opts.chain.seen.has(key)) return this.record({ ...base, stopped: "It already ran on this note in this chain of changes." });
 		if (opts.chain.depth >= MAX_CHAIN) return this.record({ ...base, stopped: `Stopped after ${MAX_CHAIN} workflows set each other off.` });
 		let res: RunResult;
-		for (let asked = false; ; ) {
+		const answers = new Set<number>();
+		for (let agreed = false; ; ) {
 			const { rows, ctx } = plugin.viewData();
 			const row = rows.find((r) => r.path === path);
 			if (!row) return null;
 			const old: ViewRow | undefined = opts.before ? { ...row, frontmatter: opts.before, status: typeof opts.before[COMMON_KEYS.status] === "string" ? (opts.before[COMMON_KEYS.status] as string) : null } : undefined;
-			if (!passesWhen(wf, row, ctx)) return asked ? this.record({ ...base, stopped: "The note no longer matched Only if." }) : null;
-			res = this.simulate(wf, row, rows, ctx, old);
+			const replanned = agreed || answers.size > 0;
+			if (!passesWhen(wf, row, ctx)) return replanned ? this.record({ ...base, stopped: "The note no longer matched Only if." }) : null;
+			res = this.simulate(wf, row, rows, ctx, old, answers);
 			if (res.stopped) {
 				if (opts.manual) new Notice(`“${wf.name}” stopped: ${res.stopped}`);
 				return this.record({ ...base, stopped: res.stopped });
@@ -247,16 +280,30 @@ export class WorkflowEngine extends Events {
 				new Notice(`Workflow “${wf.name}” stopped on ${rec.name}: ${res.error.message}`);
 				return this.record({ ...base, error: `Step ${res.error.step + 1}: ${res.error.message}` });
 			}
+			if (res.pending) {
+				const { step, text } = res.pending;
+				let yes = opts.batch?.answers.get(step);
+				if (yes === undefined) {
+					const a = await askQuestion(app, `${wf.name} · ${rec.name}`, text, opts.batch?.left ?? 0);
+					yes = a.yes;
+					if (a.all && opts.batch) opts.batch.answers.set(step, yes);
+				}
+				if (!yes) return this.record({ ...base, stopped: `Answered No: “${text}”` });
+				// Notes may have changed while the question was open: plan again from them, with this answer.
+				answers.add(step);
+				continue;
+			}
 			const reach = runReach(res);
-			if (asked || !isBigRun(reach) || opts.big?.agreed) break;
+			if (agreed || !isBigRun(reach) || opts.batch?.agreed) break;
 			if (!(await confirmRun(app, `Run “${wf.name}”?`, `On ${rec.name}, it would ${reachText(reach)}. You can undo it afterwards.`))) return this.record({ ...base, stopped: `Cancelled: it would ${reachText(reach)}.` });
-			if (opts.big) opts.big.agreed = true;
-			// Notes may have changed while the question was open: plan again from them, so nothing newer is overwritten.
-			asked = true;
+			if (opts.batch) opts.batch.agreed = true;
+			// Plan again from the notes as they are now, so nothing newer is overwritten.
+			agreed = true;
 		}
 		for (const n of res.notices) new Notice(n);
 		const made = res.others.filter((o) => o.created);
 		const edited = res.others.filter((o) => !o.created && o.changes.length);
+		const moving = this.moving(path, res);
 		const record: RunRecord = {
 			...base,
 			changes: res.changes,
@@ -265,11 +312,13 @@ export class WorkflowEngine extends Events {
 			...(made.length ? { created: made.map((o) => ({ path: o.path, name: o.name })) } : {}),
 			...(edited.length ? { others: edited.map((o) => ({ path: o.path, name: o.name, changes: o.changes })) } : {}),
 			...(res.via.length ? { via: res.via } : {}),
+			...(res.asked.length ? { asked: res.asked } : {}),
 		};
-		if (res.changes.length || made.length || edited.length) {
+		if (res.changes.length || made.length || edited.length || moving.length) {
 			const chain: Chain = { depth: opts.chain.depth + 1, seen: new Set([...opts.chain.seen, key]), root: opts.chain.root ?? record.id };
 			// Created notes, in the order the steps made them, each kept for undo as it was written.
 			const createdFiles: { path: string; content: string }[] = [];
+			const moved: { from: string; to: string }[] = [];
 			try {
 				for (const o of made) {
 					const type = plugin.getType(o.created!.type);
@@ -282,22 +331,34 @@ export class WorkflowEngine extends Events {
 				}
 				if (res.changes.length) await this.write(path, res.changes, chain);
 				for (const o of edited) await this.write(o.path, o.changes, chain);
+				// Moves and renames last, once the notes are written (a parent link a step set can decide the folder).
+				const taken = new Set<string>();
+				for (const m of moving) {
+					const to = this.destination(m.path, m.fm, m.move, taken);
+					if (!to) continue;
+					await this.relocate(m.path, to);
+					moved.push({ from: m.path, to });
+				}
 			} catch (e) {
-				return this.record({ ...base, error: `Couldn't save: ${(e as Error).message}` });
+				return this.record({ ...base, ...(moved.length ? { moved } : {}), error: `Couldn't save: ${(e as Error).message}` });
 			}
+			if (moved.length) record.moved = moved;
 			for (const c of createdFiles) {
 				const f = app.vault.getAbstractFileByPath(c.path);
 				if (f instanceof TFile) c.content = await app.vault.read(f);
 			}
 			this.undos.set(record.id, async () => {
 				let ok = true;
+				// Back where they were first, so the fields are put back at their old paths.
+				for (const m of [...moved].reverse()) ok = (await this.moveBack(m.from, m.to)) && ok;
 				if (res.changes.length) ok = (await this.restore(path, res.changes)) && ok;
 				for (const o of edited) ok = (await this.restore(o.path, o.changes)) && ok;
 				for (const c of [...createdFiles].reverse()) ok = (await this.removeCreated(c.path, c.content)) && ok;
 				return ok;
 			});
 			// A run set off by an edit is one Ctrl/Cmd+Z step where the edit was made (the form, a table cell).
-			if (opts.before) plugin.formHistory.push(path, { key: "", before: undefined, after: undefined, undo: () => this.undo([record.id]) });
+			const at = moved.find((m) => m.from === path)?.to ?? path;
+			if (opts.before) plugin.formHistory.push(at, { key: "", before: undefined, after: undefined, undo: () => this.undo([record.id]) });
 			for (const o of made) {
 				const f = app.vault.getAbstractFileByPath(o.path);
 				if (f instanceof TFile && o.created!.open !== "no") await app.workspace.getLeaf(o.created!.open === "tab" ? "tab" : false).openFile(f);
@@ -306,8 +367,57 @@ export class WorkflowEngine extends Events {
 		return this.record(record);
 	}
 
+	/** The existing notes a run moves or renames (this note first), with their planned frontmatter. */
+	private moving(path: string, res: RunResult): { path: string; fm: Record<string, unknown>; move: NoteMove }[] {
+		return [...(res.move ? [{ path, fm: res.fm, move: res.move }] : []), ...res.others.filter((o) => !o.created && o.move).map((o) => ({ path: o.path, fm: o.fm, move: o.move! }))];
+	}
+
+	/**
+	 * Where a move or rename puts a note: the folder (as given, or by its type's folder rules from its planned
+	 * frontmatter; else where it is) and the name (new, or its own). A note already there gets " 2", " 3"… Null
+	 * when it stays where it is. `taken`: paths (lower case) other moves in the run go to.
+	 */
+	private destination(path: string, fm: Record<string, unknown>, move: NoteMove, taken: Set<string>): string | null {
+		const { app, factory, index } = this.plugin;
+		const file = app.vault.getAbstractFileByPath(path);
+		if (!(file instanceof TFile)) throw new Error(`${path} is missing.`);
+		const base = move.name !== undefined ? sanitizeFileName(move.name) : file.basename;
+		if (!base) throw new Error(`“${move.name}” can't be a note's name.`);
+		let folder: string;
+		if (move.byType) {
+			const type = index.get(path)?.type;
+			if (!type) throw new Error(`${file.basename} isn't an entity, so it has no folder rules.`);
+			folder = factory.folderFor(type, { name: base, status: "", tags: [], fields: fm as EntityFormValues["fields"] });
+		} else if (move.folder !== undefined) folder = factory.matchExistingCase(move.folder);
+		else folder = file.parent && !file.parent.isRoot() ? file.parent.path : "";
+		const there = folder ? app.vault.getAbstractFileByPath(folder) : app.vault.getRoot();
+		const inFolder = there instanceof TFolder ? there.children : [];
+		const isTaken = (p: string) => p.toLowerCase() !== path.toLowerCase() && (taken.has(p.toLowerCase()) || inFolder.some((c) => c.path.toLowerCase() === p.toLowerCase()));
+		const to = normalizePath(uniquePath(folder, base, isTaken));
+		if (to === path) return null;
+		taken.add(to.toLowerCase());
+		return to;
+	}
+
+	/** Move or rename a note (links to it follow, as Obsidian's settings say), making its folder if needed. */
+	private async relocate(from: string, to: string): Promise<void> {
+		const { app, factory } = this.plugin;
+		const file = app.vault.getAbstractFileByPath(from);
+		if (!(file instanceof TFile)) throw new Error(`${from} is missing.`);
+		await factory.ensureFolder(to.split("/").slice(0, -1).join("/"));
+		await app.fileManager.renameFile(file, to);
+	}
+
+	/** Undo a move: back to its old path, if it's still where the run put it and nothing has taken its old place. */
+	private async moveBack(from: string, to: string): Promise<boolean> {
+		const { app } = this.plugin;
+		if (!(app.vault.getAbstractFileByPath(to) instanceof TFile) || app.vault.getAbstractFileByPath(from)) return false;
+		await this.relocate(to, from);
+		return true;
+	}
+
 	/** What a workflow's steps would do on a note: worked out on copies, nothing written. */
-	private simulate(wf: WorkflowDef, row: ViewRow, rows: ViewRow[], ctx: ViewContext, old?: ViewRow): RunResult {
+	private simulate(wf: WorkflowDef, row: ViewRow, rows: ViewRow[], ctx: ViewContext, old?: ViewRow, answers?: Set<number> | "all"): RunResult {
 		const { app } = this.plugin;
 		const linkText = (p: string) => {
 			const target = app.vault.getAbstractFileByPath(p);
@@ -316,7 +426,7 @@ export class WorkflowEngine extends Events {
 			const name = p.replace(/\.md$/, "").split("/").pop() ?? p;
 			return app.metadataCache.getFirstLinkpathDest(name, row.path) ? p.replace(/\.md$/, "") : name;
 		};
-		return runSteps(wf, { ctx, row, old, linkText, place: this.placer(rows), workflows: this.plugin.settings.workflows });
+		return runSteps(wf, { ctx, row, old, linkText, place: this.placer(rows), workflows: this.plugin.settings.workflows, answers });
 	}
 
 	/**
@@ -328,8 +438,18 @@ export class WorkflowEngine extends Events {
 		const row = rows.find((r) => r.path === path);
 		if (!row) return null;
 		const problems = workflowProblems(wf, this.plugin.settings).map((p) => p.message);
-		if (problems.length) return { row, problems, passes: false, result: null };
-		return { row, problems, passes: passesWhen(wf, row, ctx), result: this.simulate(wf, row, rows, ctx) };
+		if (problems.length) return { row, problems, passes: false, result: null, moves: [] };
+		// Questions are taken as answered Yes, to show everything the run would do.
+		const result = this.simulate(wf, row, rows, ctx, undefined, "all");
+		const taken = new Set<string>();
+		const moves = result.error || result.stopped ? [] : this.moving(path, result).map((m) => {
+			try {
+				return { path: m.path, to: this.destination(m.path, m.fm, m.move, taken) };
+			} catch (e) {
+				return { path: m.path, to: null, error: (e as Error).message };
+			}
+		});
+		return { row, problems, passes: passesWhen(wf, row, ctx), result, moves };
 	}
 
 	/** Write a run's field changes to a note (tagged with the chain, so the changes it causes continue it). */

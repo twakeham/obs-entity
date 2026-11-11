@@ -7537,6 +7537,22 @@ button.oe-calv-more:hover {
 	background-color: color-mix(in srgb, var(--color-red) 10%, transparent);
 }
 
+.oe-wf-try-banner.is-ask {
+	color: var(--text-accent);
+	background-color: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
+}
+
+.oe-wf-try-move {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	margin-top: var(--size-4-1);
+}
+
+.oe-wf-try-move.is-error {
+	color: var(--text-error);
+}
+
 .oe-wf-try-banner ul {
 	margin: var(--size-4-1) 0 0;
 	padding-left: var(--size-4-5);
@@ -7670,6 +7686,22 @@ button.oe-calv-more:hover {
 }
 
 .oe-wf-step-body {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-start;
+	gap: var(--size-4-2);
+}
+
+/* Ask / move / rename: rows of controls, then help text */
+.oe-wf-stack {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	gap: var(--size-4-2);
+	min-width: 0;
+}
+
+.oe-wf-step-row {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: flex-start;
