@@ -1629,10 +1629,14 @@ function formulaCell(row: ViewRow, col: ResolvedColumn, ctx: ViewContext): Cell 
 
 /** A workflow's created notes in formulas: `[New session]`, a links column with this id prefix. */
 export const VAR_PREFIX = "var:";
-/** A name formulas can use besides columns: a note (links) or a value (a loop's item). */
+/**
+ * A name formulas can use besides columns: a note (links) or a value (a loop's item). `role`: what it is in a workflow
+ * run, for grouping it in pickers.
+ */
 export interface VarSpec {
 	name: string;
 	type: FType;
+	role?: "this" | "selection" | "item" | "created" | "found" | "variable";
 }
 export const varColumns = (vars: (string | VarSpec)[]): RefColumn[] =>
 	vars.map((v) => (typeof v === "string" ? { id: `${VAR_PREFIX}${v}`, label: v, type: "links" as FType } : { id: `${VAR_PREFIX}${v.name}`, label: v.name, type: v.type }));

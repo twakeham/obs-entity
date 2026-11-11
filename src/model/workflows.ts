@@ -461,6 +461,23 @@ export function loopItemTypes(s: LoopStep, scope: string[], types: EntityTypeDef
 /** The scope keys for a set of types: [] when it's every type (any note). */
 const keysOf = (ts: EntityTypeDef[], all: EntityTypeDef[]) => (ts.length === all.length ? [] : ts.map((t) => t.key));
 
+/** Headings for a run's names, in the order pickers list them (names with no role last, as "Notes and values"). */
+const VAR_GROUPS: { role: VarSpec["role"]; title: string }[] = [
+	{ role: "this", title: "This note" },
+	{ role: "selection", title: "The selection" },
+	{ role: "item", title: "Loop items" },
+	{ role: "created", title: "Created notes" },
+	{ role: "found", title: "Found notes" },
+	{ role: "variable", title: "Variables" },
+	{ role: undefined, title: "Notes and values" },
+];
+
+/** A run's names (a step's `vars`) by what they are: this note or the selection, loop items, created and found notes, variables. */
+export function varGroups(vars: (string | VarSpec)[]): { title: string; vars: VarSpec[] }[] {
+	const specs = vars.map((v): VarSpec => (typeof v === "string" ? { name: v, type: "links" } : v));
+	return VAR_GROUPS.map((g) => ({ title: g.title, vars: specs.filter((v) => v.role === g.role) })).filter((g) => g.vars.length);
+}
+
 /** What a step can see and act on (DESIGN §8.11). */
 export interface StepScope {
 	/** the columns formulas read */
@@ -469,7 +486,7 @@ export interface StepScope {
 	scope: string[];
 	types: EntityTypeDef[];
 	fields: WorkflowField[];
-	/** names formulas can use besides columns: created notes, in loops "This note" and the item, and variables */
+	/** names formulas can use besides columns (`role` says what each is): this note or the selection, loop items, created and found notes, variables */
 	vars: VarSpec[];
 	/** which of `vars` are variables ("Set a variable" steps before this one) */
 	variables?: string[];
@@ -496,16 +513,16 @@ export function stepScopes(wf: Pick<WorkflowDef, "scope" | "when" | "steps"> & P
 	const out = new Map<string, StepScope>();
 	const once = !!wf.trigger && runsOnce({ trigger: wf.trigger });
 	const top: StepScope = once
-		? { def: workflowDef(wf), scope: wf.scope, types: scopeTypes(wf, all), fields: workflowFields(wf, all), vars: [{ name: SELECTION_VAR, type: "links" }], on: [], defaultLabel: "No single note", noNote: true }
-		: { def: workflowDef(wf), scope: wf.scope, types: scopeTypes(wf, all), fields: workflowFields(wf, all), vars: [], on: [], defaultLabel: "This note" };
+		? { def: workflowDef(wf), scope: wf.scope, types: scopeTypes(wf, all), fields: workflowFields(wf, all), vars: [{ name: SELECTION_VAR, type: "links", role: "selection" }], on: [], defaultLabel: "No single note", noNote: true }
+		: { def: workflowDef(wf), scope: wf.scope, types: scopeTypes(wf, all), fields: workflowFields(wf, all), vars: [{ name: THIS_NOTE_VAR, type: "links", role: "this" }], on: [], defaultLabel: "This note" };
 	const withCreated = (sc: StepScope, s: WorkflowStep): StepScope =>
 		s.kind === "create" && s.as.trim()
-			? { ...sc, vars: [...sc.vars, { name: s.as.trim(), type: "links" }], on: [...sc.on, { value: s.as.trim(), label: s.as.trim(), types: all.filter((t) => t.key === s.type), made: true, ...(s.type === PLAIN_NOTE ? { plain: true as const } : {}) }] }
+			? { ...sc, vars: [...sc.vars, { name: s.as.trim(), type: "links", role: "created" }], on: [...sc.on, { value: s.as.trim(), label: s.as.trim(), types: all.filter((t) => t.key === s.type), made: true, ...(s.type === PLAIN_NOTE ? { plain: true as const } : {}) }] }
 			: sc;
 	/** The scope inside a loop. */
 	const loopScope = (s: LoopStep, cur: StepScope): StepScope => {
 		const as = s.as.trim() || "Item";
-		if (s.kind === "each" && s.items === "values") return { ...cur, vars: [...cur.vars, { name: as, type: "any" }], loop: "values" };
+		if (s.kind === "each" && s.items === "values") return { ...cur, vars: [...cur.vars, { name: as, type: "any", role: "item" }], loop: "values" };
 		const its = loopItemTypes(s, cur.scope, all);
 		const scope = keysOf(its, all);
 		const hasThis = cur.on.some((o) => o.value === ON_THIS);
@@ -514,7 +531,7 @@ export function stepScopes(wf: Pick<WorkflowDef, "scope" | "when" | "steps"> & P
 			scope,
 			types: its,
 			fields: workflowFields({ scope }, all),
-			vars: [...cur.vars, ...(once || cur.vars.some((v) => v.name === THIS_NOTE_VAR) ? [] : [{ name: THIS_NOTE_VAR, type: "links" as const }]), { name: as, type: "links" }],
+			vars: [...cur.vars, { name: as, type: "links", role: "item" }],
 			// Inside a loop inside another: the outer loop's note, by its name.
 			on: [...(once || hasThis ? [] : [{ value: ON_THIS, label: "This note", types: scopeTypes(wf, all) }]), ...cur.on, ...(cur.item ? [{ value: cur.item.name, label: cur.item.name, types: cur.item.types }] : [])],
 			defaultLabel: `Each ${as.toLowerCase()}`,
@@ -532,14 +549,14 @@ export function stepScopes(wf: Pick<WorkflowDef, "scope" | "when" | "steps"> & P
 					? {
 							...cur,
 							vars: [...cur.vars, ...globals.filter((g) => !cur.vars.some((v) => v.name === g.name))],
-							variables: globals.map((g) => g.name),
+							variables: globals.filter((g) => g.role === "variable").map((g) => g.name),
 							on: [...cur.on, ...globalOn.filter((g) => !cur.on.some((o) => o.value === g.value))],
 						}
 					: cur;
 			out.set(key, sc);
-			if (s.kind === "var" && s.name.trim()) setVar(s.name.trim(), varType(s.value, sc));
+			if (s.kind === "var" && s.name.trim()) setVar(s.name.trim(), varType(s.value, sc), "variable");
 			if (s.kind === "find" && s.as.trim()) {
-				setVar(s.as.trim(), "links");
+				setVar(s.as.trim(), "links", "found");
 				if (s.keep === "first" && !globalOn.some((g) => g.value === s.as.trim())) globalOn.push({ value: s.as.trim(), label: s.as.trim(), types: scopeTypes({ scope: s.types }, all), found: true });
 			}
 			const inner = isLoop(s) ? loopScope(s, cur) : cur;
@@ -564,9 +581,9 @@ export function stepScopes(wf: Pick<WorkflowDef, "scope" | "when" | "steps"> & P
 		}
 	};
 	// Set again with another kind of value: it can be either.
-	const setVar = (name: string, type: FType) => {
+	const setVar = (name: string, type: FType, role: "variable" | "found") => {
 		const had = globals.find((g) => g.name.toLowerCase() === name.toLowerCase());
-		if (!had) globals.push({ name, type });
+		if (!had) globals.push({ name, type, role });
 		else if (had.type !== type) had.type = "any";
 	};
 	walk(wf.steps, String, top);
@@ -1704,7 +1721,7 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 				if (f.depth >= MAX_RUN_DEPTH) throw new Error(`Workflows ran each other more than ${MAX_RUN_DEPTH} deep.`);
 				if (!inScope(sub, note.row.type) || !passesWhen(sub, note.row, ctx)) return;
 				via.push(sub.name);
-				exec(sub.steps, { wf: sub, main: note, reader: note, def: workflowDef(sub), scope: sub.scope, vars: {}, globals: globalsOf(sub), found: foundOf(sub), named: new Map(), depth: f.depth + 1, stack: [...f.stack, sub.id] });
+				exec(sub.steps, { wf: sub, main: note, reader: note, def: workflowDef(sub), scope: sub.scope, vars: { [THIS_NOTE_VAR]: linkOf(note) }, globals: globalsOf(sub), found: foundOf(sub), named: new Map(), depth: f.depth + 1, stack: [...f.stack, sub.id] });
 				return;
 			}
 			case "linked": {
@@ -1759,7 +1776,8 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 		}
 	};
 
-	const selected: Record<string, FValue> = env.selection ? { [SELECTION_VAR]: env.selection.map((r): LinkValue => ({ path: r.path, linktext: env.linkText(r.path), name: r.name })) } : {};
+	// [Selected notes] in a run for the whole selection; else [This note], the note it runs on.
+	const selected: Record<string, FValue> = env.selection ? { [SELECTION_VAR]: env.selection.map((r): LinkValue => ({ path: r.path, linktext: env.linkText(r.path), name: r.name })) } : { [THIS_NOTE_VAR]: linkOf(main) };
 	const top: Frame = { wf, main, reader: main, def: workflowDef(wf), scope: wf.scope, vars: selected, globals: globalsOf(wf), found: foundOf(wf), named: new Map(), old: env.old, depth: 0, stack: [wf.id] };
 	try {
 		exec(wf.steps, top, String);

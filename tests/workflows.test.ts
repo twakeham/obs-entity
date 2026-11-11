@@ -40,6 +40,7 @@ import {
 	stepLabel,
 	storedValue,
 	templatePartAt,
+	varGroups,
 	triggerText,
 	workflowFields,
 	workflowProblems,
@@ -630,7 +631,7 @@ describe("loops and running other workflows", () => {
 		it("are seen from the step after the first that sets them, with that formula's type", () => {
 			const w = total([{ kind: "var", name: "Total", value: '"lots"' }, { kind: "notice", text: "{[Total]}" }]);
 			const sc = stepScopes(w, ctx);
-			expect(sc.get("0")!.vars.map((v) => v.name)).toEqual([]);
+			expect(sc.get("0")!.vars.map((v) => v.name)).toEqual(["This note"]);
 			expect(sc.get("1.0")!.vars.find((v) => v.name === "Total")).toBeDefined();
 			expect(sc.get("1.0")!.variables).toEqual(["Total"]);
 			// Set to a number, then to text: it can be either.
@@ -658,6 +659,41 @@ describe("loops and running other workflows", () => {
 			const sub = wf({ id: "sub", name: "Sub", scope: ["project"], steps: [{ kind: "var", name: "Total", value: "100" }] });
 			const w = total([{ kind: "run", workflow: "sub" }, { kind: "notice", text: "{[Total]}" }]);
 			expect(run2(w, ROWS[0], [sub, w]).notices).toEqual(["7"]);
+		});
+	});
+
+	describe("the names a run has", () => {
+		const labelsLoop = (steps: WorkflowStep[]): WorkflowStep => ({ kind: "each", formula: "[Name]", items: "values", itemType: "", when: { mode: "all", items: [] }, as: "Word", steps });
+
+		it("include This note everywhere it has one: at the top, in loops of values, in a workflow another runs", () => {
+			const w = wf({
+				id: "w",
+				name: "x",
+				scope: ["project"],
+				steps: [{ kind: "notice", text: "{[This note]}" }, labelsLoop([{ kind: "notice", text: "{[Word]} of {[This note]}" }]), { kind: "run", workflow: "sub" }],
+			});
+			const sub = wf({ id: "sub", name: "Sub", scope: ["project"], steps: [{ kind: "notice", text: "sub {[This note]}" }] });
+			expect(workflowProblems(w, { ...ctx, workflows: [w, sub] })).toEqual([]);
+			expect(run2(w, ROWS[0], [w, sub]).notices).toEqual(["Apollo", "Apollo of Apollo", "sub Apollo"]);
+			// Not in a run for the whole selection: [Selected notes] instead.
+			const once = stepScopes(wf({ scope: ["project"], trigger: { kind: "manual", selection: "once" }, steps: [{ kind: "notice", text: "x" }] }), ctx).get("0")!;
+			expect(once.vars.map((v) => v.name)).toEqual([SELECTION_VAR]);
+		});
+
+		it("are grouped by what they are", () => {
+			const w = wf({
+				name: "x",
+				scope: ["project"],
+				steps: [
+					{ kind: "var", name: "Total", value: "0" },
+					{ kind: "find", types: ["task"], when: { mode: "all", items: [] }, keep: "all", as: "All tasks" },
+					{ kind: "create", type: "task", name: "", fields: [], template: false, open: "no", exists: "new", as: "Kickoff" },
+					linkedTasks({ steps: [labelsLoop([{ kind: "notice", text: "x" }])] }),
+				],
+			});
+			const sc = stepScopes(w, ctx).get("3.0.0")!;
+			expect(varGroups(sc.vars).map((g) => `${g.title}: ${g.vars.map((v) => v.name).join(", ")}`)).toEqual(["This note: This note", "Loop items: Task, Word", "Created notes: Kickoff", "Found notes: All tasks", "Variables: Total"]);
+			expect(sc.variables).toEqual(["Total"]);
 		});
 	});
 

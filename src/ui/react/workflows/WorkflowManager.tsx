@@ -19,6 +19,7 @@ import {
 	stepBlocks,
 	stepLabel,
 	stepAt,
+	varGroups,
 	templatePartAt,
 	withBlocks,
 	inScope,
@@ -976,6 +977,9 @@ function scopeForNew(wf: WorkflowDef, path: string, block: number, lookup: { typ
 
 /** "This note" in a workflow's conditions (loops, If, Find notes). */
 const THIS_IS = "The note the workflow runs on";
+
+/** What the formula editor needs to know about where a formula is: whether its preview notes are "This note", and what its columns are. */
+const editorContext = (sc: StepScope) => ({ thisIsRow: !sc.item && !sc.noNote, ...(sc.item ? { columnsTitle: `Columns of ${sc.defaultLabel.toLowerCase()}` } : {}) });
 
 /** "Add step": the kinds of step, grouped by what they do. */
 const STEP_GROUPS: { title: string; kinds: StepKind[] }[] = [
@@ -2105,20 +2109,20 @@ function valueHint(f: WorkflowField | undefined): string {
 	}
 }
 
-/** The fields [ ] offers, grouped like the field pickers: Built-in (Name, Status, Type, Created…) and Fields. */
+/**
+ * What [ ] offers: the run's names first (this note, loop items, created and found notes, variables), then the
+ * columns formulas read here, grouped like the field pickers: Built-in (Name, Status, Type, Created…) and Fields.
+ */
 function insertableFields(sc: StepScope, lookup: { types: EntityTypeDef[]; groups: GroupDef[] }): { group: string; labels: string[] }[] {
 	const def = sc.def;
-	const variables = sc.variables ?? [];
-	const vars = sc.vars.map((v) => v.name).filter((n) => !variables.includes(n));
-	const named = [
-		{ group: sc.noNote && !sc.loop ? "The selection and created notes" : sc.loop ? "Notes and values" : "Created notes", labels: vars },
-		{ group: "Variables", labels: variables },
-	];
+	const named = varGroups(sc.vars).map((g) => ({ group: g.title, labels: g.vars.map((v) => v.name) }));
 	// No single note (a run for the whole selection): only named notes and values can be read.
-	if (sc.noNote) return named.filter((g) => g.labels.length);
+	if (sc.noNote) return named;
 	const cols = availableColumns(def, lookup);
 	const labels = (list: ColumnDef[]) => [...new Set(list.map((c) => resolveColumn(c, def, lookup).label))];
-	return [{ group: "Built-in", labels: labels([{ kind: "builtin", id: "name", key: "name" } as ColumnDef, ...cols.builtins]) }, { group: "Fields", labels: labels(cols.fields) }, ...named].filter((g) => g.labels.length);
+	// In a loop of notes (or a loop inside one), the columns are each one's.
+	const of = sc.item ? ` of ${sc.defaultLabel.toLowerCase()}` : "";
+	return [...named, { group: `Built-in${of}`, labels: labels([{ kind: "builtin", id: "name", key: "name" } as ColumnDef, ...cols.builtins]) }, { group: `Fields${of}`, labels: labels(cols.fields) }].filter((g) => g.labels.length);
 }
 
 /**
@@ -2194,6 +2198,7 @@ function StepValue({
 			value: src,
 			vars: sc.vars,
 			variables: sc.variables,
+			...editorContext(sc),
 			field: multiple || !preview ? undefined : field,
 			done: (v) => onChange({ formula: v }),
 		}).open();
@@ -2384,6 +2389,7 @@ function FormulaBox({
 			value: part ? value.slice(part.from, part.to) : "",
 			vars,
 			variables: sc.variables,
+			...editorContext(sc),
 			field: template ? undefined : field,
 			done: (v) => {
 				if (part) return onChange(value.slice(0, part.from) + v + value.slice(part.to));

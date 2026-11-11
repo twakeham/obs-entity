@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type EntitiesPlugin from "../../main";
 import { compile, findColumn, FormulaError, FTYPE_LABEL, FTYPES, FUNCTIONS, functionDef, toDisplay, toStored, toText, type FnCategory, type FnDef, type FType, type FValue, type RefColumn } from "../../model/formula";
-import { storedValue, type WorkflowField } from "../../model/workflows";
+import { storedValue, THIS_NOTE_VAR, varGroups, type WorkflowField } from "../../model/workflows";
 import { toKey, type EntityTypeDef } from "../../model/types";
 import { cellOf, compileFormula, evaluateFormula, formulaRefColumns, resolveColumn, runView, VAR_PREFIX, varColumns, type VarSpec, type ColumnDef, type ViewDef, type ViewRow } from "../../model/views";
 import { PluginContext } from "../react/context";
@@ -36,6 +36,10 @@ export interface WorkflowFormulaOpts {
 	vars?: (string | VarSpec)[];
 	/** which of `vars` are variables ("Set a variable"): listed on their own, and shown in the preview as `[Name]` */
 	variables?: string[];
+	/** the preview's notes are the workflow's own note ("This note" is each of them): not in a loop of notes */
+	thisIsRow?: boolean;
+	/** the heading for the columns, e.g. "Columns of each task" in a loop */
+	columnsTitle?: string;
 	/** the field the result goes in (the preview shows the value it would store, or why it can't) */
 	field?: WorkflowField;
 	done: (src: string) => void;
@@ -327,6 +331,7 @@ function FormulaEditor({
 					// A created note doesn't exist yet: it previews as its name.
 					const vars: Record<string, FValue> = Object.fromEntries((workflow.vars ?? []).map((v) => (typeof v === "string" ? v : v.name)).map((n) => [n, { path: null, linktext: n, name: n }]));
 					for (const n of workflow.variables ?? []) vars[n] = `[${n}]`;
+					if (workflow.thisIsRow && THIS_NOTE_VAR in vars) vars[THIS_NOTE_VAR] = { path: row.path, linktext: row.path.replace(/\.md$/, ""), name: row.name };
 					let v: FValue;
 					try {
 						v = evaluateFormula(text, row, def, data.ctx, { workflow: true, vars });
@@ -353,11 +358,10 @@ function FormulaEditor({
 	const q = search.trim().toLowerCase();
 	const fnList = functions.filter((f) => !q || f.name.includes(q) || f.desc.toLowerCase().includes(q));
 	const matching = refCols.filter((c) => !q || c.label.toLowerCase().includes(q));
-	// Variables, then the run's other names (created notes, loop items, the selection), then the notes' columns.
+	// The run's names first (this note, loop items, created and found notes, variables), then the notes' columns.
 	const refGroups: { title: string; cols: RefColumn[] }[] = [
-		{ title: "Variables", cols: matching.filter((c) => variables.has(c.id)) },
-		{ title: "Notes and values", cols: matching.filter((c) => c.id.startsWith(VAR_PREFIX) && !variables.has(c.id)) },
-		{ title: "Columns", cols: matching.filter((c) => !c.id.startsWith(VAR_PREFIX)) },
+		...varGroups(workflow?.vars ?? []).map((g) => ({ title: g.title, cols: matching.filter((c) => g.vars.some((v) => `${VAR_PREFIX}${v.name}` === c.id)) })),
+		{ title: workflow?.columnsTitle ?? "Columns", cols: matching.filter((c) => !c.id.startsWith(VAR_PREFIX)) },
 	].filter((g) => g.cols.length);
 
 	return (
@@ -438,7 +442,7 @@ function FormulaEditor({
 						<div key={g.title} className="oe-fx-ref-cat">
 							<div className="oe-pop-heading">{g.title}</div>
 							{g.cols.map((c) => (
-								<button key={c.id} className="oe-fx-ref-item" onClick={() => insert(`[${c.label}]`, c.label.length + 2)} aria-label={`${FTYPE_LABEL[c.type]} ${g.title === "Variables" ? "variable" : "column"}`}>
+								<button key={c.id} className="oe-fx-ref-item" onClick={() => insert(`[${c.label}]`, c.label.length + 2)} aria-label={`${FTYPE_LABEL[c.type]} ${c.id.startsWith(VAR_PREFIX) ? `(${g.title})` : "column"}`}>
 									<span className="oe-fx-ref">[{c.label}]</span>
 									<span className="oe-fx-ref-type">{FTYPE_LABEL[c.type]}</span>
 								</button>
