@@ -1692,14 +1692,20 @@ function IfBody({
 							<div className="oe-wf-help">True when it gives true, a number other than 0, or text or a list that isn't empty.</div>
 						</div>,
 					)}
-			<div className="oe-wf-loop-steps oe-wf-if-branch">
-				<div className="oe-wf-branch-label">Then</div>
-				<StepList wf={wf} steps={step.steps} path={path} block={0} empty="Nothing: carry on after the If." scopes={scopes} problems={problems} onChange={(steps) => set({ steps })} />
-			</div>
-			<div className="oe-wf-loop-steps oe-wf-if-branch">
-				<div className="oe-wf-branch-label">Otherwise</div>
-				<StepList wf={wf} steps={step.otherwise} path={path} block={1} empty="Nothing: carry on after the If." scopes={scopes} problems={problems} onChange={(otherwise) => set({ otherwise })} />
-			</div>
+			<div className="oe-wf-if-divider" />
+			{formRow(
+				"Then",
+				<div className="oe-wf-if-branch">
+					<StepList wf={wf} steps={step.steps} path={path} block={0} empty="Nothing: carry on after the If." scopes={scopes} problems={problems} onChange={(steps) => set({ steps })} />
+				</div>,
+			)}
+			<div className="oe-wf-if-divider" />
+			{formRow(
+				"Otherwise",
+				<div className="oe-wf-if-branch">
+					<StepList wf={wf} steps={step.otherwise} path={path} block={1} empty="Nothing: carry on after the If." scopes={scopes} problems={problems} onChange={(otherwise) => set({ otherwise })} />
+				</div>,
+			)}
 		</div>
 	);
 }

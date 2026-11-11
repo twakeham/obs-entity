@@ -8403,7 +8403,7 @@ button.oe-calv-more:hover {
 	max-width: 52em;
 }
 
-/* "If": its Then and Otherwise lists, labelled, indented like a loop's */
+/* "If": its edge (Then and Otherwise are label / control rows, below) */
 .oe-wf-step.is-if {
 	border-left: 3px solid var(--color-cyan);
 }
@@ -8414,11 +8414,31 @@ button.oe-calv-more:hover {
 	border-left-color: color-mix(in srgb, var(--text-error) 50%, var(--background-modifier-border));
 }
 
-.oe-wf-branch-label {
-	margin-bottom: var(--size-4-2);
+/* An If's Then and Otherwise: labelled in the label column like its If, a dashed line above each; their steps beside */
+.oe-wf-if-divider {
+	grid-column: 1 / -1;
+	border-top: 1px dashed var(--background-modifier-border);
+}
+
+.oe-wf-create-control:has(> .oe-wf-if-branch) {
+	display: block;
+}
+
+.oe-wf-if-branch .oe-wf-step {
+	background-color: var(--background-secondary);
+}
+
+.oe-wf-if-branch .oe-wf-step-gutter {
+	background-color: color-mix(in srgb, var(--background-primary) 50%, transparent);
+}
+
+.oe-wf-if-branch .oe-wf-inner-empty {
 	line-height: 26px;
-	font-size: var(--font-ui-small);
-	color: var(--text-muted);
+}
+
+.oe-wf-if-branch > .oe-wf-steps:empty + .oe-wf-add-step,
+.oe-wf-if-branch > .oe-wf-steps:has(.oe-wf-inner-empty) + .oe-wf-add-step {
+	margin-top: 0;
 }
 
 .oe-wf .oe-wf-loop select.oe-wf-loop-source,
