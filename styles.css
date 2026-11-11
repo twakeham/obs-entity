@@ -8327,6 +8327,20 @@ button.oe-calv-more:hover {
 	max-width: 52em;
 }
 
+/* "If": its Then and Otherwise lists, labelled, indented like a loop's */
+.oe-wf-step.is-if {
+	border-left: 3px solid var(--color-cyan);
+}
+
+.oe-wf-branch-label {
+	margin-bottom: var(--size-4-2);
+	font-size: var(--font-ui-small);
+	font-weight: var(--font-semibold);
+	color: var(--color-cyan);
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+
 .oe-wf .oe-wf-loop select.oe-wf-loop-source,
 .oe-wf select.oe-wf-run-pick {
 	max-width: 22em;

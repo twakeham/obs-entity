@@ -52,6 +52,7 @@ import {
 	type FixedValue,
 	type LinkedSource,
 	type LoopStep,
+	type IfStep,
 	type StepScope,
 	type StepKind,
 	type TriggerKind,
@@ -120,6 +121,7 @@ const STEP_ICONS: Record<StepKind, string> = {
 	run: "play",
 	ask: "message-circle-question",
 	var: "variable",
+	if: "split",
 };
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -924,6 +926,9 @@ function blankStep(kind: StepKind, wf: WorkflowDef, sc: StepScope, workflows: Wo
 			return { kind, name: "" };
 		case "var":
 			return { kind, name: uniqueName("Value", used), value: "" };
+		case "if":
+			// No single note to test (a run for the whole selection): a formula.
+			return { kind, test: sc.noNote ? "formula" : "filter", when: { mode: "all", items: [] }, formula: "", steps: [], otherwise: [] };
 		case "create": {
 			const s = newCreateStep({ scope: sc.scope, steps: [], trigger: wf.trigger }, types);
 			return { ...s, as: uniqueName(s.as, used) };
@@ -965,7 +970,7 @@ const STEP_GROUPS: { title: string; kinds: StepKind[] }[] = [
 	{ title: "Change the note", kinds: ["set", "clear", "tag", "link", "move", "rename"] },
 	{ title: "Notes", kinds: ["create"] },
 	{ title: "Values", kinds: ["var"] },
-	{ title: "Flow", kinds: ["each", "linked", "run"] },
+	{ title: "Flow", kinds: ["if", "each", "linked", "run"] },
 	{ title: "Talk", kinds: ["notice", "ask"] },
 ];
 
@@ -992,6 +997,7 @@ function StepList({
 	steps,
 	path,
 	block = 0,
+	empty = "No steps yet: they run for each one.",
 	scopes,
 	problems,
 	onChange,
@@ -1000,6 +1006,8 @@ function StepList({
 	steps: WorkflowStep[];
 	path: string;
 	block?: number;
+	/** what an empty list inside a step says */
+	empty?: string;
 	scopes: Map<string, StepScope>;
 	problems: WorkflowProblem[];
 	onChange: (steps: WorkflowStep[]) => void;
@@ -1069,7 +1077,7 @@ function StepList({
 						onRemove={() => onChange(steps.filter((_, j) => j !== i))}
 					/>
 				))}
-				{!steps.length && path && <div className="oe-tm-muted oe-wf-inner-empty">No steps yet: they run for each one.</div>}
+				{!steps.length && path && <div className="oe-tm-muted oe-wf-inner-empty">{empty}</div>}
 			</div>
 			<button className={`oe-wf-add-step${path ? " is-inner" : ""}`} onClick={add}>
 				<Icon name="plus" /> {path ? "Add a step inside" : "Add step"}
@@ -1113,14 +1121,21 @@ function StepCard({
 	const relations = target.fields.filter((f) => f.kind === "relation");
 	const mine = problems.filter((p) => p.at === `step:${path}`);
 	const placing = step.kind === "move" || step.kind === "rename";
-	const hasOn = step.kind === "set" || step.kind === "clear" || step.kind === "tag" || step.kind === "link" || step.kind === "run" || placing;
+	const hasOn = step.kind === "set" || step.kind === "clear" || step.kind === "tag" || step.kind === "link" || step.kind === "run" || placing || (step.kind === "if" && step.test === "filter");
 	// Created notes are named and placed by their Create a note step: moving or renaming offers the others only.
 	const onChoices = placing ? sc.on.filter((o) => !o.made) : sc.on;
 	const changeOn = (v: string) => {
 		if (!hasOn) return;
 		const withOn = { ...step, on: v || undefined } as WorkflowStep;
 		const t2 = stepTarget(withOn, sc, allTypes);
-		const next = (step.kind === "tag" || step.kind === "run" || placing ? { ...step } : blankStep(step.kind, wf, { ...sc, fields: t2?.fields ?? [], scope: t2?.scope ?? [] }, plugin.settings.workflows, allTypes)) as WorkflowStep & { on?: string };
+		// Another note may have other fields: an If's conditions start again, other steps start afresh.
+		const next = (
+			step.kind === "tag" || step.kind === "run" || placing
+				? { ...step }
+				: step.kind === "if"
+					? { ...step, when: { mode: "all", items: [] } }
+					: blankStep(step.kind, wf, { ...sc, fields: t2?.fields ?? [], scope: t2?.scope ?? [] }, plugin.settings.workflows, allTypes)
+		) as WorkflowStep & { on?: string };
 		if (v) next.on = v;
 		else delete next.on;
 		onChange(next);
@@ -1337,13 +1352,16 @@ function StepCard({
 		case "each":
 			body = <LoopBody wf={wf} path={path} step={step} scopes={scopes} problems={problems} onChange={onChange} />;
 			break;
+		case "if":
+			body = <IfBody wf={wf} path={path} step={step} sc={sc} target={target} onPicker={onPicker} scopes={scopes} problems={problems} onChange={onChange} />;
+			break;
 	}
 	const named = step.kind === "create" || step.kind === "linked" || step.kind === "each" ? step.as.trim() : step.kind === "var" ? step.name.trim() : "";
 	const subtitle = step.kind === "run" ? plugin.settings.workflows.find((w) => w.id === step.workflow)?.name : named ? `“${named}”` : "";
 	const stepNo = stepLabel(path);
 	return (
 		<div
-			className={`oe-wf-step${mine.length ? " has-issue" : ""}${isLoop(step) ? " is-loop" : ""}${drag.dragging ? " is-dragging" : ""}${drag.before ? " drop-before" : ""}${drag.after ? " drop-after" : ""}`}
+			className={`oe-wf-step${mine.length ? " has-issue" : ""}${isLoop(step) ? " is-loop" : ""}${step.kind === "if" ? " is-if" : ""}${drag.dragging ? " is-dragging" : ""}${drag.before ? " drop-before" : ""}${drag.after ? " drop-after" : ""}`}
 			data-step={path}
 			onDragOver={(e) => {
 				if (!drag.active) return;
@@ -1397,7 +1415,7 @@ function StepCard({
 						<Icon name="trash-2" />
 					</button>
 				</div>
-				<div className={`oe-wf-step-body${step.kind === "create" || isLoop(step) ? " is-create" : ""}`}>{body}</div>
+				<div className={`oe-wf-step-body${step.kind === "create" || isLoop(step) || step.kind === "if" ? " is-create" : ""}`}>{body}</div>
 				{mine.map((p, i) => (
 					<div key={i} className="oe-tm-issue">
 						<Icon name="alert-circle" /> {p.message}
@@ -1563,6 +1581,95 @@ function LoopBody({
 			)}
 			<div className="oe-wf-loop-steps">
 				<StepList wf={wf} steps={step.steps} path={path} scopes={scopes} problems={problems} onChange={(steps) => set({ steps })} />
+			</div>
+		</div>
+	);
+}
+
+/**
+ * "If": the test (conditions on a note, picked with On; or a formula), then the steps for true (Then) and for false
+ * (Otherwise), each a list of its own.
+ */
+function IfBody({
+	wf,
+	path,
+	step,
+	sc,
+	target,
+	onPicker,
+	scopes,
+	problems,
+	onChange,
+}: {
+	wf: WorkflowDef;
+	path: string;
+	step: IfStep;
+	sc: StepScope;
+	target: { scope: string[]; types: EntityTypeDef[] };
+	onPicker: ReactNode;
+	scopes: Map<string, StepScope>;
+	problems: WorkflowProblem[];
+	onChange: (s: WorkflowStep) => void;
+}) {
+	const plugin = usePlugin();
+	const { types, groups } = plugin.settings;
+	const lookup = { types, groups };
+	const def = workflowDef({ scope: target.scope, when: step.when });
+	const { rows, ctx } = useMemo(() => plugin.viewData(), [plugin]);
+	const choices = useMemo(() => columnChoices(def, lookup), [target.scope.join(","), types]); // eslint-disable-line react-hooks/exhaustive-deps
+	const noun = target.types.length === 1 ? target.types[0].name.toLowerCase() : "note";
+	const set = (patch: Partial<IfStep>) => onChange({ ...step, ...patch });
+	return (
+		<div className="oe-wf-create oe-wf-if">
+			{formRow(
+				"If",
+				<span className="oe-wf-inline">
+					<Segmented
+						label="Test"
+						value={step.test}
+						options={[
+							{ value: "filter", label: "Conditions" },
+							{ value: "formula", label: "A formula" },
+						]}
+						onChange={(v) => {
+							// A formula reads the note formulas read here: no On.
+							const { on: _drop, ...rest } = step;
+							onChange(v === "formula" ? { ...rest, test: v } : { ...step, test: v });
+						}}
+					/>
+					{step.test === "filter" && onPicker}
+				</span>,
+			)}
+			{step.test === "filter"
+				? formRow(
+						"",
+						<div className="oe-wf-when oe-wf-loop-when">
+							<FiltersPanel
+								filters={step.when}
+								choices={choices}
+								ctx={ctx}
+								valuesOf={(id) => columnValues(choices, id, rows, target.types)}
+								thisNote={null}
+								heading={`True when the ${noun} matches`}
+								emptyText="No conditions yet: add one."
+								onChange={(g) => set({ when: g })}
+							/>
+						</div>,
+					)
+				: formRow(
+						"",
+						<div className="oe-wf-stack">
+							<FormulaBox sc={sc} label="Test formula" value={step.formula} placeholder="e.g. [Estimate] > 5 or [Total] = 0" onChange={(v) => set({ formula: v })} />
+							<div className="oe-wf-help">True when it gives true, a number other than 0, or text or a list that isn't empty.</div>
+						</div>,
+					)}
+			<div className="oe-wf-loop-steps oe-wf-if-branch">
+				<div className="oe-wf-branch-label">Then</div>
+				<StepList wf={wf} steps={step.steps} path={path} block={0} empty="Nothing: carry on after the If." scopes={scopes} problems={problems} onChange={(steps) => set({ steps })} />
+			</div>
+			<div className="oe-wf-loop-steps oe-wf-if-branch">
+				<div className="oe-wf-branch-label">Otherwise</div>
+				<StepList wf={wf} steps={step.otherwise} path={path} block={1} empty="Nothing: carry on after the If." scopes={scopes} problems={problems} onChange={(otherwise) => set({ otherwise })} />
 			</div>
 		</div>
 	);

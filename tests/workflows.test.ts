@@ -47,6 +47,7 @@ import {
 	type ScheduleTrigger,
 	type WorkflowDef,
 	type WorkflowStep,
+	type IfStep,
 } from "../src/model/workflows";
 
 const GROUPS: GroupDef[] = [{ key: "work", name: "Work", icon: "x", statuses: ["todo", "doing", "done"] }];
@@ -601,6 +602,84 @@ describe("loops and running other workflows", () => {
 			const sub = wf({ id: "sub", name: "Sub", scope: ["project"], steps: [{ kind: "var", name: "Total", value: "100" }] });
 			const w = total([{ kind: "run", workflow: "sub" }, { kind: "notice", text: "{[Total]}" }]);
 			expect(run2(w, ROWS[0], [sub, w]).notices).toEqual(["7"]);
+		});
+	});
+
+	describe("if / otherwise", () => {
+		const iff = (over: Partial<IfStep>): IfStep => ({ kind: "if", test: "filter", when: { mode: "all", items: [] }, formula: "", steps: [], otherwise: [], ...over });
+		const high = { mode: "all" as const, items: [{ field: "priority", op: "any-of" as const, value: ["High"] }] };
+
+		it("run Then when the note matches the conditions, else Otherwise", () => {
+			const w = wf({ name: "x", scope: ["task"], steps: [iff({ when: high, steps: [{ kind: "tag", op: "add", tag: "urgent" }], otherwise: [{ kind: "tag", op: "add", tag: "later" }] })] });
+			expect(workflowProblems(w, ctx)).toEqual([]);
+			expect(readWorkflows(JSON.parse(JSON.stringify([w])))[0].steps).toEqual(w.steps);
+			expect(run2(w, t1).fm.tags).toEqual(["later"]);
+			expect(run2(w, t2).fm.tags).toEqual(["urgent"]);
+		});
+
+		it("test a formula, inside a loop, with variables", () => {
+			const w = wf({
+				name: "x",
+				scope: ["project"],
+				steps: [
+					{ kind: "var", name: "Big", value: "0" },
+					linkedTasks({
+						steps: [
+							iff({
+								test: "formula",
+								formula: "[Estimate] > 3",
+								steps: [
+									{ kind: "tag", op: "add", tag: "big" },
+									{ kind: "var", name: "Big", value: "[Big] + 1" },
+								],
+								otherwise: [{ kind: "tag", op: "add", tag: "small" }],
+							}),
+						],
+					}),
+					{ kind: "notice", text: "{[Big]} big" },
+				],
+			});
+			expect(workflowProblems(w, ctx)).toEqual([]);
+			expect([...stepScopes(w, ctx).keys()]).toEqual(["0", "1", "1.0", "1.0.0", "1.0.1", "1.0.2", "2"]);
+			const res = run2(w, ROWS[0]);
+			expect(res.notices).toEqual(["1 big"]);
+			expect(res.others.map((o) => [o.path, o.fm.tags])).toEqual([
+				["Build.md", ["big"]],
+				["Plan.md", ["small"]],
+			]);
+		});
+
+		it("test another note: This note inside a loop, or a created one", () => {
+			const rich = { mode: "all" as const, items: [{ field: "budget", op: ">", value: 5 }] };
+			const w = wf({ name: "x", scope: ["project"], steps: [linkedTasks({ steps: [iff({ on: ON_THIS, when: rich, steps: [{ kind: "tag", op: "add", tag: "funded" }] })] })] });
+			expect(workflowProblems(w, ctx)).toEqual([]);
+			expect(run2(w, ROWS[0]).others.map((o) => o.fm.tags)).toEqual([["funded"], ["funded"]]);
+			expect(run2(w, ROWS[1]).others).toEqual([]);
+		});
+
+		it("ask a question inside one (it isn't a loop), by its place", () => {
+			const w = wf({ name: "x", scope: ["task"], steps: [iff({ when: high, steps: [{ kind: "ask", text: "Sure?" }, { kind: "tag", op: "add", tag: "y" }] })] });
+			expect(workflowProblems(w, ctx)).toEqual([]);
+			expect(run2(w, t2).pending).toEqual({ step: "0.0", text: "Sure?" });
+			expect(runSteps(w, { ctx: ctx2, row: t2, linkText, answers: new Set(["0.0"]) }).fm.tags).toEqual(["y"]);
+			expect(run2(w, t1).pending).toBeUndefined();
+		});
+
+		it("keep notes created inside to the steps after them inside", () => {
+			const make: WorkflowStep = { kind: "create", type: "task", name: "Follow-up", fields: [], template: false, open: "no", exists: "new", as: "Follow-up" };
+			const w = wf({ name: "x", scope: ["task"], steps: [iff({ when: high, steps: [make, { kind: "tag", op: "add", tag: "a", on: "Follow-up" }] }), { kind: "tag", op: "add", tag: "b", on: "Follow-up" }] });
+			expect(workflowProblems(w, ctx).map((p) => `${p.at}: ${p.message}`)).toEqual(["step:1: No earlier step creates \u201cFollow-up\u201d."]);
+		});
+
+		it("report what's missing", () => {
+			const probs = (s: IfStep, trigger?: WorkflowDef["trigger"]) => workflowProblems(wf({ name: "x", scope: ["task"], ...(trigger ? { trigger } : {}), steps: [s] }), ctx).map((p) => p.message);
+			expect(probs(iff({}))).toEqual(["Add a condition.", "Add a step, under Then or Otherwise."]);
+			expect(probs(iff({ test: "formula", steps: [{ kind: "tag", op: "add", tag: "x" }] }))).toEqual(["Write the formula, e.g. [Estimate] > 5 or [Total] = 0."]);
+			expect(probs(iff({ when: { mode: "all", items: [{ field: "budget", op: "empty" }] }, steps: [{ kind: "tag", op: "add", tag: "x" }] }))).toEqual(["A condition uses \u201cbudget\u201d, which isn't a column of tasks."]);
+			// A run for the whole selection has no note to test: a formula instead.
+			const once = { kind: "manual", selection: "once" } as WorkflowDef["trigger"];
+			expect(probs(iff({ when: high, otherwise: [{ kind: "notice", text: "x" }] }), once)).toEqual([NO_NOTE]);
+			expect(probs(iff({ test: "formula", formula: `count([${SELECTION_VAR}]) > 1`, otherwise: [{ kind: "notice", text: "x" }] }), once)).toEqual([]);
 		});
 	});
 });

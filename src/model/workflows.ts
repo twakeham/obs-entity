@@ -126,7 +126,13 @@ export type LoopStep =
 	| { kind: "linked"; source: LinkedSource; when: FilterGroup; as: string; steps: WorkflowStep[] }
 	| { kind: "each"; formula: string; items: "notes" | "values"; itemType: string; when: FilterGroup; as: string; steps: WorkflowStep[] };
 
-export type WorkflowStep = NoteStep | LoopStep;
+/**
+ * "If": `steps` when it's true, else `otherwise`. The test is conditions on a note (`when`, a view filter on the note
+ * it's `on`, as other steps), or a formula that's true or false.
+ */
+export type IfStep = { kind: "if"; test: "filter" | "formula"; when: FilterGroup; formula: string; on?: string; steps: WorkflowStep[]; otherwise: WorkflowStep[] };
+
+export type WorkflowStep = NoteStep | LoopStep | IfStep;
 
 export type TriggerKind = WorkflowTrigger["kind"];
 export type StepKind = WorkflowStep["kind"];
@@ -165,6 +171,7 @@ export const STEP_LABELS: Record<StepKind, string> = {
 	run: "Run another workflow",
 	ask: "Ask a question",
 	var: "Set a variable",
+	if: "If",
 };
 /** The most notes (or values) loops go through in one run; past it the run stops. */
 export const MAX_LOOP_ITEMS = 200;
@@ -255,6 +262,8 @@ function readStep(raw: unknown): WorkflowStep | null {
 			return { kind: "rename", name: str(raw.name), ...on };
 		case "var":
 			return { kind: "var", name: str(raw.name), value: str(raw.value) };
+		case "if":
+			return { kind: "if", test: raw.test === "formula" ? "formula" : "filter", when: readGroup(raw.when), formula: str(raw.formula), ...on, steps: readSteps(raw.steps), otherwise: readSteps(raw.otherwise) };
 		case "create": {
 			const l = raw.link;
 			const link = isObj(l) && (l.dir === "from-new" || l.dir === "to-new") && str(l.field) ? ({ dir: l.dir, field: str(l.field) } as CreateLink) : undefined;
@@ -356,10 +365,11 @@ export function workflowFields(wf: Pick<WorkflowDef, "scope">, types: EntityType
 export const fieldLabel = (key: string, types: EntityTypeDef[]): string =>
 	key === COMMON_KEYS.status ? "Status" : key === COMMON_KEYS.tags ? "Tags" : (types.flatMap((t) => t.fields).find((f) => f.key === key)?.label ?? key);
 
-/** A step's blocks of steps inside it: a loop's one (none for other steps). */
-export const stepBlocks = (s: WorkflowStep): WorkflowStep[][] => (isLoop(s) ? [s.steps] : []);
+/** A step's blocks of steps inside it: a loop's one; an If's two (then, otherwise); none for other steps. */
+export const stepBlocks = (s: WorkflowStep): WorkflowStep[][] => (isLoop(s) ? [s.steps] : s.kind === "if" ? [s.steps, s.otherwise] : []);
 /** The step with new blocks (as many as it has). */
-export const withBlocks = (s: WorkflowStep, blocks: WorkflowStep[][]): WorkflowStep => (isLoop(s) ? { ...s, steps: blocks[0] ?? [] } : s);
+export const withBlocks = (s: WorkflowStep, blocks: WorkflowStep[][]): WorkflowStep =>
+	isLoop(s) ? { ...s, steps: blocks[0] ?? [] } : s.kind === "if" ? { ...s, steps: blocks[0] ?? [], otherwise: blocks[1] ?? [] } : s;
 /** Where a block's steps start in its step's numbering: steps inside step "2" are "2.0", "2.1"…, through all its blocks. */
 export const blockOffset = (s: WorkflowStep, block: number): number => stepBlocks(s).slice(0, block).reduce((n, b) => n + b.length, 0);
 /** Steps and every step inside them, in order. */
@@ -817,7 +827,7 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 		const tFields = target.fields;
 		const fErr = (src: string) => formulaError(src, sc.def, lookup, sc.vars, !!sc.noNote);
 		const tErr = (src: string) => templateError(src, sc.def, lookup, sc.vars, !!sc.noNote);
-		if (sc.noNote && !("on" in s && s.on !== undefined) && (s.kind === "set" || s.kind === "clear" || s.kind === "tag" || s.kind === "link" || s.kind === "move" || s.kind === "rename" || s.kind === "run")) add(at, NO_NOTE);
+		if (sc.noNote && !("on" in s && s.on !== undefined) && (s.kind === "set" || s.kind === "clear" || s.kind === "tag" || s.kind === "link" || s.kind === "move" || s.kind === "rename" || s.kind === "run" || (s.kind === "if" && s.test === "filter"))) add(at, NO_NOTE);
 		if (sc.noNote && s.kind === "create" && s.link) add(at, "There's no single note to link the new note to: link it inside a For each over [Selected notes], or leave Link empty.");
 		if (sc.noNote && s.kind === "linked") add(at, "For linked notes starts from a note: use For each over [Selected notes] instead.");
 		const fieldOk = (fkey: string, what: string) => {
@@ -875,6 +885,21 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 					const e = tErr(s.text);
 					if (e) add(at, e);
 				}
+				break;
+			}
+			case "if": {
+				if (s.test === "formula") {
+					if (!s.formula.trim()) add(at, "Write the formula, e.g. [Estimate] > 5 or [Total] = 0.");
+					else {
+						const e = fErr(s.formula);
+						if (e) add(at, e);
+					}
+				} else {
+					if (!s.when.items.length) add(at, "Add a condition.");
+					const tDef = workflowDef({ scope: target.scope, when: s.when });
+					for (const id of filterFields(s.when)) if (!formulaColumnOk(id, tDef, lookup)) add(at, `A condition uses “${id}”, which isn't a column of ${tTypes.length === 1 ? (tTypes[0].plural || tTypes[0].name) : "these notes"}.`);
+				}
+				if (!s.steps.length && !s.otherwise.length) add(at, "Add a step, under Then or Otherwise.");
 				break;
 			}
 			case "var": {
@@ -1483,6 +1508,12 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 			case "var":
 				f.globals[s.name.trim()] = evalIn(f, s.value);
 				return;
+			case "if": {
+				const yes = s.test === "formula" ? truthy(evalIn(f, s.formula)) : passes(s.when, targetOf(f, s.on), f);
+				// Notes created inside are for the steps after them inside, as in loops.
+				execBlock(s, yes ? 0 : 1, { ...f, vars: { ...f.vars }, named: new Map(f.named) }, key);
+				return;
+			}
 			case "ask": {
 				if (f.inLoop) throw new Error("A question can't be inside a loop.");
 				if (f.depth > 0) throw new Error(`“${f.wf.name}” asks a question, so it can't be run from another workflow.`);
