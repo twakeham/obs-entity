@@ -505,7 +505,7 @@ function WorkflowEditor({
 			{tab === "runs" ? (
 				<div className="oe-tm-body is-runs">
 					<div className="oe-tm-muted oe-wf-runs-intro">
-						{runs.length ? `Its last ${plural(runs.length, "run")}, newest first (Recent runs under Workflows in the Entity Browser keeps the last 200 of every workflow).` : "It hasn't run yet."} Undo puts back what a run changed, while its notes haven't changed since.
+						{runs.length ? `Its last ${plural(runs.length, "run")}, newest first (Recent runs, on the Workflows heading's right-click menu in the Entity Browser, keeps the last 200 of every workflow).` : "It hasn't run yet."} Undo puts back what a run changed, while its notes haven't changed since.
 					</div>
 					{runs.length > 0 && <RunList runs={runs} />}
 				</div>

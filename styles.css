@@ -2992,10 +2992,6 @@ button.oe-tm-typegroup-title,
 	flex-shrink: 0;
 }
 
-.oe-workflow-runs .oe-bheading-count {
-	margin-right: var(--size-4-1);
-}
-
 .oe-tree-count {
 	font-size: var(--font-ui-smaller);
 	color: var(--text-faint);

@@ -377,7 +377,7 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 
 /**
  * The Workflows section: a heading per category (what starts them: When created, When changed, Run on notes,
- * Scheduled), each with its workflows by name, then Recent runs. A workflow shows its trigger's icon, an on dot, a
+ * Scheduled), each with its workflows by name. A workflow shows its trigger's icon, an on dot, a
  * warning when it has problems, "new" for an unsaved one and a dot for unsaved changes (drafts in the Workflows view).
  * Click opens it there; + starts a new one for no type in particular. While searching or filtering, only matching
  * workflows show (null when none do).
@@ -557,19 +557,6 @@ function WorkflowsSection({
 						</div>
 					);
 				})}
-			{open && !filtering && (
-				<div
-					className={`oe-tree-row oe-workflow-row oe-workflow-runs${shownId === "runs" ? " is-active" : ""}`}
-					style={{ paddingLeft: `${INDENT + 4}px` }}
-					onClick={() => void plugin.activateWorkflows({ open: "runs" })}
-					title="The last runs of every workflow, newest first"
-				>
-					<span className="oe-tree-toggle is-leaf" />
-					<Icon name="history" className="oe-tree-icon" />
-					<span className="oe-tree-name">Recent runs</span>
-					<span className="oe-bheading-count">{plugin.workflows.log.length}</span>
-				</div>
-			)}
 		</section>
 	);
 }
