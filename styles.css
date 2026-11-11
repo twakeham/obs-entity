@@ -8333,6 +8333,12 @@ button.oe-calv-more:hover {
 	border-left: 3px solid var(--color-cyan);
 }
 
+/* A step with a problem is red all round, its thicker loop / If edge too. */
+.oe-wf-step.has-issue.is-loop,
+.oe-wf-step.has-issue.is-if {
+	border-left-color: color-mix(in srgb, var(--text-error) 50%, var(--background-modifier-border));
+}
+
 .oe-wf-branch-label {
 	margin-bottom: var(--size-4-2);
 	font-size: var(--font-ui-small);
