@@ -1,12 +1,17 @@
 import { FIELD_KINDS, cloneGroup, cloneType, isValidKey, type EntityTypeDef, type GroupDef } from "./types";
+import { rewriteRefs } from "./formula";
+import { isGroup, type FilterGroup } from "./views";
+import { cloneWorkflow, innerSteps, newWorkflowId, parseTemplate, readWorkflows, scopeTypes, type NoteStep, type WorkflowDef, type WorkflowStep } from "./workflows";
 
-/** A shareable bundle of types (and the groups they use). */
+/** A shareable bundle of types (and the groups they use), and workflows. */
 export interface TypePack {
 	obsEntitiesPack: 1;
 	id?: string;
 	name?: string;
 	groups?: GroupDef[];
 	types: EntityTypeDef[];
+	/** workflows for these types (imported switched off) */
+	workflows?: WorkflowDef[];
 }
 
 export const STARTER_PACK: TypePack = {
@@ -209,15 +214,22 @@ export function parsePack(text: string): PackParse {
 	}
 	let types: unknown[];
 	let groups: unknown[] = [];
+	let workflows: unknown[] = [];
 	let meta: Record<string, unknown> = {};
 	if (Array.isArray(data)) types = data;
 	else if (data && typeof data === "object" && Array.isArray((data as Record<string, unknown>).types)) {
 		meta = data as Record<string, unknown>;
 		types = meta.types as unknown[];
 		groups = Array.isArray(meta.groups) ? (meta.groups as unknown[]) : [];
+		if (meta.workflows !== undefined && !Array.isArray(meta.workflows)) return { ok: false, error: "“workflows” should be a list." };
+		workflows = Array.isArray(meta.workflows) ? (meta.workflows as unknown[]) : [];
 	} else if (data && typeof data === "object" && Array.isArray((data as Record<string, unknown>).fields)) types = [data];
 	else return { ok: false, error: "Expected a pack ({ types: [...] }), a type, or a list of types." };
-	if (types.length === 0) return { ok: false, error: "The pack has no types." };
+	if (types.length === 0 && workflows.length === 0) return { ok: false, error: "The pack has no types." };
+	for (const [i, raw] of workflows.entries()) {
+		const w = raw as { name?: unknown; steps?: unknown };
+		if (!w || typeof w !== "object" || !Array.isArray(w.steps)) return { ok: false, error: `Workflow ${typeof w?.name === "string" ? `“${w.name}”` : `#${i + 1}`} has no steps list.` };
+	}
 
 	for (const [i, raw] of types.entries()) {
 		const t = raw as Partial<EntityTypeDef>;
@@ -244,6 +256,7 @@ export function parsePack(text: string): PackParse {
 			name: typeof meta.name === "string" ? meta.name : undefined,
 			groups: groups as GroupDef[],
 			types: types as EntityTypeDef[],
+			...(workflows.length ? { workflows: workflows as WorkflowDef[] } : {}),
 		},
 	};
 }
@@ -257,6 +270,8 @@ export interface InstallResult {
 	renamed: Record<string, string>;
 	/** groups added */
 	addedGroups: string[];
+	/** the pack's workflows, ready to add: off, with ids of their own and the renamed keys */
+	workflows: WorkflowDef[];
 }
 
 function uniqueKey(key: string, taken: Set<string>): string {
@@ -267,10 +282,12 @@ function uniqueKey(key: string, taken: Set<string>): string {
 }
 
 /**
- * Add a pack's types (and missing groups) to existing ones. Clashing type keys get a numbered suffix,
- * and relation targets inside the pack follow the rename. Types whose group is unknown go into the first group.
+ * Add a pack's types (and missing groups) to existing ones, and its workflows. Clashing type keys get a numbered
+ * suffix, and every reference to them in the pack follows (relation targets, roll-ups, formulas, workflows' scopes and
+ * steps). Types whose group is unknown go into the first group. Workflows come in switched off, with new ids when
+ * theirs are taken ("Run another workflow" steps follow).
  */
-export function installPack(pack: TypePack, groups: GroupDef[], types: EntityTypeDef[]): InstallResult {
+export function installPack(pack: TypePack, groups: GroupDef[], types: EntityTypeDef[], workflows: WorkflowDef[] = []): InstallResult {
 	const outGroups = groups.map(cloneGroup);
 	const groupKeys = new Set(outGroups.map((g) => g.key));
 	const addedGroups: string[] = [];
@@ -284,19 +301,23 @@ export function installPack(pack: TypePack, groups: GroupDef[], types: EntityTyp
 
 	const taken = new Set(types.map((t) => t.key));
 	const renamed: Record<string, string> = {};
+	// Every name the pack's types go by (as written, and as read when that wasn't a valid key) → their key here.
+	const keyMap = new Map<string, string>();
 	const incoming = pack.types.map((raw) => {
 		const t = cloneType(raw);
 		const original = t.key && isValidKey(t.key) ? t.key : nameToKey(t.name);
 		const key = uniqueKey(original, taken);
 		taken.add(key);
 		if (key !== t.key) renamed[t.key || t.name] = key;
+		if (t.key) keyMap.set(t.key, key);
+		keyMap.set(original, key);
 		t.key = key;
-		return { t, original };
+		return t;
 	});
-	const keyMap = new Map(incoming.map(({ t, original }) => [original, t.key]));
+	for (const [from, to] of [...keyMap]) if (from === to) keyMap.delete(from);
 	const added: string[] = [];
 	const outTypes = types.map(cloneType);
-	for (const { t } of incoming) {
+	for (const t of incoming) {
 		t.plural = t.plural || `${t.name}s`;
 		t.icon = t.icon || "file";
 		t.color = t.color || "#9e9e9e";
@@ -304,15 +325,134 @@ export function installPack(pack: TypePack, groups: GroupDef[], types: EntityTyp
 		if (!groupKeys.has(t.group)) t.group = fallbackGroup;
 		t.builtIn = false;
 		if (pack.id) t.pack = pack.id;
-		for (const f of t.fields) {
-			if (f.kind === "relation" && f.targets) f.targets = f.targets.map((x) => keyMap.get(x) ?? x);
-		}
+		renameTypeKeys(t, keyMap);
 		outTypes.push(t);
 		added.push(t.key);
 	}
-	return { groups: outGroups, types: outTypes, added, renamed, addedGroups };
+
+	// Workflows: tidied as saved ones are, off, with ids of their own here.
+	const ids = new Set(workflows.map((w) => w.id));
+	const idMap = new Map<string, string>();
+	const read = readWorkflows(pack.workflows ?? [], outTypes);
+	read.forEach((w, i) => {
+		const raw = (pack.workflows ?? [])[i] as { id?: unknown } | undefined;
+		let id = w.id;
+		while (ids.has(id)) id = newWorkflowId();
+		ids.add(id);
+		if (typeof raw?.id === "string" && raw.id !== id) idMap.set(raw.id, id);
+		w.id = id;
+	});
+	const outWorkflows = read.map((w) => ({ ...renameWorkflowKeys(w, keyMap, idMap), on: false }));
+	return { groups: outGroups, types: outTypes, added, renamed, addedGroups, workflows: outWorkflows };
 }
 
+// ---------------------------------------------------------------- renamed keys
+
+/** A column id with a renamed type in it ("in:<type>.<field>": links from that type); other ids stay. */
+export function renameColumnId(id: string, keys: Map<string, string>): string {
+	const m = /^in:([^.]+)\.(.+)$/.exec(id);
+	return m && keys.has(m[1]) ? `in:${keys.get(m[1])}.${m[2]}` : id;
+}
+
+/** A formula's references to renamed types' columns, renamed (the rest as written). */
+export function renameFormula(src: string, keys: Map<string, string>): string {
+	if (!keys.size || !src) return src;
+	return rewriteRefs(src, (n) => {
+		const to = renameColumnId(n, keys);
+		return to === n ? undefined : to;
+	});
+}
+
+/** A template's {formula} parts with their references renamed (unchanged when none are). */
+function renameTemplate(src: string, keys: Map<string, string>): string {
+	if (!keys.size || !src.includes("{")) return src;
+	let changed = false;
+	try {
+		const out = parseTemplate(src)
+			.map((p) => {
+				if ("text" in p) return p.text.replace(/[{}]/g, (c) => c + c);
+				const f = renameFormula(p.formula, keys);
+				if (f !== p.formula) changed = true;
+				return `{${f}}`;
+			})
+			.join("");
+		return changed ? out : src;
+	} catch {
+		return src;
+	}
+}
+
+function renameFilter(g: FilterGroup, keys: Map<string, string>): FilterGroup {
+	return { ...g, items: g.items.map((x) => (isGroup(x) ? renameFilter(x, keys) : { ...x, field: renameColumnId(x.field, keys) })) };
+}
+
+const renameTarget = (x: string, keys: Map<string, string>) => keys.get(x) ?? x;
+
+/** References to renamed types in a type: relation targets, roll-ups (through links from them, and their filters), formulas. */
+export function renameTypeKeys(t: EntityTypeDef, keys: Map<string, string>): void {
+	if (!keys.size) return;
+	for (const f of t.fields) {
+		if (f.kind === "relation" && f.targets) f.targets = f.targets.map((x) => renameTarget(x, keys));
+		if (f.rollup) f.rollup = { ...f.rollup, via: renameColumnId(f.rollup.via, keys), ...(f.rollup.where ? { where: renameFilter(f.rollup.where, keys) } : {}) };
+		if (f.formula) f.formula = renameFormula(f.formula, keys);
+	}
+}
+
+/** References to renamed types and workflows in a workflow: its scope, Only if, every step's types, filters, formulas and texts. */
+export function renameWorkflowKeys(wf: WorkflowDef, keys: Map<string, string>, ids: Map<string, string> = new Map()): WorkflowDef {
+	const f = (src: string) => renameFormula(src, keys);
+	const tx = (src: string) => renameTemplate(src, keys);
+	const note = (s: NoteStep): NoteStep => {
+		switch (s.kind) {
+			case "set":
+				return { ...s, value: f(s.value) };
+			case "link":
+				return { ...s, target: f(s.target) };
+			case "notice":
+			case "ask":
+				return { ...s, text: tx(s.text) };
+			case "move":
+				return { ...s, folder: tx(s.folder) };
+			case "rename":
+				return { ...s, name: tx(s.name) };
+			case "create":
+				return { ...s, type: renameTarget(s.type, keys), name: tx(s.name), fields: s.fields.map((r) => ({ ...r, value: f(r.value) })) };
+			case "run":
+				return { ...s, workflow: ids.get(s.workflow) ?? s.workflow };
+			default:
+				return s;
+		}
+	};
+	const step = (s: WorkflowStep): WorkflowStep => {
+		if (s.kind === "linked") return { ...s, source: s.source.dir === "in" ? { ...s.source, type: renameTarget(s.source.type, keys) } : s.source, when: renameFilter(s.when, keys), steps: s.steps.map(note) };
+		if (s.kind === "each") return { ...s, formula: f(s.formula), itemType: s.itemType ? renameTarget(s.itemType, keys) : s.itemType, when: renameFilter(s.when, keys), steps: s.steps.map(note) };
+		return note(s);
+	};
+	return { ...wf, scope: wf.scope.map((x) => renameTarget(x, keys)), when: renameFilter(wf.when, keys), steps: wf.steps.map(step) };
+}
+
+/**
+ * The workflows to export with some types: those that apply only to them (a scope of these types, or their groups'),
+ * and the workflows those run ("Run another workflow"), whatever they apply to.
+ */
+export function packWorkflows(packTypes: EntityTypeDef[], all: WorkflowDef[], allTypes: EntityTypeDef[]): WorkflowDef[] {
+	const keys = new Set(packTypes.map((t) => t.key));
+	const picked = new Map<string, WorkflowDef>();
+	const add = (w: WorkflowDef) => {
+		if (picked.has(w.id)) return;
+		picked.set(w.id, w);
+		for (const s of w.steps.flatMap((x) => [x, ...innerSteps(x)]))
+			if (s.kind === "run") {
+				const sub = all.find((x) => x.id === s.workflow);
+				if (sub) add(sub);
+			}
+	};
+	for (const w of all) {
+		const st = scopeTypes(w, allTypes);
+		if (w.scope.length && st.length && st.every((t) => keys.has(t.key))) add(w);
+	}
+	return [...picked.values()].map(cloneWorkflow);
+}
 function nameToKey(name: string): string {
 	const k = name
 		.trim()

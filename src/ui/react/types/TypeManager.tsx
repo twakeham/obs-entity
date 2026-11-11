@@ -1,6 +1,6 @@
 import { Menu, Modal, Notice, Setting, type App } from "obsidian";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
-import { STARTER_PACK } from "../../../model/packs";
+import { STARTER_PACK, packWorkflows } from "../../../model/packs";
 import {
 	duplicateType,
 	exportPack,
@@ -350,8 +350,8 @@ export function TypeManager({
 				.setTitle("Copy all types as a pack")
 				.setIcon("clipboard-copy")
 				.onClick(async () => {
-					await navigator.clipboard.writeText(exportPack(settings.types, settings.groups, plugin.app.vault.getName()));
-					new Notice(`Copied ${plural(settings.types.length, "type")} and ${plural(settings.groups.length, "group")} as a pack.`);
+					await navigator.clipboard.writeText(exportPack(settings.types, settings.groups, plugin.app.vault.getName(), settings.workflows));
+					new Notice(`Copied ${plural(settings.types.length, "type")}, ${plural(settings.groups.length, "group")}${settings.workflows.length ? ` and ${plural(settings.workflows.length, "workflow")}` : ""} as a pack.`);
 				}),
 		);
 		menu.showAtMouseEvent(evt.nativeEvent);
@@ -359,8 +359,10 @@ export function TypeManager({
 
 	const exportJson = async () => {
 		if (!draft) return;
-		await navigator.clipboard.writeText(exportPack([finaliseType(draft.type)], allGroups));
-		new Notice(`Copied “${draft.type.name}” as JSON. Paste it into “New → Import pack…” in another vault.`);
+		const type = finaliseType(draft.type);
+		const wfs = packWorkflows([type], settings.workflows, settings.types);
+		await navigator.clipboard.writeText(exportPack([type], allGroups, undefined, wfs));
+		new Notice(`Copied “${draft.type.name}”${wfs.length ? ` and ${plural(wfs.length, "workflow")}` : ""} as JSON. Paste it into “New → Import pack…” in another vault.`);
 	};
 
 	const deleteType = () => {
@@ -669,12 +671,19 @@ export function TypeManager({
 				<ImportDialog
 					onClose={() => setImporting(false)}
 					onImport={(json) => {
-						const r = importAsDrafts(json, settings.groups, allTypes);
+						const r = importAsDrafts(json, settings.groups, allTypes, [...settings.workflows, ...plugin.workflowDrafts.values()]);
 						if ("error" in r) return r.error;
 						if (r.newGroups.length) {
 							settings.groups.push(...r.newGroups.map(cloneGroup));
 							void plugin.saveSettings();
 						}
+						// Workflows open as drafts in the Workflows view, switched off, to review and save like the types.
+						for (const w of r.workflows) {
+							let n = 1;
+							while (plugin.workflowDrafts.has(`new:${n}`)) n++;
+							plugin.workflowDrafts.set(`new:${n}`, w);
+						}
+						if (r.workflows.length) plugin.workflows.trigger("log");
 						let first: string | null = null;
 						setDrafts((m) => {
 							const next = new Map(m);
@@ -691,6 +700,7 @@ export function TypeManager({
 						new Notice(
 							`Imported ${plural(r.types.length, "type")} to review and save` +
 								(r.newGroups.length ? `, and added ${plural(r.newGroups.length, "group")} (${r.newGroups.map((g) => g.name).join(", ")})` : "") +
+								(r.workflows.length ? `. ${plural(r.workflows.length, "workflow")} to review in the Workflows view (switched off)` : "") +
 								(renamed.length ? `. Keys already taken: ${renamed.join(", ")}` : "") +
 								".",
 						);

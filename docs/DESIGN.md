@@ -791,9 +791,11 @@ Shown in the **side panel** (§8.5) while the types view is the active main-area
 
 #### Import / export
 
-- **Copy as JSON:** `{ "obsEntitiesPack": 1, "groups": [ … ], "types": [ … ] }`, with the groups the types use (no `builtIn` or `pack` markers). **Copy all types as a pack** exports everything.
-- **Import pack…** accepts a pack, a single type or a list of types. It checks that the input is valid JSON, that each type has a name and a field list, and that every field kind is valid.
-  - A key that's already taken gets a suffix (`person_2`), and relation targets inside the pack follow the rename.
+- **Copy as JSON:** `{ "obsEntitiesPack": 1, "groups": [ … ], "types": [ … ], "workflows": [ … ] }`, with the groups the types use (no `builtIn` or `pack` markers) and the type's workflows (`packWorkflows`: those whose scope is only this type, and the workflows they run, whatever they apply to). **Copy all types as a pack** exports everything, every workflow included. `workflows` is left out when there are none.
+- **Import pack…** accepts a pack, a single type or a list of types. It checks that the input is valid JSON, that each type has a name and a field list, that every field kind is valid, and that `workflows` (if any) is a list of workflows with steps. A pack of only workflows (`types: []`) is fine.
+  - A key that's already taken gets a suffix (`person_2`), and every reference inside the pack follows the rename (`renameTypeKeys`, `renameWorkflowKeys`): relation targets, roll-ups through links from the type (`via: "in:person.…"`) and their Only include conditions, formula fields (`[in:person.works_for]`), and the workflows' scopes, Only if, and steps (Create a note's type, For linked notes' type, For each's note type, loop filters, and the formulas and `{…}` texts in every step). Group keys aren't renamed: a group the pack has that's already here is used as it is.
+  - **Workflows** come in **switched off**, tidied as saved ones are (`readWorkflows`); an id that's taken gets a new one, and "Run another workflow" steps follow. From the Entity types view they open as drafts in the Workflows view (to review and save, like the types); "Import entity types…" saves them. Notes a workflow picks (a picked link value) are paths in the vault it came from, so may not exist here.
+  - **Not in packs (yet):** entity views (view notes; copy the note or its block), template files (only the template's file name and `sections`), saved layout components, and notes. A fuller pack format is for M5.
   - Imported types open as **new drafts** to review and save.
   - Groups the pack needs that don't exist yet are added straight away (empty groups can be deleted).
 
@@ -1801,7 +1803,7 @@ Event-driven automation: **when** something happens (a note is created, a field 
 
 #### Storage
 
-`settings.workflows: WorkflowDef[]` in `data.json`, plus `settings.workflowsPaused` (the master switch). Exported and imported with packs (stage 3).
+`settings.workflows: WorkflowDef[]` in `data.json`, plus `settings.workflowsPaused` (the master switch). Exported and imported with type packs (stage 3, part D built; §8.1 Import / export): imported workflows come in switched off.
 
 ```jsonc
 {
@@ -2126,9 +2128,9 @@ Drive a real Obsidian instance via the Chrome DevTools Protocol (Obsidian starte
 | M4.5 ✅ | **Entity properties form** | Form replacing Obsidian's Properties block on entity notes (§8.4): typed controls, link pickers limited to allowed types, rejected invalid input, problems with fixes, Ctrl/Cmd+Z history, Other properties with "Add to type", Change type with move offer, Check entities command; info card removed (settings v3) | Values can only be entered in a form the type allows; problems from elsewhere are visible and fixable |
 | M4.6 ✅ | **Entity views: table** | View notes with an `entity-view` block (§8.10): source types, columns (fields, built-ins, incoming, roll-ups; formulas added later), filters with groups and relative dates, multi-level sort, group by, inline editing with the form's rules, virtualised rows, autosave, Save as…, New / Open view commands, browser Views section | Named views can be saved, reopened elsewhere, and used to edit entities |
 | M5 | **Packs & polish** | Type packs (bundled example pack + import/export of groups), template generation, ribbon options, accessibility pass (keyboard navigation in lists, ARIA on toggles), docs | Ready for a public/BRAT release |
-| M7.1 | **Workflows: engine and basics** | §8.11 stage 1: the Workflows view and the type editor's Workflows tab; created / changed / manual triggers (form buttons, ⋯ menu, command, row menu and selection bar per note); Only if; set / clear / tag / link / notice steps; undo, chains, run log, master switch | Examples 1 (completed date), 5, 7 and simple 3 work |
+| M7.1 ✅ | **Workflows: engine and basics** | §8.11 stage 1: the Workflows view and the type editor's Workflows tab; created / changed / manual triggers (form buttons, ⋯ menu, command, row menu and selection bar per note); Only if; set / clear / tag / link / notice steps; undo, chains, run log, master switch | Examples 1 (completed date), 5, 7 and simple 3 work |
 | M7.2 | **Workflows: other notes and forms** | Form workflows (their input form, started from commands, the ribbon, view toolbars and notes), linked-note steps, create note, named results, for each, run workflow, one run for a whole selection | Examples 1 (milestone roll-up), 2, 3, 6, 8 work |
-| M7.3 | **Workflows: time** | Schedule and date triggers, ask, move / rename, test run, big-run confirmation, limits, packs | Example 4 works |
+| M7.3 ✅ | **Workflows: time** | Schedule and date triggers, ask, move / rename, test run, big-run confirmation, limits, workflows in type packs (views and other content wait for M5's pack format) | Example 4 works |
 | M6+ | **Modules** | Graph, overview dashboard, bulk edit, Bases generation, domain views | Each behind a module toggle |
 
 ---

@@ -16,7 +16,7 @@ Derived from the Story Forge worldbuilding plugin, made domain-neutral. The full
 | M4.6 Entity views | Saved, named table and board views over entities, stored as notes: columns, roll-ups, formulas, filters, sorting, grouping, editing in place, kanban boards with drag and drop | ✅ Done |
 | M7.1 Workflows, stage 1 | Automation: when a note is created or a field changes, or from a button, set fields, tags and links or show a notice; the Workflows view, run log and undo | ✅ Done |
 | M7.2 Workflows, stage 2 | Creating notes, steps on linked notes, for each, running other workflows (done); one run per selection and form workflows | In progress |
-| M7.3 Workflows, stage 3 | Test runs, big-run confirmation, ask, move / rename, schedules and date triggers (done); packs | In progress |
+| M7.3 Workflows, stage 3 | Test runs, big-run confirmation, ask, move / rename, schedules and date triggers, workflows in type packs | ✅ Done |
 | M5 Packs & polish | Pack picker on first run, accessibility, docs | Planned |
 
 ## How notes are stored
@@ -131,7 +131,8 @@ Opened from:
 
 **Sidebar:** types are listed under their groups.
 - **Click a group heading** to edit the group. Drag headings to reorder groups.
-- **+ New** offers a type, a duplicate of the current one, a group, **Import pack…**, or **Copy all types as a pack**.
+- **+ New** offers a type, a duplicate of the current one, a group, **Import pack…**, or **Copy all types as a pack** (with every workflow).
+- **Packs and workflows:** a type's **Copy as JSON** includes the workflows that apply only to it (and any workflows they run). Importing a pack opens its workflows as drafts in the Workflows view, **switched off**, so you can check them before turning them on. If a type's key is already taken here (`task` → `task_2`), everything in the pack that refers to it follows: links, roll-ups, formulas, and the workflows' types, conditions and steps. Views, template files and notes aren't part of packs yet.
 
 **Type editor tabs:**
 - **General:** name, plural, key (fixed once saved), icon, colour, group, statuses (the group's or custom), folder (the entity folder pattern or the type's own exception), folder rule (in the folder / own folder each / inside its parent, with a path preview), template, search shortcuts. Also Duplicate, Copy as JSON, Reset to starter, and Delete type.
@@ -423,7 +424,7 @@ Workflows do things for you: when a note is **created**, when a **field changes*
 | Check entities | Lists every entity whose values don't fit its type, with the problems; choose one to open it |
 | New entity view (table or board) | Pick what it shows, Table or Board, and a name; creates the view note |
 | Open entity view… | Picker of view notes |
-| Import entity types… | Paste a type pack, single type or list of types (JSON) |
+| Import entity types… | Paste a type pack, single type or list of types (JSON); a pack's workflows are added switched off |
 | Generate template files | Writes editable templates for types without one |
 | Open workflows | The Workflows view (also a ribbon icon and settings button) |
 | Run workflow on this note… | Pick one of the button workflows for the open note |
@@ -503,7 +504,7 @@ src/
     dates.ts                 DateAdapter + ISO adapter (with date-picker hooks)
     propertyTypes.ts         Obsidian property types for fields (date, number, checkbox, list)
     search.ts                switcher type prefixes
-    packs.ts                 starter + CRM packs, parsePack, installPack
+    packs.ts                 starter + CRM packs, parsePack, installPack (types, groups, workflows; renamed keys followed), packWorkflows
     typeEditing.ts           type/group drafts, field + status renames, migrations, import/export, previews
     settings.ts              defaults and merging
     tree.ts                  browser forest: parent links, sections/type blocks, filtering with context, reveal paths
@@ -533,6 +534,6 @@ src/
   ui/react/calendar/         CalendarView (Month, Week, Agenda, No date list, dragging), Dates panel
   ui/react/types/            Entity types view: TypeManager (sidebar, group editor, save), General/Fields/Relationships/Display/Layout tabs, Preview, controls
   ui/views/                  BrowserView (left sidebar), SidePanelView (right sidebar: connections or type preview), TypesView (main area), EntityViewView (view notes as full tabs), viewBlock (renders entity-view blocks in notes)
-tests/                       model, relations, typeEditing, tree, form, views, viewBlock, formats, formula, bulk, board, calendar, form layout and choice-value tests
+tests/                       model, relations, typeEditing, tree, form, views, viewBlock, formats, formula, bulk, board, calendar, form layout, choice-value, workflow and pack tests
 styles.css                   all classes prefixed `oe-`
 ```

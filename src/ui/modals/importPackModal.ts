@@ -51,7 +51,7 @@ export class ImportPackModal extends Modal {
 			return;
 		}
 		const s = this.plugin.settings;
-		const res = installPack(parsed.pack, s.groups, s.types);
+		const res = installPack(parsed.pack, s.groups, s.types, s.workflows);
 		const ctx = { typeKeys: res.types.map((t) => t.key), groupKeys: res.groups.map((g) => g.key) };
 		const problems = res.types.filter((t) => res.added.includes(t.key)).flatMap((t) => typeIssues(t, ctx).map((i) => `${t.name}: ${i.message}`));
 		if (problems.length) {
@@ -60,11 +60,14 @@ export class ImportPackModal extends Modal {
 		}
 		s.groups = res.groups;
 		s.types = res.types;
+		// Switched off: they start running once you've looked them over and turned them on.
+		s.workflows = [...s.workflows, ...res.workflows];
 		await this.plugin.saveSettings();
 		const renamed = Object.entries(res.renamed).map(([a, b]) => `${a} → ${b}`);
 		new Notice(
 			`Added ${res.added.length} type${res.added.length === 1 ? "" : "s"}` +
 				(res.addedGroups.length ? ` and ${res.addedGroups.length} group${res.addedGroups.length === 1 ? "" : "s"}` : "") +
+				(res.workflows.length ? `, and ${res.workflows.length} workflow${res.workflows.length === 1 ? "" : "s"} (switched off: turn them on in the Workflows view)` : "") +
 				(renamed.length ? `. Renamed keys: ${renamed.join(", ")}` : "") +
 				".",
 		);
