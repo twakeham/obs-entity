@@ -334,15 +334,17 @@ function WorkflowEditor({
 	const t = wf.trigger;
 
 	const save = async () => {
-		const fin = cloneWorkflow({ ...wf, name: wf.name.trim() || "Untitled workflow" });
+		// A workflow with problems is saved switched off (it couldn't run anyway): it's switched on once they're fixed.
+		const off = problems.length > 0;
+		const fin = cloneWorkflow({ ...wf, name: wf.name.trim() || "Untitled workflow", ...(off ? { on: false } : {}) });
 		const list = settings.workflows;
 		const i = list.findIndex((w) => w.id === fin.id);
 		if (i >= 0) list[i] = fin;
 		else list.push(fin);
 		await plugin.saveSettings();
-		setAttempted(false);
+		if (!off) setAttempted(false);
 		onSaved(fin.id);
-		new Notice(`Saved “${fin.name}”.`);
+		new Notice(off ? `Saved “${fin.name}”, switched off: fix ${plural(problems.length, "problem")} to switch it on.` : `Saved “${fin.name}”.`);
 	};
 	const del = () => {
 		if (isNew) return onDiscarded();
@@ -468,15 +470,16 @@ function WorkflowEditor({
 								onSave={() => {
 									setAttempted(true);
 									if (problems.length) {
+										// Saved anyway, switched off: it can be switched on once they're fixed.
 										setTab("edit");
 										unfoldProblems();
-										new Notice(`Fix ${plural(problems.length, "problem")} before saving.`);
-									} else void save();
+									}
+									void save();
 								}}
 							/>
 						)}
-						<span className="oe-wf-onoff">
-							<Toggle label={wf.on ? "Workflow on" : "Workflow off"} value={wf.on} onChange={(v) => edit((x) => (x.on = v))} />
+						<span className="oe-wf-onoff" title={problems.length && !wf.on ? `Fix ${plural(problems.length, "problem")} to switch it on` : undefined}>
+							<Toggle label={wf.on ? "Workflow on" : "Workflow off"} value={wf.on} disabled={!wf.on && problems.length > 0} onChange={(v) => edit((x) => (x.on = v))} />
 							{wf.on ? "On" : "Off"}
 						</span>
 						<button className="clickable-icon" aria-label="Try on a note… (writes nothing)" onClick={() => openTryRun(plugin, wf)}>

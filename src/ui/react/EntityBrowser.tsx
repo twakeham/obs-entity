@@ -450,13 +450,15 @@ function WorkflowsSection({
 		}
 		m.addItem((i) => i.setSection("open").setTitle("Recent runs").setIcon("history").onClick(() => void plugin.activateWorkflows({ open: id, tab: "runs" })));
 		m.addItem((i) => i.setSection("open").setTitle("Try on a note…").setIcon("flask-conical").onClick(() => openTryRun(plugin, wf)));
-		m.addItem((i) =>
-			i
-				.setSection("state")
-				.setTitle(saved.on ? "Disable" : "Enable")
+		// A workflow with problems can't be switched on until they're fixed (it couldn't run).
+		const blocked = !saved.on && workflowProblems(saved, settings).length > 0;
+		m.addItem((i) => {
+			i.setSection("state")
+				.setTitle(saved.on ? "Disable" : blocked ? "Enable (fix its problems first)" : "Enable")
 				.setIcon(saved.on ? "toggle-left" : "toggle-right")
-				.onClick(() => void setOn(saved, !saved.on)),
-		);
+				.onClick(() => !blocked && void setOn(saved, !saved.on));
+			if (blocked) i.setDisabled(true);
+		});
 		m.addItem((i) =>
 			i
 				.setSection("edit")
