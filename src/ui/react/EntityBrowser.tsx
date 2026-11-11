@@ -1,4 +1,4 @@
-import { Menu, TFile } from "obsidian";
+import { Menu, Notice, TFile } from "obsidian";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import {
 	branchPaths,
@@ -23,7 +23,8 @@ import { Icon } from "./Icon";
 import { BOARD_ICON } from "../../model/board";
 import { CALENDAR_ICON, dateFields } from "../../model/calendarView";
 import { VIEW_KIND_ICON } from "../../model/views";
-import { scopeTypes, triggerText, TRIGGER_ICONS, workflowProblems, type TriggerKind, type WorkflowDef } from "../../model/workflows";
+import { cloneWorkflow, newWorkflow, scopeTypes, triggerText, TRIGGER_ICONS, WORKFLOW_CATEGORIES, workflowProblems, type WorkflowDef } from "../../model/workflows";
+import { viewMatches, workflowMatches, type BrowserFilter } from "../../model/browserFilter";
 import { openTryRun } from "./workflows/TryRun";
 import { ConfirmModal } from "./types/TypeManager";
 
@@ -34,11 +35,17 @@ export interface BrowserState extends BrowserOptions {
 	tag: string;
 	/** expanded entity paths */
 	expanded: string[];
-	/** collapsed section ("s:<key>"), type-heading ("b:<key>"), Views ("v:views") and Workflows ("w:workflows") keys */
+	/**
+	 * collapsed section ("s:<key>"), type-heading ("b:<key>"), Views ("v:views"), Workflows ("w:workflows") and
+	 * workflow category ("w:<category>") keys
+	 */
 	collapsed: string[];
+	/** list the view notes and the workflows (View options) */
+	showViews: boolean;
+	showWorkflows: boolean;
 }
 
-export const DEFAULT_BROWSER_STATE: BrowserState = { ...DEFAULT_BROWSER_OPTIONS, search: "", type: "", status: "", tag: "", expanded: [], collapsed: [] };
+export const DEFAULT_BROWSER_STATE: BrowserState = { ...DEFAULT_BROWSER_OPTIONS, search: "", type: "", status: "", tag: "", expanded: [], collapsed: [], showViews: true, showWorkflows: true };
 
 const INDENT = 14;
 const sKey = (s: BrowserSection) => `s:${s.key}`;
@@ -79,6 +86,7 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 
 	const query = state.search.trim().toLowerCase();
 	const filtering = !!(query || state.type || state.status || state.tag);
+	const filter: BrowserFilter = { query, type: state.type, status: state.status, tag: state.tag };
 	const shown = useMemo(() => {
 		if (!filtering) return sections;
 		const match = (e: EntityRecord) =>
@@ -88,6 +96,9 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 			(!state.tag || e.tags.some((t) => t === state.tag || t.startsWith(`${state.tag}/`)));
 		return filterBrowser(sections, match);
 	}, [sections, filtering, query, state.type, state.status, state.tag]);
+	const shownViews = !state.showViews ? [] : filtering ? views.filter((f) => viewMatches(f.basename, plugin.views.types(f.path), filter, types)) : views;
+	// What matches, for the count above the list.
+	const matchedWorkflows = state.showWorkflows && filtering ? [...plugin.settings.workflows.map((w) => plugin.workflowDrafts.get(w.id) ?? w), ...[...plugin.workflowDrafts.entries()].filter(([id]) => id.startsWith("new:")).map(([, w]) => w)].filter((w) => workflowMatches(w, filter, types)).length : 0;
 
 	const expanded = useMemo(() => new Set(state.expanded), [state.expanded]);
 	const collapsed = useMemo(() => new Set(state.collapsed), [state.collapsed]);
@@ -116,9 +127,10 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 		setFilterClosed({ key: filterKey, items: next });
 	};
 	const headingKeys = (list: BrowserSection[]) => list.flatMap((s) => [sKey(s), ...s.blocks.map(bKey)]);
+	const extraKeys = ["v:views", "w:workflows", ...WORKFLOW_CATEGORIES.map((c) => `w:${c.key}`)];
 	const collapseAll = () => {
-		if (filtering) setFilterClosed({ key: filterKey, items: new Set(headingKeys(shown)) });
-		else setState({ expanded: [], collapsed: [...headingKeys(sections), "v:views", "w:workflows"] });
+		if (filtering) setFilterClosed({ key: filterKey, items: new Set([...headingKeys(shown), ...extraKeys]) });
+		else setState({ expanded: [], collapsed: [...headingKeys(sections), ...extraKeys] });
 	};
 	const expandAll = () => {
 		if (filtering) setFilterClosed({ key: filterKey, items: new Set() });
@@ -171,21 +183,32 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 		opt("cross", "Children in other groups stay in their own group", state.crossGroup === "own", { crossGroup: "own" }, state.sections === "none");
 		opt("cross", "Children in other groups nest under their parent", state.crossGroup === "parent", { crossGroup: "parent" }, state.sections === "none");
 		opt("empty", "Show empty types", state.showEmpty, { showEmpty: !state.showEmpty });
+		opt("show", "Show views", state.showViews, { showViews: !state.showViews });
+		opt("show", "Show workflows", state.showWorkflows, { showWorkflows: !state.showWorkflows });
+		m.showAtMouseEvent(evt.nativeEvent);
+	};
+	const newMenu = (evt: MouseEvent) => {
+		const m = new Menu();
+		m.addItem((i) => i.setTitle("New entity…").setIcon("book-plus").onClick(() => plugin.openCreateModal(null)));
+		m.addItem((i) => i.setTitle("New view").setIcon("table").onClick(() => plugin.newView()));
+		m.addItem((i) => i.setTitle("New workflow").setIcon("zap").onClick(() => void plugin.activateWorkflows({ blank: true })));
 		m.showAtMouseEvent(evt.nativeEvent);
 	};
 
 	const filters = [state.type, state.status, state.tag].filter(Boolean).length;
 	const groupSections = state.sections === "groups";
 	const base = (groupSections ? 1 : 0) + (state.typeHeadings ? 1 : 0);
+	const matches = shown.reduce((n, s) => n + s.count, 0) + shownViews.length + matchedWorkflows;
+	const viewsOpen = !isCollapsed("v:views");
 
 	return (
 		<div className="oe-browser">
 			<div className="oe-browser-toolbar">
-				<input type="search" className="oe-browser-search" placeholder="Search entities…" value={state.search} onChange={(e) => setState({ search: e.target.value })} aria-label="Search entities" />
+				<input type="search" className="oe-browser-search" placeholder="Search…" value={state.search} onChange={(e) => setState({ search: e.target.value })} aria-label="Search entities, views and workflows" />
 				<ToolButton icon="sliders-horizontal" label="View options" onClick={viewMenu} />
 				<ToolButton icon="chevrons-down-up" label="Collapse all" onClick={collapseAll} />
 				<ToolButton icon="chevrons-up-down" label="Expand all" onClick={expandAll} />
-				<ToolButton icon="plus" label="New entity" onClick={() => plugin.openCreateModal(null)} />
+				<ToolButton icon="plus" label="New…" onClick={newMenu} />
 			</div>
 			<div className="oe-browser-filters">
 				<select className="dropdown" value={state.type} onChange={(e) => setState({ type: e.target.value })} aria-label="Type">
@@ -216,7 +239,7 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 			{(filters > 0 || query) && (
 				<div className="oe-browser-filterbar">
 					<span>
-						{shown.reduce((n, s) => n + s.count, 0)} match{shown.reduce((n, s) => n + s.count, 0) === 1 ? "" : "es"}
+						{matches} match{matches === 1 ? "" : "es"}
 					</span>
 					<a href="#" className="oe-browser-clear" onClick={(e) => (e.preventDefault(), setState({ search: "", type: "", status: "", tag: "" }))}>
 						Clear
@@ -225,21 +248,21 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 			)}
 
 			<div className="oe-browser-list" ref={listRef}>
-				{!filtering && views.length > 0 && (
-					<section className={`oe-bsection oe-bviews${isCollapsed("v:views") ? " is-collapsed" : ""}`} data-section="views">
+				{shownViews.length > 0 && (
+					<section className={`oe-bsection oe-bviews${viewsOpen ? "" : " is-collapsed"}`} data-section="views">
 						<Heading
 							depth={0}
-							open={!isCollapsed("v:views")}
+							open={viewsOpen}
 							icon="table"
 							title="Views"
-							count={views.length}
+							count={shownViews.length}
 							className="oe-bsection-header"
 							onToggle={() => toggleHeading("v:views")}
 							onAdd={() => plugin.newView()}
 							addLabel="New entity view"
 						/>
-						{!isCollapsed("v:views") &&
-							views.map((f) => (
+						{viewsOpen &&
+							shownViews.map((f) => (
 								<div
 									key={f.path}
 									className={`oe-tree-row oe-view-row${activePath === f.path ? " is-active" : ""}`}
@@ -261,8 +284,8 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 							))}
 					</section>
 				)}
-				{!filtering && <WorkflowsSection open={!isCollapsed("w:workflows")} onToggle={() => toggleHeading("w:workflows")} />}
-				{shown.length === 0 && <div className="oe-panel-empty">{filtering ? "No matching entities." : "No entities yet. Use + to create one."}</div>}
+				{state.showWorkflows && <WorkflowsSection isCollapsed={isCollapsed} toggleHeading={toggleHeading} filter={filter} filtering={filtering} />}
+				{shown.length === 0 && (filtering ? matches === 0 : true) && <div className="oe-panel-empty">{filtering ? "Nothing matches." : "No entities yet. Use + to create one."}</div>}
 				{shown.map((s) => {
 					const sid = sKey(s);
 					const sClosed = groupSections && isCollapsed(sid);
@@ -353,53 +376,105 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 }
 
 /**
- * The Workflows section: every saved workflow (by what starts it, then name), with its trigger's icon, an on dot and a
- * warning when it has problems. Click opens it in the Workflows view; + starts a new one for no type in particular.
+ * The Workflows section: a heading per category (what starts them: When created, When changed, Run on notes,
+ * Scheduled), each with its workflows by name, then Recent runs. A workflow shows its trigger's icon, an on dot, a
+ * warning when it has problems, "new" for an unsaved one and a dot for unsaved changes (drafts in the Workflows view).
+ * Click opens it there; + starts a new one for no type in particular. While searching or filtering, only matching
+ * workflows show (null when none do).
  */
-function WorkflowsSection({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+function WorkflowsSection({
+	isCollapsed,
+	toggleHeading,
+	filter,
+	filtering,
+}: {
+	isCollapsed: (key: string) => boolean;
+	toggleHeading: (key: string) => void;
+	filter: BrowserFilter;
+	filtering: boolean;
+}) {
 	const plugin = usePlugin();
 	const [, setTick] = useState(0);
 	useEffect(() => {
-		const ref = plugin.workflows.on("log", () => setTick((t) => t + 1));
-		return () => plugin.workflows.offref(ref);
+		const refs = [plugin.workflows.on("log", () => setTick((t) => t + 1)), plugin.workflows.on("drafts", () => setTick((t) => t + 1))];
+		return () => refs.forEach((r) => plugin.workflows.offref(r));
 	}, [plugin]);
 	const { settings } = plugin;
-	const order: TriggerKind[] = ["created", "changed", "manual", "schedule", "date"];
-	const list = [...settings.workflows].sort((a, b) => order.indexOf(a.trigger.kind) - order.indexOf(b.trigger.kind) || a.name.localeCompare(b.name, undefined, { numeric: true }));
+	const drafts = plugin.workflowDrafts;
 	const paused = settings.workflowsPaused;
+	const shownId = plugin.shownWorkflow();
 	const scopeText = (wf: WorkflowDef) => (wf.scope.length ? scopeTypes(wf, settings.types).map((t) => t.plural || t.name).join(", ") || wf.scope.join(", ") : "Any note");
+	const listed = [
+		...settings.workflows.map((w) => ({ id: w.id, wf: drafts.get(w.id) ?? w, saved: w as WorkflowDef | null })),
+		...[...drafts.entries()].filter(([id]) => id.startsWith("new:")).map(([id, wf]) => ({ id, wf, saved: null as WorkflowDef | null })),
+	]
+		.filter((x) => !filtering || workflowMatches(x.wf, filter, settings.types))
+		.sort((a, b) => (a.wf.name || "New workflow").localeCompare(b.wf.name || "New workflow", undefined, { numeric: true }));
+	if (filtering && !listed.length) return null;
+	const open = !isCollapsed("w:workflows");
 
 	const setOn = async (wf: WorkflowDef, on: boolean) => {
 		wf.on = on;
 		// An open draft of it follows, so saving the draft later doesn't undo this.
-		const draft = plugin.workflowDrafts.get(wf.id);
+		const draft = drafts.get(wf.id);
 		if (draft) draft.on = on;
 		await plugin.saveSettings();
 		plugin.workflows.trigger("log");
 	};
-	const rowMenu = (evt: MouseEvent, wf: WorkflowDef) => {
+	const remove = (wf: WorkflowDef) =>
+		new ConfirmModal(plugin.app, `Delete “${wf.name}”?`, "The workflow stops running. Notes it changed keep their values.", "Delete workflow", async () => {
+			settings.workflows = settings.workflows.filter((w) => w.id !== wf.id);
+			drafts.delete(wf.id);
+			await plugin.saveSettings();
+			plugin.workflows.trigger("log");
+			new Notice(`Deleted “${wf.name}”.`);
+		}).open();
+	const rowMenu = (evt: MouseEvent, id: string, wf: WorkflowDef, saved: WorkflowDef | null) => {
 		evt.preventDefault();
 		const m = new Menu();
-		m.addItem((i) => i.setSection("open").setTitle("Open").setIcon("zap").onClick(() => void plugin.activateWorkflows({ open: wf.id, tab: "edit" })));
-		m.addItem((i) => i.setSection("open").setTitle("Recent runs").setIcon("history").onClick(() => void plugin.activateWorkflows({ open: wf.id, tab: "runs" })));
+		m.addItem((i) => i.setSection("open").setTitle("Open").setIcon("zap").onClick(() => void plugin.activateWorkflows({ open: id, tab: "edit" })));
+		if (!saved) {
+			// Not saved yet: it only lives in the Workflows view until it's saved or discarded.
+			m.addItem((i) =>
+				i
+					.setSection("danger")
+					.setTitle("Discard")
+					.setIcon("trash-2")
+					.setWarning(true)
+					.onClick(() => {
+						drafts.delete(id);
+						plugin.workflows.trigger("log");
+					}),
+			);
+			return m.showAtMouseEvent(evt.nativeEvent);
+		}
+		m.addItem((i) => i.setSection("open").setTitle("Recent runs").setIcon("history").onClick(() => void plugin.activateWorkflows({ open: id, tab: "runs" })));
 		m.addItem((i) => i.setSection("open").setTitle("Try on a note…").setIcon("flask-conical").onClick(() => openTryRun(plugin, wf)));
 		m.addItem((i) =>
 			i
 				.setSection("state")
-				.setTitle(wf.on ? "Turn off" : "Turn on")
-				.setIcon(wf.on ? "toggle-left" : "toggle-right")
-				.onClick(() => void setOn(wf, !wf.on)),
+				.setTitle(saved.on ? "Disable" : "Enable")
+				.setIcon(saved.on ? "toggle-left" : "toggle-right")
+				.onClick(() => void setOn(saved, !saved.on)),
 		);
+		m.addItem((i) =>
+			i
+				.setSection("edit")
+				.setTitle("Duplicate")
+				.setIcon("copy-plus")
+				.onClick(() => plugin.openWorkflowDraft({ ...cloneWorkflow(wf), id: newWorkflow().id, name: `${wf.name || "Workflow"} copy` })),
+		);
+		m.addItem((i) => i.setSection("danger").setTitle("Delete…").setIcon("trash-2").setWarning(true).onClick(() => remove(saved)));
 		m.showAtMouseEvent(evt.nativeEvent);
 	};
 	const headingMenu = (evt: MouseEvent) => {
 		const m = new Menu();
 		m.addItem((i) => i.setSection("new").setTitle("New workflow").setIcon("plus").onClick(() => void plugin.activateWorkflows({ blank: true })));
-		m.addItem((i) => i.setSection("open").setTitle("Open workflows").setIcon("zap").onClick(() => void plugin.activateWorkflows()));
+		m.addItem((i) => i.setSection("open").setTitle("Recent runs").setIcon("history").onClick(() => void plugin.activateWorkflows({ open: "runs" })));
 		m.addItem((i) =>
 			i
 				.setSection("state")
-				.setTitle(paused ? "Resume all workflows" : "Pause all workflows")
+				.setTitle(paused ? "Enable all workflows" : "Disable all workflows")
 				.setIcon(paused ? "play" : "pause")
 				.onClick(() => void plugin.workflows.setPaused(!paused)),
 		);
@@ -412,41 +487,89 @@ function WorkflowsSection({ open, onToggle }: { open: boolean; onToggle: () => v
 				depth={0}
 				open={open}
 				icon="zap"
-				title={paused ? "Workflows (paused)" : "Workflows"}
-				count={list.length}
+				title={paused ? "Workflows (all disabled)" : "Workflows"}
+				count={listed.length}
 				className="oe-bsection-header"
-				onToggle={onToggle}
+				onToggle={() => toggleHeading("w:workflows")}
 				onAdd={() => void plugin.activateWorkflows({ blank: true })}
 				addLabel="New workflow"
 				onMenu={headingMenu}
 			/>
-			{open && !list.length && (
-				<div className="oe-tree-empty" style={{ paddingLeft: `${INDENT + 22}px` }}>
-					No workflows yet
-				</div>
-			)}
 			{open &&
-				list.map((wf) => {
-					const problems = workflowProblems(wf, settings);
-					const live = wf.on && !paused;
+				WORKFLOW_CATEGORIES.map((c) => {
+					const items = listed.filter((x) => c.kinds.includes(x.wf.trigger.kind));
+					// While searching, only categories with matches.
+					if (filtering && !items.length) return null;
+					const key = `w:${c.key}`;
+					const catOpen = !isCollapsed(key);
+					const notHere = c.key === "timed" && !plugin.workflows.timedHere && items.length > 0;
 					return (
-						<div
-							key={wf.id}
-							className={`oe-tree-row oe-workflow-row${wf.on ? "" : " is-off"}`}
-							style={{ paddingLeft: `${INDENT + 4}px` }}
-							data-workflow={wf.id}
-							title={`${triggerText(wf, settings.types)} · ${scopeText(wf)}${wf.on ? "" : " · off"}${problems.length ? ` · ${problems[0].message}` : ""}`}
-							onClick={() => void plugin.activateWorkflows({ open: wf.id })}
-							onContextMenu={(evt) => rowMenu(evt, wf)}
-						>
-							<span className="oe-tree-toggle is-leaf" />
-							<Icon name={TRIGGER_ICONS[wf.trigger.kind]} className="oe-tree-icon" />
-							<span className="oe-tree-name">{wf.name || "Untitled workflow"}</span>
-							{problems.length > 0 && <Icon name="alert-triangle" className="oe-workflow-warn" />}
-							<span className={`oe-wf-dot${live ? " is-on" : ""}`} aria-label={wf.on ? "On" : "Off"} />
+						<div key={c.key} className="oe-bblock oe-bworkflow-cat" data-category={c.key}>
+							<Heading
+								depth={1}
+								open={catOpen}
+								icon={c.icon}
+								title={
+									<>
+										{c.title}
+										{notHere && (
+											<span className="oe-tm-badge" title="Scheduled and date workflows don't run on this device (Settings → Workflows).">
+												not here
+											</span>
+										)}
+									</>
+								}
+								count={items.length}
+								className="oe-bblock-header"
+								onToggle={() => toggleHeading(key)}
+								addLabel=""
+							/>
+							{catOpen && !items.length && (
+								<div className="oe-tree-empty" style={{ paddingLeft: `${2 * INDENT + 22}px` }}>
+									None yet
+								</div>
+							)}
+							{catOpen &&
+								items.map(({ id, wf, saved }) => {
+									const problems = workflowProblems(wf, settings);
+									const live = wf.on && !paused;
+									const dirty = drafts.has(id) && (!saved || JSON.stringify(drafts.get(id)) !== JSON.stringify(saved));
+									return (
+										<div
+											key={id}
+											className={`oe-tree-row oe-workflow-row${wf.on ? "" : " is-off"}${shownId === id ? " is-active" : ""}`}
+											style={{ paddingLeft: `${2 * INDENT + 4}px` }}
+											data-workflow={id}
+											title={`${triggerText(wf, settings.types)} · ${scopeText(wf)}${wf.on ? "" : " · disabled"}${problems.length ? ` · ${problems[0].message}` : ""}${dirty ? " · unsaved changes" : ""}`}
+											onClick={() => void plugin.activateWorkflows({ open: id })}
+											onContextMenu={(evt) => rowMenu(evt, id, wf, saved)}
+										>
+											<span className="oe-tree-toggle is-leaf" />
+											<Icon name={TRIGGER_ICONS[wf.trigger.kind]} className="oe-tree-icon" />
+											<span className="oe-tree-name">{wf.name || "New workflow"}</span>
+											{!saved && <span className="oe-tm-badge is-new">new</span>}
+											{problems.length > 0 && <Icon name="alert-triangle" className="oe-workflow-warn" />}
+											{dirty && <span className="oe-tm-dirty" aria-label="Unsaved changes" />}
+											<span className={`oe-wf-dot${live ? " is-on" : ""}`} aria-label={wf.on ? "On" : "Off"} />
+										</div>
+									);
+								})}
 						</div>
 					);
 				})}
+			{open && !filtering && (
+				<div
+					className={`oe-tree-row oe-workflow-row oe-workflow-runs${shownId === "runs" ? " is-active" : ""}`}
+					style={{ paddingLeft: `${INDENT + 4}px` }}
+					onClick={() => void plugin.activateWorkflows({ open: "runs" })}
+					title="The last runs of every workflow, newest first"
+				>
+					<span className="oe-tree-toggle is-leaf" />
+					<Icon name="history" className="oe-tree-icon" />
+					<span className="oe-tree-name">Recent runs</span>
+					<span className="oe-bheading-count">{plugin.workflows.log.length}</span>
+				</div>
+			)}
 		</section>
 	);
 }

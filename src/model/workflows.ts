@@ -171,6 +171,13 @@ export interface WorkflowDef {
 
 export const TRIGGER_LABELS: Record<TriggerKind, string> = { created: "When a note is created", changed: "When a field changes", manual: "Run on notes", schedule: "On a schedule", date: "On a date" };
 export const TRIGGER_ICONS: Record<TriggerKind, string> = { created: "file-plus", changed: "pencil", manual: "mouse-pointer-click", schedule: "clock", date: "calendar-clock" };
+/** Workflows by what starts them, as the Entity Browser lists them. */
+export const WORKFLOW_CATEGORIES: { key: string; kinds: TriggerKind[]; title: string; icon: string }[] = [
+	{ key: "created", kinds: ["created"], title: "When created", icon: "file-plus" },
+	{ key: "changed", kinds: ["changed"], title: "When changed", icon: "pencil" },
+	{ key: "manual", kinds: ["manual"], title: "Run on notes", icon: "mouse-pointer-click" },
+	{ key: "timed", kinds: ["schedule", "date"], title: "Scheduled", icon: "clock" },
+];
 export const STEP_LABELS: Record<StepKind, string> = {
 	set: "Set a field",
 	clear: "Clear a field",

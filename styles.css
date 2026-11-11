@@ -2980,6 +2980,22 @@ button.oe-tm-typegroup-title,
 	height: 13px;
 }
 
+/* An unsaved workflow's "new" badge and unsaved changes dot; the category heading's "not here" badge */
+.oe-workflow-row .oe-tm-badge,
+.oe-bworkflow-cat .oe-bheading-title .oe-tm-badge {
+	margin-left: var(--size-4-1);
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-workflow-row .oe-tm-dirty {
+	margin-left: var(--size-4-1);
+	flex-shrink: 0;
+}
+
+.oe-workflow-runs .oe-bheading-count {
+	margin-right: var(--size-4-1);
+}
+
 .oe-tree-count {
 	font-size: var(--font-ui-smaller);
 	color: var(--text-faint);

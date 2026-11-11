@@ -98,12 +98,6 @@ export interface WorkflowsRequest {
 	blank?: boolean;
 }
 
-const TRIGGER_GROUPS: { kinds: TriggerKind[]; title: string; icon: string }[] = [
-	{ kinds: ["created"], title: "When created", icon: "file-plus" },
-	{ kinds: ["changed"], title: "When changed", icon: "pencil" },
-	{ kinds: ["manual"], title: "Run on notes", icon: "mouse-pointer-click" },
-	{ kinds: ["schedule", "date"], title: "Scheduled", icon: "clock" },
-];
 const TRIGGER_OPTIONS: { value: TriggerKind; label: string; icon: string }[] = [
 	{ value: "changed", label: "Field changes", icon: "pencil" },
 	{ value: "created", label: "Note created", icon: "file-plus" },
@@ -148,19 +142,24 @@ const when = (t: number) => {
 const valueText = (v: unknown) => (v === undefined || v === null || v === "" ? "empty" : Array.isArray(v) ? (v.length ? v.join(", ") : "empty") : String(v));
 
 /**
- * The Workflows view (DESIGN §8.11): every workflow in a sidebar, grouped by what starts it, with Pause all and
- * Recent runs; the selected one in an editor (When / Only if / Do) with the type editor's draft and save bar.
+ * The Workflows view (DESIGN §8.11): the workflow open in an editor (When / Only if / Do) with the type editor's draft
+ * and save bar, or every workflow's Recent runs. The Entity Browser lists the workflows (by what starts them), with
+ * Recent runs and Disable all.
  */
 export function WorkflowManager({ state, setState, request, onRequestDone }: { state: WorkflowsState; setState: (p: Partial<WorkflowsState>) => void; request: WorkflowsRequest | null; onRequestDone: () => void }) {
 	const plugin = usePlugin();
 	const settings = plugin.settings;
 	const [, setTick] = useState(0);
-	const [search, setSearch] = useState("");
 	const drafts = plugin.workflowDrafts;
-	const refresh = () => setTick((t) => t + 1);
+	const rerender = () => setTick((t) => t + 1);
+	/** After a draft changes: here, and in the Entity Browser (new, unsaved changes). */
+	const refresh = () => {
+		rerender();
+		plugin.workflows.trigger("drafts");
+	};
 	useEffect(() => {
-		const ref = plugin.workflows.on("log", refresh);
-		return () => plugin.workflows.offref(ref);
+		const refs = [plugin.workflows.on("log", rerender), plugin.workflows.on("drafts", rerender)];
+		return () => refs.forEach((r) => plugin.workflows.offref(r));
 	}, [plugin]);
 
 	const newDraft = (scope: string[] = []) => {
@@ -185,63 +184,10 @@ export function WorkflowManager({ state, setState, request, onRequestDone }: { s
 		...saved.map((w) => ({ id: w.id, wf: drafts.get(w.id) ?? w, isNew: false })),
 		...[...drafts.entries()].filter(([id]) => id.startsWith("new:")).map(([id, wf]) => ({ id, wf, isNew: true })),
 	];
-	const q = search.trim().toLowerCase();
-	const shown = listed.filter((x) => !q || x.wf.name.toLowerCase().includes(q) || triggerText(x.wf, settings.types).toLowerCase().includes(q));
 	const selected = listed.find((x) => x.id === state.selected);
-	const scopeText = (wf: WorkflowDef) => (wf.scope.length ? scopeTypes(wf, settings.types).map((t) => t.plural || t.name).join(", ") || wf.scope.join(", ") : "Any note");
 
 	return (
 		<div className="oe-tm oe-wf">
-			<aside className="oe-tm-sidebar">
-				<div className="oe-tm-sidebar-head">
-					<input type="search" placeholder="Search workflows…" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search workflows" />
-					<button className="mod-cta" onClick={() => newDraft()} aria-label="New workflow">
-						<Icon name="plus" /> New
-					</button>
-				</div>
-				<div className={`oe-wf-pause${settings.workflowsPaused ? " is-paused" : ""}`}>
-					<Toggle label="Pause all workflows" value={settings.workflowsPaused} onChange={(v) => void plugin.workflows.setPaused(v).then(refresh)} />
-					<span>{settings.workflowsPaused ? "All workflows are paused" : "Pause all workflows"}</span>
-				</div>
-				<div className="oe-tm-typelist">
-					{TRIGGER_GROUPS.map((g) => {
-						const items = shown.filter((x) => g.kinds.includes(x.wf.trigger.kind));
-						if (!items.length && q) return null;
-						return (
-							<div key={g.title} className="oe-tm-typegroup">
-								<div className="oe-tm-typegroup-title is-static">
-									<Icon name={g.icon} />
-									<span className="oe-tm-typename">{g.title}</span>
-									{g.kinds.includes("schedule") && !plugin.workflows.timedHere && items.length > 0 && <span className="oe-tm-badge" title="Scheduled and date workflows don't run on this device (Settings → Workflows).">not here</span>}
-								</div>
-								{items.map(({ id, wf, isNew }) => {
-									const problems = workflowProblems(wf, settings);
-									const dirty = drafts.has(id) && (isNew || !sameJson(drafts.get(id), saved.find((w) => w.id === id)));
-									return (
-										<button key={id} data-workflow={id} className={`oe-tm-typeitem oe-wf-item${id === state.selected ? " is-selected" : ""}${wf.on ? "" : " is-off"}`} onClick={() => setState({ selected: id })}>
-											<span className={`oe-wf-dot${wf.on && !settings.workflowsPaused ? " is-on" : ""}`} aria-label={wf.on ? "On" : "Off"} />
-											<span className="oe-wf-item-text">
-												<span className="oe-tm-typename">{wf.name || "New workflow"}</span>
-												<span className="oe-wf-item-scope">{scopeText(wf)}</span>
-											</span>
-											{isNew && <span className="oe-tm-badge is-new">new</span>}
-											{problems.length > 0 && <Icon name="alert-triangle" className="oe-wf-item-warn" />}
-											{dirty && <span className="oe-tm-dirty" aria-label="Unsaved changes" />}
-										</button>
-									);
-								})}
-								{!items.length && <div className="oe-tm-muted oe-tm-typegroup-empty">None yet</div>}
-							</div>
-						);
-					})}
-				</div>
-				<button className={`oe-tm-typeitem oe-wf-runs-item${state.selected === "runs" ? " is-selected" : ""}`} onClick={() => setState({ selected: "runs" })}>
-					<Icon name="history" />
-					<span className="oe-tm-typename">Recent runs</span>
-					<span className="oe-tm-count">{plugin.workflows.log.length}</span>
-				</button>
-			</aside>
-
 			{state.selected === "runs" ? (
 				<main className="oe-tm-main">
 					<header className="oe-tm-header">
@@ -299,6 +245,7 @@ export function WorkflowManager({ state, setState, request, onRequestDone }: { s
 						<Icon name="zap" />
 						<h2>Workflows</h2>
 						<p>Do things automatically when a note is created or a field changes, or add buttons that run steps on notes: set fields, add tags and links, show a notice.</p>
+						<p className="oe-tm-muted">Your workflows are in the Entity Browser, under Workflows: click one to open it here.</p>
 						<button className="mod-cta" onClick={() => newDraft()}>
 							<Icon name="plus" /> New workflow
 						</button>
@@ -558,7 +505,7 @@ function WorkflowEditor({
 			{tab === "runs" ? (
 				<div className="oe-tm-body is-runs">
 					<div className="oe-tm-muted oe-wf-runs-intro">
-						{runs.length ? `Its last ${plural(runs.length, "run")}, newest first (Recent runs in the sidebar keeps the last 200 of every workflow).` : "It hasn't run yet."} Undo puts back what a run changed, while its notes haven't changed since.
+						{runs.length ? `Its last ${plural(runs.length, "run")}, newest first (Recent runs under Workflows in the Entity Browser keeps the last 200 of every workflow).` : "It hasn't run yet."} Undo puts back what a run changed, while its notes haven't changed since.
 					</div>
 					{runs.length > 0 && <RunList runs={runs} />}
 				</div>

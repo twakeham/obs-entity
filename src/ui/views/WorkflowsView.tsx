@@ -40,6 +40,7 @@ export class WorkflowsView extends ItemView {
 	async onClose(): Promise<void> {
 		this.root?.unmount();
 		this.root = null;
+		this.plugin.workflows.trigger("drafts");
 	}
 
 	getState(): Record<string, unknown> {
@@ -60,6 +61,8 @@ export class WorkflowsView extends ItemView {
 		this.state = { ...this.state, ...patch };
 		this.render();
 		this.app.workspace.requestSaveLayout();
+		// The Entity Browser marks the workflow shown here.
+		this.plugin.workflows.trigger("drafts");
 	};
 
 	/** Show a workflow, or start a new one for a type. (Not `open`: that's View's own.) */

@@ -363,6 +363,20 @@ export default class EntitiesPlugin extends Plugin {
 		workspace.setActiveLeaf(leaf, { focus: true });
 	}
 
+	/** What the Workflows view shows ("new:<n>" for an unsaved one, "runs" for Recent runs), or null (no view, nothing open). */
+	shownWorkflow(): string | null {
+		const view = this.app.workspace.getLeavesOfType(WORKFLOWS_VIEW)[0]?.view;
+		return view instanceof WorkflowsView ? view.state.selected : null;
+	}
+
+	/** Start an unsaved workflow (a copy, or a new one) and open it in the Workflows view. */
+	openWorkflowDraft(wf: WorkflowDef): void {
+		let n = 1;
+		while (this.workflowDrafts.has(`new:${n}`)) n++;
+		this.workflowDrafts.set(`new:${n}`, wf);
+		void this.activateWorkflows({ open: `new:${n}`, tab: "edit" });
+	}
+
 	/** Open a note by path. A mouse/keyboard event with Mod opens a new tab; a pane type opens there. */
 	openPath(path: string, how?: MouseEvent | KeyboardEvent | PaneType | boolean): void {
 		const target = how instanceof Event ? Keymap.isModEvent(how) : (how ?? false);
