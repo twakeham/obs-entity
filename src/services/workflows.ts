@@ -19,6 +19,7 @@ import {
 	reachText,
 	runReach,
 	runSteps,
+	runsOnce,
 	workflowProblems,
 	type DateTrigger,
 	type FieldChange,
@@ -56,6 +57,8 @@ export interface RunRecord {
 	others?: { path: string; name: string; changes: FieldChange[] }[];
 	/** workflows it ran ("Run another workflow") */
 	via?: string[];
+	/** a run once for a whole selection: the selected notes (`path` is the first, `note` says how many) */
+	selection?: string[];
 	/** questions it asked, answered Yes */
 	asked?: string[];
 	/** notes it moved or renamed: old path → new path */
@@ -376,9 +379,14 @@ export class WorkflowEngine extends Events {
 			return [];
 		}
 		const done: RunRecord[] = [];
+		if (runsOnce(wf)) {
+			// Once for the whole selection: one run, with every selected note.
+			const r = await new Promise<RunRecord | null>((resolve) => this.enqueue(async () => resolve(await this.run(wf, paths[0] ?? "", { chain: fresh(), manual: true, selection: paths }))));
+			if (r) done.push(r);
+		}
 		// Agreeing to one big run agrees to the rest of the selection's; an answer can be kept for the rest too.
 		const batch: Batch = { agreed: false, answers: new Map(), left: 0 };
-		for (const [i, p] of paths.entries()) {
+		for (const [i, p] of (runsOnce(wf) ? [] : paths).entries()) {
 			batch.left = paths.length - i - 1;
 			const r = await new Promise<RunRecord | null>((resolve) => this.enqueue(async () => resolve(await this.run(wf, p, { chain: fresh(), manual: true, batch }))));
 			if (r) done.push(r);
@@ -419,34 +427,65 @@ export class WorkflowEngine extends Events {
 	 * Run one workflow on one note: check problems, the chain and Only if, run the steps, write the note once, keep
 	 * its undo and log it. Null when it didn't apply (Only if failed).
 	 */
-	private async run(wf: WorkflowDef, path: string, opts: { chain: Chain; before?: Record<string, unknown>; manual?: boolean; batch?: Batch; unattended?: boolean; limit?: number }): Promise<RunRecord | null> {
+	private async run(
+		wf: WorkflowDef,
+		path: string,
+		opts: { chain: Chain; before?: Record<string, unknown>; manual?: boolean; batch?: Batch; unattended?: boolean; limit?: number; selection?: string[] },
+	): Promise<RunRecord | null> {
 		const { plugin } = this;
 		const { app } = plugin;
+		const sel = opts.selection;
 		const file = app.vault.getAbstractFileByPath(path);
 		const rec = plugin.index.get(path);
-		if (!(file instanceof TFile) || !rec) return null;
-		const base = { id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, time: Date.now(), workflow: wf.id, name: wf.name, path, note: rec.name, trigger: wf.trigger.kind, changes: [], notices: [] };
+		if (!sel && (!(file instanceof TFile) || !rec)) return null;
+		// What the run is on, in words: the note, or "3 selected notes".
+		const label = sel ? `${sel.length} selected note${sel.length === 1 ? "" : "s"}` : rec!.name;
+		const base: Omit<RunRecord, "selection"> & { selection?: string[] } = {
+			id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+			time: Date.now(),
+			workflow: wf.id,
+			name: wf.name,
+			path,
+			note: label,
+			trigger: wf.trigger.kind,
+			changes: [],
+			notices: [],
+			...(sel ? { selection: sel } : {}),
+		};
 		const problems = workflowProblems(wf, plugin.settings);
 		if (problems.length) return this.record({ ...base, error: `The workflow has problems: ${problems[0].message}` });
-		const key = `${wf.id}|${path}`;
+		const key = sel ? `${wf.id}|selection` : `${wf.id}|${path}`;
 		if (opts.chain.seen.has(key)) return this.record({ ...base, stopped: "It already ran on this note in this chain of changes." });
 		if (opts.chain.depth >= MAX_CHAIN) return this.record({ ...base, stopped: `Stopped after ${MAX_CHAIN} workflows set each other off.` });
 		let res: RunResult;
 		const answers = new Set<number>();
 		for (let agreed = false; ; ) {
 			const { rows, ctx } = plugin.viewData();
-			const row = rows.find((r) => r.path === path);
-			if (!row) return null;
-			const old: ViewRow | undefined = opts.before ? { ...row, frontmatter: opts.before, status: typeof opts.before[COMMON_KEYS.status] === "string" ? (opts.before[COMMON_KEYS.status] as string) : null } : undefined;
 			const replanned = agreed || answers.size > 0;
-			if (!passesWhen(wf, row, ctx)) return replanned ? this.record({ ...base, stopped: "The note no longer matched Only if." }) : null;
-			res = this.simulate(wf, row, rows, ctx, old, answers);
+			if (sel) {
+				// Once for the selection: the selected notes it applies to (its types, Only if); none, no run.
+				const chosen = sel.flatMap((p) => rows.filter((r) => r.path === p)).filter((r) => inScope(wf, r.type) && passesWhen(wf, r, ctx));
+				if (!chosen.length) {
+					if (opts.manual) new Notice(`“${wf.name}” didn't run: none of the selected notes match its Only if.`);
+					return replanned ? this.record({ ...base, stopped: "None of the selected notes matched Only if any more." }) : null;
+				}
+				// The log says which notes it ran on: those that matched.
+				if (chosen.length < sel.length) base.note = `${chosen.length} of ${sel.length} selected notes`;
+				base.selection = chosen.map((r) => r.path);
+				res = this.simulate(wf, chosen[0], rows, ctx, undefined, answers, chosen);
+			} else {
+				const row = rows.find((r) => r.path === path);
+				if (!row) return null;
+				const old: ViewRow | undefined = opts.before ? { ...row, frontmatter: opts.before, status: typeof opts.before[COMMON_KEYS.status] === "string" ? (opts.before[COMMON_KEYS.status] as string) : null } : undefined;
+				if (!passesWhen(wf, row, ctx)) return replanned ? this.record({ ...base, stopped: "The note no longer matched Only if." }) : null;
+				res = this.simulate(wf, row, rows, ctx, old, answers);
+			}
 			if (res.stopped) {
 				if (opts.manual) new Notice(`“${wf.name}” stopped: ${res.stopped}`);
 				return this.record({ ...base, stopped: res.stopped });
 			}
 			if (res.error) {
-				if (!opts.unattended) new Notice(`Workflow “${wf.name}” stopped on ${rec.name}: ${res.error.message}`);
+				if (!opts.unattended) new Notice(`Workflow “${wf.name}” stopped on ${label}: ${res.error.message}`);
 				return this.record({ ...base, error: `Step ${res.error.step + 1}: ${res.error.message}` });
 			}
 			if (res.pending) {
@@ -454,7 +493,7 @@ export class WorkflowEngine extends Events {
 				const { step, text } = res.pending;
 				let yes = opts.batch?.answers.get(step);
 				if (yes === undefined) {
-					const a = await askQuestion(app, `${wf.name} · ${rec.name}`, text, opts.batch?.left ?? 0);
+					const a = await askQuestion(app, `${wf.name} · ${label}`, text, opts.batch?.left ?? 0);
 					yes = a.yes;
 					if (a.all && opts.batch) opts.batch.answers.set(step, yes);
 				}
@@ -471,7 +510,7 @@ export class WorkflowEngine extends Events {
 				break;
 			}
 			if (agreed || !isBigRun(reach) || opts.batch?.agreed) break;
-			if (!(await confirmRun(app, `Run “${wf.name}”?`, `On ${rec.name}, it would ${reachText(reach)}. You can undo it afterwards.`))) return this.record({ ...base, stopped: `Cancelled: it would ${reachText(reach)}.` });
+			if (!(await confirmRun(app, `Run “${wf.name}”?`, `On ${label}, it would ${reachText(reach)}. You can undo it afterwards.`))) return this.record({ ...base, stopped: `Cancelled: it would ${reachText(reach)}.` });
 			if (opts.batch) opts.batch.agreed = true;
 			// Plan again from the notes as they are now, so nothing newer is overwritten.
 			agreed = true;
@@ -604,7 +643,7 @@ export class WorkflowEngine extends Events {
 	}
 
 	/** What a workflow's steps would do on a note: worked out on copies, nothing written. */
-	private simulate(wf: WorkflowDef, row: ViewRow, rows: ViewRow[], ctx: ViewContext, old?: ViewRow, answers?: Set<number> | "all"): RunResult {
+	private simulate(wf: WorkflowDef, row: ViewRow, rows: ViewRow[], ctx: ViewContext, old?: ViewRow, answers?: Set<number> | "all", selection?: ViewRow[]): RunResult {
 		const { app } = this.plugin;
 		const linkText = (p: string) => {
 			const target = app.vault.getAbstractFileByPath(p);
@@ -613,12 +652,13 @@ export class WorkflowEngine extends Events {
 			const name = p.replace(/\.md$/, "").split("/").pop() ?? p;
 			return app.metadataCache.getFirstLinkpathDest(name, row.path) ? p.replace(/\.md$/, "") : name;
 		};
-		return runSteps(wf, { ctx, row, old, linkText, place: this.placer(rows), workflows: this.plugin.settings.workflows, answers });
+		return runSteps(wf, { ctx, row, old, linkText, place: this.placer(rows), workflows: this.plugin.settings.workflows, answers, ...(selection ? { selection } : {}) });
 	}
 
 	/**
 	 * "Try on a note…": what a workflow (saved, or a draft) would do on a note, writing nothing. The steps are worked
-	 * out even when the note doesn't match Only if (`passes` says so). Null when the note isn't an entity.
+	 * out even when the note doesn't match Only if (`passes` says so). A workflow run once for the selection is tried
+	 * as if that note were the whole selection. Null when the note isn't an entity.
 	 */
 	tryRun(wf: WorkflowDef, path: string): TryRun | null {
 		const { rows, ctx } = this.plugin.viewData();
@@ -627,7 +667,7 @@ export class WorkflowEngine extends Events {
 		const problems = workflowProblems(wf, this.plugin.settings).map((p) => p.message);
 		if (problems.length) return { row, problems, passes: false, result: null, moves: [] };
 		// Questions are taken as answered Yes, to show everything the run would do.
-		const result = this.simulate(wf, row, rows, ctx, undefined, "all");
+		const result = this.simulate(wf, row, rows, ctx, undefined, "all", runsOnce(wf) ? [row] : undefined);
 		const taken = new Set<string>();
 		const moves = result.error || result.stopped ? [] : this.moving(path, result).map((m) => {
 			try {

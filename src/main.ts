@@ -27,7 +27,7 @@ import { TYPES_VIEW, TypesView } from "./ui/views/TypesView";
 import type { GroupDraft, TypeDraft } from "./model/typeEditing";
 import { calcCell, emptyBoard, emptyView, fieldColumn, formatCell, resolveColumn, serializeView, sourceTypes, typeViewDef, type ViewContext, type ViewDef, type ViewKind, type ViewRow, columnFromId } from "./model/views";
 import { defaultBuckets } from "./model/board";
-import { BIG_RUN, buttonIcon, buttonLabel, inScope, type WorkflowDef } from "./model/workflows";
+import { BIG_RUN, buttonIcon, buttonLabel, inScope, runsOnce, type WorkflowDef } from "./model/workflows";
 import { WorkflowEngine } from "./services/workflows";
 import { WORKFLOWS_VIEW, WorkflowsView } from "./ui/views/WorkflowsView";
 import type { WorkflowsRequest } from "./ui/react/workflows/WorkflowManager";
@@ -599,7 +599,7 @@ export default class EntitiesPlugin extends Plugin {
 		const confirm = wf.trigger.kind === "manual" ? wf.trigger.confirm : undefined;
 		const many = paths.length > BIG_RUN;
 		if (confirm || many) {
-			const body = [confirm, many ? `It runs on ${paths.length} notes, one run each. You can undo them afterwards.` : ""].filter(Boolean).join(" ");
+			const body = [confirm, many ? (runsOnce(wf) ? `It runs once, on all ${paths.length} notes together. You can undo it afterwards.` : `It runs on ${paths.length} notes, one run each. You can undo them afterwards.`) : ""].filter(Boolean).join(" ");
 			if (!(await confirmRun(this.app, buttonLabel(wf), body))) return;
 		}
 		await this.workflows.runOn(wf, paths);

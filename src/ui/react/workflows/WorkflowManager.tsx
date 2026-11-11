@@ -20,6 +20,9 @@ import {
 	loopItemTypes,
 	ON_THIS,
 	formulaFromFixed,
+	readsNote,
+	runsOnce,
+	SELECTION_VAR,
 	listsValues,
 	isTimed,
 	nextDue,
@@ -623,6 +626,24 @@ function WorkflowEditor({
 								<Row label="Ask first" desc="A question to confirm before it runs, e.g. “Close this task?”. Empty: it runs straight away.">
 									<TextInput label="Confirmation" value={t.confirm ?? ""} placeholder="No confirmation" onChange={(v) => editManual((tr) => (v.trim() ? (tr.confirm = v) : delete tr.confirm))} />
 								</Row>
+								<Row
+									label="On several notes"
+									desc={
+										t.selection === "once"
+											? `Once for the whole selection: one run, with the selected notes as [${SELECTION_VAR}] (those that match Only if). There's no single “this note”: use For each over [${SELECTION_VAR}] to change each one, e.g. create one note that links them all.`
+											: "Once for each selected note: each run has its own note as “this note”."
+									}
+								>
+									<Segmented
+										label="On several notes"
+										value={t.selection === "once" ? "once" : "each"}
+										options={[
+											{ value: "each", label: "Each note" },
+											{ value: "once", label: "Once for the selection" },
+										]}
+										onChange={(v) => editManual((tr) => (v === "once" ? (tr.selection = "once") : delete tr.selection))}
+									/>
+								</Row>
 							</>
 						)}
 						{t.kind === "schedule" && (
@@ -705,7 +726,13 @@ function WorkflowEditor({
 						title="Only if"
 						icon="filter"
 						className="oe-wf-panel is-only-if"
-						desc={isTimed(t) ? "Conditions on each note when it runs. None: every note of these types." : "Conditions on the note, after the change. None: it always runs."}
+						desc={
+							isTimed(t)
+								? "Conditions on each note when it runs. None: every note of these types."
+								: runsOnce(wf)
+									? `Conditions on each selected note: those that don't match are left out of [${SELECTION_VAR}]. None: every selected note of these types.`
+									: "Conditions on the note, after the change. None: it always runs."
+						}
 						collapse={fold("only-if", conditionCount ? `${plural(conditionCount, "condition")}${wf.when.items.length > 1 ? (wf.when.mode === "all" ? ", all must match" : ", any can match") : ""}` : "No conditions: it always runs.")}
 					>
 						{at("when").map((p, i) => (
@@ -904,6 +931,8 @@ function blankStep(kind: StepKind, wf: WorkflowDef, sc: StepScope, workflows: Wo
 			return { ...step, as: uniqueName(its.length === 1 ? its[0].name : "Note", used) };
 		}
 		case "each":
+			// Once for the selection: a loop over the selected notes, of the workflow's type when it has one.
+			if (sc.noNote && !sc.loop) return { kind, formula: `[${SELECTION_VAR}]`, items: "notes", itemType: sc.types.length === 1 ? sc.types[0].key : "", when: { mode: "all", items: [] }, as: uniqueName(sc.types.length === 1 ? sc.types[0].name : "Note", used), steps: [] };
 			return { kind, formula: "", items: "values", itemType: "", when: { mode: "all", items: [] }, as: uniqueName("Item", used), steps: [] };
 	}
 }
@@ -1525,7 +1554,7 @@ function CreateBody({ wf, sc, step, onChange }: { wf: WorkflowDef; sc: StepScope
 	const links = createLinkOptions({ scope: sc.scope }, step.type, types);
 	const set = (patch: Partial<CreateStep>) => onChange({ ...step, ...patch });
 	const typeName = type?.name.toLowerCase() ?? "note";
-	const which = sc.loop === "notes" ? sc.defaultLabel.replace(/^Each /, "the ") : "this note";
+	const which = sc.loop === "notes" ? sc.defaultLabel.replace(/^Each /, "the ") : sc.noNote ? "the selected notes" : "this note";
 	const setType = (key: string) => {
 		const t = types.find((x) => x.key === key);
 		const link = defaultCreateLink(sc.scope, key, types);
@@ -1611,37 +1640,41 @@ function CreateBody({ wf, sc, step, onChange }: { wf: WorkflowDef; sc: StepScope
 			)}
 			{formRow(
 				"Link",
-				<select
-					className="dropdown oe-pop-select oe-wf-create-link"
-					aria-label="Link"
-					value={linkValue}
-					onChange={(e) => {
-						const [dir, field] = e.target.value.split(":") as [CreateLink["dir"], string];
-						const { link: _l, ...rest } = step;
-						onChange(e.target.value ? { ...rest, link: { dir, field } } : rest);
-					}}
-				>
-					<option value="">Don't link it to {which}</option>
-					{links.fromNew.length > 0 && (
-						<optgroup label={`The new ${typeName}'s field → ${which}`}>
-							{links.fromNew.map((f) => (
-								<option key={f.key} value={`from-new:${f.key}`}>
-									{f.label}
-								</option>
-							))}
-						</optgroup>
-					)}
-					{links.toNew.length > 0 && (
-						<optgroup label={`${which[0].toUpperCase()}${which.slice(1)}'s field → the new ${typeName}`}>
-							{links.toNew.map((f) => (
-								<option key={f.key} value={`to-new:${f.key}`}>
-									{f.label}
-								</option>
-							))}
-						</optgroup>
-					)}
-					{step.link && !(step.link.dir === "from-new" ? links.fromNew : links.toNew).some((f) => f.key === step.link!.field) && <option value={linkValue}>{step.link.field}</option>}
-				</select>,
+				sc.noNote && !step.link ? (
+					<span className="oe-tm-muted">No single note to link it to here: link the selected notes to it inside a For each over [{SELECTION_VAR}] (Add or remove a link, to [{step.as.trim() || "the new note"}]).</span>
+				) : (
+					<select
+						className="dropdown oe-pop-select oe-wf-create-link"
+						aria-label="Link"
+						value={linkValue}
+						onChange={(e) => {
+							const [dir, field] = e.target.value.split(":") as [CreateLink["dir"], string];
+							const { link: _l, ...rest } = step;
+							onChange(e.target.value ? { ...rest, link: { dir, field } } : rest);
+						}}
+					>
+						<option value="">Don't link it to {which}</option>
+						{links.fromNew.length > 0 && (
+							<optgroup label={`The new ${typeName}'s field → ${which}`}>
+								{links.fromNew.map((f) => (
+									<option key={f.key} value={`from-new:${f.key}`}>
+										{f.label}
+									</option>
+								))}
+							</optgroup>
+						)}
+						{links.toNew.length > 0 && (
+							<optgroup label={`${which[0].toUpperCase()}${which.slice(1)}'s field → the new ${typeName}`}>
+								{links.toNew.map((f) => (
+									<option key={f.key} value={`to-new:${f.key}`}>
+										{f.label}
+									</option>
+								))}
+							</optgroup>
+						)}
+						{step.link && !(step.link.dir === "from-new" ? links.fromNew : links.toNew).some((f) => f.key === step.link!.field) && <option value={linkValue}>{step.link.field}</option>}
+					</select>
+				),
 			)}
 			{formRow(
 				"Body",
@@ -1706,6 +1739,8 @@ function valueHint(f: WorkflowField | undefined): string {
 function insertableFields(sc: StepScope, lookup: { types: EntityTypeDef[]; groups: GroupDef[] }): { group: string; labels: string[] }[] {
 	const def = sc.def;
 	const vars = sc.vars.map((v) => v.name);
+	// No single note (a run for the whole selection): only named notes and values can be read.
+	if (sc.noNote) return vars.length ? [{ group: sc.loop ? "Notes and values" : "The selection and created notes", labels: vars }] : [];
 	const cols = availableColumns(def, lookup);
 	const labels = (list: ColumnDef[]) => [...new Set(list.map((c) => resolveColumn(c, def, lookup).label))];
 	return [
@@ -1939,6 +1974,7 @@ function FormulaBox({
 			if (template) {
 				for (const p of parseTemplate(value)) if ("formula" in p) compileFormula(p.formula, def, lookup, { workflow: true, vars });
 			} else compileFormula(value, def, lookup, { workflow: true, vars });
+			if (sc.noNote && readsNote(value, def, lookup, vars, template)) error = "There's no single note here, so a formula can't read its fields: use [Selected notes], or a note an earlier step creates.";
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 		}
@@ -2004,7 +2040,13 @@ function RunList({ runs, showWorkflow, empty = "No runs yet." }: { runs: RunReco
 						<span className="oe-wf-run-time">{when(r.time)}</span>
 						<span className="oe-wf-run-what">
 							{showWorkflow && <span className="oe-wf-run-name">{r.name} · </span>}
-							<NoteLink path={now(r.path)} name={r.note} />
+							{r.selection ? (
+								<span className="oe-wf-run-note is-selection" title={r.selection.map((p) => (p.split("/").pop() ?? p).replace(/\.md$/, "")).join(", ")}>
+									{r.note}
+								</span>
+							) : (
+								<NoteLink path={now(r.path)} name={r.note} />
+							)}
 							<span className="oe-wf-run-detail">
 								{r.error
 									? ` — ${r.error}`

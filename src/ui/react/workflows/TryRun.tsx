@@ -2,7 +2,7 @@ import { Notice } from "obsidian";
 import type EntitiesPlugin from "../../../main";
 import { asArray } from "../../../model/links";
 import { formatValue, type FormatEnv } from "../../../model/fieldFormats";
-import { fieldLabel, inScope, isBigRun, movedText, reachText, runReach, type FieldChange, type WorkflowDef } from "../../../model/workflows";
+import { fieldLabel, inScope, isBigRun, movedText, reachText, runReach, runsOnce, type FieldChange, type WorkflowDef } from "../../../model/workflows";
 import type { EntityTypeDef } from "../../../model/types";
 import type { TryRun } from "../../../services/workflows";
 import { ReactModal } from "../../modals/bulkModals";
@@ -103,6 +103,7 @@ export function TryRunResult({ wf, res, again, close }: { wf: WorkflowDef; res: 
 			)}
 			{r && t.kind === "changed" && <div className="oe-wf-help">As if {fieldLabel(t.field, types)} had just changed to what it is now: old() and new() both give the note as it is.</div>}
 			{r && t.kind === "created" && <div className="oe-wf-help">As if the note had just been created.</div>}
+			{r && runsOnce(wf) && <div className="oe-wf-help">It runs once for the whole selection: tried here as if {res.row.name} were the only note selected.</div>}
 			{r?.stopped && (
 				<div className="oe-wf-try-banner">
 					<Icon name="octagon-x" /> It would stop: {r.stopped}

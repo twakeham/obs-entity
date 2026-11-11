@@ -17,7 +17,10 @@ import {
 	linkedSources,
 	movedText,
 	nextDue,
+	NO_NOTE,
 	ON_THIS,
+	runsOnce,
+	SELECTION_VAR,
 	reachText,
 	runReach,
 	stepScopes,
@@ -696,5 +699,64 @@ describe("not setting off other workflows", () => {
 		]);
 		expect(back.map((w) => w.isolated)).toEqual([true, undefined, undefined]);
 		expect("isolated" in back[2]).toBe(false);
+	});
+});
+describe("once for the whole selection", () => {
+	const t1 = row("Plan", TASK, { estimate: 2, project: "[[Apollo]]" });
+	const t2 = row("Build", TASK, { estimate: 5, project: "[[Apollo]]" });
+	const all = [ROWS[0], t1, t2];
+	const at = new Map(all.map((r) => [r.path, r]));
+	const ctx2: ViewContext = { ...ctx, resolve: (p) => (at.has(`${p}.md`) ? `${p}.md` : at.has(p) ? p : null), row: (p) => at.get(p) };
+	const place = (req: PlaceRequest): Placed => ({ path: `New/${req.name}.md` });
+	const once = (steps: WorkflowDef["steps"]) => wf({ name: "x", scope: ["task"], trigger: { kind: "manual", label: "Go", selection: "once" }, steps });
+	const go = (w: WorkflowDef, sel: ViewRow[]) => runSteps(w, { ctx: ctx2, row: sel[0], linkText, place, selection: sel });
+	const eachSelected = (steps: WorkflowDef["steps"][number][]) => ({ kind: "each", formula: `[${SELECTION_VAR}]`, items: "notes", itemType: "task", when: { mode: "all", items: [] }, as: "Task", steps }) as WorkflowDef["steps"][number];
+
+	it("read it back, say it, and give steps the selection instead of a note", () => {
+		const back = readWorkflows([{ id: "a", name: "A", scope: ["task"], trigger: { kind: "manual", selection: "once" }, steps: [] }, { id: "b", name: "B", scope: ["task"], trigger: { kind: "manual", selection: "each" }, steps: [] }]);
+		expect(back.map((w) => runsOnce(w))).toEqual([true, false]);
+		expect(triggerText(back[0], TYPES)).toBe("Button: A (once for the selection)");
+		const sc = stepScopes(once([{ kind: "notice", text: "x" }, eachSelected([{ kind: "tag", op: "add", tag: "y" }])]), ctx);
+		expect(sc.get("0")).toMatchObject({ noNote: true, defaultLabel: "No single note" });
+		expect(sc.get("0")!.vars.map((v) => v.name)).toEqual([SELECTION_VAR]);
+		// Inside a loop over the selection: each note, but no "This note".
+		expect(sc.get("1.0")!.noNote).toBeUndefined();
+		expect(sc.get("1.0")!.vars.map((v) => v.name)).toEqual([SELECTION_VAR, "Task"]);
+		expect(sc.get("1.0")!.on.map((o) => o.value)).toEqual([]);
+	});
+
+	it("flag what needs a single note", () => {
+		const probs = (steps: WorkflowDef["steps"]) => workflowProblems(once(steps), ctx).map((p) => `${p.at}: ${p.message}`);
+		expect(probs([{ kind: "set", field: "estimate", value: "1" }])).toEqual([`step:0: ${NO_NOTE}`]);
+		expect(probs([{ kind: "notice", text: "{[Name]} done" }])[0]).toMatch(/no single note here/);
+		expect(probs([{ kind: "notice", text: `{count([${SELECTION_VAR}])} done` }])).toEqual([]);
+		expect(probs([eachSelected([{ kind: "set", field: "estimate", value: "[Estimate] + 1" }, { kind: "tag", op: "add", tag: "x", on: ON_THIS }])])).toEqual([`step:0.1: ${NO_NOTE}`]);
+		expect(probs([{ kind: "create", type: "project", name: "Review", fields: [], link: { dir: "to-new", field: "project" }, template: true, open: "no", exists: "new", as: "Review" }])[0]).toMatch(/no single note to link/);
+		expect(probs([{ kind: "linked", source: { dir: "out", field: "project" }, when: { mode: "all", items: [] }, as: "P", steps: [{ kind: "tag", op: "add", tag: "x" }] }])[0]).toMatch(/For linked notes starts from a note/);
+		// The same steps are fine on each note.
+		expect(workflowProblems(wf({ name: "x", scope: ["task"], trigger: { kind: "manual" }, steps: [{ kind: "set", field: "estimate", value: "1" }] }), ctx)).toEqual([]);
+	});
+
+	it("run once: one note made from the selection, then each selected note changed", () => {
+		const w = once([
+			{ kind: "create", type: "project", name: `Review of {count([${SELECTION_VAR}])} tasks`, fields: [], template: true, open: "no", exists: "new", as: "Review" },
+			eachSelected([
+				{ kind: "set", field: "estimate", value: "[Estimate] + 1" },
+				{ kind: "link", op: "add", field: "project", target: "[Review]" },
+			]),
+			{ kind: "notice", text: `{join(map([${SELECTION_VAR}], name(item)), ", ")}` },
+		]);
+		const res = go(w, [t1, t2]);
+		expect(res.error).toBeUndefined();
+		expect(res.changes).toEqual([]);
+		expect(res.others.map((o) => [o.path, o.created ? "new" : "changed", o.fm.estimate, o.fm.project])).toEqual([
+			["New/Review of 2 tasks.md", "new", undefined, undefined],
+			["Plan.md", "changed", 3, "[[New/Review of 2 tasks]]"],
+			["Build.md", "changed", 6, "[[New/Review of 2 tasks]]"],
+		]);
+		expect(res.notices).toEqual(["Plan, Build"]);
+		expect(runReach(res)).toEqual({ changed: 2, created: 1 });
+		// Acting on "this note" stops the run, even if the problems were missed.
+		expect(go(once([{ kind: "set", field: "estimate", value: "1" }]), [t1]).error?.message).toBe(NO_NOTE);
 	});
 });

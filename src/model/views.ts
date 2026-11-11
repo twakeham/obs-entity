@@ -1717,7 +1717,7 @@ export function compileFormula(
  * earlier steps created, by name. Throws a FormulaError.
  */
 export function evaluateFormula(src: string, row: ViewRow, def: ViewDef, ctx: ViewContext, opts: { workflow?: boolean; old?: ViewRow; vars?: Record<string, FValue> } = {}): FValue {
-	const vars = Object.entries(opts.vars ?? {}).map(([name, v]): VarSpec => ({ name, type: isLink(v) ? "links" : "any" }));
+	const vars = Object.entries(opts.vars ?? {}).map(([name, v]): VarSpec => ({ name, type: isLink(v) || (Array.isArray(v) && v.length > 0 && v.every(isLink)) ? "links" : "any" }));
 	const { compiled, refs } = compileFormula(src, def, ctx, { workflow: opts.workflow, vars });
 	return evaluate(compiled.ast, rowEnv(row, refs, ctx, opts.old, opts.vars));
 }

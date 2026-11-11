@@ -22,7 +22,7 @@ export type ChangedTo = string[] | "filled" | "empty";
 export type WorkflowTrigger =
 	| { kind: "created" }
 	| { kind: "changed"; field: string; from?: string[]; to?: ChangedTo }
-	| { kind: "manual"; label?: string; icon?: string; confirm?: string }
+	| { kind: "manual"; label?: string; icon?: string; confirm?: string; selection?: "once" }
 	| ScheduleTrigger
 	| DateTrigger;
 
@@ -83,6 +83,14 @@ export interface CreateLink {
 export const ON_THIS = "@this";
 /** "This note" in formulas inside a loop of notes: the note the workflow runs on. */
 export const THIS_NOTE_VAR = "This note";
+/** In a run once for a whole selection: the selected notes (that match Only if), as links. */
+export const SELECTION_VAR = "Selected notes";
+
+/** A button workflow run once for all the selected notes together (no single "this note"), rather than once for each. */
+export const runsOnce = (wf: Pick<WorkflowDef, "trigger">): boolean => wf.trigger.kind === "manual" && wf.trigger.selection === "once";
+
+/** Why a step can't act on (or read) "this note" in a run for a whole selection. */
+export const NO_NOTE = "A run for the whole selection has no single note: put this inside a For each over [Selected notes], or make it act on a note an earlier step creates.";
 
 /** Where "For linked notes" gets its notes: this note's link field, or another type's link field pointing here. */
 export type LinkedSource = { dir: "out"; field: string } | { dir: "in"; type: string; field: string };
@@ -195,7 +203,13 @@ function readTrigger(raw: unknown): WorkflowTrigger {
 		const from = Array.isArray(raw.from) ? strList(raw.from) : undefined;
 		return { kind: "changed", field: str(raw.field) || COMMON_KEYS.status, ...(from?.length ? { from } : {}), ...(to && (to === "filled" || to === "empty" || to.length) ? { to } : {}) };
 	}
-	return { kind: "manual", ...(str(raw.label) ? { label: str(raw.label) } : {}), ...(str(raw.icon) ? { icon: str(raw.icon) } : {}), ...(str(raw.confirm) ? { confirm: str(raw.confirm) } : {}) };
+	return {
+		kind: "manual",
+		...(str(raw.label) ? { label: str(raw.label) } : {}),
+		...(str(raw.icon) ? { icon: str(raw.icon) } : {}),
+		...(str(raw.confirm) ? { confirm: str(raw.confirm) } : {}),
+		...(raw.selection === "once" ? { selection: "once" as const } : {}),
+	};
 }
 
 function readFixed(v: unknown): FixedValue | undefined {
@@ -386,16 +400,22 @@ export interface StepScope {
 	defaultLabel: string;
 	/** inside a loop (of notes, or of values) */
 	loop?: "notes" | "values";
+	/** no single note here (a run once for a whole selection, outside a loop of notes): steps can't act on one, nor formulas read one */
+	noNote?: true;
 }
 
 /**
  * Each step''s scope, by its place: "3", or "3.1" for the second step inside step 3. Created notes are seen by the
- * steps after them (inside a loop, by the loop''s later steps only); in a loop of notes formulas read each note.
+ * steps after them (inside a loop, by the loop''s later steps only); in a loop of notes formulas read each note. A run
+ * once for a whole selection has no "this note": `[Selected notes]` instead, and loops over them.
  */
-export function stepScopes(wf: Pick<WorkflowDef, "scope" | "when" | "steps">, lookup: Lookup): Map<string, StepScope> {
+export function stepScopes(wf: Pick<WorkflowDef, "scope" | "when" | "steps"> & Partial<Pick<WorkflowDef, "trigger">>, lookup: Lookup): Map<string, StepScope> {
 	const all = lookup.types;
 	const out = new Map<string, StepScope>();
-	let cur: StepScope = { def: workflowDef(wf), scope: wf.scope, types: scopeTypes(wf, all), fields: workflowFields(wf, all), vars: [], on: [], defaultLabel: "This note" };
+	const once = !!wf.trigger && runsOnce({ trigger: wf.trigger });
+	let cur: StepScope = once
+		? { def: workflowDef(wf), scope: wf.scope, types: scopeTypes(wf, all), fields: workflowFields(wf, all), vars: [{ name: SELECTION_VAR, type: "links" }], on: [], defaultLabel: "No single note", noNote: true }
+		: { def: workflowDef(wf), scope: wf.scope, types: scopeTypes(wf, all), fields: workflowFields(wf, all), vars: [], on: [], defaultLabel: "This note" };
 	const withCreated = (sc: StepScope, s: NoteStep): StepScope =>
 		s.kind === "create" && s.as.trim() ? { ...sc, vars: [...sc.vars, { name: s.as.trim(), type: "links" }], on: [...sc.on, { value: s.as.trim(), label: s.as.trim(), types: all.filter((t) => t.key === s.type) }] } : sc;
 	wf.steps.forEach((s, i) => {
@@ -415,8 +435,8 @@ export function stepScopes(wf: Pick<WorkflowDef, "scope" | "when" | "steps">, lo
 				scope,
 				types: its,
 				fields: workflowFields({ scope }, all),
-				vars: [...cur.vars, { name: THIS_NOTE_VAR, type: "links" }, { name: as, type: "links" }],
-				on: [{ value: ON_THIS, label: "This note", types: scopeTypes(wf, all) }, ...cur.on],
+				vars: [...cur.vars, ...(once ? [] : [{ name: THIS_NOTE_VAR, type: "links" as const }]), { name: as, type: "links" }],
+				on: [...(once ? [] : [{ value: ON_THIS, label: "This note", types: scopeTypes(wf, all) }]), ...cur.on],
 				defaultLabel: `Each ${as.toLowerCase()}`,
 				loop: "notes",
 			};
@@ -633,23 +653,40 @@ export interface WorkflowProblem {
 
 type Lookup = Pick<ViewContext, "types" | "groups">;
 
-const formulaError = (src: string, def: ViewDef, lookup: Lookup, vars: VarSpec[] = []): string | null => {
+/** A formula that reads a note's columns where there's no single note (`noNote`): only named notes and values can be read. */
+const NO_NOTE_FORMULA = "There's no single note here, so a formula can't read its fields: use [Selected notes] (e.g. count([Selected notes])), or a note an earlier step creates.";
+
+const formulaError = (src: string, def: ViewDef, lookup: Lookup, vars: VarSpec[] = [], noNote = false): string | null => {
 	try {
-		compileFormula(src, def, lookup, { workflow: true, vars });
+		const { refs } = compileFormula(src, def, lookup, { workflow: true, vars });
+		return noNote && refs.size ? NO_NOTE_FORMULA : null;
+	} catch (e) {
+		return e instanceof Error ? e.message : String(e);
+	}
+};
+
+const templateError = (src: string, def: ViewDef, lookup: Lookup, vars: VarSpec[] = [], noNote = false): string | null => {
+	try {
+		for (const p of parseTemplate(src))
+			if ("formula" in p) {
+				const { refs } = compileFormula(p.formula, def, lookup, { workflow: true, vars });
+				if (noNote && refs.size) return NO_NOTE_FORMULA;
+			}
 		return null;
 	} catch (e) {
 		return e instanceof Error ? e.message : String(e);
 	}
 };
 
-const templateError = (src: string, def: ViewDef, lookup: Lookup, vars: VarSpec[] = []): string | null => {
+/** Whether a formula reads a note's columns (not only named notes and values); unreadable formulas don't. */
+export function readsNote(src: string, def: ViewDef, lookup: Lookup, vars: VarSpec[], template = false): boolean {
 	try {
-		for (const p of parseTemplate(src)) if ("formula" in p) compileFormula(p.formula, def, lookup, { workflow: true, vars });
-		return null;
-	} catch (e) {
-		return e instanceof Error ? e.message : String(e);
+		const parts = template ? parseTemplate(src).flatMap((p) => ("formula" in p ? [p.formula] : [])) : [src];
+		return parts.some((f) => compileFormula(f, def, lookup, { workflow: true, vars }).refs.size > 0);
+	} catch {
+		return false;
 	}
-};
+}
 
 /** What's wrong with a workflow (it doesn't run while there are problems). `lookup.workflows`: for "Run another workflow". */
 export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?: WorkflowDef[] }, checking: string[] = []): WorkflowProblem[] {
@@ -663,6 +700,7 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 	const fields = workflowFields(wf, lookup.types);
 	const def = workflowDef(wf);
 	const t = wf.trigger;
+	const once = runsOnce(wf);
 	if (t.kind === "changed") {
 		const calc = types.flatMap((x) => x.fields).find((f) => f.key === t.field && isCalculated(f));
 		if (calc) add("trigger", `${calc.label} is calculated, so it never changes in the note: watch the fields it's worked out from.`);
@@ -698,11 +736,17 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 		const at = `step:${key}`;
 		const sc = scopes.get(key);
 		if (!sc) return;
+		// A run for a whole selection has no "this note" to act on.
+		if (once && "on" in s && s.on === ON_THIS) return add(at, NO_NOTE);
 		const target = stepTarget(s, sc, lookup.types);
 		if (!target) return add(at, `No earlier step creates “${(s as { on?: string }).on}”.`);
 		const tTypes = target.types;
 		const tFields = target.fields;
-		const fErr = (src: string) => formulaError(src, sc.def, lookup, sc.vars);
+		const fErr = (src: string) => formulaError(src, sc.def, lookup, sc.vars, !!sc.noNote);
+		const tErr = (src: string) => templateError(src, sc.def, lookup, sc.vars, !!sc.noNote);
+		if (sc.noNote && !("on" in s && s.on !== undefined) && (s.kind === "set" || s.kind === "clear" || s.kind === "tag" || s.kind === "link" || s.kind === "move" || s.kind === "rename" || s.kind === "run")) add(at, NO_NOTE);
+		if (sc.noNote && s.kind === "create" && s.link) add(at, "There's no single note to link the new note to: link it inside a For each over [Selected notes], or leave Link empty.");
+		if (sc.noNote && s.kind === "linked") add(at, "For linked notes starts from a note: use For each over [Selected notes] instead.");
 		const fieldOk = (fkey: string, what: string) => {
 			if (!fkey) return add(at, `Choose the field to ${what}.`);
 			const calc = tTypes.flatMap((x) => x.fields).find((f) => f.key === fkey && isCalculated(f));
@@ -745,7 +789,7 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 			case "notice": {
 				if (!s.text.trim()) add(at, "Write the notice.");
 				else {
-					const e = templateError(s.text, sc.def, lookup, sc.vars);
+					const e = tErr(s.text);
 					if (e) add(at, e);
 				}
 				break;
@@ -755,7 +799,7 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 				if (isTimed(wf.trigger)) add(at, "A workflow that runs on its own can't ask a question: nobody may be there to answer.");
 				if (!s.text.trim()) add(at, "Write the question, e.g. Also close its tasks?");
 				else {
-					const e = templateError(s.text, sc.def, lookup, sc.vars);
+					const e = tErr(s.text);
 					if (e) add(at, e);
 				}
 				break;
@@ -767,7 +811,7 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 				if (s.kind === "move" && s.to === "folder" && !src.trim()) add(at, "Choose the folder, e.g. Archive or Archive/{year(today())}.");
 				else if (s.kind === "rename" && !src.trim()) add(at, "Write the new name, e.g. {[Code]} {[Name]}.");
 				else if (src.trim()) {
-					const e = templateError(src, sc.def, lookup, sc.vars);
+					const e = tErr(src);
 					if (e) add(at, e);
 				}
 				break;
@@ -776,7 +820,7 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 				const nt = lookup.types.find((x) => x.key === s.type);
 				if (!nt) add(at, s.type ? `“${s.type}” isn't a type.` : "Choose the type of note to create.");
 				else {
-					const e = s.name.trim() ? templateError(s.name, sc.def, lookup, sc.vars) : null;
+					const e = s.name.trim() ? tErr(s.name) : null;
 					if (e) add(at, `Name: ${e}`);
 					const nf = workflowFields({ scope: [nt.key] }, lookup.types);
 					for (const r of s.fields) {
@@ -840,7 +884,7 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 			}
 		}
 		const def0 = !("on" in s) || s.on === undefined;
-		if ((s.kind === "set" || s.kind === "clear" || s.kind === "link") && def0 && !sc.scope.length && sc.loop !== "notes") add(at, "Choose the types this runs on, so its fields are known.");
+		if ((s.kind === "set" || s.kind === "clear" || s.kind === "link") && def0 && !sc.scope.length && sc.loop !== "notes" && !sc.noNote) add(at, "Choose the types this runs on, so its fields are known.");
 	};
 	wf.steps.forEach((s, i) => check(s, String(i)));
 	if (lookup.workflows && !checking.length) {
@@ -1079,6 +1123,11 @@ export interface StepEnv {
 	 * answers every one Yes (a test run).
 	 */
 	answers?: Set<number> | "all";
+	/**
+	 * A run once for a whole selection: the selected notes (`row` is only the first, for link text): no "this note",
+	 * the notes as [Selected notes].
+	 */
+	selection?: ViewRow[];
 }
 
 /** Where "Move the note" / "Rename the note" send a note: a folder (vault root ""), its type's folder rules, a new name. */
@@ -1204,13 +1253,16 @@ interface Frame {
  * that fails stops the run: the result has the error, the frontmatter as it was and no other notes.
  */
 export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
-	const start = copy(env.row.frontmatter);
+	// Once for a whole selection: no "this note" (a stand-in with no path or fields), the selection as [Selected notes].
+	const noMain = !!env.selection;
+	const mainRow: ViewRow = noMain ? { ...env.row, path: "", name: "", status: null, subtitle: null, tags: [], aliases: [], folder: "", frontmatter: {} } : env.row;
+	const start = copy(mainRow.frontmatter);
 	const notices: string[] = [];
 	const asked: string[] = [];
 	let topIndex = 0;
 	const via: string[] = [];
-	const main: RunNote = { path: env.row.path, row: env.row, start, fm: copy(env.row.frontmatter) };
-	const notes = new Map<string, RunNote>([[main.path, main]]);
+	const main: RunNote = { path: mainRow.path, row: mainRow, start, fm: copy(mainRow.frontmatter) };
+	const notes = new Map<string, RunNote>(noMain ? [] : [[main.path, main]]);
 	const order: RunNote[] = [];
 	const taken = new Set<string>();
 	let items = 0;
@@ -1244,10 +1296,9 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 		sync(n);
 	};
 	const targetOf = (f: Frame, on: string | undefined): RunNote => {
-		if (on === undefined) return f.item ?? f.main;
-		if (on === ON_THIS) return f.main;
-		const n = f.named.get(on);
+		const n = on === undefined ? (f.item ?? f.main) : on === ON_THIS ? f.main : f.named.get(on);
 		if (!n) throw new Error(`No earlier step created “${on}”.`);
+		if (noMain && n === main) throw new Error(NO_NOTE);
 		return n;
 	};
 	/** The notes a link value points at (paths), including notes this run made. */
@@ -1335,6 +1386,7 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 				const type = ctx.types.find((x) => x.key === s.type);
 				if (!type) throw new Error(s.type ? `“${s.type}” isn't a type.` : "Choose the type of note to create.");
 				const base = f.item ?? f.main;
+				if (s.link && noMain && base === main) throw new Error("There's no single note to link the new note to.");
 				const name = (s.name.trim() ? renderTemplate(s.name, f.reader.row, f.def, { ctx, old: f.reader === f.main ? f.old : undefined, vars: f.vars }) : "").trim() || `New ${type.name.toLowerCase()}`;
 				const fm: Record<string, unknown> = {};
 				const draft: RunNote = { path: "", row: { path: "", name, type, status: null, subtitle: null, tags: [], aliases: [], folder: "", mtime: 0, order: null, frontmatter: fm }, start: {}, fm };
@@ -1381,6 +1433,7 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 				return;
 			}
 			case "linked": {
+				if (noMain && f.item === undefined) throw new Error("For linked notes starts from a note: use For each over [Selected notes] instead.");
 				const scope = keysOf(loopItemTypes(s, f.wf.scope, ctx.types), ctx.types);
 				const def = workflowDef({ scope, when: s.when });
 				let paths: string[];
@@ -1429,7 +1482,8 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 		}
 	};
 
-	const top: Frame = { wf, main, reader: main, def: workflowDef(wf), vars: {}, named: new Map(), old: env.old, depth: 0, stack: [wf.id] };
+	const selected: Record<string, FValue> = env.selection ? { [SELECTION_VAR]: env.selection.map((r): LinkValue => ({ path: r.path, linktext: env.linkText(r.path), name: r.name })) } : {};
+	const top: Frame = { wf, main, reader: main, def: workflowDef(wf), vars: selected, named: new Map(), old: env.old, depth: 0, stack: [wf.id] };
 	for (let i = 0; i < wf.steps.length; i++) {
 		topIndex = i;
 		try {
@@ -1502,7 +1556,7 @@ export function triggerText(wf: WorkflowDef, types: EntityTypeDef[]): string {
 			return Array.isArray(t.to) && t.to.length ? `When ${label} changes${from} to ${quoted(t.to)}` : `When ${label} changes${from}`;
 		}
 		case "manual":
-			return `Button: ${t.label || wf.name}`;
+			return `Button: ${t.label || wf.name}${t.selection === "once" ? " (once for the selection)" : ""}`;
 		case "schedule": {
 			if (t.every === "hours") return t.hours === 1 ? "Every hour" : `Every ${t.hours} hours`;
 			return t.every === "day" ? `Every day at ${t.at}` : `Every ${WEEKDAYS[t.day] ?? "week"} at ${t.at}`;
