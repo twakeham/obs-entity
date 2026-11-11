@@ -78,6 +78,12 @@ export interface CreateLink {
 	dir: "from-new" | "to-new";
 	field: string;
 }
+/** A plain note's body (unset: empty): a template note's text ({{title}}, {{date}}, {{time}}), or text with {formula} parts. */
+export type CreateBody = { from: "template"; path: string } | { from: "text"; text: string };
+/** "Create a note" with no type: a plain note, placed in `folder`, its body `body`; no fields or link. */
+export const PLAIN_NOTE = "";
+/** What a plain note is for the rows runs work on: a type with no fields, which nothing else has. */
+export const PLAIN_TYPE: EntityTypeDef = { key: PLAIN_NOTE, name: "Note", plural: "Notes", icon: "file", color: "", group: "", template: "", fields: [], builtIn: false };
 
 /** `on` for the workflow's own note, inside a loop (where unset means each linked note). */
 export const ON_THIS = "@this";
@@ -107,7 +113,7 @@ export type NoteStep =
 	| { kind: "tag"; op: "add" | "remove"; tag: string; on?: string }
 	| { kind: "link"; op: "add" | "remove"; field: string; target: string; fixed?: string[]; on?: string }
 	| { kind: "notice"; text: string }
-	| { kind: "create"; type: string; name: string; fields: CreateField[]; link?: CreateLink; template: boolean; open: CreateOpen; exists: CreateExists; as: string }
+	| { kind: "create"; type: string; name: string; fields: CreateField[]; link?: CreateLink; template: boolean; open: CreateOpen; exists: CreateExists; as: string; folder?: string; body?: CreateBody }
 	| { kind: "run"; workflow: string; on?: string }
 	| { kind: "ask"; text: string }
 	| { kind: "move"; to: MoveTo; folder: string; on?: string }
@@ -295,10 +301,18 @@ function readStep(raw: unknown): WorkflowStep | null {
 				open: raw.open === "tab" || raw.open === "current" ? raw.open : "no",
 				exists: raw.exists === "use" || raw.exists === "stop" ? raw.exists : "new",
 				as: str(raw.as),
+				...(str(raw.type) === PLAIN_NOTE ? plainParts(raw) : {}),
 			};
 		}
 	}
 	return null;
+}
+
+/** A plain note's folder and body, as saved. */
+function plainParts(raw: Record<string, unknown>): { folder?: string; body?: CreateBody } {
+	const b = raw.body;
+	const body: CreateBody | undefined = isObj(b) && b.from === "template" ? { from: "template", path: str(b.path) } : isObj(b) && b.from === "text" ? { from: "text", text: typeof b.text === "string" ? b.text : "" } : undefined;
+	return { ...(str(raw.folder) ? { folder: str(raw.folder) } : {}), ...(body ? { body } : {}) };
 }
 
 function readGroup(raw: unknown): FilterGroup {
@@ -459,8 +473,8 @@ export interface StepScope {
 	vars: VarSpec[];
 	/** which of `vars` are variables ("Set a variable" steps before this one) */
 	variables?: string[];
-	/** "On" choices besides the default: stored value, label, the note''s types; `made`: a note this run creates; `found`: a "Find notes" step's first */
-	on: { value: string; label: string; types: EntityTypeDef[]; made?: true; found?: true }[];
+	/** "On" choices besides the default: stored value, label, the note''s types; `made`: a note this run creates (`plain`: with no type); `found`: a "Find notes" step's first */
+	on: { value: string; label: string; types: EntityTypeDef[]; made?: true; plain?: true; found?: true }[];
 	/** the default note in the On picker: "This note", or "Each <name>" in a loop of notes */
 	defaultLabel: string;
 	/** inside a loop (of notes, or of values) */
@@ -485,7 +499,9 @@ export function stepScopes(wf: Pick<WorkflowDef, "scope" | "when" | "steps"> & P
 		? { def: workflowDef(wf), scope: wf.scope, types: scopeTypes(wf, all), fields: workflowFields(wf, all), vars: [{ name: SELECTION_VAR, type: "links" }], on: [], defaultLabel: "No single note", noNote: true }
 		: { def: workflowDef(wf), scope: wf.scope, types: scopeTypes(wf, all), fields: workflowFields(wf, all), vars: [], on: [], defaultLabel: "This note" };
 	const withCreated = (sc: StepScope, s: WorkflowStep): StepScope =>
-		s.kind === "create" && s.as.trim() ? { ...sc, vars: [...sc.vars, { name: s.as.trim(), type: "links" }], on: [...sc.on, { value: s.as.trim(), label: s.as.trim(), types: all.filter((t) => t.key === s.type), made: true }] } : sc;
+		s.kind === "create" && s.as.trim()
+			? { ...sc, vars: [...sc.vars, { name: s.as.trim(), type: "links" }], on: [...sc.on, { value: s.as.trim(), label: s.as.trim(), types: all.filter((t) => t.key === s.type), made: true, ...(s.type === PLAIN_NOTE ? { plain: true as const } : {}) }] }
+			: sc;
 	/** The scope inside a loop. */
 	const loopScope = (s: LoopStep, cur: StepScope): StepScope => {
 		const as = s.as.trim() || "Item";
@@ -563,6 +579,8 @@ export function stepTarget(s: WorkflowStep, sc: StepScope, all: EntityTypeDef[])
 	if (on === undefined) return { scope: sc.scope, types: sc.types, fields: sc.fields };
 	const o = sc.on.find((x) => x.value === on);
 	if (!o) return null;
+	// A plain note has no fields: only tags.
+	if (o.plain) return { scope: [PLAIN_NOTE], types: [], fields: [{ key: COMMON_KEYS.tags, label: "Tags", kind: "tags" }] };
 	const scope = keysOf(o.types, all);
 	return { scope, types: o.types, fields: workflowFields({ scope }, all) };
 }
@@ -601,18 +619,19 @@ export function createLinkOptions(wf: Pick<WorkflowDef, "scope">, typeKey: strin
 	return { fromNew, toNew };
 }
 
-/** A new "Create a note" step: a type that can link to this note (its link set), named for later steps. */
+/**
+ * A new "Create a note" step: a type that can link to this note (another type than the workflow's, if there is one),
+ * named for later steps; not linked and not opened to start with.
+ */
 export function newCreateStep(wf: Pick<WorkflowDef, "scope" | "steps" | "trigger">, types: EntityTypeDef[]): Extract<WorkflowStep, { kind: "create" }> {
 	const scope = new Set(scopeTypes(wf, types).map((t) => t.key));
 	const linkable = types.filter((t) => createLinkOptions(wf, t.key, types).fromNew.length);
 	const type = linkable.find((t) => !scope.has(t.key)) ?? linkable[0] ?? types.find((t) => !scope.has(t.key)) ?? types[0];
-	const opts = type ? createLinkOptions(wf, type.key, types) : { fromNew: [], toNew: [] };
-	const link: CreateLink | undefined = opts.fromNew[0] ? { dir: "from-new", field: opts.fromNew[0].key } : opts.toNew[0] ? { dir: "to-new", field: opts.toNew[0].key } : undefined;
 	const used = new Set(wf.steps.flatMap((s) => (s.kind === "create" ? [s.as.trim().toLowerCase()] : [])));
 	const base = `New ${(type?.name ?? "note").toLowerCase()}`;
 	let as = base;
 	for (let n = 2; used.has(as.toLowerCase()); n++) as = `${base} ${n}`;
-	return { kind: "create", type: type?.key ?? "", name: "", fields: [], ...(link ? { link } : {}), template: true, open: wf.trigger.kind === "manual" ? "tab" : "no", exists: "new", as };
+	return { kind: "create", type: type?.key ?? PLAIN_NOTE, name: "", fields: [], template: true, open: "no", exists: "new", as };
 }
 
 /** Whether a `changed` trigger on this field can list from / to values (status, choices, checkboxes). */
@@ -869,7 +888,7 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 		const fErr = (src: string) => formulaError(src, sc.def, lookup, sc.vars, !!sc.noNote);
 		const tErr = (src: string) => templateError(src, sc.def, lookup, sc.vars, !!sc.noNote);
 		if (sc.noNote && !("on" in s && s.on !== undefined) && (s.kind === "set" || s.kind === "clear" || s.kind === "tag" || s.kind === "link" || s.kind === "move" || s.kind === "rename" || s.kind === "run" || (s.kind === "if" && s.test === "filter"))) add(at, NO_NOTE);
-		if (sc.noNote && s.kind === "create" && s.link) add(at, "There's no single note to link the new note to: link it inside a For each over [Selected notes], or leave Link empty.");
+		if (sc.noNote && s.kind === "create" && s.link && s.type !== PLAIN_NOTE) add(at, "There's no single note to link the new note to: link it inside a For each over [Selected notes], or leave Link empty.");
 		if (sc.noNote && s.kind === "linked") add(at, "For linked notes starts from a note: use For each over [Selected notes] instead.");
 		const fieldOk = (fkey: string, what: string) => {
 			if (!fkey) return add(at, `Choose the field to ${what}.`);
@@ -982,10 +1001,19 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 			}
 			case "create": {
 				const nt = lookup.types.find((x) => x.key === s.type);
-				if (!nt) add(at, s.type ? `“${s.type}” isn't a type.` : "Choose the type of note to create.");
+				const nameErr = s.name.trim() ? tErr(s.name) : null;
+				if (s.type === PLAIN_NOTE) {
+					if (nameErr) add(at, `Name: ${nameErr}`);
+					const fe = s.folder?.trim() ? tErr(s.folder) : null;
+					if (fe) add(at, `Folder: ${fe}`);
+					if (s.body?.from === "template" && !s.body.path.trim()) add(at, "Choose the template note for its body.");
+					if (s.body?.from === "text" && s.body.text.trim()) {
+						const be = tErr(s.body.text);
+						if (be) add(at, `Body: ${be}`);
+					}
+				} else if (!nt) add(at, `“${s.type}” isn't a type.`);
 				else {
-					const e = s.name.trim() ? tErr(s.name) : null;
-					if (e) add(at, `Name: ${e}`);
+					if (nameErr) add(at, `Name: ${nameErr}`);
 					const nf = workflowFields({ scope: [nt.key] }, lookup.types);
 					for (const r of s.fields) {
 						const f = nf.find((x) => x.key === r.field && x.kind !== "tags");
@@ -1275,6 +1303,8 @@ export interface PlaceRequest {
 	exists: CreateExists;
 	/** paths (lower case) of notes this run creates before this one */
 	taken: Set<string>;
+	/** a plain note (no type): the folder it goes in ("/": the vault's top folder; "": where Obsidian puts new notes), not a type's folder rules */
+	plain?: { folder: string };
 }
 /** The new note's path; or, with "Use the existing one", the existing note; or why the run stops. */
 export type Placed = { path: string; existing?: ViewRow } | { stop: string };
@@ -1321,8 +1351,8 @@ export interface FieldChange {
 export interface OtherNote {
 	path: string;
 	name: string;
-	/** set when the run created it: its frontmatter is `fm` */
-	created?: { type: string; template: boolean; open: CreateOpen };
+	/** set when the run created it: its frontmatter is `fm`; a plain note (type "") has its body here too */
+	created?: { type: string; template: boolean; open: CreateOpen; body?: { path: string } | { text: string } };
 	fm: Record<string, unknown>;
 	changes: FieldChange[];
 	/** where it moves to (and its new name), when a step moves or renames it */
@@ -1623,23 +1653,27 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 			}
 			case "create": {
 				if (!env.place) throw new Error("Notes can't be created here.");
-				const type = ctx.types.find((x) => x.key === s.type);
-				if (!type) throw new Error(s.type ? `“${s.type}” isn't a type.` : "Choose the type of note to create.");
+				const plain = s.type === PLAIN_NOTE;
+				const type = plain ? PLAIN_TYPE : ctx.types.find((x) => x.key === s.type);
+				if (!type) throw new Error(`“${s.type}” isn't a type.`);
 				const base = f.item ?? f.main;
-				if (s.link && noMain && base === main) throw new Error("There's no single note to link the new note to.");
-				const name = (s.name.trim() ? renderTemplate(s.name, f.reader.row, f.def, { ctx, old: f.reader === f.main ? f.old : undefined, vars: varsOf(f) }) : "").trim() || `New ${type.name.toLowerCase()}`;
+				const link = plain ? undefined : s.link;
+				if (link && noMain && base === main) throw new Error("There's no single note to link the new note to.");
+				const text = (src: string) => renderTemplate(src, f.reader.row, f.def, { ctx, old: f.reader === f.main ? f.old : undefined, vars: varsOf(f) });
+				const name = (s.name.trim() ? text(s.name) : "").trim() || `New ${type.name.toLowerCase()}`;
 				const fm: Record<string, unknown> = {};
 				const draft: RunNote = { path: "", row: { path: "", name, type, status: null, subtitle: null, tags: [], aliases: [], folder: "", mtime: 0, order: null, frontmatter: fm }, start: {}, fm };
 				const nf = workflowFields({ scope: [type.key] }, ctx.types);
-				for (const r of s.fields) {
+				for (const r of plain ? [] : s.fields) {
 					const wfield = nf.find((x) => x.key === r.field);
 					if (!wfield) throw new Error(`${type.name} has no “${r.field}” field.`);
 					fm[wfield.key] = valueFor(f, wfield, draft, r.fixed, r.value);
 					sync(draft);
 				}
-				const fromNew = s.link?.dir === "from-new" ? type.fields.find((x) => x.key === s.link!.field && x.kind === "relation") : undefined;
+				const fromNew = link?.dir === "from-new" ? type.fields.find((x) => x.key === link.field && x.kind === "relation") : undefined;
 				if (fromNew) addLink(draft, fromNew, base.path);
-				const placed = env.place({ type, name, fm, exists: s.exists, taken });
+				const dest = s.folder?.trim() ? text(s.folder).trim() : "";
+				const placed = env.place({ type, name, fm, exists: s.exists, taken, ...(plain ? { plain: { folder: dest === "/" ? "/" : folderPath(dest) } } : {}) });
 				if ("stop" in placed) throw new StopRun(placed.stop);
 				let made: RunNote;
 				if (placed.existing) {
@@ -1648,15 +1682,16 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 					if (fromNew) addLink(made, fromNew, base.path);
 				} else {
 					taken.add(placed.path.toLowerCase());
-					made = { ...draft, path: placed.path, row: { ...draft.row, path: placed.path, name: baseName(placed.path) }, created: { type: type.key, template: s.template, open: s.open } };
+					const body = !plain || !s.body ? undefined : s.body.from === "template" ? { path: s.body.path } : { text: text(s.body.text) };
+					made = { ...draft, path: placed.path, row: { ...draft.row, path: placed.path, name: baseName(placed.path) }, created: { type: type.key, template: !plain && s.template, open: s.open, ...(body ? { body } : {}) } };
 					notes.set(made.path, made);
 					order.push(made);
 				}
 				const as = s.as.trim();
 				f.named.set(as, made);
 				f.vars[as] = linkOf(made);
-				if (s.link?.dir === "to-new") {
-					const fd = base.row.type.fields.find((x) => x.key === s.link!.field && x.kind === "relation");
+				if (link?.dir === "to-new") {
+					const fd = base.row.type.fields.find((x) => x.key === link.field && x.kind === "relation");
 					if (fd) addLink(base, fd, made.path);
 				}
 				return;

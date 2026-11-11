@@ -28,6 +28,7 @@ describe("packs with workflows", () => {
 			{ kind: "each", formula: "[in:task.project]", items: "notes", itemType: "task", when: { mode: "all", items: [] }, as: "Each", steps: [{ kind: "notice", text: "{[Each]}" }, { kind: "each", formula: "[in:task.project]", items: "notes", itemType: "task", when: { mode: "all", items: [] }, as: "Inner", steps: [{ kind: "var", name: "N", value: "count([in:task.project])" }] }] },
 			{ kind: "notice", text: "{count([in:task.project])} tasks" },
 			{ kind: "find", types: ["task"], when: { mode: "all", items: [{ field: "in:task.project", op: "empty" }] }, sort: { by: "in:task.project", dir: "desc" }, keep: "first", as: "First" },
+			{ kind: "create", type: "", name: "Log", fields: [], template: false, open: "no", exists: "new", as: "Log", folder: "Logs/{count([in:task.project])}", body: { from: "text", text: "{count([in:task.project])} tasks" } },
 		],
 	});
 	const other = wf({ id: "wf-other", name: "Elsewhere", scope: ["person"], steps: [{ kind: "tag", op: "add", tag: "x" }] });
@@ -75,6 +76,7 @@ describe("packs with workflows", () => {
 		expect(stepAt(kick.steps, "2.1.0")).toEqual({ kind: "var", name: "N", value: "count([in:task_2.project])" });
 		expect(notice.text).toBe("{count([in:task_2.project])} tasks");
 		expect(stepAt(kick.steps, "4")).toEqual({ kind: "find", types: ["task_2"], when: { mode: "all", items: [{ field: "in:task_2.project", op: "empty" }] }, sort: { by: "in:task_2.project", dir: "desc" }, keep: "first", as: "First" });
+		expect(stepAt(kick.steps, "5")).toMatchObject({ type: "", folder: "Logs/{count([in:task_2.project])}", body: { from: "text", text: "{count([in:task_2.project])} tasks" } });
 	});
 
 	it("leave everything as written when nothing clashes", () => {

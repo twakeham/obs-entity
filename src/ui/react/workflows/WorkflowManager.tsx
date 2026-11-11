@@ -26,6 +26,7 @@ import {
 	linkedSources,
 	loopItemTypes,
 	ON_THIS,
+	PLAIN_NOTE,
 	formulaFromFixed,
 	readsNote,
 	runsOnce,
@@ -72,7 +73,7 @@ import { DateBox, FiltersPanel, LinkValues, type ColumnChoice } from "../table/p
 import { ConfirmModal, SaveActions } from "../types/TypeManager";
 import { IconPicker, Row, Section, Segmented, TargetPicker, TextInput, Toggle, type SectionCollapse } from "../types/controls";
 import { openTryRun } from "./TryRun";
-import { FolderPickerModal } from "../../modals/bulkModals";
+import { FolderPickerModal, NotePathPickerModal } from "../../modals/bulkModals";
 
 /** The workflow editor's tabs: the workflow itself, and its recent runs. */
 export type WorkflowTab = "edit" | "runs";
@@ -1133,8 +1134,9 @@ function StepCard({
 	const mine = problems.filter((p) => p.at === `step:${path}`);
 	const placing = step.kind === "move" || step.kind === "rename";
 	const hasOn = step.kind === "set" || step.kind === "clear" || step.kind === "tag" || step.kind === "link" || step.kind === "run" || placing || (step.kind === "if" && step.test === "filter");
-	// Created notes are named and placed by their Create a note step: moving or renaming offers the others only.
-	const onChoices = placing ? sc.on.filter((o) => !o.made) : sc.on;
+	// Created notes are named and placed by their Create a note step: moving or renaming offers the others only. A
+	// plain note has no fields to set, clear or link.
+	const onChoices = placing ? sc.on.filter((o) => !o.made) : step.kind === "set" || step.kind === "clear" || step.kind === "link" ? sc.on.filter((o) => !o.plain) : sc.on;
 	const changeOn = (v: string) => {
 		if (!hasOn) return;
 		const withOn = { ...step, on: v || undefined } as WorkflowStep;
@@ -1854,20 +1856,16 @@ function RunBody({ wf, types, step, onChange }: { wf: WorkflowDef; types: Entity
 
 type CreateStep = Extract<WorkflowStep, { kind: "create" }>;
 
-/** The link a created note of a type starts with: its field to this note if it has one, else this note''s to it. */
-function defaultCreateLink(scope: string[], typeKey: string, types: EntityTypeDef[]): CreateLink | undefined {
-	const o = createLinkOptions({ scope }, typeKey, types);
-	return o.fromNew[0] ? { dir: "from-new", field: o.fromNew[0].key } : o.toNew[0] ? { dir: "to-new", field: o.toNew[0].key } : undefined;
-}
-
 /**
- * "Create a note": its type, name (a template), starting fields (picked or formulas), the link between it and the
- * note the step is for (this note, or each note in a loop), the type''s template, whether it opens, what to do when
- * it already exists, and the name later steps call it.
+ * "Create a note": its type (or a plain note, with no type), name (a template), and then, for a type: starting fields
+ * (picked or formulas), the link between it and the note the step is for (this note, or each note in a loop), and the
+ * type''s template; for a plain note: its folder and body. Then whether it opens, what to do when it already exists,
+ * and the name later steps call it.
  */
 function CreateBody({ wf, sc, step, onChange }: { wf: WorkflowDef; sc: StepScope; step: CreateStep; onChange: (s: WorkflowStep) => void }) {
 	const plugin = usePlugin();
 	const { types, groups } = plugin.settings;
+	const plain = step.type === PLAIN_NOTE;
 	const type = types.find((t) => t.key === step.type);
 	const nf = type ? workflowFields({ scope: [type.key] }, types).filter((f) => f.key !== COMMON_KEYS.tags) : [];
 	const links = createLinkOptions({ scope: sc.scope }, step.type, types);
@@ -1876,20 +1874,22 @@ function CreateBody({ wf, sc, step, onChange }: { wf: WorkflowDef; sc: StepScope
 	const which = sc.loop === "notes" ? sc.defaultLabel.replace(/^Each /, "the ") : sc.noNote ? "the selected notes" : "this note";
 	const setType = (key: string) => {
 		const t = types.find((x) => x.key === key);
-		const link = defaultCreateLink(sc.scope, key, types);
-		const { link: _l, ...rest } = step;
+		// Another kind of note: its fields, link, folder and body start again (not linked).
+		const { link: _l, folder: _f, body: _b, ...rest } = step;
 		// A name still the default for the old type follows the new one.
 		const wasDefault = step.as.trim().toLowerCase().startsWith(`new ${typeName}`);
-		const as = wasDefault && t ? uniqueName(`New ${t.name.toLowerCase()}`, usedNames(wf, step)) : step.as;
-		onChange({ ...rest, type: key, fields: [], as, ...(link ? { link } : {}) });
+		const as = wasDefault ? uniqueName(`New ${(t?.name ?? "note").toLowerCase()}`, usedNames(wf, step)) : step.as;
+		onChange({ ...rest, type: key, fields: [], as });
 	};
 	const linkValue = step.link ? `${step.link.dir}:${step.link.field}` : "";
+	const bodyFrom = step.body?.from ?? "empty";
 	return (
 		<div className="oe-wf-create">
 			{formRow(
 				"Type",
 				<select className="dropdown oe-pop-select" aria-label="Type of note" value={step.type} onChange={(e) => setType(e.target.value)}>
-					{!type && <option value={step.type}>{step.type || "Choose…"}</option>}
+					<option value={PLAIN_NOTE}>Plain note (no type)</option>
+					{!type && !plain && <option value={step.type}>{step.type}</option>}
 					{groups.map((g) => {
 						const list = types.filter((t) => t.group === g.key);
 						return list.length ? (
@@ -1904,104 +1904,155 @@ function CreateBody({ wf, sc, step, onChange }: { wf: WorkflowDef; sc: StepScope
 					})}
 				</select>,
 			)}
-			{formRow("Name", <FormulaBox sc={sc} template label="Note name" value={step.name} placeholder={`New ${typeName}  ·  e.g. {[Name]} kick-off`} onChange={(v) => set({ name: v })} />, "Text with {formula} parts. Empty: “New <type>”.")}
-			{formRow(
-				"Fields",
-				<div className="oe-wf-create-fields">
-					{step.fields.map((r, i) => {
-						const f = nf.find((x) => x.key === r.field);
-						const setRow = (next: CreateField) => set({ fields: step.fields.map((x, j) => (j === i ? next : x)) });
-						return (
-							<div key={i} className="oe-wf-create-field" data-create-field={r.field}>
-								<FieldSelect label="Field" value={r.field} fields={nf.filter((x) => x.key === r.field || !step.fields.some((y) => y.field === x.key))} onChange={(k) => setRow({ field: k, value: "", fixed: defaultFixed(nf.find((x) => x.key === k)) })} />
-								<span className="oe-wf-to">=</span>
-								<StepValue
-									sc={sc}
-									types={type ? [type] : []}
-									field={f}
-									preview={false}
-									fixed={r.fixed}
-									formula={r.value}
-									title={`${type?.name ?? "New note"}: ${f?.label ?? r.field}`}
-									placeholder={valueHint(f)}
-									onChange={(v) => setRow("fixed" in v ? { field: r.field, value: "", fixed: v.fixed } : { field: r.field, value: v.formula })}
-								/>
-								<button className="clickable-icon" aria-label={`Remove ${f?.label ?? r.field}`} onClick={() => set({ fields: step.fields.filter((_, j) => j !== i) })}>
-									<Icon name="x" />
-								</button>
-							</div>
-						);
-					})}
-					{nf.some((x) => !step.fields.some((y) => y.field === x.key)) && (
+			{formRow("Name", <FormulaBox sc={sc} template label="Note name" value={step.name} placeholder={`New ${typeName}  ·  e.g. {[Name]} kick-off`} onChange={(v) => set({ name: v })} />, `Text with {formula} parts. Empty: “New ${typeName}”.`)}
+			{plain &&
+				formRow(
+					"Folder",
+					<FormulaBox sc={sc} template label="Folder" value={step.folder ?? ""} placeholder="Obsidian's default location  ·  e.g. Inbox/{year(today())}" onChange={(v) => onChange(v ? { ...step, folder: v } : (({ folder: _f, ...rest }) => rest)(step))}>
+						<button
+							className="oe-wf-fxbtn"
+							title="Pick a folder"
+							aria-label="Pick a folder"
+							onClick={() => new FolderPickerModal(plugin, (f) => set({ folder: f.isRoot() ? "/" : f.path.replace(/[{}]/g, (c) => c + c) }), "Create it in…").open()}
+						>
+							<Icon name="folder" />
+						</button>
+					</FormulaBox>,
+					"Text with {formula} parts; / is the vault's top folder. Empty: where Obsidian puts new notes (Settings → Files and links).",
+				)}
+			{!plain &&
+				formRow(
+					"Fields",
+					<div className="oe-wf-create-fields">
+						{step.fields.map((r, i) => {
+							const f = nf.find((x) => x.key === r.field);
+							const setRow = (next: CreateField) => set({ fields: step.fields.map((x, j) => (j === i ? next : x)) });
+							return (
+								<div key={i} className="oe-wf-create-field" data-create-field={r.field}>
+									<FieldSelect label="Field" value={r.field} fields={nf.filter((x) => x.key === r.field || !step.fields.some((y) => y.field === x.key))} onChange={(k) => setRow({ field: k, value: "", fixed: defaultFixed(nf.find((x) => x.key === k)) })} />
+									<span className="oe-wf-to">=</span>
+									<StepValue
+										sc={sc}
+										types={type ? [type] : []}
+										field={f}
+										preview={false}
+										fixed={r.fixed}
+										formula={r.value}
+										title={`${type?.name ?? "New note"}: ${f?.label ?? r.field}`}
+										placeholder={valueHint(f)}
+										onChange={(v) => setRow("fixed" in v ? { field: r.field, value: "", fixed: v.fixed } : { field: r.field, value: v.formula })}
+									/>
+									<button className="clickable-icon" aria-label={`Remove ${f?.label ?? r.field}`} onClick={() => set({ fields: step.fields.filter((_, j) => j !== i) })}>
+										<Icon name="x" />
+									</button>
+								</div>
+							);
+						})}
+						{nf.some((x) => !step.fields.some((y) => y.field === x.key)) && (
+							<select
+								className="dropdown oe-pop-select oe-wf-add-field"
+								aria-label="Add a field"
+								value=""
+								onChange={(e) => {
+									const f = nf.find((x) => x.key === e.target.value);
+									if (f) set({ fields: [...step.fields, { field: f.key, value: "", fixed: defaultFixed(f) }] });
+								}}
+							>
+								<option value="" hidden>
+									+ Add a field
+								</option>
+								{nf
+									.filter((x) => !step.fields.some((y) => y.field === x.key))
+									.map((x) => (
+										<option key={x.key} value={x.key}>
+											{x.label}
+										</option>
+									))}
+							</select>
+						)}
+					</div>,
+					`The new note's values. Formulas read ${which}.`,
+				)}
+			{!plain &&
+				formRow(
+					"Link",
+					sc.noNote && !step.link ? (
+						<span className="oe-tm-muted">No single note to link it to here: link the selected notes to it inside a For each over [{SELECTION_VAR}] (Add or remove a link, to [{step.as.trim() || "the new note"}]).</span>
+					) : (
 						<select
-							className="dropdown oe-pop-select oe-wf-add-field"
-							aria-label="Add a field"
-							value=""
+							className="dropdown oe-pop-select oe-wf-create-link"
+							aria-label="Link"
+							value={linkValue}
 							onChange={(e) => {
-								const f = nf.find((x) => x.key === e.target.value);
-								if (f) set({ fields: [...step.fields, { field: f.key, value: "", fixed: defaultFixed(f) }] });
+								const [dir, field] = e.target.value.split(":") as [CreateLink["dir"], string];
+								const { link: _l, ...rest } = step;
+								onChange(e.target.value ? { ...rest, link: { dir, field } } : rest);
 							}}
 						>
-							<option value="" hidden>
-								+ Add a field
-							</option>
-							{nf
-								.filter((x) => !step.fields.some((y) => y.field === x.key))
-								.map((x) => (
-									<option key={x.key} value={x.key}>
-										{x.label}
-									</option>
-								))}
+							<option value="">Don't link it to {which}</option>
+							{links.fromNew.length > 0 && (
+								<optgroup label={`The new ${typeName}'s field → ${which}`}>
+									{links.fromNew.map((f) => (
+										<option key={f.key} value={`from-new:${f.key}`}>
+											{f.label}
+										</option>
+									))}
+								</optgroup>
+							)}
+							{links.toNew.length > 0 && (
+								<optgroup label={`${which[0].toUpperCase()}${which.slice(1)}'s field → the new ${typeName}`}>
+									{links.toNew.map((f) => (
+										<option key={f.key} value={`to-new:${f.key}`}>
+											{f.label}
+										</option>
+									))}
+								</optgroup>
+							)}
+							{step.link && !(step.link.dir === "from-new" ? links.fromNew : links.toNew).some((f) => f.key === step.link!.field) && <option value={linkValue}>{step.link.field}</option>}
 						</select>
+					),
+				)}
+			{plain
+				? formRow(
+						"Body",
+						<div className="oe-wf-stack oe-wf-create-body">
+							<Segmented
+								label="Body"
+								value={bodyFrom}
+								options={[
+									{ value: "empty", label: "Empty" },
+									{ value: "template", label: "A template note" },
+									{ value: "text", label: "Text" },
+								]}
+								onChange={(v) => {
+									const { body: _b, ...rest } = step;
+									onChange(v === "template" ? { ...rest, body: { from: "template", path: "" } } : v === "text" ? { ...rest, body: { from: "text", text: "" } } : rest);
+								}}
+							/>
+							{step.body?.from === "template" && (
+								<span className="oe-wf-inline">
+									<button
+										className="oe-wf-template-pick"
+										aria-label="Choose the template note"
+										onClick={() => new NotePathPickerModal(plugin, (f) => set({ body: { from: "template", path: f.path.replace(/\.md$/i, "") } }), "Template note…").open()}
+									>
+										<Icon name="file-text" /> {step.body.path || "Choose a note…"}
+									</button>
+									<span className="oe-tm-muted">Its text, with {"{{title}}"}, {"{{date}}"} and {"{{time}}"} filled in.</span>
+								</span>
+							)}
+							{step.body?.from === "text" && (
+								<FormulaBox sc={sc} template multiline label="Body text" value={step.body.text} placeholder="e.g. Notes from {[Name]}" onChange={(v) => set({ body: { from: "text", text: v } })} />
+							)}
+						</div>,
+					)
+				: formRow(
+						"Body",
+						<span className="oe-wf-inline">
+							<Toggle label="Use the type's template" value={step.template} onChange={(v) => set({ template: v })} />
+							<span className="oe-tm-muted">{step.template ? "From the type's template" : "Empty"}</span>
+						</span>,
 					)}
-				</div>,
-				`The new note's values. Formulas read ${which}.`,
-			)}
-			{formRow(
-				"Link",
-				sc.noNote && !step.link ? (
-					<span className="oe-tm-muted">No single note to link it to here: link the selected notes to it inside a For each over [{SELECTION_VAR}] (Add or remove a link, to [{step.as.trim() || "the new note"}]).</span>
-				) : (
-					<select
-						className="dropdown oe-pop-select oe-wf-create-link"
-						aria-label="Link"
-						value={linkValue}
-						onChange={(e) => {
-							const [dir, field] = e.target.value.split(":") as [CreateLink["dir"], string];
-							const { link: _l, ...rest } = step;
-							onChange(e.target.value ? { ...rest, link: { dir, field } } : rest);
-						}}
-					>
-						<option value="">Don't link it to {which}</option>
-						{links.fromNew.length > 0 && (
-							<optgroup label={`The new ${typeName}'s field → ${which}`}>
-								{links.fromNew.map((f) => (
-									<option key={f.key} value={`from-new:${f.key}`}>
-										{f.label}
-									</option>
-								))}
-							</optgroup>
-						)}
-						{links.toNew.length > 0 && (
-							<optgroup label={`${which[0].toUpperCase()}${which.slice(1)}'s field → the new ${typeName}`}>
-								{links.toNew.map((f) => (
-									<option key={f.key} value={`to-new:${f.key}`}>
-										{f.label}
-									</option>
-								))}
-							</optgroup>
-						)}
-						{step.link && !(step.link.dir === "from-new" ? links.fromNew : links.toNew).some((f) => f.key === step.link!.field) && <option value={linkValue}>{step.link.field}</option>}
-					</select>
-				),
-			)}
-			{formRow(
-				"Body",
-				<span className="oe-wf-inline">
-					<Toggle label="Use the type's template" value={step.template} onChange={(v) => set({ template: v })} />
-					<span className="oe-tm-muted">{step.template ? "From the type's template" : "Empty"}</span>
-				</span>,
-			)}
 			{formRow(
 				"Open it",
 				<Segmented
@@ -2022,7 +2073,7 @@ function CreateBody({ wf, sc, step, onChange }: { wf: WorkflowDef; sc: StepScope
 					<option value="use">Use the existing one</option>
 					<option value="stop">Stop the run</option>
 				</select>,
-				"A note of this type with the same name, where it would be created. Create another: its name gets “ 2”, “ 3”…",
+				plain ? "A note with the same name in that folder. Create another: its name gets “ 2”, “ 3”…" : "A note of this type with the same name, where it would be created. Create another: its name gets “ 2”, “ 3”…",
 			)}
 			{formRow(
 				"Call it",
@@ -2275,6 +2326,7 @@ function FormulaBox({
 	label,
 	title,
 	field,
+	multiline,
 	onChange,
 	children,
 }: {
@@ -2287,11 +2339,13 @@ function FormulaBox({
 	title?: string;
 	/** the field the formula's result goes in: the formula editor's preview shows what it would store */
 	field?: WorkflowField;
+	/** several lines (a text box that grows), e.g. a note's body */
+	multiline?: boolean;
 	onChange: (v: string) => void;
 	children?: ReactNode;
 }) {
 	const plugin = usePlugin();
-	const ref = useRef<HTMLInputElement>(null);
+	const ref = useRef<HTMLInputElement & HTMLTextAreaElement>(null);
 	const lookup = { types: plugin.settings.types, groups: plugin.settings.groups };
 	const { def, vars } = sc;
 	let error: string | null = null;
@@ -2341,8 +2395,12 @@ function FormulaBox({
 	};
 	return (
 		<div className={`oe-wf-formula${error ? " is-invalid" : ""}`}>
-			<div className="oe-wf-formula-row">
-				<input ref={ref} type="text" className="oe-wf-formula-input" aria-label={label ?? (template ? "Text" : "Formula")} value={value} placeholder={placeholder} spellCheck={false} onChange={(e) => onChange(e.target.value)} />
+			<div className={`oe-wf-formula-row${multiline ? " is-multiline" : ""}`}>
+				{multiline ? (
+					<textarea ref={ref} className="oe-wf-formula-input" aria-label={label ?? "Text"} value={value} placeholder={placeholder} spellCheck={false} onChange={(e) => onChange(e.target.value)} />
+				) : (
+					<input ref={ref} type="text" className="oe-wf-formula-input" aria-label={label ?? (template ? "Text" : "Formula")} value={value} placeholder={placeholder} spellCheck={false} onChange={(e) => onChange(e.target.value)} />
+				)}
 				<InsertFieldButton sc={sc} onPick={insert} />
 				<button className="oe-wf-fxbtn oe-wf-fx" aria-label="Open the formula editor" title={template ? "Open the formula editor (for the {…} part the cursor is in, or a new one)" : "Open the formula editor"} onClick={openEditor}>
 					<span className="oe-wf-fx-label">ƒx</span>

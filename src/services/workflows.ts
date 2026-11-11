@@ -1,8 +1,9 @@
-import { Events, Notice, Platform, TFile, TFolder, debounce, normalizePath } from "obsidian";
+import { Events, Notice, Platform, TFile, TFolder, debounce, moment, normalizePath } from "obsidian";
 import { emptyFormValues } from "../model/defaults";
 import { todayDays } from "../model/formConditions";
 import type { EntityFormValues } from "../model/frontmatter";
 import { joinPath, sanitizeFileName, uniquePath } from "../model/paths";
+import { renderTemplate as renderNoteTemplate } from "../model/templates";
 import { askQuestion, confirmRun } from "../ui/modals/workflowModals";
 import { COMMON_KEYS } from "../model/types";
 import type { ViewContext, ViewRow } from "../model/views";
@@ -16,6 +17,8 @@ import {
 	isTimed,
 	MAX_CHAIN,
 	passesWhen,
+	PLAIN_NOTE,
+	PLAIN_TYPE,
 	reachText,
 	runReach,
 	runSteps,
@@ -25,6 +28,7 @@ import {
 	type DateTrigger,
 	type FieldChange,
 	type NoteMove,
+	type OtherNote,
 	type Placed,
 	type PlaceRequest,
 	type RunResult,
@@ -542,10 +546,14 @@ export class WorkflowEngine extends Events {
 			const moved: { from: string; to: string }[] = [];
 			try {
 				for (const o of made) {
-					const type = plugin.getType(o.created!.type);
-					if (!type) throw new Error(`“${o.created!.type}” isn't a type.`);
 					this.expectWrite(o.path, tag);
 					this.justCreated.set(o.path, Date.now() + TAG_MS);
+					if (o.created!.type === PLAIN_NOTE) {
+						createdFiles.push({ path: (await this.createPlain(o)).path, content: "" });
+						continue;
+					}
+					const type = plugin.getType(o.created!.type);
+					if (!type) throw new Error(`“${o.created!.type}” isn't a type.`);
 					const values = emptyFormValues(type, plugin.settings.groups, o.name, { today: todayDays(), dates: plugin.dates });
 					const file = await plugin.factory.createEntity(type, values, { open: false, path: o.path, frontmatter: o.fm, template: o.created!.template });
 					createdFiles.push({ path: file.path, content: "" });
@@ -707,7 +715,8 @@ export class WorkflowEngine extends Events {
 		const { app, factory, index } = this.plugin;
 		return (req) => {
 			const values = { name: req.name, status: "", tags: [], fields: req.fm as EntityFormValues["fields"] };
-			const folder = factory.folderFor(req.type, values);
+			// A plain note: its own folder ("/": the top; none: where Obsidian puts new notes); else its type's rules.
+			const folder = req.plain ? (req.plain.folder === "/" ? "" : req.plain.folder || this.newNoteFolder()) : factory.folderFor(req.type, values);
 			const base = sanitizeFileName(req.name);
 			if (!base) return { stop: `“${req.name}” can't be a note's name.` };
 			const folderObj = folder ? app.vault.getAbstractFileByPath(folder) : app.vault.getRoot();
@@ -716,15 +725,52 @@ export class WorkflowEngine extends Events {
 			const at = normalizePath(joinPath(folder, `${base}.md`));
 			const same = inFolder.find((f) => f.path.toLowerCase() === at.toLowerCase());
 			const rec = same ? index.get(same.path) : undefined;
-			if (rec && rec.type.key === req.type.key) {
-				if (req.exists === "stop") return { stop: `${rec.name} already exists.` };
+			// The same note: for a type, a note of that type; for a plain note, any note of that name there.
+			if (same && (req.plain || (rec && rec.type.key === req.type.key))) {
+				const name = rec?.name ?? same.basename;
+				if (req.exists === "stop") return { stop: `${name} already exists.` };
 				if (req.exists === "use") {
-					const existing = rows.find((r) => r.path === rec.path);
-					if (existing) return { path: rec.path, existing };
+					const existing = rows.find((r) => r.path === same.path) ?? (req.plain ? this.plainRow(same) : undefined);
+					if (existing) return { path: same.path, existing };
 				}
 			}
 			return { path: normalizePath(uniquePath(folder, base, taken)) };
 		};
+	}
+
+	/** Where Obsidian puts new notes (its "Default location for new notes"): a folder path, "" for the top. */
+	private newNoteFolder(): string {
+		const parent = this.plugin.app.fileManager.getNewFileParent("");
+		return parent.isRoot() ? "" : parent.path;
+	}
+
+	/** A note that isn't an entity, as a row runs can use ("Use the existing one" for a plain note): no fields. */
+	private plainRow(file: TFile): ViewRow {
+		const fm = { ...(this.plugin.app.metadataCache.getFileCache(file)?.frontmatter ?? {}) } as Record<string, unknown>;
+		delete fm.position;
+		return { path: file.path, name: file.basename, type: PLAIN_TYPE, status: null, subtitle: null, tags: [], aliases: [], folder: file.parent?.path ?? "", mtime: file.stat.mtime, order: null, frontmatter: fm };
+	}
+
+	/**
+	 * Write a plain note a run created (no type): its folder made as needed, its body (a template note's text with
+	 * {{title}}, {{date}} and {{time}} filled in, or the step's text), and any frontmatter later steps gave it.
+	 */
+	private async createPlain(o: OtherNote): Promise<TFile> {
+		const { app, factory } = this.plugin;
+		const folder = await factory.ensureFolder(o.path.split("/").slice(0, -1).join("/"));
+		const path = folder ? `${folder}/${o.path.split("/").pop()}` : o.path;
+		const body = o.created?.body;
+		let content = "";
+		if (body && "text" in body) content = body.text;
+		else if (body) {
+			const tpl = app.vault.getAbstractFileByPath(normalizePath(body.path.endsWith(".md") ? body.path : `${body.path}.md`));
+			if (!(tpl instanceof TFile)) throw new Error(`There's no template note “${body.path}”.`);
+			const formatDate = (fmt: string) => (moment as unknown as () => { format(f: string): string })().format(fmt);
+			content = renderNoteTemplate(await app.vault.cachedRead(tpl), { name: o.name, type: PLAIN_TYPE, formatDate });
+		}
+		const file = await app.vault.create(path, content);
+		if (Object.keys(o.fm).length) await app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => Object.assign(fm, JSON.parse(JSON.stringify(o.fm)) as Record<string, unknown>));
+		return file;
 	}
 
 	/** Undo a created note: delete it (to the trash, as the vault is set up), asking first if it changed since. */

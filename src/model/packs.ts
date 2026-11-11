@@ -418,7 +418,14 @@ export function renameWorkflowKeys(wf: WorkflowDef, keys: Map<string, string>, i
 			case "rename":
 				return { ...s, name: tx(s.name) };
 			case "create":
-				return { ...s, type: renameTarget(s.type, keys), name: tx(s.name), fields: s.fields.map((r) => ({ ...r, value: f(r.value) })) };
+				return {
+					...s,
+					type: renameTarget(s.type, keys),
+					name: tx(s.name),
+					fields: s.fields.map((r) => ({ ...r, value: f(r.value) })),
+					...(s.folder ? { folder: tx(s.folder) } : {}),
+					...(s.body?.from === "text" ? { body: { ...s.body, text: tx(s.body.text) } } : {}),
+				};
 			case "run":
 				return { ...s, workflow: ids.get(s.workflow) ?? s.workflow };
 			default:

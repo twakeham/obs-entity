@@ -7905,6 +7905,15 @@ button.oe-calv-more:hover {
 	min-width: 0;
 }
 
+/* A plain note's Body: the Empty / template / text switch at its own width, the text box the full width */
+.oe-wf-create-body {
+	align-items: flex-start;
+}
+
+.oe-wf-create-body > .oe-wf-formula {
+	align-self: stretch;
+}
+
 .oe-wf-step-row {
 	display: flex;
 	flex-wrap: wrap;
@@ -7940,7 +7949,21 @@ button.oe-calv-more:hover {
 	font-size: var(--font-ui-small);
 }
 
-.oe-wf-formula.is-invalid input.oe-wf-formula-input {
+/* A formula box for several lines (a plain note's body) */
+.oe-tm textarea.oe-wf-formula-input {
+	flex: 1;
+	min-width: 0;
+	min-height: 5.5em;
+	resize: vertical;
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-small);
+}
+
+.oe-wf-formula-row.is-multiline {
+	align-items: flex-start;
+}
+
+.oe-wf-formula.is-invalid .oe-wf-formula-input {
 	border-color: var(--text-error);
 }
 

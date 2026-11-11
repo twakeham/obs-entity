@@ -19,6 +19,7 @@ import {
 	nextDue,
 	NO_NOTE,
 	ON_THIS,
+	PLAIN_NOTE,
 	runsOnce,
 	SELECTION_VAR,
 	reachText,
@@ -345,7 +346,9 @@ describe("create a note", () => {
 		expect(o.toNew).toEqual([]);
 		expect(createLinkOptions({ scope: ["task"] }, "project", TYPES).toNew.map((f) => f.key)).toEqual(["project", "people"]);
 		const s = newCreateStep({ scope: ["project"], steps: [], trigger: { kind: "manual" } }, TYPES);
-		expect(s).toMatchObject({ type: "task", link: { dir: "from-new", field: "project" }, as: "New task", open: "tab", exists: "new" });
+		// Not linked and not opened, to start with.
+		expect(s).toMatchObject({ type: "task", as: "New task", open: "no", exists: "new" });
+		expect(s.link).toBeUndefined();
 	});
 
 	it("create a note with fields and a link back; later steps act on it and refer to it", () => {
@@ -396,13 +399,54 @@ describe("create a note", () => {
 		expect(at([create({ as: "" })])).toEqual(["Name the note for later steps (Call it)."]);
 		expect(at([create(), create()])).toEqual(["Another step already uses the name “Kickoff”: choose another."]);
 		expect(at([create({ as: "Budget" })])).toEqual(["“Budget” is already a field's name: choose another."]);
-		expect(at([create({ type: "" })])).toEqual(["Choose the type of note to create."]);
+		expect(at([create({ type: "nope" })])).toEqual(["“nope” isn't a type."]);
 		expect(at([create({ fields: [{ field: "priority", value: "", fixed: "Urgent" }, { field: "nope", value: "1" }] })])).toEqual(["Priority: “Urgent” isn't one of Priority's choices.", "Task has no “nope” field."]);
 		expect(at([create({ link: { dir: "to-new", field: "budget" } })])).toEqual(["“budget” can't link the new note and this one."]);
 		expect(at([{ kind: "set", field: "estimate", value: "", fixed: 1, on: "Kickoff" }, create()])).toEqual(["No earlier step creates or finds “Kickoff”."]);
 		expect(at([create(), { kind: "set", field: "budget", value: "", fixed: 1, on: "Kickoff" }])).toEqual(["Task has no “budget” field."]);
 		expect(at([create(), { kind: "notice", text: "{[Kickoff]}" }, { kind: "set", field: "budget", value: "count([Kickoff])" }])).toEqual([]);
 		expect(at([{ kind: "notice", text: "{[Kickoff]}" }, create()])).toEqual(["Unknown column [Kickoff]."]);
+	});
+
+	describe("plain notes (no type)", () => {
+		const plain = (over: Partial<Extract<WorkflowDef["steps"][number], { kind: "create" }>> = {}) => create({ type: PLAIN_NOTE, name: "Notes on {[Name]}", link: undefined, template: false, ...over });
+		const asked: PlaceRequest[] = [];
+		const placeP = (req: PlaceRequest): Placed => (asked.push(req), { path: `${req.plain?.folder && req.plain.folder !== "/" ? `${req.plain.folder}/` : ""}${req.name}.md` });
+
+		it("are placed in their folder, with their body; a typed body's formulas are worked out", () => {
+			asked.length = 0;
+			const w = wf({ name: "x", scope: ["project"], steps: [plain({ folder: "Inbox/{[Name]}", body: { from: "text", text: "# {[Name]}\nBudget: {[Budget]}" } }), { kind: "tag", op: "add", tag: "draft", on: "Kickoff" }] });
+			expect(workflowProblems(w, ctx)).toEqual([]);
+			expect(readWorkflows(JSON.parse(JSON.stringify([w])))[0].steps).toEqual(w.steps);
+			const res = runSteps(w, { ctx, row: apollo, linkText, place: placeP });
+			expect(res.error).toBeUndefined();
+			expect(asked[0]).toMatchObject({ name: "Notes on Apollo", plain: { folder: "Inbox/Apollo" }, fm: {} });
+			expect(res.others[0]).toMatchObject({ path: "Inbox/Apollo/Notes on Apollo.md", created: { type: PLAIN_NOTE, template: false, open: "no", body: { text: "# Apollo\nBudget: 10" } }, fm: { tags: ["draft"] } });
+		});
+
+		it("go where Obsidian puts new notes without a folder, or the top with /, and keep a template note's path", () => {
+			asked.length = 0;
+			runSteps(wf({ scope: ["project"], steps: [plain({ body: { from: "template", path: "Templates/Meeting" } }), plain({ as: "Top", folder: "/" })] }), { ctx, row: apollo, linkText, place: placeP });
+			expect(asked.map((r) => r.plain)).toEqual([{ folder: "" }, { folder: "/" }]);
+			const res = runSteps(wf({ scope: ["project"], steps: [plain({ body: { from: "template", path: "Templates/Meeting" } })] }), { ctx, row: apollo, linkText, place: placeP });
+			expect(res.others[0].created?.body).toEqual({ path: "Templates/Meeting" });
+		});
+
+		it("have no fields: only tags are offered on them, and fields or links on the step are left out", () => {
+			const w = wf({ name: "x", scope: ["project"], steps: [plain(), { kind: "notice", text: "x" }] });
+			const on = stepScopes(w, ctx).get("1")!.on;
+			expect(on).toEqual([expect.objectContaining({ value: "Kickoff", made: true, plain: true })]);
+			expect(workflowProblems(wf({ name: "x", scope: ["project"], steps: [plain(), { kind: "set", field: "budget", value: "", fixed: 1, on: "Kickoff" }] }), ctx).map((p) => p.message)).toEqual(["None of the types has a \u201cbudget\u201d field."]);
+			const res = runSteps(wf({ scope: ["project"], steps: [plain({ fields: [{ field: "priority", value: "", fixed: "High" }], link: { dir: "from-new", field: "project" } })] }), { ctx, row: apollo, linkText, place: placeP });
+			expect(res.others[0].fm).toEqual({});
+		});
+
+		it("report a missing template note and formula errors in the folder and body", () => {
+			const at = (s: ReturnType<typeof plain>) => workflowProblems(wf({ name: "x", scope: ["project"], steps: [s] }), ctx).map((p) => p.message);
+			expect(at(plain({ body: { from: "template", path: " " } }))).toEqual(["Choose the template note for its body."]);
+			expect(at(plain({ folder: "{[Nope]}" }))).toEqual(["Folder: Unknown column [Nope]."]);
+			expect(at(plain({ body: { from: "text", text: "{[Nope]}" } }))).toEqual(["Body: Unknown column [Nope]."]);
+		});
 	});
 });
 

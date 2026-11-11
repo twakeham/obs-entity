@@ -1,4 +1,4 @@
-import { FuzzySuggestModal, Modal, type TFolder } from "obsidian";
+import { FuzzySuggestModal, Modal, normalizePath, type TFile, type TFolder } from "obsidian";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type EntitiesPlugin from "../../main";
@@ -421,6 +421,32 @@ export class FolderPickerModal extends FuzzySuggestModal<TFolder> {
 	}
 
 	onChooseItem(f: TFolder): void {
+		this.onChoose(f);
+	}
+}
+
+/** Pick a note (a template note): the templates folder's notes first, then the rest, by path. */
+export class NotePathPickerModal extends FuzzySuggestModal<TFile> {
+	constructor(
+		private plugin: EntitiesPlugin,
+		private onChoose: (file: TFile) => void,
+		placeholder: string,
+	) {
+		super(plugin.app);
+		this.setPlaceholder(placeholder);
+	}
+
+	getItems(): TFile[] {
+		const tpl = normalizePath(this.plugin.settings.templatesFolder || "").toLowerCase();
+		const inTpl = (f: TFile) => !!tpl && tpl !== "/" && f.path.toLowerCase().startsWith(`${tpl}/`);
+		return this.plugin.app.vault.getMarkdownFiles().sort((a, b) => Number(inTpl(b)) - Number(inTpl(a)) || a.path.localeCompare(b.path));
+	}
+
+	getItemText(f: TFile): string {
+		return f.path.replace(/\.md$/i, "");
+	}
+
+	onChooseItem(f: TFile): void {
 		this.onChoose(f);
 	}
 }
