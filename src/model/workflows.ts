@@ -751,6 +751,19 @@ export function parseTemplate(src: string): TemplatePart[] {
 	return out;
 }
 
+/**
+ * The `{formula}` part of a template the cursor (`pos`) is in, from just inside its `{` to just after its `}`: where
+ * its formula starts and ends. Null outside one, or when the template can't be read.
+ */
+export function templatePartAt(src: string, pos: number): { from: number; to: number } | null {
+	try {
+		for (const p of parseTemplate(src)) if ("formula" in p && pos >= p.from && pos <= p.from + p.formula.length + 1) return { from: p.from, to: p.from + p.formula.length };
+	} catch {
+		// An unclosed { : no part to edit.
+	}
+	return null;
+}
+
 // ---------------------------------------------------------------- problems
 
 export interface WorkflowProblem {

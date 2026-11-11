@@ -38,6 +38,7 @@ import {
 	stepAt,
 	stepLabel,
 	storedValue,
+	templatePartAt,
 	triggerText,
 	workflowFields,
 	workflowProblems,
@@ -156,6 +157,16 @@ describe("templates and problems", () => {
 		expect(parseTemplate("Session {[Number] + 1} of {{campaign}}")).toEqual([{ text: "Session " }, { formula: "[Number] + 1", from: 9 }, { text: " of {campaign}" }]);
 		expect(parseTemplate('{concat("}", [Name])}!')).toEqual([{ formula: 'concat("}", [Name])', from: 1 }, { text: "!" }]);
 		expect(() => parseTemplate("Oops {[Name]")).toThrow(/no closing/);
+	});
+
+	it("find the {formula} part the cursor is in", () => {
+		const src = "Session {[Number] + 1} of {{x}}";
+		// "{" is at 8, "}" at 21: inside it, or just after it, edits its formula.
+		expect([8, 9, 15, 21, 22].map((p) => templatePartAt(src, p))).toEqual([null, { from: 9, to: 21 }, { from: 9, to: 21 }, { from: 9, to: 21 }, { from: 9, to: 21 }]);
+		expect(templatePartAt(src, 23)).toBeNull();
+		expect(templatePartAt(src, 29)).toBeNull();
+		expect(templatePartAt("{}", 1)).toEqual({ from: 1, to: 1 });
+		expect(templatePartAt("Oops {[Name]", 7)).toBeNull();
 	});
 
 	it("report what keeps a workflow from running", () => {

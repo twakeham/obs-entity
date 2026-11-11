@@ -8128,10 +8128,6 @@ button.oe-calv-more:hover {
 	font-weight: var(--font-semibold);
 }
 
-.oe-tm button.oe-wf-fx.is-active {
-	color: var(--text-accent);
-}
-
 .oe-wf-check {
 	display: inline-flex;
 	align-items: center;

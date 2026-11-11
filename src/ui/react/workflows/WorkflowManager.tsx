@@ -19,6 +19,7 @@ import {
 	stepBlocks,
 	stepLabel,
 	stepAt,
+	templatePartAt,
 	withBlocks,
 	inScope,
 	isLoop,
@@ -1297,7 +1298,7 @@ function StepCard({
 					<div className="oe-wf-step-row">
 						<TextInput label="Variable name" className="oe-wf-text" value={step.name} placeholder="e.g. Total" onChange={(v) => onChange({ ...step, name: v })} />
 						<span className="oe-wf-to">to</span>
-						<FormulaBox sc={sc} label="Value" value={step.value} placeholder="e.g. 0, [Estimate] * 2 or [Total] + 1" onChange={(v) => onChange({ ...step, value: v })} />
+						<FormulaBox sc={sc} label="Value" title={`Set ${step.name.trim() || "the variable"} to…`} value={step.value} placeholder="e.g. 0, [Estimate] * 2 or [Total] + 1" onChange={(v) => onChange({ ...step, value: v })} />
 					</div>
 					<div className="oe-wf-help">
 						Later steps use it as [{step.name.trim() || "name"}], after loops too. Set it again to change it, e.g. to [{step.name.trim() || "Total"}] + [Estimate] inside a loop.
@@ -2144,8 +2145,8 @@ function StepValue({
 			field: multiple || !preview ? undefined : field,
 			done: (v) => onChange({ formula: v }),
 		}).open();
-	const fxButton = (src: string, isFormula: boolean) => (
-		<button className={`oe-wf-fxbtn oe-wf-fx${isFormula ? " is-active" : ""}`} aria-label={isFormula ? "Open the formula editor" : "Use a formula"} onClick={() => editor(src)}>
+	const fxButton = (src: string) => (
+		<button className="oe-wf-fxbtn oe-wf-fx" aria-label="Use a formula" onClick={() => editor(src)}>
 			<span className="oe-wf-fx-label">ƒx</span>
 		</button>
 	);
@@ -2155,13 +2156,12 @@ function StepValue({
 				<FixedInput types={types} field={field} value={fixed} multiple={multiple} onChange={(v) => onChange({ fixed: v })} />
 				<span className="oe-wf-value-btns">
 					<InsertFieldButton sc={sc} onPick={(label) => onChange({ formula: `[${label}]` })} />
-					{fxButton(formulaFromFixed(fixed, field), false)}
+					{fxButton(formulaFromFixed(fixed, field))}
 				</span>
 			</div>
 		);
 	return (
-		<FormulaBox sc={sc} value={formula} placeholder={placeholder} onChange={(v) => onChange({ formula: v })}>
-			{fxButton(formula, true)}
+		<FormulaBox sc={sc} value={formula} placeholder={placeholder} title={title} field={multiple || !preview ? undefined : field} onChange={(v) => onChange({ formula: v })}>
 			{field && (
 				<button
 					className="oe-wf-fxbtn"
@@ -2272,6 +2272,8 @@ function FormulaBox({
 	placeholder,
 	template,
 	label,
+	title,
+	field,
 	onChange,
 	children,
 }: {
@@ -2280,6 +2282,10 @@ function FormulaBox({
 	placeholder?: string;
 	template?: boolean;
 	label?: string;
+	/** the formula editor's title (else from the label) */
+	title?: string;
+	/** the field the formula's result goes in: the formula editor's preview shows what it would store */
+	field?: WorkflowField;
 	onChange: (v: string) => void;
 	children?: ReactNode;
 }) {
@@ -2309,11 +2315,36 @@ function FormulaBox({
 			el?.setSelectionRange(from + text.length, from + text.length);
 		}, 0);
 	};
+	/**
+	 * ƒx: the formula editor, on the whole formula; in text, on the {…} part the cursor is in, or a new one put in at
+	 * the cursor.
+	 */
+	const openEditor = () => {
+		const el = ref.current;
+		const at = el?.selectionStart ?? value.length;
+		const part = template ? templatePartAt(value, at) : { from: 0, to: value.length };
+		const name = label ?? (template ? "Text" : "Formula");
+		FormulaModal.forWorkflow(plugin, def, {
+			title: title ?? (template ? `${name}: ${part ? "a {formula} part" : "add a {formula} part"}` : name),
+			value: part ? value.slice(part.from, part.to) : "",
+			vars,
+			field: template ? undefined : field,
+			done: (v) => {
+				if (part) return onChange(value.slice(0, part.from) + v + value.slice(part.to));
+				if (!v.trim()) return;
+				const end = el?.selectionEnd ?? at;
+				onChange(`${value.slice(0, at)}{${v}}${value.slice(end)}`);
+			},
+		}).open();
+	};
 	return (
 		<div className={`oe-wf-formula${error ? " is-invalid" : ""}`}>
 			<div className="oe-wf-formula-row">
 				<input ref={ref} type="text" className="oe-wf-formula-input" aria-label={label ?? (template ? "Text" : "Formula")} value={value} placeholder={placeholder} spellCheck={false} onChange={(e) => onChange(e.target.value)} />
 				<InsertFieldButton sc={sc} onPick={insert} />
+				<button className="oe-wf-fxbtn oe-wf-fx" aria-label="Open the formula editor" title={template ? "Open the formula editor (for the {…} part the cursor is in, or a new one)" : "Open the formula editor"} onClick={openEditor}>
+					<span className="oe-wf-fx-label">ƒx</span>
+				</button>
 				{children}
 			</div>
 			{error && <div className="oe-wf-formula-error">{error}</div>}
