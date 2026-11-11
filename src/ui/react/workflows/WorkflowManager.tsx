@@ -53,6 +53,7 @@ import {
 	type LinkedSource,
 	type LoopStep,
 	type IfStep,
+	type FindStep,
 	type StepScope,
 	type StepKind,
 	type TriggerKind,
@@ -122,6 +123,7 @@ const STEP_ICONS: Record<StepKind, string> = {
 	ask: "message-circle-question",
 	var: "variable",
 	if: "split",
+	find: "search",
 };
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -891,7 +893,7 @@ function usedNames(wf: WorkflowDef, except?: WorkflowStep): Set<string> {
 	return new Set(
 		flatSteps(wf.steps)
 			.filter((s) => s !== except)
-			.flatMap((s) => (s.kind === "create" || s.kind === "linked" || s.kind === "each" ? [s.as.trim().toLowerCase()] : s.kind === "var" ? [s.name.trim().toLowerCase()] : [])),
+			.flatMap((s) => (s.kind === "create" || s.kind === "linked" || s.kind === "each" || s.kind === "find" ? [s.as.trim().toLowerCase()] : s.kind === "var" ? [s.name.trim().toLowerCase()] : [])),
 	);
 }
 
@@ -929,6 +931,11 @@ function blankStep(kind: StepKind, wf: WorkflowDef, sc: StepScope, workflows: Wo
 		case "if":
 			// No single note to test (a run for the whole selection): a formula.
 			return { kind, test: sc.noNote ? "formula" : "filter", when: { mode: "all", items: [] }, formula: "", steps: [], otherwise: [] };
+		case "find": {
+			// Notes of the kind steps act on here, to start with.
+			const ts = sc.types.length === types.length ? [] : sc.types;
+			return { kind, types: ts.map((t) => t.key), when: { mode: "all", items: [] }, keep: "all", as: uniqueName(`Found ${ts.length === 1 ? (ts[0].plural || ts[0].name).toLowerCase() : "notes"}`, used) };
+		}
 		case "create": {
 			const s = newCreateStep({ scope: sc.scope, steps: [], trigger: wf.trigger }, types);
 			return { ...s, as: uniqueName(s.as, used) };
@@ -965,10 +972,13 @@ function scopeForNew(wf: WorkflowDef, path: string, block: number, lookup: { typ
 	return stepScopes({ ...wf, steps }, lookup).get(key) ?? stepScopes(wf, lookup).get(path)!;
 }
 
+/** "This note" in a workflow's conditions (loops, If, Find notes). */
+const THIS_IS = "The note the workflow runs on";
+
 /** "Add step": the kinds of step, grouped by what they do. */
 const STEP_GROUPS: { title: string; kinds: StepKind[] }[] = [
 	{ title: "Change the note", kinds: ["set", "clear", "tag", "link", "move", "rename"] },
-	{ title: "Notes", kinds: ["create"] },
+	{ title: "Notes", kinds: ["create", "find"] },
 	{ title: "Values", kinds: ["var"] },
 	{ title: "Flow", kinds: ["if", "each", "linked", "run"] },
 	{ title: "Talk", kinds: ["notice", "ask"] },
@@ -1147,10 +1157,21 @@ function StepCard({
 				<select className="dropdown oe-pop-select" aria-label="On" value={on ?? ""} onChange={(e) => changeOn(e.target.value)}>
 					<option value="">{sc.defaultLabel}</option>
 					{onChoices.some((o) => o.value === ON_THIS) && <option value={ON_THIS}>This note</option>}
-					{onChoices.some((o) => o.value !== ON_THIS && !o.made) && (
+					{onChoices.some((o) => o.value !== ON_THIS && !o.made && !o.found) && (
 						<optgroup label="Loops this is inside">
 							{onChoices
-								.filter((o) => o.value !== ON_THIS && !o.made)
+								.filter((o) => o.value !== ON_THIS && !o.made && !o.found)
+								.map((o) => (
+									<option key={o.value} value={o.value}>
+										{o.label}
+									</option>
+								))}
+						</optgroup>
+					)}
+					{onChoices.some((o) => o.found) && (
+						<optgroup label="Found by earlier steps">
+							{onChoices
+								.filter((o) => o.found)
 								.map((o) => (
 									<option key={o.value} value={o.value}>
 										{o.label}
@@ -1355,8 +1376,11 @@ function StepCard({
 		case "if":
 			body = <IfBody wf={wf} path={path} step={step} sc={sc} target={target} onPicker={onPicker} scopes={scopes} problems={problems} onChange={onChange} />;
 			break;
+		case "find":
+			body = <FindBody sc={sc} step={step} onChange={onChange} />;
+			break;
 	}
-	const named = step.kind === "create" || step.kind === "linked" || step.kind === "each" ? step.as.trim() : step.kind === "var" ? step.name.trim() : "";
+	const named = step.kind === "create" || step.kind === "linked" || step.kind === "each" || step.kind === "find" ? step.as.trim() : step.kind === "var" ? step.name.trim() : "";
 	const subtitle = step.kind === "run" ? plugin.settings.workflows.find((w) => w.id === step.workflow)?.name : named ? `“${named}”` : "";
 	const stepNo = stepLabel(path);
 	return (
@@ -1415,7 +1439,7 @@ function StepCard({
 						<Icon name="trash-2" />
 					</button>
 				</div>
-				<div className={`oe-wf-step-body${step.kind === "create" || isLoop(step) || step.kind === "if" ? " is-create" : ""}`}>{body}</div>
+				<div className={`oe-wf-step-body${step.kind === "create" || isLoop(step) || step.kind === "if" || step.kind === "find" ? " is-create" : ""}`}>{body}</div>
 				{mine.map((p, i) => (
 					<div key={i} className="oe-tm-issue">
 						<Icon name="alert-circle" /> {p.message}
@@ -1561,7 +1585,8 @@ function LoopBody({
 							choices={choices}
 							ctx={ctx}
 							valuesOf={(id) => columnValues(choices, id, rows, its)}
-							thisNote={null}
+							thisNote={sc.noNote ? undefined : null}
+							thisIs={sc.noNote ? undefined : THIS_IS}
 							heading={`Only the ${typeName} that match`}
 							emptyText={`No conditions: every one of the ${typeName}.`}
 							onChange={(g) => set({ when: g })}
@@ -1649,7 +1674,8 @@ function IfBody({
 								choices={choices}
 								ctx={ctx}
 								valuesOf={(id) => columnValues(choices, id, rows, target.types)}
-								thisNote={null}
+								thisNote={sc.noNote ? undefined : null}
+								thisIs={sc.noNote ? undefined : THIS_IS}
 								heading={`True when the ${noun} matches`}
 								emptyText="No conditions yet: add one."
 								onChange={(g) => set({ when: g })}
@@ -1671,6 +1697,133 @@ function IfBody({
 				<div className="oe-wf-branch-label">Otherwise</div>
 				<StepList wf={wf} steps={step.otherwise} path={path} block={1} empty="Nothing: carry on after the If." scopes={scopes} problems={problems} onChange={(otherwise) => set({ otherwise })} />
 			</div>
+		</div>
+	);
+}
+
+/**
+ * "Find notes": which notes (types, conditions), in what order, all or the first, and the name later steps use. The
+ * conditions can compare with this note (`{this}`), as a loop''s Only if can.
+ */
+function FindBody({ sc, step, onChange }: { sc: StepScope; step: FindStep; onChange: (s: WorkflowStep) => void }) {
+	const plugin = usePlugin();
+	const { types, groups } = plugin.settings;
+	const lookup = { types, groups };
+	const its = scopeTypes({ scope: step.types }, types);
+	const def = workflowDef({ scope: step.types, when: step.when });
+	const { rows, ctx } = useMemo(() => plugin.viewData(), [plugin]);
+	const choices = useMemo(() => columnChoices(def, lookup), [step.types.join(","), types]); // eslint-disable-line react-hooks/exhaustive-deps
+	const typeName = its.length === 1 ? (its[0].plural || its[0].name).toLowerCase() : "notes";
+	const set = (patch: Partial<FindStep>) => onChange({ ...step, ...patch });
+	const name = step.as.trim() || "…";
+	const sortBy = step.sort?.by ?? "name";
+	const sortGroups = [...new Set(choices.map((c) => c.group))];
+	return (
+		<div className="oe-wf-create oe-wf-find">
+			{formRow(
+				"Notes",
+				<TargetPicker
+					values={step.types}
+					types={types}
+					groups={groups}
+					onChange={(v) => {
+						// Other types, other columns: the conditions and order start again.
+						const { sort: _drop, ...rest } = step;
+						onChange({ ...rest, types: v.filter((x) => x !== "*"), when: { mode: "all", items: [] } });
+					}}
+				/>,
+			)}
+			{formRow(
+				"That match",
+				<div className="oe-wf-when oe-wf-loop-when">
+					<FiltersPanel
+						filters={step.when}
+						choices={choices}
+						ctx={ctx}
+						valuesOf={(id) => columnValues(choices, id, rows, its)}
+						thisNote={sc.noNote ? undefined : null}
+						thisIs={sc.noNote ? undefined : THIS_IS}
+						heading={`The ${typeName} that match`}
+						emptyText={`No conditions: every one of the ${typeName}.`}
+						onChange={(g) => set({ when: g })}
+					/>
+				</div>,
+			)}
+			{formRow(
+				"Sorted by",
+				<span className="oe-wf-inline">
+					<select className="dropdown oe-pop-select oe-wf-find-sort" aria-label="Sorted by" value={sortBy} onChange={(e) => set({ sort: { by: e.target.value, dir: step.sort?.dir ?? "asc" } })}>
+						{sortGroups.map((g) => (
+							<optgroup key={g} label={g}>
+								{choices
+									.filter((c) => c.group === g)
+									.map((c) => (
+										<option key={c.col.id} value={c.col.id}>
+											{c.col.label}
+										</option>
+									))}
+							</optgroup>
+						))}
+						{!choices.some((c) => c.col.id === sortBy) && <option value={sortBy}>{sortBy}</option>}
+					</select>
+					<Segmented
+						label="Order"
+						value={step.sort?.dir ?? "asc"}
+						options={[
+							{ value: "asc", label: "Ascending" },
+							{ value: "desc", label: "Descending" },
+						]}
+						onChange={(dir) => set({ sort: { by: sortBy, dir } })}
+					/>
+				</span>,
+			)}
+			{formRow(
+				"Keep",
+				<span className="oe-wf-inline">
+					<Segmented
+						label="Keep"
+						value={step.keep}
+						options={[
+							{ value: "all", label: "All of them" },
+							{ value: "first", label: "The first one" },
+						]}
+						onChange={(keep) => {
+							const { limit: _drop, ...rest } = step;
+							onChange(keep === "first" ? { ...rest, keep } : { ...step, keep });
+						}}
+					/>
+					{step.keep === "all" && (
+						<>
+							<span className="oe-wf-to">at most</span>
+							<input
+								type="number"
+								className="oe-wf-number"
+								aria-label="At most"
+								min={1}
+								step={1}
+								placeholder="any number"
+								value={step.limit ?? ""}
+								onChange={(e) => {
+									const n = e.target.value === "" ? undefined : Number(e.target.value);
+									const { limit: _drop, ...rest } = step;
+									onChange(n === undefined || Number.isNaN(n) ? rest : { ...rest, limit: n });
+								}}
+							/>
+						</>
+					)}
+				</span>,
+			)}
+			{formRow(
+				step.keep === "first" ? "Call it" : "Call them",
+				<span className="oe-wf-inline">
+					<TextInput label="Call them" className="oe-wf-text" value={step.as} placeholder={step.keep === "first" ? "e.g. Inbox" : "e.g. Overdue tasks"} onChange={(v) => set({ as: v })} />
+					<span className="oe-tm-muted">
+						{step.keep === "first"
+							? `Later steps use [${name}], and can act on it (On). If none match, steps on it are skipped.`
+							: `Later steps use [${name}], a list of notes: e.g. For each over it, or count([${name}]).`}
+					</span>
+				</span>,
+			)}
 		</div>
 	);
 }

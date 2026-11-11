@@ -27,6 +27,7 @@ describe("packs with workflows", () => {
 			{ kind: "linked", source: { dir: "in", type: "task", field: "project" }, when: { mode: "all", items: [{ field: "estimate", op: "gt", value: 1 }] }, as: "Task", steps: [{ kind: "run", workflow: "wf-close" }] },
 			{ kind: "each", formula: "[in:task.project]", items: "notes", itemType: "task", when: { mode: "all", items: [] }, as: "Each", steps: [{ kind: "notice", text: "{[Each]}" }, { kind: "each", formula: "[in:task.project]", items: "notes", itemType: "task", when: { mode: "all", items: [] }, as: "Inner", steps: [{ kind: "var", name: "N", value: "count([in:task.project])" }] }] },
 			{ kind: "notice", text: "{count([in:task.project])} tasks" },
+			{ kind: "find", types: ["task"], when: { mode: "all", items: [{ field: "in:task.project", op: "empty" }] }, sort: { by: "in:task.project", dir: "desc" }, keep: "first", as: "First" },
 		],
 	});
 	const other = wf({ id: "wf-other", name: "Elsewhere", scope: ["person"], steps: [{ kind: "tag", op: "add", tag: "x" }] });
@@ -73,6 +74,7 @@ describe("packs with workflows", () => {
 		// Inside a loop inside a loop: a variable's formula follows too.
 		expect(stepAt(kick.steps, "2.1.0")).toEqual({ kind: "var", name: "N", value: "count([in:task_2.project])" });
 		expect(notice.text).toBe("{count([in:task_2.project])} tasks");
+		expect(stepAt(kick.steps, "4")).toEqual({ kind: "find", types: ["task_2"], when: { mode: "all", items: [{ field: "in:task_2.project", op: "empty" }] }, sort: { by: "in:task_2.project", dir: "desc" }, keep: "first", as: "First" });
 	});
 
 	it("leave everything as written when nothing clashes", () => {

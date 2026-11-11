@@ -12,7 +12,7 @@ import { asArray, parseLink, toWikilink } from "./links";
 import type { DateAdapter } from "./dates";
 import { joinPath } from "./paths";
 import { COMMON_KEYS, isCalculated, isListValued, statusesFor, typeExplicitlyTargeted, typeMatchesTarget, type EntityTypeDef, type FieldDef, type GroupDef } from "./types";
-import { compileFormula, dateValue, emptyView, evaluateFormula, formulaRefColumns, filterFields, runView, withThisNote, type FilterGroup, type LinkValue, type VarSpec, type ViewContext, type ViewDef, type ViewRow } from "./views";
+import { compileFormula, dateValue, emptyView, evaluateFormula, formulaRefColumns, filterFields, runView, withThisNote, type FilterGroup, type LinkValue, type SortLevel, type VarSpec, type ViewContext, type ViewDef, type ViewRow } from "./views";
 
 // ---------------------------------------------------------------- definitions
 
@@ -132,7 +132,14 @@ export type LoopStep =
  */
 export type IfStep = { kind: "if"; test: "filter" | "formula"; when: FilterGroup; formula: string; on?: string; steps: WorkflowStep[]; otherwise: WorkflowStep[] };
 
-export type WorkflowStep = NoteStep | LoopStep | IfStep;
+/**
+ * "Find notes": the notes of some types (`types`, as a scope: [] any) that match `when`, in `sort` order, as `[as]`
+ * for the rest of the run (like a variable): all of them (at most `limit`, when it's set), or the first only, which
+ * steps can then act on ("On").
+ */
+export type FindStep = { kind: "find"; types: string[]; when: FilterGroup; sort?: SortLevel; limit?: number; keep: "all" | "first"; as: string };
+
+export type WorkflowStep = NoteStep | LoopStep | IfStep | FindStep;
 
 export type TriggerKind = WorkflowTrigger["kind"];
 export type StepKind = WorkflowStep["kind"];
@@ -172,6 +179,7 @@ export const STEP_LABELS: Record<StepKind, string> = {
 	ask: "Ask a question",
 	var: "Set a variable",
 	if: "If",
+	find: "Find notes",
 };
 /** The most notes (or values) loops go through in one run; past it the run stops. */
 export const MAX_LOOP_ITEMS = 200;
@@ -264,6 +272,12 @@ function readStep(raw: unknown): WorkflowStep | null {
 			return { kind: "var", name: str(raw.name), value: str(raw.value) };
 		case "if":
 			return { kind: "if", test: raw.test === "formula" ? "formula" : "filter", when: readGroup(raw.when), formula: str(raw.formula), ...on, steps: readSteps(raw.steps), otherwise: readSteps(raw.otherwise) };
+		case "find": {
+			const so = raw.sort;
+			const sort = isObj(so) && str(so.by) ? { sort: { by: str(so.by), dir: so.dir === "desc" ? ("desc" as const) : ("asc" as const) } } : {};
+			const limit = typeof raw.limit === "number" && raw.limit > 0 ? { limit: raw.limit } : {};
+			return { kind: "find", types: strList(raw.types), when: readGroup(raw.when), ...sort, ...limit, keep: raw.keep === "first" ? "first" : "all", as: str(raw.as) };
+		}
 		case "create": {
 			const l = raw.link;
 			const link = isObj(l) && (l.dir === "from-new" || l.dir === "to-new") && str(l.field) ? ({ dir: l.dir, field: str(l.field) } as CreateLink) : undefined;
@@ -445,8 +459,8 @@ export interface StepScope {
 	vars: VarSpec[];
 	/** which of `vars` are variables ("Set a variable" steps before this one) */
 	variables?: string[];
-	/** "On" choices besides the default: stored value, label, the note''s types; `made`: a note this run creates */
-	on: { value: string; label: string; types: EntityTypeDef[]; made?: true }[];
+	/** "On" choices besides the default: stored value, label, the note''s types; `made`: a note this run creates; `found`: a "Find notes" step's first */
+	on: { value: string; label: string; types: EntityTypeDef[]; made?: true; found?: true }[];
 	/** the default note in the On picker: "This note", or "Each <name>" in a loop of notes */
 	defaultLabel: string;
 	/** inside a loop (of notes, or of values) */
@@ -496,10 +510,22 @@ export function stepScopes(wf: Pick<WorkflowDef, "scope" | "when" | "steps"> & P
 		let cur = start;
 		steps.forEach((s, i) => {
 			const key = keyOf(i);
-			// Variables are seen by every step after the first that sets them, in or out of loops.
-			const sc = globals.length ? { ...cur, vars: [...cur.vars, ...globals.filter((g) => !cur.vars.some((v) => v.name === g.name))], variables: globals.map((g) => g.name) } : cur;
+			// Variables are seen by every step after the first that sets them, in or out of loops; so are found notes.
+			const sc =
+				globals.length || globalOn.length
+					? {
+							...cur,
+							vars: [...cur.vars, ...globals.filter((g) => !cur.vars.some((v) => v.name === g.name))],
+							variables: globals.map((g) => g.name),
+							on: [...cur.on, ...globalOn.filter((g) => !cur.on.some((o) => o.value === g.value))],
+						}
+					: cur;
 			out.set(key, sc);
 			if (s.kind === "var" && s.name.trim()) setVar(s.name.trim(), varType(s.value, sc));
+			if (s.kind === "find" && s.as.trim()) {
+				setVar(s.as.trim(), "links");
+				if (s.keep === "first" && !globalOn.some((g) => g.value === s.as.trim())) globalOn.push({ value: s.as.trim(), label: s.as.trim(), types: scopeTypes({ scope: s.types }, all), found: true });
+			}
 			const inner = isLoop(s) ? loopScope(s, cur) : cur;
 			let offset = 0;
 			for (const b of stepBlocks(s)) {
@@ -512,6 +538,8 @@ export function stepScopes(wf: Pick<WorkflowDef, "scope" | "when" | "steps"> & P
 	};
 	/** Variables so far, in the order they're first set. */
 	const globals: VarSpec[] = [];
+	/** Notes "Find notes" steps found first (keep: first), so far. */
+	const globalOn: StepScope["on"] = [];
 	const varType = (src: string, sc: StepScope): FType => {
 		try {
 			return compileFormula(src, sc.def, lookup, { workflow: true, vars: sc.vars }).compiled.type;
@@ -822,7 +850,7 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 		// A run for a whole selection has no "this note" to act on.
 		if (once && "on" in s && s.on === ON_THIS) return add(at, NO_NOTE);
 		const target = stepTarget(s, sc, lookup.types);
-		if (!target) return add(at, `No earlier step creates “${(s as { on?: string }).on}”.`);
+		if (!target) return add(at, `No earlier step creates or finds “${(s as { on?: string }).on}”.`);
 		const tTypes = target.types;
 		const tFields = target.fields;
 		const fErr = (src: string) => formulaError(src, sc.def, lookup, sc.vars, !!sc.noNote);
@@ -885,6 +913,15 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 					const e = tErr(s.text);
 					if (e) add(at, e);
 				}
+				break;
+			}
+			case "find": {
+				for (const k of s.types) if (!known(k)) add(at, `“${k}” isn't a type or group.`);
+				const fDef = workflowDef({ scope: s.types, when: s.when });
+				for (const id of filterFields(s.when)) if (!formulaColumnOk(id, fDef, lookup)) add(at, `A condition uses “${id}”, which isn't a column of these notes.`);
+				if (s.sort && !formulaColumnOk(s.sort.by, fDef, lookup)) add(at, `It's sorted by “${s.sort.by}”, which isn't a column of these notes.`);
+				if (s.limit !== undefined && !(Number.isInteger(s.limit) && s.limit >= 1)) add(at, "At most: a whole number, 1 or more.");
+				nameOk(at, s.as, sc, s.keep === "first" ? "the note it finds" : "the notes it finds");
 				break;
 			}
 			case "if": {
@@ -1240,6 +1277,8 @@ export interface StepEnv {
 	place?: (req: PlaceRequest) => Placed;
 	/** every workflow, for "Run another workflow" */
 	workflows?: WorkflowDef[];
+	/** every note, for "Find notes" (without it, Find finds only notes this run makes) */
+	rows?: ViewRow[];
 	/**
 	 * Questions answered Yes ("Ask a question"), by step ("2", "4.1"): a question not in it pauses the run (`pending`);
 	 * "all" answers every one Yes (a test run).
@@ -1322,6 +1361,8 @@ const diffOf = (start: Record<string, unknown>, fm: Record<string, unknown>): Fi
 };
 
 class StopRun extends Error {}
+/** A step acting on a note a "Find notes" step didn't find: the step is skipped. */
+class SkipStep extends Error {}
 /** A question not answered yet ("Ask a question"): the run stops there, to run again once it's answered. */
 class AskFirst extends Error {
 	constructor(
@@ -1362,6 +1403,8 @@ interface Frame {
 	vars: Record<string, FValue>;
 	/** variables ("Set a variable"): one object for the whole run of this workflow, so loops' changes last */
 	globals: Record<string, FValue>;
+	/** the notes "Find notes" steps found first, by name (null: it found none), for "On"; whole-run, like `globals` */
+	found: Map<string, RunNote | null>;
 	/** notes by the names steps give them ("On") */
 	named: Map<string, RunNote>;
 	old?: ViewRow;
@@ -1412,7 +1455,10 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 	/** The names formulas can use here: variables, then created notes and loop items. */
 	const varsOf = (f: Frame): Record<string, FValue> => ({ ...f.globals, ...f.vars });
 	/** A workflow's variables, all empty until a step sets them (one that doesn't run leaves its variable empty). */
-	const globalsOf = (w: WorkflowDef): Record<string, FValue> => Object.fromEntries(flatSteps(w.steps).flatMap((s) => (s.kind === "var" && s.name.trim() ? [[s.name.trim(), null]] : [])));
+	/** A workflow's notes found first: none until its Find notes step runs. */
+	const foundOf = (w: WorkflowDef) => new Map<string, RunNote | null>(flatSteps(w.steps).flatMap((s) => (s.kind === "find" && s.keep === "first" && s.as.trim() ? [[s.as.trim(), null] as const] : [])));
+	const globalsOf = (w: WorkflowDef): Record<string, FValue> =>
+		Object.fromEntries(flatSteps(w.steps).flatMap((s) => (s.kind === "var" && s.name.trim() ? [[s.name.trim(), null as FValue] as const] : s.kind === "find" && s.as.trim() ? [[s.as.trim(), [] as FValue] as const] : [])));
 	const evalIn = (f: Frame, src: string) => evaluateFormula(src, f.reader.row, f.def, ctx, { workflow: true, old: f.reader === f.main ? f.old : undefined, vars: varsOf(f) });
 	/** A picked value or formula, as the note's field stores it (the note's own type's definition of the field). */
 	const valueFor = (f: Frame, wfield: WorkflowField, n: RunNote, fixed: FixedValue | undefined, formula: string): unknown => {
@@ -1426,10 +1472,17 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 		applyChange(n.fm, { op: "add-link", key: fd.key, linktext: env.linkText(path), multiple: isListValued(fd), labelled: !!fd.labelled });
 		sync(n);
 	};
-	const targetOf = (f: Frame, on: string | undefined): RunNote => {
-		const n = on === undefined ? (f.item ?? f.main) : on === ON_THIS ? f.main : f.named.get(on);
+	/** The note a step acts on (null: one a Find notes step didn't find). */
+	const noteFor = (f: Frame, on: string | undefined): RunNote | null => {
+		const n = on === undefined ? (f.item ?? f.main) : on === ON_THIS ? f.main : (f.named.get(on) ?? f.found.get(on));
+		if (n === null) return null;
 		if (!n) throw new Error(`No earlier step created “${on}”.`);
 		if (noMain && n === main) throw new Error(NO_NOTE);
+		return n;
+	};
+	const targetOf = (f: Frame, on: string | undefined): RunNote => {
+		const n = noteFor(f, on);
+		if (!n) throw new SkipStep();
 		return n;
 	};
 	/** The notes a link value points at (paths), including notes this run made. */
@@ -1456,7 +1509,11 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 		steps.forEach((s, i) => {
 			const key = keyOf?.(i);
 			if (key !== undefined) at = key;
-			step(s, f, key);
+			try {
+				step(s, f, key);
+			} catch (e) {
+				if (!(e instanceof SkipStep)) throw e;
+			}
 		});
 	};
 	/** Run a step's blocks of steps (a loop's, for one item). */
@@ -1508,8 +1565,24 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 			case "var":
 				f.globals[s.name.trim()] = evalIn(f, s.value);
 				return;
+			case "find": {
+				const as = s.as.trim();
+				// Sorted by name unless it says: "the first" is then the same each time.
+				const def: ViewDef = { ...workflowDef({ scope: s.types, when: s.when }), sort: [s.sort ?? { by: "name", dir: "asc" }] };
+				// Every note as this run has it so far: changed ones as they are now, created ones too.
+				const pool = new Map<string, ViewRow>();
+				for (const r of env.rows ?? []) pool.set(r.path, notes.get(r.path)?.row ?? r);
+				for (const n of notes.values()) if (n.created) pool.set(n.path, n.row);
+				const rows = runView(withThisNote(def, noMain ? null : f.main.path), [...pool.values()], ctx).rows.map((r) => r.row);
+				const kept = rows.slice(0, s.keep === "first" ? 1 : (s.limit ?? rows.length));
+				f.globals[as] = kept.map((r): LinkValue => ({ path: r.path, linktext: env.linkText(r.path), name: r.name }));
+				if (s.keep === "first") f.found.set(as, kept[0] ? noteAt(kept[0].path) : null);
+				return;
+			}
 			case "if": {
-				const yes = s.test === "formula" ? truthy(evalIn(f, s.formula)) : passes(s.when, targetOf(f, s.on), f);
+				// Conditions on a note Find notes didn't find: not true.
+				const n = s.test === "filter" ? noteFor(f, s.on) : null;
+				const yes = s.test === "formula" ? truthy(evalIn(f, s.formula)) : !!n && passes(s.when, n, f);
 				// Notes created inside are for the steps after them inside, as in loops.
 				execBlock(s, yes ? 0 : 1, { ...f, vars: { ...f.vars }, named: new Map(f.named) }, key);
 				return;
@@ -1583,7 +1656,7 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 				if (f.depth >= MAX_RUN_DEPTH) throw new Error(`Workflows ran each other more than ${MAX_RUN_DEPTH} deep.`);
 				if (!inScope(sub, note.row.type) || !passesWhen(sub, note.row, ctx)) return;
 				via.push(sub.name);
-				exec(sub.steps, { wf: sub, main: note, reader: note, def: workflowDef(sub), scope: sub.scope, vars: {}, globals: globalsOf(sub), named: new Map(), depth: f.depth + 1, stack: [...f.stack, sub.id] });
+				exec(sub.steps, { wf: sub, main: note, reader: note, def: workflowDef(sub), scope: sub.scope, vars: {}, globals: globalsOf(sub), found: foundOf(sub), named: new Map(), depth: f.depth + 1, stack: [...f.stack, sub.id] });
 				return;
 			}
 			case "linked": {
@@ -1639,7 +1712,7 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 	};
 
 	const selected: Record<string, FValue> = env.selection ? { [SELECTION_VAR]: env.selection.map((r): LinkValue => ({ path: r.path, linktext: env.linkText(r.path), name: r.name })) } : {};
-	const top: Frame = { wf, main, reader: main, def: workflowDef(wf), scope: wf.scope, vars: selected, globals: globalsOf(wf), named: new Map(), old: env.old, depth: 0, stack: [wf.id] };
+	const top: Frame = { wf, main, reader: main, def: workflowDef(wf), scope: wf.scope, vars: selected, globals: globalsOf(wf), found: foundOf(wf), named: new Map(), old: env.old, depth: 0, stack: [wf.id] };
 	try {
 		exec(wf.steps, top, String);
 	} catch (e) {

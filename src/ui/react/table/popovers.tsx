@@ -132,6 +132,8 @@ interface FilterProps {
 	 * view note open on its own). Undefined: not offered.
 	 */
 	thisNote?: string | null;
+	/** what "this note" is where it's always there (a workflow's note): it's never ignored, and is described so */
+	thisIs?: string;
 }
 
 export function FiltersPanel({ filters, onChange, ...rest }: FilterProps & { filters: FilterGroup; onChange: (g: FilterGroup) => void }) {
@@ -190,12 +192,12 @@ function GroupEditor({ group, depth, onChange, onRemove, ...rest }: FilterProps 
 	);
 }
 
-function ConditionEditor({ cond, onChange, onRemove, choices, ctx, valuesOf, thisNote }: FilterProps & { cond: Condition; onChange: (c: Condition) => void; onRemove: () => void }) {
+function ConditionEditor({ cond, onChange, onRemove, choices, ctx, valuesOf, thisNote, thisIs }: FilterProps & { cond: Condition; onChange: (c: Condition) => void; onRemove: () => void }) {
 	const col = choices.find((c) => c.col.id === cond.field)?.col;
 	const ops = col ? OPERATORS[col.kind] : [];
 	const op = ops.find((o) => o.op === cond.op);
-	// Checked as it runs: "this note" is the note the view is on.
-	const issue = conditionIssue(thisNote === undefined ? cond : thisNoteCondition(cond, thisNote), new Map(choices.map((c) => [c.col.id, c.col])), ctx);
+	// Checked as it runs: "this note" is the note the view is on (always there in a workflow: any stand-in will do).
+	const issue = conditionIssue(thisNote === undefined ? cond : thisNoteCondition(cond, thisIs ? "this-note" : thisNote), new Map(choices.map((c) => [c.col.id, c.col])), ctx);
 	const incomplete = issue === NEEDS_VALUE;
 	return (
 		<div className={`oe-condition${issue ? (incomplete ? " is-incomplete" : " is-invalid") : ""}`}>
@@ -224,7 +226,7 @@ function ConditionEditor({ cond, onChange, onRemove, choices, ctx, valuesOf, thi
 					</option>
 				))}
 			</select>
-			{col && op && <ValueEditor kind={op.value} col={col} value={cond.value} ctx={ctx} valuesOf={valuesOf} thisNote={thisNote} onChange={(v) => onChange({ ...cond, value: v })} />}
+			{col && op && <ValueEditor kind={op.value} col={col} value={cond.value} ctx={ctx} valuesOf={valuesOf} thisNote={thisNote} thisIs={thisIs} onChange={(v) => onChange({ ...cond, value: v })} />}
 			<span className="oe-spacer" />
 			<button className="clickable-icon" aria-label="Remove condition" onClick={onRemove}>
 				<Icon name="x" />
@@ -303,7 +305,7 @@ export function DateBox({ value, ctx, onChange, label, picker }: { value: unknow
 	);
 }
 
-function ValueEditor({ kind, col, value, ctx, valuesOf, thisNote, onChange }: { kind: string; col: ResolvedColumn; value: unknown; ctx: ViewContext; valuesOf: (id: string) => string[]; thisNote?: string | null; onChange: (v: unknown) => void }) {
+function ValueEditor({ kind, col, value, ctx, valuesOf, thisNote, thisIs, onChange }: { kind: string; col: ResolvedColumn; value: unknown; ctx: ViewContext; valuesOf: (id: string) => string[]; thisNote?: string | null; thisIs?: string; onChange: (v: unknown) => void }) {
 	const plugin = usePlugin();
 	switch (kind) {
 		case "none":
@@ -356,7 +358,7 @@ function ValueEditor({ kind, col, value, ctx, valuesOf, thisNote, onChange }: { 
 			);
 		}
 		case "links":
-			return <LinkValues targets={col.def.kind === "incoming" ? [col.def.type] : col.field?.targets} value={value} thisNote={thisNote} onChange={onChange} />;
+			return <LinkValues targets={col.def.kind === "incoming" ? [col.def.type] : col.field?.targets} value={value} thisNote={thisNote} thisIs={thisIs} onChange={onChange} />;
 	}
 	return null;
 }
@@ -369,6 +371,7 @@ export function LinkValues({
 	targets,
 	value,
 	thisNote,
+	thisIs,
 	single,
 	chips,
 	onChange,
@@ -376,6 +379,8 @@ export function LinkValues({
 	targets: string[] | undefined;
 	value: unknown;
 	thisNote?: string | null;
+	/** what "this note" is, when it isn't the note a view is on (a workflow's note) */
+	thisIs?: string;
 	/** one note: picking another replaces it */
 	single?: boolean;
 	/** show the notes as the properties form's entity chips (type icon and colour) */
@@ -392,8 +397,9 @@ export function LinkValues({
 	const offerThis = useRef(thisNote !== undefined);
 	offerThis.current = thisNote !== undefined;
 	const thisName = thisNote ? (plugin.index.get(thisNote)?.name ?? thisNote.split("/").pop()?.replace(/\.md$/, "")) : null;
-	const thisText = useRef(thisName);
-	thisText.current = thisName;
+	const about = thisIs ?? (thisName ? `The note the view is on (here: ${thisName})` : "The note the view is on");
+	const thisText = useRef(about);
+	thisText.current = about;
 	const singleRef = useRef(single);
 	singleRef.current = single;
 	useEffect(() => {
@@ -408,7 +414,7 @@ export function LinkValues({
 					? {
 							label: "This note",
 							icon: "file",
-							note: thisText.current ? `The note the view is on (here: ${thisText.current})` : "The note the view is on",
+							note: thisText.current,
 							onPick: () => onChangeRef.current([THIS_NOTE, ...latest.current]),
 						}
 					: null,
@@ -435,7 +441,7 @@ export function LinkValues({
 					);
 				})}
 			{!chips && paths.map((p) => (
-				<span key={p} className={`oe-pill is-removable${p === THIS_NOTE ? " is-this-note" : ""}`} title={p === THIS_NOTE ? (thisName ? `Here: ${thisName}` : "The note the view is on") : undefined}>
+				<span key={p} className={`oe-pill is-removable${p === THIS_NOTE ? " is-this-note" : ""}`} title={p === THIS_NOTE ? (thisIs ?? (thisName ? `Here: ${thisName}` : "The note the view is on")) : undefined}>
 					{p === THIS_NOTE ? (
 						<>
 							<Icon name="file" /> This note

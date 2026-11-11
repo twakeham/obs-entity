@@ -429,6 +429,7 @@ export function renameWorkflowKeys(wf: WorkflowDef, keys: Map<string, string>, i
 		if (s.kind === "linked") return { ...s, source: s.source.dir === "in" ? { ...s.source, type: renameTarget(s.source.type, keys) } : s.source, when: renameFilter(s.when, keys), steps: s.steps.map(step) };
 		if (s.kind === "each") return { ...s, formula: f(s.formula), itemType: s.itemType ? renameTarget(s.itemType, keys) : s.itemType, when: renameFilter(s.when, keys), steps: s.steps.map(step) };
 		if (s.kind === "if") return { ...s, formula: f(s.formula), when: renameFilter(s.when, keys), steps: s.steps.map(step), otherwise: s.otherwise.map(step) };
+		if (s.kind === "find") return { ...s, types: s.types.map((x) => renameTarget(x, keys)), when: renameFilter(s.when, keys), ...(s.sort ? { sort: { ...s.sort, by: renameColumnId(s.sort.by, keys) } } : {}) };
 		return note(s);
 	};
 	return { ...wf, scope: wf.scope.map((x) => renameTarget(x, keys)), when: renameFilter(wf.when, keys), steps: wf.steps.map(step) };

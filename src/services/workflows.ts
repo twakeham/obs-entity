@@ -653,7 +653,7 @@ export class WorkflowEngine extends Events {
 			const name = p.replace(/\.md$/, "").split("/").pop() ?? p;
 			return app.metadataCache.getFirstLinkpathDest(name, row.path) ? p.replace(/\.md$/, "") : name;
 		};
-		return runSteps(wf, { ctx, row, old, linkText, place: this.placer(rows), workflows: this.plugin.settings.workflows, answers, ...(selection ? { selection } : {}) });
+		return runSteps(wf, { ctx, row, old, linkText, place: this.placer(rows), workflows: this.plugin.settings.workflows, rows, answers, ...(selection ? { selection } : {}) });
 	}
 
 	/**

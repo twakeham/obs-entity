@@ -48,6 +48,7 @@ import {
 	type WorkflowDef,
 	type WorkflowStep,
 	type IfStep,
+	type FindStep,
 } from "../src/model/workflows";
 
 const GROUPS: GroupDef[] = [{ key: "work", name: "Work", icon: "x", statuses: ["todo", "doing", "done"] }];
@@ -387,7 +388,7 @@ describe("create a note", () => {
 		expect(at([create({ type: "" })])).toEqual(["Choose the type of note to create."]);
 		expect(at([create({ fields: [{ field: "priority", value: "", fixed: "Urgent" }, { field: "nope", value: "1" }] })])).toEqual(["Priority: “Urgent” isn't one of Priority's choices.", "Task has no “nope” field."]);
 		expect(at([create({ link: { dir: "to-new", field: "budget" } })])).toEqual(["“budget” can't link the new note and this one."]);
-		expect(at([{ kind: "set", field: "estimate", value: "", fixed: 1, on: "Kickoff" }, create()])).toEqual(["No earlier step creates “Kickoff”."]);
+		expect(at([{ kind: "set", field: "estimate", value: "", fixed: 1, on: "Kickoff" }, create()])).toEqual(["No earlier step creates or finds “Kickoff”."]);
 		expect(at([create(), { kind: "set", field: "budget", value: "", fixed: 1, on: "Kickoff" }])).toEqual(["Task has no “budget” field."]);
 		expect(at([create(), { kind: "notice", text: "{[Kickoff]}" }, { kind: "set", field: "budget", value: "count([Kickoff])" }])).toEqual([]);
 		expect(at([{ kind: "notice", text: "{[Kickoff]}" }, create()])).toEqual(["Unknown column [Kickoff]."]);
@@ -668,7 +669,7 @@ describe("loops and running other workflows", () => {
 		it("keep notes created inside to the steps after them inside", () => {
 			const make: WorkflowStep = { kind: "create", type: "task", name: "Follow-up", fields: [], template: false, open: "no", exists: "new", as: "Follow-up" };
 			const w = wf({ name: "x", scope: ["task"], steps: [iff({ when: high, steps: [make, { kind: "tag", op: "add", tag: "a", on: "Follow-up" }] }), { kind: "tag", op: "add", tag: "b", on: "Follow-up" }] });
-			expect(workflowProblems(w, ctx).map((p) => `${p.at}: ${p.message}`)).toEqual(["step:1: No earlier step creates \u201cFollow-up\u201d."]);
+			expect(workflowProblems(w, ctx).map((p) => `${p.at}: ${p.message}`)).toEqual(["step:1: No earlier step creates or finds \u201cFollow-up\u201d."]);
 		});
 
 		it("report what's missing", () => {
@@ -680,6 +681,89 @@ describe("loops and running other workflows", () => {
 			const once = { kind: "manual", selection: "once" } as WorkflowDef["trigger"];
 			expect(probs(iff({ when: high, otherwise: [{ kind: "notice", text: "x" }] }), once)).toEqual([NO_NOTE]);
 			expect(probs(iff({ test: "formula", formula: `count([${SELECTION_VAR}]) > 1`, otherwise: [{ kind: "notice", text: "x" }] }), once)).toEqual([]);
+		});
+	});
+
+	describe("find notes", () => {
+		const go = (w: WorkflowDef, r: ViewRow) => runSteps(w, { ctx: ctx2, row: r, linkText, place, rows: all });
+		const ofThis = { mode: "all" as const, items: [{ field: "project", op: "links-any", value: ["{this}"] }] };
+		const high = { mode: "all" as const, items: [{ field: "priority", op: "any-of" as const, value: ["High"] }] };
+		const find = (over: Partial<FindStep>): FindStep => ({ kind: "find", types: ["task"], when: ofThis, keep: "all", as: "Found", ...over });
+
+		it("find every match as a list, sorted, as many as it says", () => {
+			const w = wf({
+				name: "x",
+				scope: ["project"],
+				steps: [find({ sort: { by: "estimate", dir: "desc" } }), { kind: "notice", text: "{count([Found])}: {[Found]}" }, find({ as: "Two", limit: 1 }), { kind: "notice", text: "{[Two]}" }],
+			});
+			expect(workflowProblems(w, ctx)).toEqual([]);
+			expect(readWorkflows(JSON.parse(JSON.stringify([w])))[0].steps).toEqual(w.steps);
+			// Sorted by name when it doesn't say.
+			expect(go(w, ROWS[0]).notices).toEqual(["2: Build, Plan", "Build"]);
+			expect(go(w, ROWS[1]).notices).toEqual(["1: Other", "Other"]);
+		});
+
+		it("act on the first one found; skip steps on it when none match", () => {
+			const w = wf({
+				name: "x",
+				scope: ["project"],
+				steps: [
+					find({ keep: "first", as: "Biggest", when: { mode: "all", items: [...ofThis.items, { field: "estimate", op: ">", value: 1 }] }, sort: { by: "estimate", dir: "desc" } }),
+					{ kind: "tag", op: "add", tag: "biggest", on: "Biggest" },
+					{ kind: "if", test: "filter", on: "Biggest", when: high, formula: "", steps: [{ kind: "notice", text: "urgent" }], otherwise: [{ kind: "notice", text: "not urgent" }] },
+				],
+			});
+			expect(workflowProblems(w, ctx)).toEqual([]);
+			expect(stepScopes(w, ctx).get("1")!.on).toEqual([expect.objectContaining({ value: "Biggest", found: true })]);
+			const res = go(w, ROWS[0]);
+			expect(res.others.map((o) => [o.path, o.fm.tags])).toEqual([["Build.md", ["biggest"]]]);
+			expect(res.notices).toEqual(["urgent"]);
+			const none = go(w, ROWS[1]);
+			expect(none.error).toBeUndefined();
+			expect(none.others).toEqual([]);
+			expect(none.notices).toEqual(["not urgent"]);
+		});
+
+		it("see notes as this run has changed and created them", () => {
+			const w = wf({
+				name: "x",
+				scope: ["project"],
+				steps: [
+					{ kind: "create", type: "task", name: "Extra", fields: [{ field: "estimate", value: "9" }], link: { dir: "from-new", field: "project" }, template: false, open: "no", exists: "new", as: "Extra" },
+					linkedTasks({ steps: [{ kind: "set", field: "estimate", value: "[Estimate] + 10" }] }),
+					find({ sort: { by: "estimate", dir: "desc" } }),
+					{ kind: "notice", text: "{[Found]}" },
+				],
+			});
+			expect(workflowProblems(w, ctx)).toEqual([]);
+			// The loop reaches the new task too (it links here): 19, 15, 12.
+			expect(go(w, ROWS[0]).notices).toEqual(["Extra, Build, Plan"]);
+		});
+
+		it("are found in a loop each time round, and kept for after it", () => {
+			const w = wf({
+				name: "x",
+				scope: ["project"],
+				steps: [
+					linkedTasks({ steps: [find({ keep: "first", as: "Top", sort: { by: "estimate", dir: "desc" } })] }),
+					{ kind: "notice", text: "{[Top]}" },
+					{ kind: "tag", op: "add", tag: "top", on: "Top" },
+				],
+			});
+			expect(workflowProblems(w, ctx)).toEqual([]);
+			const res = go(w, ROWS[0]);
+			expect(res.notices).toEqual(["Build"]);
+			expect(res.others.map((o) => [o.path, o.fm.tags])).toEqual([["Build.md", ["top"]]]);
+		});
+
+		it("report problems", () => {
+			const probs = (s: FindStep) => workflowProblems(wf({ name: "x", scope: ["project"], steps: [s] }), ctx).map((p) => p.message);
+			expect(probs(find({ types: ["nope"], when: { mode: "all", items: [] } }))).toEqual(["\u201cnope\u201d isn't a type or group."]);
+			expect(probs(find({ when: { mode: "all", items: [{ field: "budget", op: "empty" }] } }))).toEqual(["A condition uses \u201cbudget\u201d, which isn't a column of these notes."]);
+			expect(probs(find({ sort: { by: "nope", dir: "asc" } }))).toEqual(["It's sorted by \u201cnope\u201d, which isn't a column of these notes."]);
+			expect(probs(find({ limit: 0.5 }))).toEqual(["At most: a whole number, 1 or more."]);
+			expect(probs(find({ as: "" }))).toEqual(["Name the notes it finds for later steps (Call it)."]);
+			expect(probs(find({ as: "Budget" }))).toEqual(["\u201cBudget\u201d is already a field's name: choose another."]);
 		});
 	});
 });
