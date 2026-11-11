@@ -7531,10 +7531,59 @@ button.oe-calv-more:hover {
 }
 
 /* When / Only if / Do: panels with an accent each, joined by a line (the order things happen in) */
-.oe-tm-section h3:has(.oe-tm-section-icon) {
+.oe-tm-section h3:has(.oe-tm-section-icon),
+.oe-tm-section h3:has(.oe-tm-section-chevron) {
 	display: flex;
 	align-items: center;
 	gap: var(--size-4-2);
+}
+
+/* Sections that fold: the heading is the toggle; folded, a summary line shows instead */
+.oe-tm-section.is-collapsible > .oe-tm-section-head {
+	cursor: pointer;
+	user-select: none;
+	border-radius: var(--radius-s);
+}
+
+.oe-tm-section.is-collapsible > .oe-tm-section-head:focus-visible {
+	box-shadow: 0 0 0 2px var(--background-modifier-border-focus);
+	outline: none;
+}
+
+.oe-tm-section.is-collapsible > .oe-tm-section-head:hover .oe-tm-section-chevron {
+	color: var(--text-normal);
+}
+
+.oe-tm-section-chevron {
+	display: inline-flex;
+	margin-left: -4px;
+	color: var(--text-faint);
+}
+
+.oe-tm-section-chevron svg {
+	width: 16px;
+	height: 16px;
+}
+
+.oe-tm-section-issue {
+	display: inline-flex;
+	color: var(--text-error);
+}
+
+.oe-tm-section-issue svg {
+	width: 14px;
+	height: 14px;
+}
+
+.oe-tm-section.is-folded .oe-tm-section-summary {
+	margin-bottom: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.oe-wf-editor .oe-tm-section.oe-wf-panel.is-folded {
+	padding-bottom: var(--size-4-3);
 }
 
 .oe-wf-editor .oe-tm-section.oe-wf-panel {
@@ -7750,9 +7799,38 @@ button.oe-calv-more:hover {
 }
 
 .oe-wf-step {
+	display: flex;
+	align-items: stretch;
 	border: 1px solid var(--background-modifier-border);
 	border-radius: var(--radius-m);
 	background-color: var(--background-primary);
+}
+
+/* The left gutter: the drag handle and the step's number; the whole strip drags the step */
+.oe-wf-step-gutter {
+	display: flex;
+	flex: none;
+	align-items: flex-start;
+	gap: 1px;
+	padding: 9px 6px 0 4px;
+	border-right: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m) 0 0 var(--radius-m);
+	background-color: color-mix(in srgb, var(--background-secondary) 60%, transparent);
+	cursor: grab;
+	user-select: none;
+}
+
+.oe-wf-step-gutter:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.oe-wf-step-gutter:hover .oe-wf-step-grip {
+	color: var(--text-muted);
+}
+
+.oe-wf-step-main {
+	flex: 1;
+	min-width: 0;
 	padding: var(--size-4-2) var(--size-4-3) var(--size-4-3);
 }
 
@@ -7774,17 +7852,12 @@ button.oe-calv-more:hover {
 }
 
 .oe-wf-step-n {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	width: 20px;
-	height: 20px;
-	border-radius: 50%;
-	font-size: var(--font-ui-smaller);
+	min-width: 14px;
+	line-height: 18px;
+	font-size: var(--font-ui-small);
+	font-weight: var(--font-semibold);
 	font-variant-numeric: tabular-nums;
-	color: var(--text-on-accent);
-	background-color: var(--interactive-accent);
-	flex-shrink: 0;
+	color: var(--text-muted);
 }
 
 .oe-wf-step-title {
@@ -8070,13 +8143,12 @@ button.oe-calv-more:hover {
 /* Dragging steps by their handle */
 .oe-wf-step-grip {
 	display: inline-flex;
-	padding: 4px 2px;
 	color: var(--text-faint);
-	cursor: grab;
 }
 
-.oe-wf-step-grip:hover {
-	color: var(--text-muted);
+.oe-wf-step-grip svg {
+	width: 14px;
+	height: 18px;
 }
 
 .oe-wf-step.is-dragging {
@@ -8214,13 +8286,8 @@ button.oe-calv-more:hover {
 	background-color: var(--background-secondary);
 }
 
-.oe-wf-loop-steps .oe-wf-step-n {
-	width: auto;
-	min-width: 20px;
-	padding: 0 5px;
-	border-radius: 10px;
-	background-color: var(--background-modifier-border-hover);
-	color: var(--text-normal);
+.oe-wf-loop-steps .oe-wf-step-gutter {
+	background-color: color-mix(in srgb, var(--background-primary) 50%, transparent);
 }
 
 .oe-tm button.oe-wf-add-step.is-inner {

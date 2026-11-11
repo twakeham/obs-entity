@@ -59,7 +59,7 @@ import { FormulaModal } from "../../modals/formulaModal";
 import { ChoiceControl } from "../EntityForm";
 import { DateBox, FiltersPanel, LinkValues, type ColumnChoice } from "../table/popovers";
 import { ConfirmModal, SaveActions } from "../types/TypeManager";
-import { IconPicker, Row, Section, Segmented, TargetPicker, TextInput, Toggle } from "../types/controls";
+import { IconPicker, Row, Section, Segmented, TargetPicker, TextInput, Toggle, type SectionCollapse } from "../types/controls";
 import { openTryRun } from "./TryRun";
 import { FolderPickerModal } from "../../modals/bulkModals";
 
@@ -105,6 +105,15 @@ const STEP_ICONS: Record<StepKind, string> = {
 };
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+/** The workflow editor's folded sections (local storage: this device). */
+const FOLD_KEY = "obs-entities-workflow-folded";
+/** The problems each foldable section of the editor holds (by where they're reported), by its key. */
+const SECTION_ATS: Record<string, (at: string) => boolean> = {
+	workflow: (a) => a === "name" || a === "scope",
+	when: (a) => a === "trigger",
+	"only-if": (a) => a === "when",
+	do: (a) => a === "steps" || a.startsWith("step:"),
+};
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const when = (t: number) => {
 	const d = new Date(t);
@@ -423,6 +432,36 @@ function WorkflowEditor({
 
 	const recent = plugin.workflows.log.filter((r) => r.workflow === id).slice(0, 10);
 
+	// Folded sections: the same for every workflow, kept on this device.
+	const [folded, setFolded] = useState<string[]>(() => {
+		const raw = plugin.app.loadLocalStorage(FOLD_KEY) as unknown;
+		try {
+			const v = typeof raw === "string" ? (JSON.parse(raw) as unknown) : raw;
+			return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+		} catch {
+			return [];
+		}
+	});
+	/** A section's fold, its summary while folded, and whether a problem is hidden in it. */
+	const fold = (key: string, summary: string): SectionCollapse => ({
+		open: !folded.includes(key),
+		onToggle: () => {
+			const next = folded.includes(key) ? folded.filter((x) => x !== key) : [...folded, key];
+			setFolded(next);
+			plugin.app.saveLocalStorage(FOLD_KEY, JSON.stringify(next));
+		},
+		summary,
+		issue: shownProblems.some((p) => !!SECTION_ATS[key]?.(p.at)),
+	});
+	const unfoldProblems = () => {
+		const next = folded.filter((k) => !problems.some((p) => SECTION_ATS[k]?.(p.at)));
+		if (next.length === folded.length) return;
+		setFolded(next);
+		plugin.app.saveLocalStorage(FOLD_KEY, JSON.stringify(next));
+	};
+	const countConditions = (g: WorkflowDef["when"]): number => g.items.reduce((n, x) => n + ("items" in x ? countConditions(x) : 1), 0);
+	const conditionCount = countConditions(wf.when);
+
 	const scopes = useMemo(() => stepScopes(wf, lookup), [wf, settings.types]); // eslint-disable-line react-hooks/exhaustive-deps
 
 	return (
@@ -441,12 +480,14 @@ function WorkflowEditor({
 							<SaveActions
 								label={isNew ? "New workflow, not saved yet" : "Unsaved changes"}
 								problems={attempted ? problems.length : 0}
-								onProblems={() => setAttempted(true)}
+								onProblems={() => (setAttempted(true), unfoldProblems())}
 								onDiscard={onDiscarded}
 								onSave={() => {
 									setAttempted(true);
-									if (problems.length) new Notice(`Fix ${plural(problems.length, "problem")} before saving.`);
-									else void save();
+									if (problems.length) {
+										unfoldProblems();
+										new Notice(`Fix ${plural(problems.length, "problem")} before saving.`);
+									} else void save();
 								}}
 							/>
 						)}
@@ -469,7 +510,7 @@ function WorkflowEditor({
 						<Icon name="alert-triangle" /> This workflow doesn't run until {problems.length === 1 ? "its problem is" : `its ${problems.length} problems are`} fixed.
 					</div>
 				)}
-				<Section title="Workflow">
+				<Section title="Workflow" collapse={fold("workflow", `${wf.name || "New workflow"} · ${wf.scope.length ? scopeTypes(wf, settings.types).map((x) => x.plural || x.name).join(", ") || wf.scope.join(", ") : "Any note"}`)}>
 					<Row label="Name" issues={at("name")}>
 						<TextInput label="Workflow name" value={wf.name} placeholder="e.g. Completed date" autoFocus={isNew && !wf.name} invalid={at("name").length > 0} onChange={(v) => edit((x) => (x.name = v))} />
 					</Row>
@@ -478,7 +519,7 @@ function WorkflowEditor({
 					</Row>
 				</Section>
 
-				<Section title="When" desc="What starts the workflow." icon="zap" className="oe-wf-panel is-when">
+				<Section title="When" desc="What starts the workflow." icon="zap" className="oe-wf-panel is-when" collapse={fold("when", triggerText(wf, settings.types))}>
 					<Row label="Trigger" issues={at("trigger")}>
 						<Segmented label="Trigger" value={t.kind} options={TRIGGER_OPTIONS} onChange={setTrigger} />
 					</Row>
@@ -608,7 +649,13 @@ function WorkflowEditor({
 					)}
 				</Section>
 
-				<Section title="Only if" icon="filter" className="oe-wf-panel is-only-if" desc={isTimed(t) ? "Conditions on each note when it runs. None: every note of these types." : "Conditions on the note, after the change. None: it always runs."}>
+				<Section
+					title="Only if"
+					icon="filter"
+					className="oe-wf-panel is-only-if"
+					desc={isTimed(t) ? "Conditions on each note when it runs. None: every note of these types." : "Conditions on the note, after the change. None: it always runs."}
+					collapse={fold("only-if", conditionCount ? `${plural(conditionCount, "condition")}${wf.when.items.length > 1 ? (wf.when.mode === "all" ? ", all must match" : ", any can match") : ""}` : "No conditions: it always runs.")}
+				>
 					{at("when").map((p, i) => (
 						<div key={i} className="oe-tm-issue">
 							<Icon name="alert-circle" /> {p.message}
@@ -619,7 +666,13 @@ function WorkflowEditor({
 					</div>
 				</Section>
 
-				<Section title="Do" icon="list-checks" className="oe-wf-panel is-do" desc="Steps, in order. Each sees the changes of the ones before; the note is saved once at the end. If a step fails, nothing is saved.">
+				<Section
+					title="Do"
+					icon="list-checks"
+					className="oe-wf-panel is-do"
+					desc="Steps, in order. Each sees the changes of the ones before; the note is saved once at the end. If a step fails, nothing is saved."
+					collapse={fold("do", wf.steps.length ? `${plural(wf.steps.length, "step")}: ${wf.steps.map((s) => STEP_LABELS[s.kind]).join(" → ")}` : "No steps yet.")}
+				>
 					{at("steps").map((p, i) => (
 						<div key={i} className="oe-tm-issue">
 							<Icon name="alert-circle" /> {p.message}
@@ -629,7 +682,7 @@ function WorkflowEditor({
 				</Section>
 
 				{!isNew && (
-					<Section title="Recent runs">
+					<Section title="Recent runs" collapse={fold("runs", recent.length ? `${plural(recent.length, "run")}, the last ${when(recent[0].time)}` : "It hasn't run yet.")}>
 						<RunList runs={recent} empty="It hasn't run yet." />
 					</Section>
 				)}
@@ -1153,6 +1206,7 @@ function StepCard({
 	}
 	const named = step.kind === "create" || step.kind === "linked" || step.kind === "each" ? step.as.trim() : "";
 	const subtitle = step.kind === "run" ? plugin.settings.workflows.find((w) => w.id === step.workflow)?.name : named ? `“${named}”` : "";
+	const stepNo = path.includes(".") ? path.split(".").map((n) => Number(n) + 1).join(".") : String(index + 1);
 	return (
 		<div
 			className={`oe-wf-step${mine.length ? " has-issue" : ""}${isLoop(step) ? " is-loop" : ""}${drag.dragging ? " is-dragging" : ""}${drag.before ? " drop-before" : ""}${drag.after ? " drop-after" : ""}`}
@@ -1172,46 +1226,50 @@ function StepCard({
 				drag.drop();
 			}}
 		>
-			<div className="oe-wf-step-head">
-				<span className="oe-wf-step-n">{path.includes(".") ? path.split(".").map((n) => Number(n) + 1).join(".") : index + 1}</span>
-				<Icon name={STEP_ICONS[step.kind]} />
-				<span className="oe-wf-step-title">{STEP_LABELS[step.kind]}</span>
-				{subtitle && <span className="oe-wf-step-as">{subtitle}</span>}
-				<span className="oe-spacer" />
-				<span
-					className="oe-wf-step-grip"
-					draggable
-					role="button"
-					aria-label="Drag to reorder"
-					title="Drag to reorder"
-					onDragStart={(e) => {
-						e.stopPropagation();
-						e.dataTransfer.effectAllowed = "move";
-						e.dataTransfer.setData("text/plain", path);
-						const card = e.currentTarget.closest(".oe-wf-step");
-						if (card instanceof HTMLElement) e.dataTransfer.setDragImage(card, 24, 16);
-						drag.start();
-					}}
-					onDragEnd={drag.end}
-				>
+			<div
+				className="oe-wf-step-gutter"
+				draggable
+				role="button"
+				aria-label={`Step ${stepNo}: drag to reorder`}
+				title="Drag to reorder"
+				onDragStart={(e) => {
+					e.stopPropagation();
+					e.dataTransfer.effectAllowed = "move";
+					e.dataTransfer.setData("text/plain", path);
+					const card = e.currentTarget.closest(".oe-wf-step");
+					if (card instanceof HTMLElement) e.dataTransfer.setDragImage(card, 16, 16);
+					drag.start();
+				}}
+				onDragEnd={drag.end}
+			>
+				<span className="oe-wf-step-grip">
 					<Icon name="grip-vertical" />
 				</span>
-				<button className="clickable-icon" aria-label="Move up" disabled={index === 0} onClick={() => onMove(-1)}>
-					<Icon name="arrow-up" />
-				</button>
-				<button className="clickable-icon" aria-label="Move down" disabled={index === count - 1} onClick={() => onMove(1)}>
-					<Icon name="arrow-down" />
-				</button>
-				<button className="clickable-icon oe-tm-danger" aria-label="Remove step" onClick={onRemove}>
-					<Icon name="trash-2" />
-				</button>
+				<span className="oe-wf-step-n">{stepNo}</span>
 			</div>
-			<div className={`oe-wf-step-body${step.kind === "create" || isLoop(step) ? " is-create" : ""}`}>{body}</div>
-			{mine.map((p, i) => (
-				<div key={i} className="oe-tm-issue">
-					<Icon name="alert-circle" /> {p.message}
+			<div className="oe-wf-step-main">
+				<div className="oe-wf-step-head">
+					<Icon name={STEP_ICONS[step.kind]} />
+					<span className="oe-wf-step-title">{STEP_LABELS[step.kind]}</span>
+					{subtitle && <span className="oe-wf-step-as">{subtitle}</span>}
+					<span className="oe-spacer" />
+					<button className="clickable-icon" aria-label="Move up" disabled={index === 0} onClick={() => onMove(-1)}>
+						<Icon name="arrow-up" />
+					</button>
+					<button className="clickable-icon" aria-label="Move down" disabled={index === count - 1} onClick={() => onMove(1)}>
+						<Icon name="arrow-down" />
+					</button>
+					<button className="clickable-icon oe-tm-danger" aria-label="Remove step" onClick={onRemove}>
+						<Icon name="trash-2" />
+					</button>
 				</div>
-			))}
+				<div className={`oe-wf-step-body${step.kind === "create" || isLoop(step) ? " is-create" : ""}`}>{body}</div>
+				{mine.map((p, i) => (
+					<div key={i} className="oe-tm-issue">
+						<Icon name="alert-circle" /> {p.message}
+					</div>
+				))}
+			</div>
 		</div>
 	);
 }

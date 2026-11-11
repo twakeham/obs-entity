@@ -484,19 +484,62 @@ export function IconPicker({ value, color, onChange, empty }: { value: string; c
 	);
 }
 
-/** Section heading inside a tab. `icon` goes before the title; `className` styles it (e.g. as a panel). */
-export function Section({ title, desc, children, actions, icon, className }: { title: string; desc?: ReactNode; children: ReactNode; actions?: ReactNode; icon?: string; className?: string }) {
+/** A section's fold: open or not, the toggle, a line to show while folded, and whether something inside has a problem. */
+export interface SectionCollapse {
+	open: boolean;
+	onToggle: () => void;
+	summary?: ReactNode;
+	issue?: boolean;
+}
+
+/**
+ * Section heading inside a tab. `icon` goes before the title; `className` styles it (e.g. as a panel). With
+ * `collapse`, the heading folds the section (click, Enter or Space); folded, it shows the summary instead.
+ */
+export function Section({
+	title,
+	desc,
+	children,
+	actions,
+	icon,
+	className,
+	collapse,
+}: {
+	title: string;
+	desc?: ReactNode;
+	children: ReactNode;
+	actions?: ReactNode;
+	icon?: string;
+	className?: string;
+	collapse?: SectionCollapse;
+}) {
+	const folded = !!collapse && !collapse.open;
+	const toggle = collapse
+		? {
+				role: "button",
+				tabIndex: 0,
+				"aria-expanded": collapse.open,
+				onClick: collapse.onToggle,
+				onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => {
+					if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
+					e.preventDefault();
+					collapse.onToggle();
+				},
+			}
+		: {};
 	return (
-		<section className={`oe-tm-section${className ? ` ${className}` : ""}`}>
-			<div className="oe-tm-section-head">
+		<section className={`oe-tm-section${className ? ` ${className}` : ""}${collapse ? " is-collapsible" : ""}${folded ? " is-folded" : ""}`}>
+			<div className="oe-tm-section-head" {...toggle}>
 				<h3>
+					{collapse && <Icon name={collapse.open ? "chevron-down" : "chevron-right"} className="oe-tm-section-chevron" />}
 					{icon && <Icon name={icon} className="oe-tm-section-icon" />}
 					{title}
+					{folded && collapse.issue && <Icon name="alert-circle" className="oe-tm-section-issue" />}
 				</h3>
 				{actions}
 			</div>
-			{desc && <div className="oe-tm-section-desc">{desc}</div>}
-			{children}
+			{folded ? collapse.summary !== undefined && <div className="oe-tm-section-desc oe-tm-section-summary">{collapse.summary}</div> : desc && <div className="oe-tm-section-desc">{desc}</div>}
+			{!folded && children}
 		</section>
 	);
 }
