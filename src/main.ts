@@ -24,7 +24,7 @@ import { SIDE_PANEL_VIEW, SidePanelView } from "./ui/views/SidePanelView";
 import { BROWSER_VIEW, BrowserView } from "./ui/views/BrowserView";
 import type { EntityRecord } from "./services/entityIndex";
 import { TYPES_VIEW, TypesView } from "./ui/views/TypesView";
-import type { GroupDraft, TypeDraft } from "./model/typeEditing";
+import { isDirty, isGroupDirty, type GroupDraft, type TypeDraft } from "./model/typeEditing";
 import { calcCell, emptyBoard, emptyView, fieldColumn, formatCell, resolveColumn, serializeView, sourceTypes, typeViewDef, type ViewContext, type ViewDef, type ViewKind, type ViewRow, columnFromId } from "./model/views";
 import { defaultBuckets } from "./model/board";
 import { BIG_RUN, buttonIcon, buttonLabel, formsFor, inScope, moveViewPath, noteless, onNotes, runsOnce, workflowProblems, type FormTrigger, type WorkflowDef } from "./model/workflows";
@@ -556,13 +556,25 @@ export default class EntitiesPlugin extends Plugin {
 
 	/** Write a view note in the views folder (numbered when the name is taken). */
 	async writeViewNote(name: string, def: ViewDef): Promise<TFile> {
-		const folder = await this.factory.ensureFolder(normalizePath(this.settings.viewsFolder.trim() || "/").replace(/^\/$/, ""));
-		const base = name.replace(/[\\/:*?"<>|#^[\]]/g, " ").trim() || "View";
-		let path = normalizePath(`${folder ? `${folder}/` : ""}${base}.md`);
-		for (let n = 2; this.app.vault.getAbstractFileByPath(path); n++) path = normalizePath(`${folder ? `${folder}/` : ""}${base} ${n}.md`);
-		const file = await this.app.vault.create(path, `\`\`\`${VIEW_BLOCK}\n${stringifyYaml(serializeView(def))}\`\`\`\n`);
+		const first = await this.viewNotePath(name);
+		const stem = first.slice(0, -".md".length);
+		let path = first;
+		for (let n = 2; this.app.vault.getAbstractFileByPath(path); n++) path = `${stem} ${n}.md`;
+		const file = await this.app.vault.create(path, this.viewNoteText(def));
 		this.views.add(file.path, def.kind);
 		return file;
+	}
+
+	/** Where a view note of this name goes in the views folder (made if missing), before any numbering. */
+	async viewNotePath(name: string): Promise<string> {
+		const folder = await this.factory.ensureFolder(normalizePath(this.settings.viewsFolder.trim() || "/").replace(/^\/$/, ""));
+		const base = name.replace(/[\\/:*?"<>|#^[\]]/g, " ").trim() || "View";
+		return normalizePath(`${folder ? `${folder}/` : ""}${base}.md`);
+	}
+
+	/** A view note's text: the view's block. */
+	viewNoteText(def: ViewDef): string {
+		return `\`\`\`${VIEW_BLOCK}\n${stringifyYaml(serializeView(def))}\`\`\`\n`;
 	}
 
 	/** "New entity view": ask for the source, layout and name, then create the note. */
@@ -631,6 +643,27 @@ export default class EntitiesPlugin extends Plugin {
 		this.syncPropertyTypes();
 		// Type definitions may have changed; re-resolve every entity against them.
 		if (this.index?.isReady()) this.index.rebuild();
+	}
+
+	/** Unsaved edits in the Entity types and Workflows views (types, groups and workflows new or changed). */
+	unsavedEdits(): number {
+		const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+		const types = [...this.typeDrafts.values()].filter((d) => !d.original || isDirty(d)).length;
+		const groups = [...this.groupDrafts.values()].filter((d) => !d.original || isGroupDirty(d)).length;
+		const wfs = [...this.workflowDrafts.entries()].filter(([id, w]) => {
+			const saved = this.settings.workflows.find((x) => x.id === id);
+			return !saved || !same(saved, w);
+		}).length;
+		return types + groups + wfs;
+	}
+
+	/** Drop every unsaved edit in the Entity types and Workflows views, and show them afresh. */
+	discardEdits(): void {
+		this.typeDrafts = new Map();
+		this.groupDrafts = new Map();
+		this.workflowDrafts.clear();
+		for (const leaf of this.app.workspace.getLeavesOfType(TYPES_VIEW)) if (leaf.view instanceof TypesView) leaf.view.remount();
+		this.workflows.trigger("drafts");
 	}
 
 	/**

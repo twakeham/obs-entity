@@ -17,7 +17,7 @@ Derived from the Story Forge worldbuilding plugin, made domain-neutral. The full
 | M7.1 Workflows, stage 1 | Automation: when a note is created or a field changes, or from a button, set fields, tags and links or show a notice; the Workflows view, run log and undo | ✅ Done |
 | M7.2 Workflows, stage 2 | Creating notes, steps on linked notes, for each, running other workflows, one run for a whole selection, form workflows (from commands, the ribbon, view toolbars and the Entity Browser) | Done |
 | M7.3 Workflows, stage 3 | Test runs, big-run confirmation, ask, move / rename, schedules and date triggers, workflows in type packs | ✅ Done |
-| M5 Packs & polish | Fuller packs (views and templates, Copy group as a pack) ✅; pack picker on first run, accessibility, docs | In progress |
+| M5 Packs & polish | Fuller packs (views and templates, Copy group as a pack) ✅; apps (export / import the whole configuration) ✅; pack picker on first run, accessibility, docs | In progress |
 
 ## How notes are stored
 
@@ -131,9 +131,9 @@ Opened from:
 
 **Sidebar:** types are listed under their groups.
 - **Click a group heading** to edit the group. Drag headings to reorder groups.
-- **+ New** offers a type, a duplicate of the current one, a group, **Import pack…**, or **Copy all types as a pack** (with every workflow, view note and template).
+- **+ New** offers a type, a duplicate of the current one, a group, **Import pack…**, **Copy all types as a pack** (with every workflow, view note and template), **Import app…** and **Export as an app…** (see [Apps](#apps)).
 - **Group editor → Copy group as a pack:** the group's types, their workflows, the view notes that show only those types (or the group), and their templates.
-- **Packs and workflows:** a type's **Copy as JSON** includes the workflows that apply only to it (and any workflows they run), and its template file. Importing a pack opens its workflows as drafts in the Workflows view, **switched off**, so you can check them before turning them on. Its view notes are written to your views folder (numbered when the name is taken, `Overdue 2`), and workflows that show on those views follow them. Its templates are written to your templates folder; if a type's template file already exists with different text, the pack's is written as `Task 2.md` and the type uses it. If a type's key is already taken here (`task` → `task_2`), everything in the pack that refers to it follows: links, roll-ups, formulas, the workflows' types, conditions and steps, and the views' types, columns, filters and sorting. Saved layout components and notes aren't part of packs.
+- **Packs and workflows:** a type's **Copy as JSON** includes the workflows that apply only to it (and any workflows they run), and its template file. Importing a pack opens its workflows as drafts in the Workflows view, **switched off**, so you can check them before turning them on. Its view notes are written to your views folder (numbered when the name is taken, `Overdue 2`), and workflows that show on those views follow them. Its templates are written to your templates folder; if a type's template file already exists with different text, the pack's is written as `Task 2.md` and the type uses it. If a type's key is already taken here (`task` → `task_2`), everything in the pack that refers to it follows: links, roll-ups, formulas, the workflows' types, conditions and steps, and the views' types, columns, filters and sorting. Saved layout components and notes aren't part of packs (apps carry the components).
 
 **Type editor tabs:**
 - **General:** name, plural, key (fixed once saved), icon, colour, group, statuses (the group's or custom), folder (the entity folder pattern or the type's own exception), folder rule (in the folder / own folder each / inside its parent, with a path preview), template, search shortcuts. Also Duplicate, Copy as JSON, Reset to starter, and Delete type.
@@ -194,6 +194,17 @@ Opened from:
 - A group can only be deleted once it has no types.
 
 **Deleting a type** leaves its notes untouched (they keep `entity: <key>`). Deleted starter types don't come back on update.
+
+## Apps
+
+An **app** is the whole configuration in one file: every group, type, workflow, view note, template and saved layout component (not notes), with a name, version, author and description. Use it to set up another vault the same way, or to share a ready-made setup.
+
+- **Export as an app…** (settings → Apps, or **+ New** in the Entity types view): fill in the details (remembered for next time; the version is part of the file name, e.g. `Delivery Tracker 1.2.json`), then **Save…** opens the system's Save dialog.
+- **Import app…** (the same places): choose the file, see what it holds, then choose how to import it:
+  - **Replace the current configuration:** the app's groups, types, workflows and saved components take the place of yours, with their keys as they are. View notes and templates with the same names are overwritten (a copy of each changed one goes to the trash first); other notes are left alone. It says first how many of your notes use types the app doesn't have (they're left as they are), and that unsaved changes in the Entity types and Workflows views are discarded. Starter types the app doesn't have don't come back.
+  - **Add alongside:** like importing a pack (keys already taken get a number, `task` → `task_2`), and its saved components are added (ones you already have are skipped).
+  - **Switch on its workflows:** off by default, so its workflows come in switched off to check first; on, each is on or off as it was when exported.
+- A type pack can be imported the same way.
 
 ## Entity browser
 
@@ -525,6 +536,7 @@ src/
     propertyTypes.ts         Obsidian property types for fields (date, number, checkbox, list)
     search.ts                switcher type prefixes
     packs.ts                 starter + CRM packs, parsePack, installPack (types, groups, workflows, views, templates; renamed keys followed), packWorkflows, renameViewKeys
+    apps.ts                  whole-configuration apps: exportApp, installApp (replace or add), mergeComponents
     typeEditing.ts           type/group drafts, field + status renames, migrations, import/export, previews
     settings.ts              defaults and merging
     tree.ts                  browser forest: parent links, sections/type blocks, filtering with context, reveal paths
@@ -547,7 +559,7 @@ src/
     packFiles.ts             a pack's view notes and templates: gathered for export, written on import
   settings/settingTab.ts
   ui/components/             entity picker
-  ui/modals/                 create (hosts CreateForm), switcher, import types, add link, check entities, views (new / open / name / roll-up), formula editor (CodeMirror), bulk actions (set field, links, tags, folder picker)
+  ui/modals/                 create (hosts CreateForm), switcher, import types, export / import an app, add link, check entities, views (new / open / name / roll-up), formula editor (CodeMirror), bulk actions (set field, links, tags, folder picker)
   ui/header/formManager.tsx  puts the properties form into Live Preview and Reading view, hiding Obsidian's Properties
   ui/react/                  EntityForm (properties form, layouts, shared rows and controls), CreateForm (create dialog), ConnectionsPanel, EntityChip, EntityBits (status tones, relation groups), EntityBrowser
   ui/react/table/            EntityTable (toolbar, virtual rows, editing; hosts the board too), cells, popovers (filters, sort, group, columns)

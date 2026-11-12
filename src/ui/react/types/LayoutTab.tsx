@@ -2,7 +2,7 @@ import { FuzzySuggestModal, Menu, Modal, Notice, Scope, Setting, type App } from
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent as RFocusEvent, type KeyboardEvent as RKeyboardEvent, type MouseEvent as RMouseEvent, type PointerEvent as RPointerEvent, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type EntitiesPlugin from "../../../main";
-import { clipNodes, clipOfNode, clipOfTab, clipSummary, clipText, placeNode, placeTab, planPaste, preparePaste, readClip, type LayoutClip, type SavedComponent } from "../../../model/layoutClipboard";
+import { clipNodes, clipOfNode, clipOfTab, clipSummary, clipText, newComponentId, placeNode, placeTab, planPaste, preparePaste, readClip, type LayoutClip, type SavedComponent } from "../../../model/layoutClipboard";
 import { newUid } from "../../../model/typeEditing";
 import type { FieldDef } from "../../../model/types";
 import {
@@ -649,7 +649,7 @@ export function LayoutTab() {
 		const suggested = clip.tab?.caption ?? (n?.kind === "frame" ? n.caption : n?.kind === "heading" ? n.text : "") ?? "";
 		const icon = clip.tab?.icon ?? (n?.kind === "frame" ? n.icon : undefined) ?? "package";
 		new ComponentModal(plugin, "Save as component", { name: suggested, icon }, clipSummary(clip, clipLabel(clip)), (v) => {
-			void saveComponents([...plugin.settings.layoutComponents, { id: `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: v.name, icon: v.icon, clip }]);
+			void saveComponents([...plugin.settings.layoutComponents, { id: newComponentId(), name: v.name, icon: v.icon, clip }]);
 			new Notice(`Saved “${v.name}” to My components.`);
 		}).open();
 	};

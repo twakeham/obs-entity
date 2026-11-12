@@ -81,6 +81,13 @@ export class TypesView extends ItemView {
 
 	private pending: PendingField | null = null;
 
+	/** Start the editor afresh (its drafts were dropped). */
+	remount(): void {
+		this.root?.unmount();
+		this.root = createRoot(this.contentEl);
+		this.render();
+	}
+
 	/** Open a type on its Fields tab with `field` added to its draft (or selected, if the type has it). */
 	addField(typeKey: string, field: FieldDef): void {
 		this.pending = { typeKey, field };

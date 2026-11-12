@@ -1,6 +1,7 @@
 import { isEmptyValue } from "./frontmatter";
 import { renameLayoutKey, renameWhenKey } from "./formLayout";
-import { installPack, parsePack, type InstallResult, type PackView, type TypePack } from "./packs";
+import { installPack, parsePack, type AppDetails, type InstallResult, type PackView, type TypePack } from "./packs";
+import type { SavedComponent } from "./layoutClipboard";
 import { rewriteRefs } from "./formula";
 import { fieldColumn } from "./views";
 import { cloneWorkflow, type WorkflowDef } from "./workflows";
@@ -287,14 +288,21 @@ export function duplicateType(t: EntityTypeDef, takenKeys: string[]): EntityType
  * A pack holding the given types, the groups they use, and workflows (exported as they are; imported switched off),
  * view notes and templates (type key → text).
  */
-export function exportPack(types: EntityTypeDef[], groups: GroupDef[], name?: string, workflows: WorkflowDef[] = [], extra: { views?: PackView[]; templates?: Record<string, string> } = {}): string {
+export function exportPack(
+	types: EntityTypeDef[],
+	groups: GroupDef[],
+	name?: string,
+	workflows: WorkflowDef[] = [],
+	extra: { views?: PackView[]; templates?: Record<string, string>; app?: AppDetails; components?: SavedComponent[]; allGroups?: boolean } = {},
+): string {
 	const used = new Set(types.map((t) => t.group));
 	const keys = new Set(types.map((t) => t.key));
 	const templates = Object.fromEntries(Object.entries(extra.templates ?? {}).filter(([k]) => keys.has(k)));
 	const pack: TypePack = {
 		obsEntitiesPack: 1,
 		...(name ? { name } : {}),
-		groups: groups.filter((g) => used.has(g.key)).map(cloneGroup),
+		...(extra.app ? { app: { ...extra.app } } : {}),
+		groups: groups.filter((g) => extra.allGroups || used.has(g.key)).map(cloneGroup),
 		types: types.map((t) => {
 			const c = cloneType(t);
 			delete (c as Partial<EntityTypeDef>).builtIn;
@@ -304,6 +312,7 @@ export function exportPack(types: EntityTypeDef[], groups: GroupDef[], name?: st
 		...(workflows.length ? { workflows: workflows.map(cloneWorkflow) } : {}),
 		...(extra.views?.length ? { views: extra.views } : {}),
 		...(Object.keys(templates).length ? { templates } : {}),
+		...(extra.components?.length ? { components: JSON.parse(JSON.stringify(extra.components)) as SavedComponent[] } : {}),
 	};
 	return JSON.stringify(pack, null, 2);
 }

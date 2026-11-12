@@ -3,6 +3,7 @@ import { rewriteRefs } from "./formula";
 import { isGroup, parseView, type ColumnDef, type FilterGroup, type GroupBy, type ViewDef } from "./views";
 import { cloneWorkflow, flatSteps, mapStepTexts, mapTemplate, newWorkflowId, readWorkflows, scopeTypes, type WorkflowDef, type WorkflowStep } from "./workflows";
 import { normaliseLayout, renameLayoutKey, workflowItem } from "./formLayout";
+import { readComponents, type SavedComponent } from "./layoutClipboard";
 
 /** A shareable bundle of types (and the groups they use), and workflows. */
 export interface TypePack {
@@ -17,6 +18,18 @@ export interface TypePack {
 	views?: PackView[];
 	/** type key → the text of its note template */
 	templates?: Record<string, string>;
+	/** a whole configuration exported as an app: its details */
+	app?: AppDetails;
+	/** saved layout components ("My components") */
+	components?: SavedComponent[];
+}
+
+/** What an exported app says about itself. */
+export interface AppDetails {
+	name: string;
+	description?: string;
+	author?: string;
+	version?: string;
 }
 
 /** A view note in a pack. `view` is the definition as written in the note's block. */
@@ -229,6 +242,8 @@ export function parsePack(text: string): PackParse {
 	let workflows: unknown[] = [];
 	let views: unknown[] = [];
 	let templates: Record<string, string> = {};
+	let app: AppDetails | undefined;
+	let components: SavedComponent[] = [];
 	let meta: Record<string, unknown> = {};
 	if (Array.isArray(data)) types = data;
 	else if (data && typeof data === "object" && Array.isArray((data as Record<string, unknown>).types)) {
@@ -244,6 +259,13 @@ export function parsePack(text: string): PackParse {
 			if (!t || typeof t !== "object" || Array.isArray(t) || Object.values(t).some((v) => typeof v !== "string")) return { ok: false, error: "“templates” should map type keys to template text." };
 			templates = { ...(t as Record<string, string>) };
 		}
+		if (meta.components !== undefined && !Array.isArray(meta.components)) return { ok: false, error: "“components” should be a list." };
+		if (meta.app !== undefined) {
+			const a = meta.app as Record<string, unknown> | null;
+			if (!a || typeof a !== "object" || typeof a.name !== "string" || !a.name.trim()) return { ok: false, error: "The app's details need a name." };
+			app = { name: a.name.trim(), ...Object.fromEntries((["description", "author", "version"] as const).filter((k) => typeof a[k] === "string" && (a[k] as string).trim()).map((k) => [k, (a[k] as string).trim()])) };
+		}
+		components = readComponents(meta.components);
 	} else if (data && typeof data === "object" && Array.isArray((data as Record<string, unknown>).fields)) types = [data];
 	else return { ok: false, error: "Expected a pack ({ types: [...] }), a type, or a list of types." };
 	if (types.length === 0 && workflows.length === 0 && views.length === 0) return { ok: false, error: "The pack has no types." };
@@ -288,6 +310,8 @@ export function parsePack(text: string): PackParse {
 			...(workflows.length ? { workflows: workflows as WorkflowDef[] } : {}),
 			...(views.length ? { views: views as PackView[] } : {}),
 			...(Object.keys(templates).length ? { templates } : {}),
+			...(app ? { app } : {}),
+			...(components.length ? { components } : {}),
 		},
 	};
 }
@@ -319,10 +343,10 @@ function uniqueKey(key: string, taken: Set<string>): string {
 /**
  * Add a pack's types (and missing groups) to existing ones, and its workflows. Clashing type keys get a numbered
  * suffix, and every reference to them in the pack follows (relation targets, roll-ups, formulas, workflows' scopes and
- * steps). Types whose group is unknown go into the first group. Workflows come in switched off, with new ids when
+ * steps). Types whose group is unknown go into the first group. Workflows come in switched off (`keepOn`: as exported), with new ids when
  * theirs are taken ("Run another workflow" steps follow).
  */
-export function installPack(pack: TypePack, groups: GroupDef[], types: EntityTypeDef[], workflows: WorkflowDef[] = []): InstallResult {
+export function installPack(pack: TypePack, groups: GroupDef[], types: EntityTypeDef[], workflows: WorkflowDef[] = [], opts: { keepOn?: boolean } = {}): InstallResult {
 	const outGroups = groups.map(cloneGroup);
 	const groupKeys = new Set(outGroups.map((g) => g.key));
 	const addedGroups: string[] = [];
@@ -377,7 +401,7 @@ export function installPack(pack: TypePack, groups: GroupDef[], types: EntityTyp
 		if (typeof raw?.id === "string" && raw.id !== id) idMap.set(raw.id, id);
 		w.id = id;
 	});
-	const outWorkflows = read.map((w) => ({ ...renameWorkflowKeys(w, keyMap, idMap), on: false }));
+	const outWorkflows = read.map((w) => ({ ...renameWorkflowKeys(w, keyMap, idMap), on: opts.keepOn ? w.on : false }));
 	// The new types' forms place buttons of the pack's workflows: they follow those that got new ids.
 	if (idMap.size)
 		for (const t of outTypes.filter((x) => added.includes(x.key))) {

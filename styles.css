@@ -222,6 +222,49 @@
 	white-space: pre-wrap;
 }
 
+/* Export / import an app */
+.oe-app-modal {
+	width: min(600px, 95vw);
+}
+.oe-app-modal .oe-app-summary {
+	margin: var(--size-4-2) 0;
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+}
+.oe-app-modal .oe-app-desc {
+	flex-direction: column;
+	align-items: stretch;
+	gap: var(--size-4-2);
+}
+.oe-app-modal .oe-app-desc .setting-item-control textarea {
+	width: 100%;
+	min-height: 5em;
+	resize: vertical;
+}
+.oe-app-head h3 {
+	margin: var(--size-4-3) 0 0;
+}
+.oe-app-author {
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+.oe-app-description {
+	margin: var(--size-4-2) 0 0;
+	white-space: pre-wrap;
+}
+.oe-app-notes {
+	margin: 0 0 var(--size-4-2);
+	padding-left: var(--size-4-5);
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+}
+.oe-app-notes li {
+	margin: var(--size-4-1) 0;
+}
+.oe-app-notes li.mod-warning {
+	color: var(--text-warning);
+}
+
 /* Settings: folder pattern preview */
 .oe-folder-preview-box {
 	margin: calc(-1 * var(--size-4-2)) 0 var(--size-4-3);

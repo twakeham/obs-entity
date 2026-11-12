@@ -24,6 +24,9 @@ export interface SavedComponent {
 /** Marks clipboard text as a copied layout item. */
 export const CLIP_MARK = "obsEntitiesLayout";
 
+/** A new saved component's id. */
+export const newComponentId = (): string => `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x));
 
 /** The nodes a clip pastes as: its node, or a tab group holding its tab. */

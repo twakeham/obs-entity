@@ -42,6 +42,7 @@ import { AddRelationshipDialog, RelationshipsTab } from "./RelationshipsTab";
 import { WorkflowsTab } from "./WorkflowsTab";
 import { inScope } from "../../../model/workflows";
 import { collectPackFiles, describeWritten, writePackFiles } from "../../../services/packFiles";
+import { ExportAppModal, ImportAppModal } from "../../modals/appModals";
 
 export interface TypesState {
 	/** a saved type's key, "new:<n>" for an unsaved type, "group:<key>" / "group:new:<n>" for groups */
@@ -357,6 +358,9 @@ export function TypeManager({
 					new Notice(`Copied ${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]} as a pack.`);
 				}),
 		);
+		menu.addSeparator();
+		menu.addItem((i) => i.setTitle("Import app…").setIcon("package-open").onClick(() => new ImportAppModal(plugin).open()));
+		menu.addItem((i) => i.setTitle("Export as an app…").setIcon("package").onClick(() => new ExportAppModal(plugin).open()));
 		menu.showAtMouseEvent(evt.nativeEvent);
 	};
 

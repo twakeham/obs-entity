@@ -1,6 +1,7 @@
 import { DEFAULT_DATE_FORMAT } from "./fieldFormats";
 import { readComponents, type SavedComponent } from "./layoutClipboard";
-import { STARTER_PACK } from "./packs";
+import { STARTER_PACK, type AppDetails } from "./packs";
+import { tidyDetails } from "./apps";
 import { DEFAULT_FOLDER_PATTERN } from "./paths";
 import { cloneGroup, cloneType, DEFAULT_STATUSES, type EntityTypeDef, type GroupDef } from "./types";
 import { readWorkflows, type WorkflowDef } from "./workflows";
@@ -37,6 +38,8 @@ export interface EntitiesSettings {
 	workflows: WorkflowDef[];
 	/** The master switch: no workflow runs while paused. */
 	workflowsPaused: boolean;
+	/** The details the configuration was last exported (or imported) as an app with. */
+	appDetails?: AppDetails;
 }
 
 export const SETTINGS_VERSION = 3;
@@ -109,5 +112,9 @@ export function mergeSettings(saved: Partial<EntitiesSettings> | null | undefine
 	if (typeof merged.defaultCurrency !== "string" || !/^[A-Za-z]{3}$/.test(merged.defaultCurrency)) merged.defaultCurrency = "AUD";
 	if (typeof merged.dateFormat !== "string" || !merged.dateFormat.trim()) merged.dateFormat = DEFAULT_DATE_FORMAT;
 	merged.layoutComponents = readComponents(saved.layoutComponents);
+	const app = saved.appDetails as Record<string, unknown> | undefined;
+	const text = (v: unknown) => (typeof v === "string" ? v : undefined);
+	if (app && typeof app === "object" && typeof app.name === "string" && app.name.trim()) merged.appDetails = tidyDetails({ name: app.name, version: text(app.version), author: text(app.author), description: text(app.description) });
+	else delete merged.appDetails;
 	return merged;
 }

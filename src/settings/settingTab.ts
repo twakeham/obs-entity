@@ -3,6 +3,7 @@ import type EntitiesPlugin from "../main";
 import { datePresetLabels, FIELD_DATE_PRESETS, showDate } from "../model/fieldFormats";
 import { DEFAULT_FOLDER_PATTERN, unknownPlaceholders } from "../model/paths";
 import { ImportPackModal } from "../ui/modals/importPackModal";
+import { ExportAppModal, ImportAppModal } from "../ui/modals/appModals";
 
 export class EntitiesSettingTab extends PluginSettingTab {
 	constructor(
@@ -266,6 +267,37 @@ export class EntitiesSettingTab extends PluginSettingTab {
 				"Scheduled and date workflows run while Obsidian is open on a device where this is on. With a synced vault, turn it on for one device only, or each would run them. Kept on this device only (on for desktops at first, off for phones and tablets).",
 			)
 			.addToggle((t) => t.setValue(this.plugin.workflows.timedHere).onChange((v) => this.plugin.workflows.setTimedHere(v)));
+
+		new Setting(containerEl).setName("Apps").setHeading();
+		const last = s.appDetails;
+		new Setting(containerEl)
+			.setName("Export or import an app")
+			.setDesc(
+				`An app is this whole configuration in one file: every group, type, workflow, view note, template and saved component (not notes), for another vault to import.${last ? ` Last exported or imported as “${last.name}${last.version ? ` ${last.version}` : ""}”.` : ""}`,
+			)
+			.addButton((b) =>
+				b.setButtonText("Import app…").onClick(() => {
+					const modal = new ImportAppModal(this.plugin);
+					modal.onClose = () => {
+						modal.contentEl.empty();
+						this.display();
+					};
+					modal.open();
+				}),
+			)
+			.addButton((b) =>
+				b
+					.setButtonText("Export as an app…")
+					.setCta()
+					.onClick(() => {
+						const modal = new ExportAppModal(this.plugin);
+						modal.onClose = () => {
+							modal.contentEl.empty();
+							this.display();
+						};
+						modal.open();
+					}),
+			);
 	}
 
 	/** Date display format: presets (shown for today) or a custom moment.js pattern. */
