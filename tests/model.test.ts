@@ -498,6 +498,13 @@ describe("search", () => {
 });
 
 describe("settings", () => {
+	it("ribbon icons: a new install shows the browser and side panel; settings from before keep every icon", () => {
+		expect(mergeSettings(null).ribbonIcons).toEqual({ create: false, browser: true, "side-panel": true, types: false, workflows: false });
+		expect(mergeSettings({ openInNewTab: true }).ribbonIcons).toEqual({ create: true, browser: true, "side-panel": true, types: true, workflows: true });
+		// Saved choices win; icons added since take the new-install default.
+		expect(mergeSettings({ ribbonIcons: { create: true, browser: false } as never }).ribbonIcons).toEqual({ create: true, browser: false, "side-panel": true, types: false, workflows: false });
+	});
+
 	it("installs the starter pack on first run", () => {
 		const s = mergeSettings(null);
 		expect(s).toEqual(defaultSettings());

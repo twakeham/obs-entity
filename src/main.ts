@@ -3,7 +3,7 @@ import type { MomentLike } from "./model/formats";
 import { showDate, type FormatEnv } from "./model/fieldFormats";
 import { isoDateAdapter, type DateAdapter } from "./model/dates";
 import type { EntityFormValues, FieldValue } from "./model/frontmatter";
-import { mergeSettings, type EntitiesSettings } from "./model/settings";
+import { mergeSettings, RIBBON_ICONS, type EntitiesSettings, type RibbonIconId } from "./model/settings";
 import { propertyTypes } from "./model/propertyTypes";
 import { subtitleOf } from "./model/card";
 import { isCalculated, isListValued, typeExplicitlyTargeted, type EntityTypeDef, type FieldDef, type RelationTarget } from "./model/types";
@@ -130,11 +130,7 @@ export default class EntitiesPlugin extends Plugin {
 		this.registerHoverLinkSource(HOVER_SOURCE, { display: "Obsidian Entities", defaultMod: true });
 
 		this.addSettingTab(new EntitiesSettingTab(this.app, this));
-		this.addRibbonIcon("book-plus", "Entities: create entity", () => this.openCreateModal(null));
-		this.addRibbonIcon("library", "Entities: entity browser", () => void this.activateBrowser());
-		this.addRibbonIcon("waypoints", "Entities: side panel (connections, preview)", () => void this.activateSidePanel());
-		this.addRibbonIcon("shapes", "Entities: entity types", () => void this.activateTypes());
-		this.addRibbonIcon("zap", "Entities: workflows", () => void this.activateWorkflows());
+		this.syncRibbon();
 
 		this.addCommand({
 			id: "create-entity",
@@ -317,6 +313,7 @@ export default class EntitiesPlugin extends Plugin {
 
 	onunload(): void {
 		this.form?.unload();
+		this.clearRibbon();
 		this.clearWorkflowRibbon();
 	}
 
@@ -797,6 +794,46 @@ export default class EntitiesPlugin extends Plugin {
 
 	/** Ribbon icons of forms set to have one, by workflow id: the icon element and what it shows (icon + title). */
 	private workflowRibbon = new Map<string, { el: HTMLElement; shows: string }>();
+	/** The plugin's own ribbon icons now shown, by id. */
+	private ribbonEls = new Map<RibbonIconId, HTMLElement>();
+
+	private get leftRibbon() {
+		return (this.app.workspace as unknown as { leftRibbon?: { addRibbonItemButton?: (id: string, icon: string, title: string, cb: (evt: MouseEvent) => unknown) => HTMLElement; removeRibbonAction?: (id: string) => void } }).leftRibbon;
+	}
+
+	/**
+	 * The plugin's ribbon icons, as the settings choose (`ribbonIcons`): added and removed as they're switched on and
+	 * off. Each keeps the id Obsidian gave it before ("obs-entities:<title>"), so where it's been moved to stays.
+	 */
+	syncRibbon(): void {
+		const run: Record<RibbonIconId, () => void> = {
+			create: () => this.openCreateModal(null),
+			browser: () => void this.activateBrowser(),
+			"side-panel": () => void this.activateSidePanel(),
+			types: () => void this.activateTypes(),
+			workflows: () => void this.activateWorkflows(),
+		};
+		const ribbon = this.leftRibbon;
+		for (const r of RIBBON_ICONS) {
+			const want = this.settings.ribbonIcons[r.id];
+			const el = this.ribbonEls.get(r.id);
+			if (want && !el) this.ribbonEls.set(r.id, ribbon?.addRibbonItemButton ? ribbon.addRibbonItemButton(`${this.manifest.id}:${r.title}`, r.icon, r.title, run[r.id]) : this.addRibbonIcon(r.icon, r.title, run[r.id]));
+			else if (!want && el) {
+				el.detach();
+				ribbon?.removeRibbonAction?.(`${this.manifest.id}:${r.title}`);
+				this.ribbonEls.delete(r.id);
+			}
+		}
+	}
+
+	/** Take the plugin's ribbon icons away (the plugin is unloading). */
+	private clearRibbon(): void {
+		for (const [id, el] of this.ribbonEls) {
+			el.detach();
+			this.leftRibbon?.removeRibbonAction?.(`${this.manifest.id}:${RIBBON_ICONS.find((r) => r.id === id)!.title}`);
+		}
+		this.ribbonEls.clear();
+	}
 
 	/**
 	 * An icon in the ribbon for each form that starts on its own, is on and is set to have one (`ribbon`); it opens the
@@ -804,7 +841,7 @@ export default class EntitiesPlugin extends Plugin {
 	 * wanted. Each has a stable id (`obs-entities:workflow-<id>`), so where it's been moved to (or hidden) stays.
 	 */
 	private syncWorkflowRibbon(): void {
-		const ribbon = (this.app.workspace as unknown as { leftRibbon?: { addRibbonItemButton?: (id: string, icon: string, title: string, cb: (evt: MouseEvent) => unknown) => HTMLElement; removeRibbonAction?: (id: string) => void } }).leftRibbon;
+		const ribbon = this.leftRibbon;
 		const ribbonId = (id: string) => `${this.manifest.id}:workflow-${id}`;
 		const want = new Map(formsFor(this.settings.workflows, "ribbon").map((w) => [w.id, w]));
 		const showsOf = (w: WorkflowDef) => `${buttonIcon(w)}|${buttonLabel(w)}`;

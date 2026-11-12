@@ -40,6 +40,27 @@ export interface EntitiesSettings {
 	workflowsPaused: boolean;
 	/** The details the configuration was last exported (or imported) as an app with. */
 	appDetails?: AppDetails;
+	/** Which of the plugin's ribbon icons are shown. */
+	ribbonIcons: Record<RibbonIconId, boolean>;
+}
+
+/** The plugin's own ribbon icons (form workflows add theirs separately). `title` is also part of each one's ribbon id. */
+export const RIBBON_ICONS = [
+	{ id: "create", icon: "book-plus", title: "Entities: create entity", label: "Create entity" },
+	{ id: "browser", icon: "library", title: "Entities: entity browser", label: "Entity browser" },
+	{ id: "side-panel", icon: "waypoints", title: "Entities: side panel (connections, preview)", label: "Side panel (connections, preview)" },
+	{ id: "types", icon: "shapes", title: "Entities: entity types", label: "Entity types" },
+	{ id: "workflows", icon: "zap", title: "Entities: workflows", label: "Workflows" },
+] as const;
+export type RibbonIconId = (typeof RIBBON_ICONS)[number]["id"];
+
+/** Ribbon icons a new install shows. */
+const RIBBON_DEFAULTS: Record<RibbonIconId, boolean> = { create: false, browser: true, "side-panel": true, types: false, workflows: false };
+
+/** Saved ribbon choices; none saved (settings from before there were any): every icon, as it was. */
+function readRibbon(raw: unknown): Record<RibbonIconId, boolean> {
+	const saved = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : null;
+	return Object.fromEntries(RIBBON_ICONS.map(({ id }) => [id, saved ? (typeof saved[id] === "boolean" ? (saved[id] as boolean) : RIBBON_DEFAULTS[id]) : true])) as Record<RibbonIconId, boolean>;
 }
 
 export const SETTINGS_VERSION = 3;
@@ -63,6 +84,7 @@ export function defaultSettings(): EntitiesSettings {
 		deletedPackTypes: [],
 		workflows: [],
 		workflowsPaused: false,
+		ribbonIcons: { ...RIBBON_DEFAULTS },
 	};
 }
 
@@ -112,6 +134,7 @@ export function mergeSettings(saved: Partial<EntitiesSettings> | null | undefine
 	if (typeof merged.defaultCurrency !== "string" || !/^[A-Za-z]{3}$/.test(merged.defaultCurrency)) merged.defaultCurrency = "AUD";
 	if (typeof merged.dateFormat !== "string" || !merged.dateFormat.trim()) merged.dateFormat = DEFAULT_DATE_FORMAT;
 	merged.layoutComponents = readComponents(saved.layoutComponents);
+	merged.ribbonIcons = readRibbon(saved.ribbonIcons);
 	const app = saved.appDetails as Record<string, unknown> | undefined;
 	const text = (v: unknown) => (typeof v === "string" ? v : undefined);
 	if (app && typeof app === "object" && typeof app.name === "string" && app.name.trim()) merged.appDetails = tidyDetails({ name: app.name, version: text(app.version), author: text(app.author), description: text(app.description) });

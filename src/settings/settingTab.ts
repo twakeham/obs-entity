@@ -4,6 +4,7 @@ import { datePresetLabels, FIELD_DATE_PRESETS, showDate } from "../model/fieldFo
 import { DEFAULT_FOLDER_PATTERN, unknownPlaceholders } from "../model/paths";
 import { ImportPackModal } from "../ui/modals/importPackModal";
 import { ExportAppModal, ImportAppModal } from "../ui/modals/appModals";
+import { RIBBON_ICONS } from "../model/settings";
 
 export class EntitiesSettingTab extends PluginSettingTab {
 	constructor(
@@ -211,6 +212,19 @@ export class EntitiesSettingTab extends PluginSettingTab {
 					s.useForm = v;
 					await this.plugin.saveSettings();
 					this.plugin.refreshForms();
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName("Ribbon")
+			.setHeading()
+			.setDesc("Icons in the left ribbon. Each is also a command. Form workflows can have icons of their own (set on each form). To reorder icons, use Appearance → Ribbon menu → Manage.");
+		for (const r of RIBBON_ICONS)
+			new Setting(containerEl).setName(r.label).addToggle((t) =>
+				t.setValue(s.ribbonIcons[r.id]).onChange(async (v) => {
+					s.ribbonIcons[r.id] = v;
+					await this.plugin.saveSettings();
+					this.plugin.syncRibbon();
 				}),
 			);
 

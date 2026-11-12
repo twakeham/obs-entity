@@ -1189,7 +1189,7 @@ The command **Find entity** opens a `SuggestModal` over entities only.
   - any value over 80 characters or multi-line → text area; else text.
 - **Type:** name and key from the `entity` value, else from the note's folder made singular (`Risks` → Risk, plural from the folder), else "New type"; the key numbered if taken. Group: the first whose name or key matches one of the note's folders, else the first group. Statuses: if notes use statuses the group doesn't have, the type gets its own: the group's, then those. Template sections: the notes' `##` headings. Colour: the next palette colour; icon `file`.
 - **Adopting** (on save, `TypeDraft.adopt`: the notes' paths and each field's source property by field uid, so renaming or removing fields in the draft is followed; `adoptionRenames`): each note gets `entity: <key>` (first) and its properties renamed to their fields' final keys in place (`adoptFrontmatter`); notes already right (`adoptionNeeded`) aren't written. The Save notice counts them.
-- **Ribbon:** Create entity, Entity browser, Connections, Entity types. Consider making these configurable (§14).
+- **Ribbon:** Create entity, Entity browser, Side panel, Entity types, Workflows, each switchable in settings (§8.8 Ribbon; `ribbonIcons`), plus an icon per form workflow set to have one (§8.11). They're added with `leftRibbon.addRibbonItemButton` under the ids `addRibbonIcon` gave them before (`obs-entities:<title>`), so Obsidian's own order and hiding (Appearance → Ribbon menu) still apply, and an icon switched off and on returns to its place (`syncRibbon`; removed with `removeRibbonAction`, and on unload).
 
 ### 8.8 Settings tab
 
@@ -1204,6 +1204,7 @@ The command **Find entity** opens a `SuggestModal` over entities only.
   - open new entities in a new tab
   - prefill relations from the active note
   - **use the entity properties form** (on by default; turning it off brings back Obsidian's Properties block)
+- **Ribbon:** a switch per icon (`ribbonIcons`): Create entity, Entity browser, Side panel, Entity types, Workflows. A new install shows Entity browser and Side panel; settings saved before the switches existed keep all five (`readRibbon`); icons added later take the new-install default. Changes apply at once. Each is also a command; the heading's description points to Appearance → Ribbon menu → Manage for reordering.
 - **Entity types:** a description ("N types (M custom)") and an **Open entity types** button. The button closes the settings modal first (`app.setting.close()`), then opens the view.
 
 Common property names are fixed (§3.2), so there's no setting for them.
@@ -2011,6 +2012,7 @@ interface Settings {
   dateFormat: string;             // "DD/MM/YYYY": dates without a format of their own (§4.6); a blank or missing value is reset to it
   layoutComponents: SavedComponent[]; // the Layout tab's "My components": { id, name, icon, clip } (§8.1)
   appDetails?: AppDetails;        // the details last exported or replace-imported as an app (§8.1 Apps)
+  ribbonIcons: Record<"create" | "browser" | "side-panel" | "types" | "workflows", boolean>; // §8.8 Ribbon
   groups: GroupDef[];
   types: EntityTypeDef[];
   modules: { graph: boolean; dashboard: boolean; /* … */ };
@@ -2183,7 +2185,7 @@ Drive a real Obsidian instance via the Chrome DevTools Protocol (Obsidian starte
 | M4 ✅ | **Browser** | Groups (or one tree), type headings, hierarchies from parent fields (cross-group option), View menu, filters with dimmed context, reveal active, collapse semantics, row/heading context menus with "New child here", state persistence | Large vaults navigable; hierarchy correct for mixed types |
 | M4.5 ✅ | **Entity properties form** | Form replacing Obsidian's Properties block on entity notes (§8.4): typed controls, link pickers limited to allowed types, rejected invalid input, problems with fixes, Ctrl/Cmd+Z history, Other properties with "Add to type", Change type with move offer, Check entities command; info card removed (settings v3) | Values can only be entered in a form the type allows; problems from elsewhere are visible and fixable |
 | M4.6 ✅ | **Entity views: table** | View notes with an `entity-view` block (§8.10): source types, columns (fields, built-ins, incoming, roll-ups; formulas added later), filters with groups and relative dates, multi-level sort, group by, inline editing with the form's rules, virtualised rows, autosave, Save as…, New / Open view commands, browser Views section | Named views can be saved, reopened elsewhere, and used to edit entities |
-| M5 (in progress) | **Packs & polish** | Fuller packs ✅ (views and templates in packs, Copy group as a pack), apps ✅ (export / import the whole configuration as a file), pack gallery and first-run picker, ribbon options, accessibility pass (keyboard navigation in lists, ARIA on toggles), docs | Ready for a public/BRAT release |
+| M5 (in progress) | **Packs & polish** | Fuller packs ✅ (views and templates in packs, Copy group as a pack), apps ✅ (export / import the whole configuration as a file), ribbon options ✅, pack gallery and first-run picker, accessibility pass (keyboard navigation in lists, ARIA on toggles), docs | Ready for a public/BRAT release |
 | M7.1 ✅ | **Workflows: engine and basics** | §8.11 stage 1: the Workflows view and the type editor's Workflows tab; created / changed / manual triggers (form buttons, ⋯ menu, command, row menu and selection bar per note); Only if; set / clear / tag / link / notice steps; undo, chains, run log, master switch | Examples 1 (completed date), 5, 7 and simple 3 work |
 | M7.2 ✅ | **Workflows: other notes and forms** | Form workflows (their input form, started from commands, the ribbon, view toolbars, the Entity Browser and notes), linked-note steps, create note, named results, for each, run workflow, one run for a whole selection; loops inside loops, If / Otherwise, variables, Find notes, Add text to a note (built) | Examples 1 (milestone roll-up), 2, 3, 6, 8 work |
 | M7.3 ✅ | **Workflows: time** | Schedule and date triggers, ask, move / rename, test run, big-run confirmation, limits, workflows in type packs (views and templates came with M5's fuller packs) | Example 4 works |

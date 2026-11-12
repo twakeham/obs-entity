@@ -17,7 +17,7 @@ Derived from the Story Forge worldbuilding plugin, made domain-neutral. The full
 | M7.1 Workflows, stage 1 | Automation: when a note is created or a field changes, or from a button, set fields, tags and links or show a notice; the Workflows view, run log and undo | ✅ Done |
 | M7.2 Workflows, stage 2 | Creating notes, steps on linked notes, for each, running other workflows, one run for a whole selection, form workflows (from commands, the ribbon, view toolbars and the Entity Browser) | Done |
 | M7.3 Workflows, stage 3 | Test runs, big-run confirmation, ask, move / rename, schedules and date triggers, workflows in type packs | ✅ Done |
-| M5 Packs & polish | Fuller packs (views and templates, Copy group as a pack) ✅; apps (export / import the whole configuration) ✅; pack picker on first run, accessibility, docs | In progress |
+| M5 Packs & polish | Fuller packs (views and templates, Copy group as a pack) ✅; apps (export / import the whole configuration) ✅; ribbon options ✅; pack picker on first run, accessibility, docs | In progress |
 
 ## How notes are stored
 
@@ -56,6 +56,8 @@ tags: []
 ## Properties form
 
 On entity notes, a form built from the note's type replaces Obsidian's Properties block. It appears in Live Preview, and in Reading view, where it's read-only until you click the pencil. Source mode still shows the raw YAML. Turn **Use the entity properties form** off in settings to get Obsidian's Properties back.
+
+**Ribbon icons:** settings → **Ribbon** has a switch for each of the plugin's icons (Create entity, Entity browser, Side panel, Entity types, Workflows). A new install shows the Entity browser and Side panel; every action is also a command. Form workflows can add icons of their own. Reorder icons with Obsidian's Appearance → Ribbon menu → Manage.
 
 **Layout:**
 - **Top row:** type, a **status** dropdown (only the group's statuses), the subtitle, a problem count, and buttons for the Connections panel, a **⋯** menu (Change type…, Configure the type) and collapse.
