@@ -7877,10 +7877,18 @@ button.oe-calv-more:hover {
 	color: var(--color-orange);
 }
 
+/* An icon picker and a text box (a button's icon and label, a form's icon and title): together as wide as the other boxes. */
 .oe-wf-button-row {
 	display: flex;
+	flex: 1;
+	min-width: 0;
 	align-items: center;
 	gap: var(--size-4-2);
+}
+
+.oe-wf-button-row > input {
+	flex: 1;
+	min-width: 0;
 }
 
 .oe-wf-pills {
