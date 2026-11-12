@@ -111,8 +111,28 @@ describe("buildBrowser", () => {
 
 	it("can nest children under parents in other groups", () => {
 		const s = buildBrowser(entities, edges, TYPES, GROUPS, { ...DEFAULT_BROWSER_OPTIONS, crossGroup: "parent" });
-		expect(shape(s).map((x) => x.section)).toEqual(["directory", "work", "orgs"]);
+		// Sales stays: its deal is listed under Companies, and its heading says so.
+		expect(shape(s).map((x) => x.section)).toEqual(["directory", "work", "orgs", "sales"]);
 		expect(shape(s).find((x) => x.section === "orgs")!.blocks).toEqual(["company: Globex(Sub co, Big deal)"]);
+		const deals = s.find((x) => x.key === "sales")!.blocks[0];
+		expect([deals.count, deals.nested, deals.nestedUnder.map((t) => t.key)]).toEqual([0, 1, ["company"]]);
+	});
+
+	it("counts the notes of a type listed under other types' headings, and keeps their heading", () => {
+		const s = buildBrowser(entities, edges, TYPES, GROUPS, DEFAULT_BROWSER_OPTIONS);
+		const block = (key: string) => s.flatMap((x) => x.blocks).find((b) => b.type?.key === key)!;
+		// Kickoff and Lander notes are under Projects; Loose note is here.
+		expect([block("note").count, block("note").nested, block("note").nestedUnder.map((t) => t.key)]).toEqual([1, 2, ["project"]]);
+		// Nested under its own type (Lander under Apollo) isn't elsewhere.
+		expect(block("project").nested).toBe(0);
+		expect(block("place").nested).toBe(0);
+		// A type whose notes are all under another heading still has its heading, without Show empty types.
+		const v = vault([
+			["Apollo", "project", {}],
+			["Kickoff", "note", { project: "[[Apollo]]" }],
+		]);
+		const t = buildBrowser(v.entities, v.edges, TYPES, GROUPS, DEFAULT_BROWSER_OPTIONS);
+		expect(t.find((x) => x.key === "work")!.blocks.map((b) => `${b.type?.key}:${b.count}:${b.nested}`)).toEqual(["project:2:0", "note:0:1"]);
 	});
 
 	it("can drop type headings (one tree per section) or sections (one tree)", () => {

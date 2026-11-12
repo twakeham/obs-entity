@@ -892,6 +892,7 @@ A left-sidebar view (ribbon `library`, command **Open entity browser**).
   - **stay in their own group** (default): they become roots in their own section;
   - **nest under the parent:** they appear in the parent's section.
 - **Cycles** are broken: nodes reachable only through a cycle become roots.
+- **Notes under another type's heading:** a note is listed under the heading of its tree's top-level type, so a type whose notes nest under another type's (sessions under their campaign) has few or none under its own heading. Each block records them (`nested`, and `nestedUnder`: the headings they're under, in type order). Such a heading is kept even without Show empty types (with a section that only has such headings); when all its notes are elsewhere its count is their number, faint and italic, with a tooltip ("All 17 sessions listed under Campaigns"), and the placeholder line reads **All 17 under Campaigns · show them**; with notes of its own as well, **+3 more under Projects · show them** follows them. The line (a button) sets the browser's type filter to the type, which lists every note of it with its ancestors dimmed. Hidden while filtering. Nesting under the same type (a place in a place) isn't "elsewhere".
 - **"Show empty types"** lists types (and groups) with no notes, with a "No … yet" placeholder.
 - These four options live in a **View** menu (sliders button) and are saved with the view state.
 

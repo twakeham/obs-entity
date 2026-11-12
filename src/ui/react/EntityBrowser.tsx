@@ -326,6 +326,11 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 									const bid = bKey(b);
 									const bClosed = !!b.type && isCollapsed(bid);
 									const t = b.type;
+									// Notes of this type listed under other types' headings (sessions under their campaign).
+									const elsewhere = !!t && !filtering && b.nested > 0;
+									const allElsewhere = elsewhere && b.roots.length === 0;
+									const plural = t ? (t.plural || t.name).toLowerCase() : "";
+									const under = b.nestedUnder.map((x) => x.plural || x.name).join(" and ");
 									return (
 										<div key={bid} className="oe-bblock" data-block={b.key}>
 											{t && (
@@ -335,7 +340,9 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 													icon={t.icon}
 													color={t.color}
 													title={t.plural || t.name}
-													count={b.count}
+													count={allElsewhere ? b.nested : b.count}
+													countElsewhere={allElsewhere}
+													countTitle={elsewhere ? `${allElsewhere ? `All ${b.nested}` : `${b.nested} more`} ${plural} listed under ${under}` : undefined}
 													className="oe-bblock-header"
 													onToggle={() => toggleHeading(bid)}
 													onAdd={() => plugin.openCreateModal(t)}
@@ -358,9 +365,14 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 													{b.roots.map((n) => (
 														<TreeRow key={n.entity.path} node={n} depth={base} isOpen={isOpen} activePath={activePath} onToggle={toggleNode} />
 													))}
-													{t && b.roots.length === 0 && (
+													{elsewhere && (
+														<button className="oe-tree-elsewhere" style={{ paddingLeft: `${base * INDENT + 22}px` }} onClick={() => setState({ type: t.key })} title={`Show only ${plural}, with what they're under`}>
+															{allElsewhere ? `All ${b.nested}` : `+${b.nested} more`} under {under} · <span className="oe-tree-elsewhere-link">show them</span>
+														</button>
+													)}
+													{t && b.roots.length === 0 && !elsewhere && (
 														<div className="oe-tree-empty" style={{ paddingLeft: `${base * INDENT + 22}px` }}>
-															No {(t.plural || t.name).toLowerCase()} yet
+															No {plural} yet
 														</div>
 													)}
 												</div>
@@ -611,6 +623,8 @@ function Heading({
 	color,
 	title,
 	count,
+	countTitle,
+	countElsewhere,
 	className,
 	onToggle,
 	onAdd,
@@ -623,6 +637,9 @@ function Heading({
 	color?: string;
 	title: ReactNode;
 	count: number;
+	/** the count's tooltip, and whether it counts notes listed elsewhere (shown faint) */
+	countTitle?: string;
+	countElsewhere?: boolean;
 	className: string;
 	onToggle: () => void;
 	onAdd?: () => void;
@@ -643,7 +660,9 @@ function Heading({
 			<Icon name={open ? "chevron-down" : "chevron-right"} className="oe-tree-chevron" />
 			<Icon name={icon} className="oe-bheading-icon" />
 			<span className="oe-bheading-title">{title}</span>
-			<span className="oe-bheading-count">{count}</span>
+			<span className={`oe-bheading-count${countElsewhere ? " is-elsewhere" : ""}`} title={countTitle}>
+				{count}
+			</span>
 			{/* The end slot (the + button, or nothing): the same width on every row, so the counts line up. */}
 			<span className="oe-bend">
 				{onAdd && (

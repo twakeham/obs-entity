@@ -246,6 +246,7 @@ A left sidebar tree of all entities, with your views and workflows above them. O
 **Layout:**
 - One section per group, with a heading per type.
 - Entities nest under their parent, using the type's parent fields, e.g. Lander and Design review under Apollo Moonshot.
+- Notes are listed under the heading of the type at the top of their branch: a campaign's sessions are under **Campaigns**. Their own type's heading still shows, with how many there are (faint) and a line such as **All 17 under Campaigns · show them**, which filters the browser to that type (each with what it's under). A type with some notes of its own and some under other headings shows **+3 more under Projects · show them** after its own.
 - The **View** menu (sliders button) changes this:
   - **Sections:** groups, or none (one tree).
   - **Type headings:** on or off.

@@ -32,6 +32,10 @@ export interface BrowserBlock<E extends EntityInfo = EntityInfo> {
 	type: EntityTypeDef | null;
 	roots: TreeNode<E>[];
 	count: number;
+	/** notes of this type listed under other types' headings (nested under a parent of another type), not here */
+	nested: number;
+	/** the types whose headings those notes are under (their trees' top-level types), in type order */
+	nestedUnder: EntityTypeDef[];
 }
 
 export interface BrowserSection<E extends EntityInfo = EntityInfo> {
@@ -125,6 +129,28 @@ export function buildBrowser<E extends EntityInfo>(entities: E[], edges: Edge[],
 	const parent = parentMap(entities, edges, sameGroupOnly ? (c, p) => groupOf(c.type) === groupOf(p.type) : undefined);
 	const roots = buildForest(entities, parent, typeOrder);
 
+	// Where each note is listed: under the heading of its tree's top-level type. A note whose top is of another type
+	// (a session under its campaign) is "nested" for its own type's heading.
+	const topType = new Map<string, EntityTypeDef>();
+	const mark = (n: TreeNode<E>, top: EntityTypeDef) => {
+		topType.set(n.entity.path, top);
+		for (const c of n.children) mark(c, top);
+	};
+	for (const r of roots) mark(r, r.entity.type);
+	const nestedOf = new Map<string, { count: number; under: Set<string> }>();
+	for (const e of entities) {
+		const top = topType.get(e.path);
+		if (!top || top.key === e.type.key) continue;
+		const x = nestedOf.get(e.type.key) ?? { count: 0, under: new Set<string>() };
+		x.count++;
+		x.under.add(top.key);
+		nestedOf.set(e.type.key, x);
+	}
+	const nestedFor = (type: EntityTypeDef) => {
+		const x = nestedOf.get(type.key);
+		return { nested: x?.count ?? 0, nestedUnder: x ? types.filter((t) => x.under.has(t.key)) : [] };
+	};
+
 	const sectionDefs: { key: string; group: GroupDef | null; types: EntityTypeDef[] }[] =
 		opts.sections === "groups"
 			? [
@@ -140,14 +166,15 @@ export function buildBrowser<E extends EntityInfo>(entities: E[], edges: Edge[],
 		if (opts.typeHeadings) {
 			blocks = def.types.map((type) => {
 				const r = inSection.filter((n) => n.entity.type.key === type.key);
-				return { key: `${def.key}/${type.key}`, type, roots: r, count: countForest(r) };
+				return { key: `${def.key}/${type.key}`, type, roots: r, count: countForest(r), ...nestedFor(type) };
 			});
-			if (!opts.showEmpty) blocks = blocks.filter((b) => b.roots.length > 0);
+			// A type whose notes are all under other headings isn't empty: its heading stays (with where they are).
+			if (!opts.showEmpty) blocks = blocks.filter((b) => b.roots.length > 0 || b.nested > 0);
 		} else {
-			blocks = inSection.length || opts.showEmpty ? [{ key: `${def.key}/*`, type: null, roots: inSection, count: countForest(inSection) }] : [];
+			blocks = inSection.length || opts.showEmpty ? [{ key: `${def.key}/*`, type: null, roots: inSection, count: countForest(inSection), nested: 0, nestedUnder: [] }] : [];
 		}
 		const count = blocks.reduce((n, b) => n + b.count, 0);
-		const keep = count > 0 || (opts.showEmpty && def.group !== null) || (opts.showEmpty && opts.sections === "none");
+		const keep = count > 0 || blocks.some((b) => b.nested > 0) || (opts.showEmpty && def.group !== null) || (opts.showEmpty && opts.sections === "none");
 		if (keep) sections.push({ key: def.key, group: def.group, blocks, count });
 	}
 	return sections;

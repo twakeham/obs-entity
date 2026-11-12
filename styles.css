@@ -3136,6 +3136,35 @@ button.oe-tm-typegroup-title,
 	font-size: var(--font-ui-smaller);
 	color: var(--text-faint);
 }
+/* "All 17 under Campaigns · show them": notes of this type listed under other headings. (Selectors strong enough to beat Obsidian's button style.) */
+.oe-tree button.oe-tree-elsewhere,
+.oe-tree button.oe-tree-elsewhere:hover {
+	display: block;
+	width: 100%;
+	height: auto;
+	margin: 0;
+	padding-top: 2px;
+	padding-bottom: 4px;
+	padding-right: 4px;
+	border: none;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+	text-align: left;
+	font-size: var(--font-ui-smaller);
+	font-weight: normal;
+	color: var(--text-faint);
+	cursor: pointer;
+}
+.oe-tree-elsewhere:hover .oe-tree-elsewhere-link,
+.oe-tree-elsewhere:focus-visible .oe-tree-elsewhere-link {
+	color: var(--text-accent);
+	text-decoration: underline;
+}
+.oe-bheading-count.is-elsewhere {
+	color: var(--text-faint);
+	font-style: italic;
+}
 
 /* Status dot, coloured by status tone */
 .oe-dot {
