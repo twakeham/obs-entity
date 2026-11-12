@@ -2,6 +2,7 @@ import { ItemView, type ViewStateResult, type WorkspaceLeaf } from "obsidian";
 import { createRoot, type Root } from "react-dom/client";
 import type EntitiesPlugin from "../../main";
 import type { FieldDef } from "../../model/types";
+import type { InferredType } from "../../model/inferType";
 import { PluginContext } from "../react/context";
 import { DEFAULT_TYPES_STATE, TypeManager, type PendingField, type PreviewSource, type TypesState } from "../react/types/TypeManager";
 
@@ -80,6 +81,13 @@ export class TypesView extends ItemView {
 	};
 
 	private pending: PendingField | null = null;
+	private pendingType: InferredType | null = null;
+
+	/** Open a type worked out from notes as a new draft (on its Fields tab). */
+	newType(inferred: InferredType): void {
+		this.pendingType = inferred;
+		this.render();
+	}
 
 	/** Start the editor afresh (its drafts were dropped). */
 	remount(): void {
@@ -97,7 +105,15 @@ export class TypesView extends ItemView {
 	private render(): void {
 		this.root?.render(
 			<PluginContext.Provider value={this.plugin}>
-				<TypeManager state={this.state} setState={this.update} pendingField={this.pending} onPendingDone={() => (this.pending = null)} onPreview={this.publish} />
+				<TypeManager
+					state={this.state}
+					setState={this.update}
+					pendingField={this.pending}
+					onPendingDone={() => (this.pending = null)}
+					pendingType={this.pendingType}
+					onPendingTypeDone={() => (this.pendingType = null)}
+					onPreview={this.publish}
+				/>
 			</PluginContext.Provider>,
 		);
 	}

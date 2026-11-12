@@ -24,6 +24,8 @@ import { SIDE_PANEL_VIEW, SidePanelView } from "./ui/views/SidePanelView";
 import { BROWSER_VIEW, BrowserView } from "./ui/views/BrowserView";
 import type { EntityRecord } from "./services/entityIndex";
 import { TYPES_VIEW, TypesView } from "./ui/views/TypesView";
+import { PALETTE } from "./ui/react/types/controls";
+import { inferType, type InferNote } from "./model/inferType";
 import { isDirty, isGroupDirty, type GroupDraft, type TypeDraft } from "./model/typeEditing";
 import { calcCell, emptyBoard, emptyView, fieldColumn, formatCell, resolveColumn, serializeView, sourceTypes, typeViewDef, type ViewContext, type ViewDef, type ViewKind, type ViewRow, columnFromId } from "./model/views";
 import { defaultBuckets } from "./model/board";
@@ -173,6 +175,16 @@ export default class EntitiesPlugin extends Plugin {
 			},
 		});
 		this.addCommand({
+			id: "type-from-note",
+			name: "Create entity type from current note",
+			checkCallback: (checking) => {
+				const file = this.app.workspace.getActiveFile();
+				if (!this.canInferType(file)) return false;
+				if (!checking) void this.typeFromNote(file);
+				return true;
+			},
+		});
+		this.addCommand({
 			id: "import-types",
 			name: "Import entity types…",
 			callback: () => new ImportPackModal(this).open(),
@@ -284,6 +296,14 @@ export default class EntitiesPlugin extends Plugin {
 						.setSection("action")
 						.onClick(() => this.pickTypeAndConvert(file)),
 				);
+				if (this.canInferType(file))
+					menu.addItem((item) =>
+						item
+							.setTitle("Create entity type from this note…")
+							.setIcon("sparkles")
+							.setSection("action")
+							.onClick(() => void this.typeFromNote(file)),
+					);
 			}),
 		);
 	}
@@ -458,6 +478,44 @@ export default class EntitiesPlugin extends Plugin {
 	propertyWidget(key: string): string | null {
 		const mtm = (this.app as unknown as { metadataTypeManager?: { getAssignedWidget?(name: string): string | null | undefined } }).metadataTypeManager;
 		return mtm?.getAssignedWidget?.(key) ?? null;
+	}
+
+	/** Whether a note can have a type worked out from it: not an entity, with properties. */
+	canInferType(file: TFile | null): file is TFile {
+		if (!file || file.extension !== "md" || this.index.get(file.path)) return false;
+		const fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+		return !!fm && Object.keys(fm).some((k) => k !== "position");
+	}
+
+	/**
+	 * "Create entity type from this note": work out a type from the note's properties (and, when it has an `entity`
+	 * value, every other note with the same one) and open it as a new draft in the Entity types view. Saving it makes
+	 * those notes its entities.
+	 */
+	async typeFromNote(file: TFile): Promise<void> {
+		const cache = this.app.metadataCache;
+		const sample = (f: TFile): InferNote => {
+			const c = cache.getFileCache(f);
+			const { position: _position, ...frontmatter } = (c?.frontmatter ?? {}) as Record<string, unknown>;
+			return { path: f.path, frontmatter, headings: (c?.headings ?? []).filter((h) => h.level === 2).map((h) => h.heading) };
+		};
+		const notes = [sample(file)];
+		const value = notes[0].frontmatter.entity;
+		if (typeof value === "string" && value.trim())
+			for (const f of this.app.vault.getMarkdownFiles())
+				if (f !== file && !this.index.get(f.path) && cache.getFileCache(f)?.frontmatter?.entity === value) notes.push(sample(f));
+		const inferred = inferType(notes, {
+			types: this.settings.types,
+			groups: this.settings.groups,
+			resolve: (link, from) => cache.getFirstLinkpathDest(link, from)?.path ?? null,
+			typeAt: (path) => this.index.get(path)?.type.key ?? null,
+			widget: (key) => this.propertyWidget(key),
+			color: PALETTE[this.settings.types.length % PALETTE.length],
+		});
+		await this.activateTypes();
+		const leaf = this.app.workspace.getLeavesOfType(TYPES_VIEW)[0];
+		if (leaf?.view instanceof TypesView) leaf.view.newType(inferred);
+		new Notice(`Worked out the ${inferred.type.name} type from ${notes.length === 1 ? "this note" : `${notes.length} notes`}. Check its fields, then save it.`);
 	}
 
 	/** "Add to type": open the type editor with a draft field for an extra property of a note. */

@@ -206,6 +206,14 @@ An **app** is the whole configuration in one file: every group, type, workflow, 
   - **Switch on its workflows:** off by default, so its workflows come in switched off to check first; on, each is on or off as it was when exported.
 - A type pack can be imported the same way.
 
+## Creating a type from a note
+
+On a note that isn't an entity but has properties, the ⋯ menu (and the file menu) offers **Create entity type from this note…**. It works out a type from the note and opens it in the Entity types view as a new type, on its Fields tab, to check and save:
+- **Fields:** one per property, in order (not `entity`, `status`, `tags`, `aliases`, `related` or `order`). Links to entities become **relations** to their types (a list of links: several allowed; links to notes that aren't entities: any entity; plain text that names an entity counts too). Dates, numbers, checkboxes and web addresses become those kinds; long text becomes a text area; anything else text. A property whose name isn't a valid key (`Due Date`) gets one (`due_date`).
+- **Learning from similar notes:** when the note has an `entity` value whose type doesn't exist (say a deleted type), every note with the same value is used too. That gives better guesses: **choices** with their options when the notes repeat a few short values (Low / Medium / High, put in order), a list of links wherever any note has several, and the statuses in use.
+- **Name, group, statuses, sections:** named from the `entity` value, or else from the note's folder (`Risks` → Risk, plural Risks); in the group named like one of its folders (else the first group); statuses in use that the group doesn't have are added as the type's own; the notes' `##` headings become the template sections.
+- **Saving it** makes those notes entities of the type: `entity` is set where it's missing or different, and properties are renamed to their fields' keys (also when you renamed a field in the draft). Notes that already fit aren't touched. Discarding the draft changes nothing.
+
 ## Entity browser
 
 A left sidebar tree of all entities, with your views and workflows above them. Open it with the **library** ribbon icon or **Open entity browser**.
@@ -450,6 +458,7 @@ Workflows do things for you: when a note is **created**, when a **field changes*
 | Open side panel (connections, preview) | The plugin's right-sidebar panel (also a ribbon icon and a button on the properties form) |
 | Configure entity types | The Entity types view, opened on the open note's type (also a ribbon icon, settings button and file menu) |
 | Convert current note to entity | Adds the type's fields to an existing note (existing values win). Also in the file menu, and as "Change type…" on entities |
+| Create entity type from current note | Works out a new type from a note that isn't an entity (see below). Also in the note's ⋯ menu and the file menu |
 | Check entities | Lists every entity whose values don't fit its type, with the problems; choose one to open it |
 | New entity view (table or board) | Pick what it shows, Table or Board, and a name; creates the view note |
 | Open entity view… | Picker of view notes |
@@ -535,6 +544,7 @@ src/
     dates.ts                 DateAdapter + ISO adapter (with date-picker hooks)
     propertyTypes.ts         Obsidian property types for fields (date, number, checkbox, list)
     search.ts                switcher type prefixes
+    inferType.ts             a new type worked out from notes (field kinds, relations, choices, name, group, statuses), adopting it
     packs.ts                 starter + CRM packs, parsePack, installPack (types, groups, workflows, views, templates; renamed keys followed), packWorkflows, renameViewKeys
     apps.ts                  whole-configuration apps: exportApp, installApp (replace or add), mergeComponents
     typeEditing.ts           type/group drafts, field + status renames, migrations, import/export, previews

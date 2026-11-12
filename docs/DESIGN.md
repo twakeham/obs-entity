@@ -1167,13 +1167,28 @@ The command **Find entity** opens a `SuggestModal` over entities only.
 | Open entity view… | Picker of view notes |
 | Configure entity types | Types view (active note's type) |
 | Convert current note to entity | Type picker → convert (only for Markdown notes) |
+| Create entity type from current note | Works out a type from a non-entity note with properties (§8.7.1); id `type-from-note` |
 | Import entity types… | Paste a type pack, single type or list of types (JSON); can load the Basic CRM example |
 | Generate template files | Writes missing templates |
 | Rebuild entity index | Full rebuild + Notice with the count |
 
 - **File menu:**
-  - **Non-entity Markdown notes:** "Convert to entity…".
+  - **Non-entity Markdown notes:** "Convert to entity…", and "Create entity type from this note…" when the note has properties. The note's ⋯ (more options) menu is the file menu, so both show there too.
   - **Entities:** "Change entity type…" (M1), "Configure the <type> type" (M3), plus module items.
+
+#### 8.7.1 Create entity type from a note
+
+`model/inferType.ts` (pure, tested); `plugin.typeFromNote` gathers the notes and opens the result; the Entity types view takes it as a new draft (`TypesView.newType` → `inferredDraft`), on the Fields tab.
+- **Which notes:** the note, plus, when it has an `entity` value (a type that doesn't exist, or misspelt), every other note that isn't an entity with exactly that value. Each gives its frontmatter and its level-2 headings.
+- **Fields** (`inferType`): a field per property in order of first appearance (the note's first), leaving out the common keys and `cssclasses`/`position`. Keys that aren't valid become valid (`Due Date` → `due_date`, numbered when taken); labels from the key (`dueDate` → "Due date"). Kind, from the values and Obsidian's assigned property type (`widget`):
+  - all booleans → checkbox; all numbers → number;
+  - links: every value a wrapped link (`[[…]]`, `[…](…)`) or a plain name that resolves to an entity → **relation**; targets the linked entities' types (a link to one of the notes it's learned from targets the new type itself); any link to a non-entity → any entity (`*`). Several (any value a list, or a list widget) → multiple;
+  - lists otherwise → multiple choice when a choice is guessed, else list;
+  - date widget or every value an ISO date → date; every value a web address → URL;
+  - **choice** (select) when there are at least 3 notes, at most 8 distinct short single-line values, and some repeat; options in a natural order when they're all numbers or all on a known scale (`orderOptions`: none … low … medium … high … critical, minor … major, S/M/L, small … large, rare … almost certain, never … always), else first seen;
+  - any value over 80 characters or multi-line → text area; else text.
+- **Type:** name and key from the `entity` value, else from the note's folder made singular (`Risks` → Risk, plural from the folder), else "New type"; the key numbered if taken. Group: the first whose name or key matches one of the note's folders, else the first group. Statuses: if notes use statuses the group doesn't have, the type gets its own: the group's, then those. Template sections: the notes' `##` headings. Colour: the next palette colour; icon `file`.
+- **Adopting** (on save, `TypeDraft.adopt`: the notes' paths and each field's source property by field uid, so renaming or removing fields in the draft is followed; `adoptionRenames`): each note gets `entity: <key>` (first) and its properties renamed to their fields' final keys in place (`adoptFrontmatter`); notes already right (`adoptionNeeded`) aren't written. The Save notice counts them.
 - **Ribbon:** Create entity, Entity browser, Connections, Entity types. Consider making these configurable (§14).
 
 ### 8.8 Settings tab

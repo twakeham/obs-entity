@@ -2,6 +2,7 @@ import { isEmptyValue } from "./frontmatter";
 import { renameLayoutKey, renameWhenKey } from "./formLayout";
 import { installPack, parsePack, type AppDetails, type InstallResult, type PackView, type TypePack } from "./packs";
 import type { SavedComponent } from "./layoutClipboard";
+import type { InferredType } from "./inferType";
 import { rewriteRefs } from "./formula";
 import { fieldColumn } from "./views";
 import { cloneWorkflow, type WorkflowDef } from "./workflows";
@@ -23,6 +24,14 @@ export interface TypeDraft {
 	original: EntityTypeDef | null;
 	/** parallel to type.fields */
 	meta: FieldMeta[];
+	/** a new type worked out from notes ("Create entity type from this note"): made their type when it's saved */
+	adopt?: Adoption;
+}
+
+/** Notes a new type was worked out from, and the property each field was read from (by field uid). */
+export interface Adoption {
+	paths: string[];
+	props: Record<string, string>;
 }
 
 let uidCounter = 0;
@@ -39,6 +48,27 @@ export function makeDraft(original: EntityTypeDef | null, working?: EntityTypeDe
 
 export function isDirty(d: TypeDraft): boolean {
 	return !d.original || JSON.stringify(d.type) !== JSON.stringify(d.original);
+}
+
+/** A new type's draft from a type worked out from notes, remembering them to adopt it when it's saved. */
+export function inferredDraft(inf: InferredType): TypeDraft {
+	const d = makeDraft(null, inf.type);
+	const props: Record<string, string> = {};
+	d.type.fields.forEach((f, i) => {
+		const p = inf.props[f.key];
+		if (p) props[d.meta[i].uid] = p;
+	});
+	return { ...d, adopt: { paths: [...inf.paths], props } };
+}
+
+/** The property renames adopting notes need: each field's source property → its key now (fields since removed left out). */
+export function adoptionRenames(d: TypeDraft): [string, string][] {
+	if (!d.adopt) return [];
+	return d.type.fields.flatMap((f, i): [string, string][] => {
+		const from = d.adopt!.props[d.meta[i]?.uid ?? ""];
+		const to = f.key.trim();
+		return from && to && from !== to ? [[from, to]] : [];
+	});
 }
 
 /** Fill in defaults a user may leave empty (plural, template) and tidy empty optional settings. */

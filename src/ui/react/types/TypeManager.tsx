@@ -1,4 +1,4 @@
-import { Menu, Modal, Notice, Setting, type App } from "obsidian";
+import { Menu, Modal, Notice, Setting, TFile, type App } from "obsidian";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import { STARTER_PACK, packWorkflows } from "../../../model/packs";
 import {
@@ -9,6 +9,8 @@ import {
 	groupIssues,
 	hasValue,
 	importAsDrafts,
+	inferredDraft,
+	adoptionRenames,
 	isDirty,
 	isGroupDirty,
 	makeDraft,
@@ -41,6 +43,7 @@ import { LayoutTab } from "./LayoutTab";
 import { AddRelationshipDialog, RelationshipsTab } from "./RelationshipsTab";
 import { WorkflowsTab } from "./WorkflowsTab";
 import { inScope } from "../../../model/workflows";
+import { adoptFrontmatter, adoptionNeeded, type InferredType } from "../../../model/inferType";
 import { collectPackFiles, describeWritten, writePackFiles } from "../../../services/packFiles";
 import { ExportAppModal, ImportAppModal } from "../../modals/appModals";
 
@@ -101,12 +104,17 @@ export function TypeManager({
 	setState,
 	pendingField: addRequest,
 	onPendingDone,
+	pendingType: typeRequest,
+	onPendingTypeDone,
 	onPreview,
 }: {
 	state: TypesState;
 	setState: (p: Partial<TypesState>) => void;
 	pendingField?: PendingField | null;
 	onPendingDone?: () => void;
+	/** a type worked out from notes, to open as a new draft */
+	pendingType?: InferredType | null;
+	onPendingTypeDone?: () => void;
 	/** called after every render with what the side panel's preview shows */
 	onPreview?: (source: PreviewSource) => void;
 }) {
@@ -221,7 +229,7 @@ export function TypeManager({
 		setDrafts((m) => {
 			const base = m.get(selectedId) ?? draftFor(selectedId);
 			if (!base) return m;
-			const next: TypeDraft = { original: base.original, type: JSON.parse(JSON.stringify(base.type)), meta: base.meta.map((x) => ({ ...x })) };
+			const next: TypeDraft = { ...base, type: JSON.parse(JSON.stringify(base.type)), meta: base.meta.map((x) => ({ ...x })) };
 			fn(next.type, next.meta);
 			return new Map(m).set(selectedId, next);
 		});
@@ -273,6 +281,18 @@ export function TypeManager({
 			});
 			if (did) updated++;
 		}
+		// A type worked out from notes: they become its entities, their properties renamed to the fields' keys.
+		let adopted = 0;
+		if (draft.adopt) {
+			const renames = adoptionRenames(draft);
+			for (const path of draft.adopt.paths) {
+				const file = plugin.app.vault.getAbstractFileByPath(path);
+				if (!(file instanceof TFile)) continue;
+				const fm = plugin.app.metadataCache.getFileCache(file)?.frontmatter ?? {};
+				if (adoptionNeeded(fm, fin.key, renames)) await plugin.app.fileManager.processFrontMatter(file, (f: Record<string, unknown>) => adoptFrontmatter(f, fin.key, renames));
+				adopted++;
+			}
+		}
 		setDrafts((m) => {
 			const next = new Map(m);
 			next.delete(selectedId);
@@ -286,7 +306,7 @@ export function TypeManager({
 		});
 		setOpts({ rename: true, remove: false });
 		if (selectedId !== fin.key) select(fin.key);
-		new Notice(`Saved ${fin.name}${updated ? ` and updated ${plural(updated, "note")}` : ""}.`);
+		new Notice(`Saved ${fin.name}${updated ? ` and updated ${plural(updated, "note")}` : ""}${adopted ? `. ${adopted === 1 ? `1 note is now a ${fin.name} entity` : `${adopted} notes are now ${fin.name} entities`}` : ""}.`);
 	};
 	/** Save: ask first when existing notes would be affected (and there's nothing to fix). */
 	const requestSave = () => {
@@ -423,13 +443,23 @@ export function TypeManager({
 			return;
 		}
 		const uid = newUid();
-		const next: TypeDraft = { original: d.original, type: { ...JSON.parse(JSON.stringify(d.type)), fields: [...d.type.fields, field] }, meta: [...d.meta.map((x) => ({ ...x })), { uid, origKey: null }] };
+		const next: TypeDraft = { ...d, type: { ...JSON.parse(JSON.stringify(d.type)), fields: [...d.type.fields, field] }, meta: [...d.meta.map((x) => ({ ...x })), { uid, origKey: null }] };
 		setDrafts((m) => new Map(m).set(typeKey, next));
 		if (typeKey === selectedId) setFieldUid(uid);
 		else pendingField.current = uid;
 		select(typeKey, "fields");
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [addRequest]);
+
+	// "Create entity type from this note": open the worked-out type as a new draft, on its fields.
+	useEffect(() => {
+		if (!typeRequest) return;
+		onPendingTypeDone?.();
+		const id = `new:${++newCounter}`;
+		setDrafts((m) => new Map(m).set(id, inferredDraft(typeRequest)));
+		select(id, "fields");
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [typeRequest]);
 
 	/** Drag a group heading onto another to move it there. Saved straight away. */
 	const moveGroup = async (fromKey: string, toKey: string) => {
