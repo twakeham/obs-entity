@@ -22,6 +22,12 @@ export interface TypePack {
 	app?: AppDetails;
 	/** saved layout components ("My components") */
 	components?: SavedComponent[];
+	/** what the pack is for (shown in the gallery) */
+	description?: string;
+	/** Lucide icon (shown in the gallery) */
+	icon?: string;
+	/** keys of general types (a person, a topic) used as they are when a type with that key already exists, rather than added again */
+	shared?: string[];
 }
 
 /** What an exported app says about itself. */
@@ -312,6 +318,9 @@ export function parsePack(text: string): PackParse {
 			...(Object.keys(templates).length ? { templates } : {}),
 			...(app ? { app } : {}),
 			...(components.length ? { components } : {}),
+			...(typeof meta.description === "string" && meta.description.trim() ? { description: meta.description.trim() } : {}),
+			...(typeof meta.icon === "string" && meta.icon.trim() ? { icon: meta.icon.trim() } : {}),
+			...(Array.isArray(meta.shared) ? { shared: meta.shared.filter((k): k is string => typeof k === "string") } : {}),
 		},
 	};
 }
@@ -344,14 +353,19 @@ function uniqueKey(key: string, taken: Set<string>): string {
  * Add a pack's types (and missing groups) to existing ones, and its workflows. Clashing type keys get a numbered
  * suffix, and every reference to them in the pack follows (relation targets, roll-ups, formulas, workflows' scopes and
  * steps). Types whose group is unknown go into the first group. Workflows come in switched off (`keepOn`: as exported), with new ids when
- * theirs are taken ("Run another workflow" steps follow).
+ * theirs are taken ("Run another workflow" steps follow). The pack's `shared` types that are here already are used as they are.
  */
 export function installPack(pack: TypePack, groups: GroupDef[], types: EntityTypeDef[], workflows: WorkflowDef[] = [], opts: { keepOn?: boolean } = {}): InstallResult {
+	// Shared types already here are used as they are: not added, not renamed.
+	const sharedHere = new Set((pack.shared ?? []).filter((k) => types.some((t) => t.key === k)));
+	const packTypes = pack.types.filter((t) => !sharedHere.has(t.key));
+	// A group only skipped shared types would use isn't added.
+	const unused = new Set((pack.groups ?? []).map((g) => g.key).filter((g) => pack.types.some((t) => t.group === g) && !packTypes.some((t) => t.group === g)));
 	const outGroups = groups.map(cloneGroup);
 	const groupKeys = new Set(outGroups.map((g) => g.key));
 	const addedGroups: string[] = [];
 	for (const g of pack.groups ?? []) {
-		if (groupKeys.has(g.key)) continue;
+		if (groupKeys.has(g.key) || unused.has(g.key)) continue;
 		outGroups.push({ ...cloneGroup(g), icon: g.icon || "folder", statuses: Array.isArray(g.statuses) && g.statuses.length ? [...g.statuses] : ["draft", "active", "done"] });
 		groupKeys.add(g.key);
 		addedGroups.push(g.key);
@@ -362,7 +376,7 @@ export function installPack(pack: TypePack, groups: GroupDef[], types: EntityTyp
 	const renamed: Record<string, string> = {};
 	// Every name the pack's types go by (as written, and as read when that wasn't a valid key) → their key here.
 	const keyMap = new Map<string, string>();
-	const incoming = pack.types.map((raw) => {
+	const incoming = packTypes.map((raw) => {
 		const t = cloneType(raw);
 		const original = t.key && isValidKey(t.key) ? t.key : nameToKey(t.name);
 		const key = uniqueKey(original, taken);
@@ -384,6 +398,8 @@ export function installPack(pack: TypePack, groups: GroupDef[], types: EntityTyp
 		if (!groupKeys.has(t.group)) t.group = fallbackGroup;
 		t.builtIn = false;
 		if (pack.id) t.pack = pack.id;
+		// Search shortcuts another type already uses are left out (one shortcut, one type).
+		if (t.shortcuts) t.shortcuts = t.shortcuts.filter((s) => !outTypes.some((o) => o.shortcuts?.includes(s)));
 		renameTypeKeys(t, keyMap);
 		outTypes.push(t);
 		added.push(t.key);

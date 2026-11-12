@@ -249,7 +249,7 @@ Groups give:
 - the `{group}` placeholder in the folder pattern (§3.4)
 - `@group` relation targets
 
-There's always at least one group. If every group is removed, an "Entities" group with statuses `draft, active, done` is added back. A fresh install gets the starter pack's groups (Directory, Work).
+There's always at least one group. If every group is removed, an "Entities" group with statuses `draft, active, done` is added back. A new vault starts with that group and no types; the first-run picker offers the packs (§8.1 Pack gallery).
 
 ### 4.3.1 Choice and status colours
 
@@ -639,6 +639,7 @@ The header's top right holds the save controls while there are unsaved changes. 
   - a blank type (in the current type's group)
   - duplicate the selected type
   - a new group
+  - **Browse packs…** (the gallery, §8.1 Pack gallery)
   - **Import pack…** (JSON paste or file)
   - **Copy all types as a pack**
   - **Import app…** and **Export as an app…** (§8.1 Apps)
@@ -800,6 +801,15 @@ Shown in the **side panel** (§8.5) while the types view is the active main-area
   - **Workflows** come in **switched off**, tidied as saved ones are (`readWorkflows`); an id that's taken gets a new one, and "Run another workflow" steps follow. From the Entity types view they open as drafts in the Workflows view (to review and save, like the types); "Import entity types…" saves them. Notes a workflow picks (a picked link value) are paths in the vault it came from, so may not exist here.
   - **View notes and templates are written on import** (`writePackFiles`), from both import dialogs (from the Entity types view, before the drafts open). Each view becomes a note in the views folder, numbered when its name is taken (`Overdue 2.md`); imported workflows' Views lists follow the notes written, and drop paths that are neither the pack's views nor views here. Each added type's template goes to its template file; when that file already exists with other text, it's written numbered (`Task 2.md`) and the type points at it; with the same text it's left. The notice says how many were written.
   - **Not in packs:** saved layout components ("My components"), and notes. (Apps, below, carry the components.)
+
+#### Pack gallery and first run
+
+`model/gallery.ts` (`GALLERY`) bundles seven packs: Starter, Basic CRM (the CRM example plus deal stages and Interactions), Project delivery, Reading & library, Research, Personal knowledge, Home & assets. Each has a `description` and `icon` (pack fields, kept by `parsePack`), types, groups, views and workflows (off when installed). A test installs each alone and all together and checks there are no type problems, every view parses and names only real columns, and no workflow has problems.
+- **Shared types:** `TypePack.shared` lists general types (person, author, topic) that, when the vault already has a type with that key, are used as they are: not added, not renamed, their template not written, and a pack group only they would use isn't added (`installPack`). The bundled packs define each shared type the same way, so any pack's views and workflows work with whichever came first.
+- **Shortcuts:** `installPack` leaves out search shortcuts another type already uses.
+- **The gallery** (`ui/modals/packGalleryModal.ts`): Entity types → **+ New → Browse packs…**, and **Browse packs…** in the settings tab's Entity types row. A card per pack: icon, name, description, its types (icon and plural), "N types · N views · N workflows", and **Install** (**Installed**, disabled, once a type from it exists: `type.pack`). Installing (`installGalleryPack`) is direct, like "Import entity types…": `installPack` beside the configuration, then the view notes and templates written (`writePackFiles`), the workflows added switched off, and a notice with what was added and any renamed keys.
+- **First run:** with nothing saved (`loadData()` empty), `defaultSettings()` has no types, one empty "Entities" group, and the starter types in `deletedPackTypes` (so `mergeSettings` doesn't add them). Once the layout is ready, the gallery opens as **Start from a pack** (each card's button "Start with this", plus **Start empty**). Choosing a pack installs it; in a vault still as it started (`isPristine`) its groups replace the empty one; installing Starter lifts its keys from `deletedPackTypes`. Then the Entity Browser opens. Closing the picker any way saves the settings, so it isn't shown again.
+- Settings saved before the picker existed keep getting missing starter types, as before (`mergeSettings` reads them from `STARTER_PACK`).
 
 #### Apps (whole configuration)
 
@@ -2021,7 +2031,7 @@ interface Settings {
 
 `mergeSettings(saved)`:
 - Start from the defaults, overlay the saved values, and deep-merge the nested objects (`modules`).
-- Keep the user's types. Append **pack** types that a newer pack version added, unless the user deleted them; track deletions in `deletedPackTypes`.
+- Keep the user's types. Append **starter** types missing from saved settings, unless the user deleted them; track deletions in `deletedPackTypes` (a new vault lists every starter type there, so only a vault using the Starter pack gets them).
 - **Versioned migrations run once each** (`if ((saved.settingsVersion ?? 1) < N) { … }`), then set `settingsVersion` to the current version. Gating them on the version is what lets a user delete a field the migration added without it coming back. Story Forge does this when adding family fields.
 - Normalise lists: drop unknown values and add missing defaults in their natural position.
 - **Versions so far:**
@@ -2185,7 +2195,7 @@ Drive a real Obsidian instance via the Chrome DevTools Protocol (Obsidian starte
 | M4 ✅ | **Browser** | Groups (or one tree), type headings, hierarchies from parent fields (cross-group option), View menu, filters with dimmed context, reveal active, collapse semantics, row/heading context menus with "New child here", state persistence | Large vaults navigable; hierarchy correct for mixed types |
 | M4.5 ✅ | **Entity properties form** | Form replacing Obsidian's Properties block on entity notes (§8.4): typed controls, link pickers limited to allowed types, rejected invalid input, problems with fixes, Ctrl/Cmd+Z history, Other properties with "Add to type", Change type with move offer, Check entities command; info card removed (settings v3) | Values can only be entered in a form the type allows; problems from elsewhere are visible and fixable |
 | M4.6 ✅ | **Entity views: table** | View notes with an `entity-view` block (§8.10): source types, columns (fields, built-ins, incoming, roll-ups; formulas added later), filters with groups and relative dates, multi-level sort, group by, inline editing with the form's rules, virtualised rows, autosave, Save as…, New / Open view commands, browser Views section | Named views can be saved, reopened elsewhere, and used to edit entities |
-| M5 (in progress) | **Packs & polish** | Fuller packs ✅ (views and templates in packs, Copy group as a pack), apps ✅ (export / import the whole configuration as a file), ribbon options ✅, pack gallery and first-run picker, accessibility pass (keyboard navigation in lists, ARIA on toggles), docs | Ready for a public/BRAT release |
+| M5 (in progress) | **Packs & polish** | Fuller packs ✅ (views and templates in packs, Copy group as a pack), apps ✅ (export / import the whole configuration as a file), ribbon options ✅, pack gallery and first-run picker ✅, accessibility pass (keyboard navigation in lists, ARIA on toggles), docs | Ready for a public/BRAT release |
 | M7.1 ✅ | **Workflows: engine and basics** | §8.11 stage 1: the Workflows view and the type editor's Workflows tab; created / changed / manual triggers (form buttons, ⋯ menu, command, row menu and selection bar per note); Only if; set / clear / tag / link / notice steps; undo, chains, run log, master switch | Examples 1 (completed date), 5, 7 and simple 3 work |
 | M7.2 ✅ | **Workflows: other notes and forms** | Form workflows (their input form, started from commands, the ribbon, view toolbars, the Entity Browser and notes), linked-note steps, create note, named results, for each, run workflow, one run for a whole selection; loops inside loops, If / Otherwise, variables, Find notes, Add text to a note (built) | Examples 1 (milestone roll-up), 2, 3, 6, 8 work |
 | M7.3 ✅ | **Workflows: time** | Schedule and date triggers, ask, move / rename, test run, big-run confirmation, limits, workflows in type packs (views and templates came with M5's fuller packs) | Example 4 works |
@@ -2198,7 +2208,7 @@ Drive a real Obsidian instance via the Chrome DevTools Protocol (Obsidian starte
 Decide these when starting the new project.
 
 1. **Name and identifiers:** *decided*: Obsidian Entities, id `obs-entities`, prefix `oe-`, type key `entity`, fixed common keys, no `summary` key.
-2. **First run:** *decided*: a generic starter pack (Person, Organisation, Place, Project, Note) is installed on first run; a "Start from a pack" picker can come in M5.
+2. **First run:** *decided*: a "Start from a pack" picker on first run (M5): the seven bundled packs, or start empty. Closing it starts empty. (Before M5 the Starter pack was installed on first run.)
 3. **Groups vs flat:** *decided*: groups are always present. The starter pack has Directory and Work. Folders come from one pattern, `Entities/{group}/{entity}` (§3.4), not per group or type.
 4. **Status model:** *decided*: per group (Directory: draft, active, archived; Work: idea, active, on-hold, done), with an optional per-type override.
 5. **Dates:** *decided*: ISO in v1, behind the `DateAdapter` interface from the start.

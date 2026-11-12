@@ -4,6 +4,7 @@ import { datePresetLabels, FIELD_DATE_PRESETS, showDate } from "../model/fieldFo
 import { DEFAULT_FOLDER_PATTERN, unknownPlaceholders } from "../model/paths";
 import { ImportPackModal } from "../ui/modals/importPackModal";
 import { ExportAppModal, ImportAppModal } from "../ui/modals/appModals";
+import { PackGalleryModal } from "../ui/modals/packGalleryModal";
 import { RIBBON_ICONS } from "../model/settings";
 
 export class EntitiesSettingTab extends PluginSettingTab {
@@ -233,6 +234,16 @@ export class EntitiesSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Types")
 			.setDesc(`${s.types.length} types (${custom} custom) in ${s.groups.length} group${s.groups.length === 1 ? "" : "s"}: ${s.types.map((t) => t.name).join(", ")}. Edit fields, relationships, groups and how types look in the Entity types view.`)
+			.addButton((b) =>
+				b.setButtonText("Browse packs…").onClick(() => {
+					const modal = new PackGalleryModal(this.plugin);
+					modal.onClose = () => {
+						modal.contentEl.empty();
+						this.display();
+					};
+					modal.open();
+				}),
+			)
 			.addButton((b) =>
 				b.setButtonText("Import types…").onClick(() => {
 					const modal = new ImportPackModal(this.plugin);

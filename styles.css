@@ -222,6 +222,85 @@
 	white-space: pre-wrap;
 }
 
+/* Pack gallery (and the first-run picker) */
+.oe-gallery-modal {
+	width: min(920px, 95vw);
+}
+.oe-gallery-intro {
+	margin: 0 0 var(--size-4-3);
+	color: var(--text-muted);
+}
+.oe-gallery-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+	gap: var(--size-4-3);
+}
+.oe-gallery-card {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+	padding: var(--size-4-3);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	background: var(--background-secondary);
+}
+.oe-gallery-head {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+.oe-gallery-head h3 {
+	margin: 0;
+	font-size: var(--font-ui-medium);
+}
+.oe-gallery-icon {
+	display: inline-flex;
+	color: var(--interactive-accent);
+}
+.oe-gallery-desc {
+	margin: 0;
+	flex: 1;
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+}
+.oe-gallery-types {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--size-4-1);
+}
+.oe-gallery-type {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 1px 8px 1px 6px;
+	border-radius: var(--radius-l);
+	background: var(--background-modifier-hover);
+	font-size: var(--font-ui-smaller);
+}
+.oe-gallery-type-icon {
+	display: inline-flex;
+	color: var(--oe-type-color, var(--text-muted));
+}
+.oe-gallery-type-icon svg {
+	width: 12px;
+	height: 12px;
+}
+.oe-gallery-card-foot {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--size-4-2);
+}
+.oe-gallery-count {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+.oe-gallery-foot {
+	display: flex;
+	justify-content: flex-end;
+	margin-top: var(--size-4-3);
+}
+
 /* Export / import an app */
 .oe-app-modal {
 	width: min(600px, 95vw);

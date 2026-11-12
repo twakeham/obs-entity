@@ -19,6 +19,7 @@ import { CheckEntitiesModal } from "./ui/modals/checkEntitiesModal";
 import { CreateEntityModal } from "./ui/modals/createEntityModal";
 import { EntitySwitcherModal } from "./ui/modals/entitySwitcherModal";
 import { ImportPackModal } from "./ui/modals/importPackModal";
+import { PackGalleryModal } from "./ui/modals/packGalleryModal";
 import { HOVER_SOURCE } from "./ui/react/EntityChip";
 import { SIDE_PANEL_VIEW, SidePanelView } from "./ui/views/SidePanelView";
 import { BROWSER_VIEW, BrowserView } from "./ui/views/BrowserView";
@@ -86,6 +87,8 @@ export default class EntitiesPlugin extends Plugin {
 	/** Workflows view drafts, kept for the session. */
 	workflowDrafts = new Map<string, WorkflowDef>();
 	groupDrafts = new Map<string, GroupDraft>();
+	/** Nothing was saved when the plugin loaded: a new vault, offered the packs to start from. */
+	private firstRun = false;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -105,6 +108,8 @@ export default class EntitiesPlugin extends Plugin {
 		this.registerEvent(this.index.on("updated", () => this.uniqueCache.clear()));
 		this.form.load();
 		this.views.load();
+		// A new vault (nothing saved yet): offer the packs to start from.
+		if (this.firstRun) this.app.workspace.onLayoutReady(() => new PackGalleryModal(this, true).open());
 		this.registerMarkdownCodeBlockProcessor(VIEW_BLOCK, (source, el, ctx) => ctx.addChild(new ViewBlock(this, source, el, ctx)));
 		this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.formHistory.rename(oldPath, file.path)));
 		this.registerEvent(this.app.vault.on("delete", (file) => this.formHistory.clear(file.path)));
@@ -306,6 +311,7 @@ export default class EntitiesPlugin extends Plugin {
 
 	async loadSettings(): Promise<void> {
 		const saved = await this.loadData();
+		this.firstRun = !saved;
 		this.settings = mergeSettings(saved);
 		// Persist migrations right away so data.json matches what's in use.
 		if (saved && saved.settingsVersion !== this.settings.settingsVersion) await this.saveData(this.settings);

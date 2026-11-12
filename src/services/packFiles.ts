@@ -1,10 +1,34 @@
 import { TFile, normalizePath, parseYaml } from "obsidian";
 import { asArray } from "../model/links";
-import { numberedFile, remapWorkflowViews, viewOnlyOver, type InstallResult, type PackView } from "../model/packs";
+import { installPack, numberedFile, remapWorkflowViews, STARTER_PACK, viewOnlyOver, type InstallResult, type PackView, type TypePack } from "../model/packs";
+import { isPristine } from "../model/settings";
 import type { EntityTypeDef } from "../model/types";
 import { findViewBlocks } from "../model/viewBlock";
 import type { WorkflowDef } from "../model/workflows";
 import type EntitiesPlugin from "../main";
+
+/**
+ * Install a pack from the gallery (or the first-run picker) straight away: its types beside the ones here, its
+ * workflows switched off, its view notes and templates written. In a new vault (no types yet) the pack's groups take
+ * the place of the empty starting group. Installing the Starter pack lifts its types' "deleted" marks. Returns what
+ * was added, for a notice.
+ */
+export async function installGalleryPack(plugin: EntitiesPlugin, pack: TypePack): Promise<string> {
+	const s = plugin.settings;
+	const fresh = isPristine(s);
+	const res = installPack(pack, fresh && pack.groups?.length ? [] : s.groups, s.types, s.workflows);
+	const added = res.types.filter((t) => res.added.includes(t.key));
+	const written = await writePackFiles(plugin, res, added, res.workflows);
+	s.groups = res.groups;
+	s.types = res.types;
+	s.workflows = [...s.workflows, ...res.workflows];
+	if (pack.id === STARTER_PACK.id) s.deletedPackTypes = s.deletedPackTypes.filter((k) => !res.added.includes(k));
+	await plugin.saveSettings();
+	const n = (k: number, w: string, many = `${w}s`) => `${k} ${k === 1 ? w : many}`;
+	const parts = [n(res.added.length, "type"), written.views.length ? n(written.views.length, "view") : "", res.workflows.length ? `${n(res.workflows.length, "workflow")} (switched off)` : ""].filter(Boolean);
+	const renamed = Object.entries(res.renamed).map(([a, b]) => `${a} → ${b}`);
+	return `Installed ${pack.name}: ${parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0]}.${renamed.length ? ` Keys already taken: ${renamed.join(", ")}.` : ""}`;
+}
 
 /** Which view notes go into a pack: every one, those showing only some types (and groups), or none. */
 export type ViewPick = "all" | "none" | { types: Set<string>; groups: Set<string> };

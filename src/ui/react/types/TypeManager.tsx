@@ -46,6 +46,7 @@ import { inScope } from "../../../model/workflows";
 import { adoptFrontmatter, adoptionNeeded, type InferredType } from "../../../model/inferType";
 import { collectPackFiles, describeWritten, writePackFiles } from "../../../services/packFiles";
 import { ExportAppModal, ImportAppModal } from "../../modals/appModals";
+import { PackGalleryModal } from "../../modals/packGalleryModal";
 
 export interface TypesState {
 	/** a saved type's key, "new:<n>" for an unsaved type, "group:<key>" / "group:new:<n>" for groups */
@@ -366,6 +367,7 @@ export function TypeManager({
 			);
 		menu.addItem((i) => i.setTitle("Group").setIcon("folder-plus").onClick(addGroupDraft));
 		menu.addSeparator();
+		menu.addItem((i) => i.setTitle("Browse packs…").setIcon("package").onClick(() => new PackGalleryModal(plugin).open()));
 		menu.addItem((i) => i.setTitle("Import pack…").setIcon("import").onClick(() => setImporting(true)));
 		menu.addItem((i) =>
 			i

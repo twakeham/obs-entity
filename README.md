@@ -17,7 +17,7 @@ Derived from the Story Forge worldbuilding plugin, made domain-neutral. The full
 | M7.1 Workflows, stage 1 | Automation: when a note is created or a field changes, or from a button, set fields, tags and links or show a notice; the Workflows view, run log and undo | ✅ Done |
 | M7.2 Workflows, stage 2 | Creating notes, steps on linked notes, for each, running other workflows, one run for a whole selection, form workflows (from commands, the ribbon, view toolbars and the Entity Browser) | Done |
 | M7.3 Workflows, stage 3 | Test runs, big-run confirmation, ask, move / rename, schedules and date triggers, workflows in type packs | ✅ Done |
-| M5 Packs & polish | Fuller packs (views and templates, Copy group as a pack) ✅; apps (export / import the whole configuration) ✅; ribbon options ✅; pack picker on first run, accessibility, docs | In progress |
+| M5 Packs & polish | Fuller packs (views and templates, Copy group as a pack) ✅; apps (export / import the whole configuration) ✅; ribbon options ✅; pack gallery and first-run picker ✅; pack picker on first run, accessibility, docs | In progress |
 
 ## How notes are stored
 
@@ -96,9 +96,22 @@ On entity notes, a form built from the note's type replaces Obsidian's Propertie
 
 **Change type…** keeps all values. Fields the new type doesn't use move to Other properties, and the status is reset if the new group doesn't have it. If the new type's folder is elsewhere, the notice offers to move the note.
 
-## Starter pack
+## Packs and the first run
 
-Installed on first run:
+In a new vault, a **Start from a pack** picker opens: choose a pack to start with, or **Start empty** (one empty group; make your own types). Later, **Browse packs…** (Entity types → **+ New**, or the settings tab) opens the same **gallery** to add more. Each pack is a card with what it's for, its types, and how many views and workflows it has; **Install** adds it straight away, beside your types: view notes go to your views folder (numbered when a name is taken), its workflows come in switched off, a key you already use gets a number (`project_2`), and a search shortcut another type uses is left off. General types (Person, Author, Topic) that you already have are reused rather than added twice.
+
+| Pack | Types | Views | Workflows |
+|---|---|---|---|
+| Starter | Person, Organisation, Place, Project, Note | People, Projects (board) | – |
+| Basic CRM | Contact, Company, Deal (with stages), Interaction | Pipeline (board by stage), Contacts, Companies (deals and their value), Recent interactions | Deal won (stamps the close date), Log a call (button on contacts) |
+| Project delivery | Person, Project, Milestone, Task, Risk, Meeting, Decision | Project portfolio, Task board, Overdue, Risk register, Delivery calendar, Decision log | Record when a task is done, Tag overdue tasks, Log a meeting (form) |
+| Reading & library | Book, Author, Series, Quote | Reading list, Bookshelf (board), Finished this year, Quotes | Started reading, Finished reading, Add a quote |
+| Research | Paper, Author, Topic, Research note | Reading queue, Papers by topic, Research notes | Record when a paper is read, Add a note |
+| Personal knowledge | Idea, Source, Topic, Person | Idea garden (board), Sources, Evergreen ideas | Date new ideas, Make evergreen |
+| Home & assets | Item, Room, Warranty, Supplier | Inventory (by room, with totals), Warranties, Warranty calendar | Warranty about to expire (30 days before), Warranty expired |
+
+### Starter pack
+
 
 | Group | Statuses | Types |
 |---|---|---|
@@ -121,7 +134,7 @@ Some types also have a **folder rule**:
 - **Own folder** (Project): each project gets its own folder, e.g. `…/Projects/Apollo/Apollo.md`. A sub-project's folder goes inside its parent project's folder.
 - **Parent folder** (Note): a note goes in `<its project's folder>/Notes/`, or follows the pattern if it has no project.
 
-To add types, use the **Entity types** view (below), or run **Import entity types…** and paste a type pack. The import dialog can load the Basic CRM example.
+To add types, use the **Entity types** view (below), **Browse packs…**, or run **Import entity types…** and paste a type pack. The import dialog can load the Basic CRM example.
 
 ## Entity types view
 
@@ -133,7 +146,7 @@ Opened from:
 
 **Sidebar:** types are listed under their groups.
 - **Click a group heading** to edit the group. Drag headings to reorder groups.
-- **+ New** offers a type, a duplicate of the current one, a group, **Import pack…**, **Copy all types as a pack** (with every workflow, view note and template), **Import app…** and **Export as an app…** (see [Apps](#apps)).
+- **+ New** offers a type, a duplicate of the current one, a group, **Browse packs…** (the gallery), **Import pack…**, **Copy all types as a pack** (with every workflow, view note and template), **Import app…** and **Export as an app…** (see [Apps](#apps)).
 - **Group editor → Copy group as a pack:** the group's types, their workflows, the view notes that show only those types (or the group), and their templates.
 - **Packs and workflows:** a type's **Copy as JSON** includes the workflows that apply only to it (and any workflows they run), and its template file. Importing a pack opens its workflows as drafts in the Workflows view, **switched off**, so you can check them before turning them on. Its view notes are written to your views folder (numbered when the name is taken, `Overdue 2`), and workflows that show on those views follow them. Its templates are written to your templates folder; if a type's template file already exists with different text, the pack's is written as `Task 2.md` and the type uses it. If a type's key is already taken here (`task` → `task_2`), everything in the pack that refers to it follows: links, roll-ups, formulas, the workflows' types, conditions and steps, and the views' types, columns, filters and sorting. Saved layout components and notes aren't part of packs (apps carry the components).
 
@@ -548,6 +561,7 @@ src/
     search.ts                switcher type prefixes
     inferType.ts             a new type worked out from notes (field kinds, relations, choices, name, group, statuses), adopting it
     packs.ts                 starter + CRM packs, parsePack, installPack (types, groups, workflows, views, templates; renamed keys followed), packWorkflows, renameViewKeys
+    gallery.ts               the bundled packs (Starter, Basic CRM, Project delivery, Reading & library, Research, Personal knowledge, Home & assets)
     apps.ts                  whole-configuration apps: exportApp, installApp (replace or add), mergeComponents
     typeEditing.ts           type/group drafts, field + status renames, migrations, import/export, previews
     settings.ts              defaults and merging
@@ -571,7 +585,7 @@ src/
     packFiles.ts             a pack's view notes and templates: gathered for export, written on import
   settings/settingTab.ts
   ui/components/             entity picker
-  ui/modals/                 create (hosts CreateForm), switcher, import types, export / import an app, add link, check entities, views (new / open / name / roll-up), formula editor (CodeMirror), bulk actions (set field, links, tags, folder picker)
+  ui/modals/                 create (hosts CreateForm), switcher, import types, pack gallery / first-run picker, export / import an app, add link, check entities, views (new / open / name / roll-up), formula editor (CodeMirror), bulk actions (set field, links, tags, folder picker)
   ui/header/formManager.tsx  puts the properties form into Live Preview and Reading view, hiding Obsidian's Properties
   ui/react/                  EntityForm (properties form, layouts, shared rows and controls), CreateForm (create dialog), ConnectionsPanel, EntityChip, EntityBits (status tones, relation groups), EntityBrowser
   ui/react/table/            EntityTable (toolbar, virtual rows, editing; hosts the board too), cells, popovers (filters, sort, group, columns)

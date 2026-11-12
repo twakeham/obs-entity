@@ -65,6 +65,13 @@ function readRibbon(raw: unknown): Record<RibbonIconId, boolean> {
 
 export const SETTINGS_VERSION = 3;
 
+/** The group a vault starts with (and always has, when every group is removed). */
+export const FIRST_GROUP = (): GroupDef => ({ key: "entities", name: "Entities", icon: "shapes", statuses: [...DEFAULT_STATUSES] });
+
+/**
+ * A new vault's settings: no types yet (the first-run picker offers the packs), one empty group, and the starter types
+ * marked as not wanted, so they aren't added on their own.
+ */
 export function defaultSettings(): EntitiesSettings {
 	return {
 		settingsVersion: SETTINGS_VERSION,
@@ -79,21 +86,24 @@ export function defaultSettings(): EntitiesSettings {
 		prefillFromActive: true,
 		useForm: true,
 		formCollapsed: false,
-		groups: (STARTER_PACK.groups ?? []).map(cloneGroup),
-		types: STARTER_PACK.types.map((t) => ({ ...cloneType(t), pack: STARTER_PACK.id })),
-		deletedPackTypes: [],
+		groups: [FIRST_GROUP()],
+		types: [],
+		deletedPackTypes: STARTER_PACK.types.map((t) => t.key),
 		workflows: [],
 		workflowsPaused: false,
 		ribbonIcons: { ...RIBBON_DEFAULTS },
 	};
 }
 
+/** Whether the settings are still as a new vault starts: no types, only the first empty group. */
+export const isPristine = (s: Pick<EntitiesSettings, "types" | "groups">): boolean => s.types.length === 0 && s.groups.length === 1 && s.groups[0].key === FIRST_GROUP().key;
+
 const isString = (v: unknown): v is string => typeof v === "string";
 
 /**
- * Merge saved settings over defaults. On first run (nothing saved) the starter pack is installed.
- * Saved groups and types are kept as they are; starter types added in newer plugin versions are
- * appended unless the user deleted them. There is always at least one group.
+ * Merge saved settings over defaults. On first run (nothing saved) there are no types: the first-run picker offers the
+ * packs. Saved groups and types are kept as they are; starter types (settings from before the picker, or a vault that
+ * installed the Starter pack) are added when missing, unless the user deleted them. There is always at least one group.
  */
 export function mergeSettings(saved: Partial<EntitiesSettings> | null | undefined): EntitiesSettings {
 	const base = defaultSettings();
@@ -104,8 +114,8 @@ export function mergeSettings(saved: Partial<EntitiesSettings> | null | undefine
 		settingsVersion: SETTINGS_VERSION,
 		deletedPackTypes: Array.isArray(saved.deletedPackTypes) ? saved.deletedPackTypes.filter(isString) : [],
 	};
-	merged.groups = Array.isArray(saved.groups) ? saved.groups.map(cloneGroup) : base.groups;
-	merged.types = Array.isArray(saved.types) ? saved.types.map(cloneType) : base.types;
+	merged.groups = Array.isArray(saved.groups) ? saved.groups.map(cloneGroup) : [];
+	merged.types = Array.isArray(saved.types) ? saved.types.map(cloneType) : [];
 	merged.workflows = readWorkflows(saved.workflows, merged.types);
 	merged.workflowsPaused = saved.workflowsPaused === true;
 	// Version 3: the properties form replaced the info card (whose settings are dropped).
@@ -116,17 +126,15 @@ export function mergeSettings(saved: Partial<EntitiesSettings> | null | undefine
 
 	const have = new Set(merged.types.map((t) => t.key));
 	const deleted = new Set(merged.deletedPackTypes);
-	for (const t of base.types) {
+	for (const t of STARTER_PACK.types) {
 		if (have.has(t.key) || deleted.has(t.key)) continue;
-		merged.types.push(t);
+		merged.types.push({ ...cloneType(t), pack: STARTER_PACK.id });
 		if (!merged.groups.some((g) => g.key === t.group)) {
-			const g = base.groups.find((x) => x.key === t.group);
-			if (g) merged.groups.push(g);
+			const g = STARTER_PACK.groups?.find((x) => x.key === t.group);
+			if (g) merged.groups.push(cloneGroup(g));
 		}
 	}
-	if (merged.groups.length === 0) {
-		merged.groups.push({ key: "entities", name: "Entities", icon: "shapes", statuses: [...DEFAULT_STATUSES] });
-	}
+	if (merged.groups.length === 0) merged.groups.push(FIRST_GROUP());
 	for (const g of merged.groups) if (!Array.isArray(g.statuses) || g.statuses.length === 0) g.statuses = [...DEFAULT_STATUSES];
 	if (typeof merged.folderPattern !== "string") merged.folderPattern = DEFAULT_FOLDER_PATTERN;
 	if (typeof merged.viewsFolder !== "string") merged.viewsFolder = base.viewsFolder;

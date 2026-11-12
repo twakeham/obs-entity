@@ -7,7 +7,7 @@ import { CRM_PACK, STARTER_PACK, installPack, parsePack } from "../src/model/pac
 import { propertyTypeFor, propertyTypes } from "../src/model/propertyTypes";
 import { DEFAULT_FOLDER_PATTERN, effectiveFolderPattern, expandFolderPattern, joinPath, resolveEntityFolder, sanitizeFileName, uniquePath, unknownPlaceholders } from "../src/model/paths";
 import { findTypeByPrefix, parseTypedQuery } from "../src/model/search";
-import { defaultSettings, mergeSettings } from "../src/model/settings";
+import { defaultSettings, isPristine, mergeSettings } from "../src/model/settings";
 import { defaultTemplate, renderTemplate } from "../src/model/templates";
 import {
 	COMMON_KEYS,
@@ -505,12 +505,18 @@ describe("settings", () => {
 		expect(mergeSettings({ ribbonIcons: { create: true, browser: false } as never }).ribbonIcons).toEqual({ create: true, browser: false, "side-panel": true, types: false, workflows: false });
 	});
 
-	it("installs the starter pack on first run", () => {
+	it("starts a new vault empty: one group, no types, the starter types not added on their own", () => {
 		const s = mergeSettings(null);
 		expect(s).toEqual(defaultSettings());
-		expect(s.types.map((t) => t.key)).toEqual(["person", "organisation", "place", "project", "note"]);
-		expect(s.types.every((t) => t.pack === "starter")).toBe(true);
-		expect(s.groups.map((g) => g.key)).toEqual(["directory", "work"]);
+		expect(s.types).toEqual([]);
+		expect(s.groups.map((g) => g.key)).toEqual(["entities"]);
+		expect(isPristine(s)).toBe(true);
+		// Saved like that, it stays empty when read again.
+		expect(mergeSettings(JSON.parse(JSON.stringify(s))).types).toEqual([]);
+		// Settings from before the picker still get the starter types they're missing.
+		expect(mergeSettings({ openInNewTab: true }).types.map((t) => t.key)).toEqual(["person", "organisation", "place", "project", "note"]);
+		expect(mergeSettings({ openInNewTab: true }).types.every((t) => t.pack === "starter")).toBe(true);
+		expect(isPristine(mergeSettings({ openInNewTab: true }))).toBe(false);
 	});
 
 	it("keeps saved types and groups and adds missing starter types unless deleted", () => {
@@ -563,11 +569,14 @@ describe("settings", () => {
 	});
 
 	it("does not share objects with the defaults", () => {
-		const a = mergeSettings(null);
+		const a = mergeSettings({});
 		a.types[0].fields.push({ key: "x", label: "x", kind: "text" });
 		a.groups[0].statuses.push("x");
-		expect(mergeSettings(null).types[0].fields.some((f) => f.key === "x")).toBe(false);
+		expect(mergeSettings({}).types[0].fields.some((f) => f.key === "x")).toBe(false);
 		expect(STARTER_PACK.groups![0].statuses).not.toContain("x");
+		expect(STARTER_PACK.types[0].fields.some((f) => f.key === "x")).toBe(false);
+		mergeSettings(null).groups[0].statuses.push("y");
+		expect(mergeSettings(null).groups[0].statuses).not.toContain("y");
 	});
 });
 
