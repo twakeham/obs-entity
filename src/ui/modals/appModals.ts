@@ -23,17 +23,23 @@ function contentsText(c: ReturnType<typeof appContents>): string {
 }
 
 /**
- * Save text to a file the user picks (the system's Save dialog). Falls back to a download where there's no picker.
- * Returns the file name saved as, or null when cancelled.
+ * Save text to a file the user picks (the system's Save dialog), in `win`: the window that was clicked, since a file
+ * picker only opens in a window handling a click (Settings has a window of its own). The picker opens before
+ * anything is awaited, for the same reason; `text` is made while it's open. Falls back to a download where there's
+ * no picker. Returns the file name saved as, or null when cancelled.
  */
-async function saveToDisk(fileName: string, text: string): Promise<string | null> {
+async function saveToDisk(win: Window, fileName: string, text: () => Promise<string>): Promise<string | null> {
 	type Handle = { name: string; createWritable(): Promise<{ write(t: string): Promise<void>; close(): Promise<void> }> };
-	const picker = (window as unknown as { showSaveFilePicker?: (o: unknown) => Promise<Handle> }).showSaveFilePicker;
+	const picker = (win as unknown as { showSaveFilePicker?: (o: unknown) => Promise<Handle> }).showSaveFilePicker;
 	if (typeof picker === "function") {
+		const picked = picker.call(win, { suggestedName: fileName, types: [{ description: "Entities app", accept: { "application/json": [".json"] } }] });
+		const content = text();
+		// Awaited below unless the picker is cancelled first.
+		content.catch(() => undefined);
 		try {
-			const handle = await picker({ suggestedName: fileName, types: [{ description: "Entities app", accept: { "application/json": [".json"] } }] });
+			const handle = await picked;
 			const w = await handle.createWritable();
-			await w.write(text);
+			await w.write(await content);
 			await w.close();
 			return handle.name;
 		} catch (e) {
@@ -41,11 +47,11 @@ async function saveToDisk(fileName: string, text: string): Promise<string | null
 			throw e;
 		}
 	}
-	const a = document.createElement("a");
-	a.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+	const a = win.document.createElement("a");
+	a.href = URL.createObjectURL(new Blob([await text()], { type: "application/json" }));
 	a.download = fileName;
 	a.click();
-	window.setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+	win.setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
 	return fileName;
 }
 
@@ -98,11 +104,10 @@ export class ExportAppModal extends Modal {
 		if (!this.details.name.trim()) return void new Notice("Give the app a name.");
 		const s = this.plugin.settings;
 		const details = tidyDetails(this.details);
-		const files = await collectPackFiles(this.plugin, s.types, "all");
-		const text = exportApp(s, details, files);
+		const win = this.modalEl.ownerDocument.defaultView ?? window;
 		let saved: string | null;
 		try {
-			saved = await saveToDisk(appFileName(details), text);
+			saved = await saveToDisk(win, appFileName(details), async () => exportApp(s, details, await collectPackFiles(this.plugin, s.types, "all")));
 		} catch (e) {
 			new Notice(`Couldn't save the app: ${(e as Error).message}`);
 			return;
