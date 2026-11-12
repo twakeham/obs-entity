@@ -41,6 +41,7 @@ import { LayoutTab } from "./LayoutTab";
 import { AddRelationshipDialog, RelationshipsTab } from "./RelationshipsTab";
 import { WorkflowsTab } from "./WorkflowsTab";
 import { inScope } from "../../../model/workflows";
+import { collectPackFiles, describeWritten, writePackFiles } from "../../../services/packFiles";
 
 export interface TypesState {
 	/** a saved type's key, "new:<n>" for an unsaved type, "group:<key>" / "group:new:<n>" for groups */
@@ -350,8 +351,10 @@ export function TypeManager({
 				.setTitle("Copy all types as a pack")
 				.setIcon("clipboard-copy")
 				.onClick(async () => {
-					await navigator.clipboard.writeText(exportPack(settings.types, settings.groups, plugin.app.vault.getName(), settings.workflows));
-					new Notice(`Copied ${plural(settings.types.length, "type")}, ${plural(settings.groups.length, "group")}${settings.workflows.length ? ` and ${plural(settings.workflows.length, "workflow")}` : ""} as a pack.`);
+					const files = await collectPackFiles(plugin, settings.types, "all");
+					await navigator.clipboard.writeText(exportPack(settings.types, settings.groups, plugin.app.vault.getName(), settings.workflows, files));
+					const parts = [plural(settings.types.length, "type"), plural(settings.groups.length, "group"), settings.workflows.length ? plural(settings.workflows.length, "workflow") : "", files.views.length ? plural(files.views.length, "view") : "", Object.keys(files.templates).length ? plural(Object.keys(files.templates).length, "template") : ""].filter(Boolean);
+					new Notice(`Copied ${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]} as a pack.`);
 				}),
 		);
 		menu.showAtMouseEvent(evt.nativeEvent);
@@ -361,8 +364,9 @@ export function TypeManager({
 		if (!draft) return;
 		const type = finaliseType(draft.type);
 		const wfs = packWorkflows([type], settings.workflows, settings.types);
-		await navigator.clipboard.writeText(exportPack([type], allGroups, undefined, wfs));
-		new Notice(`Copied “${draft.type.name}”${wfs.length ? ` and ${plural(wfs.length, "workflow")}` : ""} as JSON. Paste it into “New → Import pack…” in another vault.`);
+		const files = await collectPackFiles(plugin, [type], "none");
+		await navigator.clipboard.writeText(exportPack([type], allGroups, undefined, wfs, files));
+		new Notice(`Copied “${draft.type.name}”${wfs.length ? ` and ${plural(wfs.length, "workflow")}` : ""}${files.templates[type.key] !== undefined ? " with its template" : ""} as JSON. Paste it into “New → Import pack…” in another vault.`);
 	};
 
 	const deleteType = () => {
@@ -670,13 +674,16 @@ export function TypeManager({
 			{importing && (
 				<ImportDialog
 					onClose={() => setImporting(false)}
-					onImport={(json) => {
+					onImport={async (json) => {
 						const r = importAsDrafts(json, settings.groups, allTypes, [...settings.workflows, ...plugin.workflowDrafts.values()]);
 						if ("error" in r) return r.error;
 						if (r.newGroups.length) {
 							settings.groups.push(...r.newGroups.map(cloneGroup));
 							void plugin.saveSettings();
 						}
+						// Before the drafts: a template may be written numbered (its type points at it), and workflows follow the view notes.
+						const written = await writePackFiles(plugin, r, r.types, r.workflows);
+						const files = describeWritten(written);
 						// Workflows open as drafts in the Workflows view, switched off, to review and save like the types.
 						for (const w of r.workflows) {
 							let n = 1;
@@ -701,6 +708,7 @@ export function TypeManager({
 							`Imported ${plural(r.types.length, "type")} to review and save` +
 								(r.newGroups.length ? `, and added ${plural(r.newGroups.length, "group")} (${r.newGroups.map((g) => g.name).join(", ")})` : "") +
 								(r.workflows.length ? `. ${plural(r.workflows.length, "workflow")} to review in the Workflows view (switched off)` : "") +
+								(files ? `. Wrote ${files}` : "") +
 								(renamed.length ? `. Keys already taken: ${renamed.join(", ")}` : "") +
 								".",
 						);
@@ -750,6 +758,17 @@ function GroupEditor({
 	const shown = attempted ? issues : issues.filter((i) => i.at !== "name" && !(i.at === "key" && !g.key));
 	const at = (k: string) => shown.filter((i) => i.at === k);
 	const members = allTypes.filter((t) => t.group === (draft.original?.key ?? g.key) && g.key);
+	// The saved group and its saved types, with their workflows, the views over only them, and their templates.
+	const saved = draft.original ? settings.types.filter((t) => t.group === draft.original!.key) : [];
+	const copyPack = async () => {
+		const group = draft.original;
+		if (!group || !saved.length) return;
+		const wfs = packWorkflows(saved, settings.workflows, settings.types);
+		const files = await collectPackFiles(plugin, saved, { types: new Set(saved.map((t) => t.key)), groups: new Set([group.key]) });
+		await navigator.clipboard.writeText(exportPack(saved, settings.groups, group.name, wfs, files));
+		const parts = [plural(saved.length, "type"), wfs.length ? plural(wfs.length, "workflow") : "", files.views.length ? plural(files.views.length, "view") : "", Object.keys(files.templates).length ? plural(Object.keys(files.templates).length, "template") : ""].filter(Boolean);
+		new Notice(`Copied the ${group.name} group (${parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0]}) as a pack. Paste it into “New → Import pack…” in another vault.`);
+	};
 	const renames = statusRenames(draft);
 	// Notes whose status follows this group (types without their own statuses) and uses a renamed status.
 	const affected = useMemo(() => {
@@ -937,6 +956,9 @@ function GroupEditor({
 				{!isNew && (
 					<Section title="More">
 						<div className="oe-tm-actions">
+							<button onClick={() => void copyPack()} disabled={!saved.length} title={saved.length ? undefined : "The group has no saved types"}>
+								<Icon name="clipboard-copy" /> Copy group as a pack
+							</button>
 							<button className="mod-warning" disabled={members.length > 0} onClick={del} title={members.length ? "Move its types to another group first" : undefined}>
 								<Icon name="trash-2" /> Delete group
 							</button>
@@ -1062,7 +1084,7 @@ function MigrationOption({ checked, onChange, label, notes }: { checked: boolean
 	);
 }
 
-function ImportDialog({ onClose, onImport }: { onClose: () => void; onImport: (json: string) => string | null }) {
+function ImportDialog({ onClose, onImport }: { onClose: () => void; onImport: (json: string) => Promise<string | null> }) {
 	const [text, setText] = useState("");
 	const [error, setError] = useState<string | null>(null);
 	return (
@@ -1074,7 +1096,7 @@ function ImportDialog({ onClose, onImport }: { onClose: () => void; onImport: (j
 						<Icon name="x" />
 					</button>
 				</div>
-				<p className="oe-tm-muted">Paste a pack, a type copied with “Copy as JSON”, or a list of types, or choose a .json file. Each type opens as a draft to review before saving.</p>
+				<p className="oe-tm-muted">Paste a pack, a type copied with “Copy as JSON”, or a list of types, or choose a .json file. Each type opens as a draft to review before saving. A pack's view notes and templates are written to your views and templates folders.</p>
 				<textarea className="oe-tm-import" autoFocus value={text} placeholder='{ "obsEntitiesPack": 1, "types": [ … ] }' onChange={(e) => setText(e.target.value)} />
 				<input
 					type="file"
@@ -1092,7 +1114,7 @@ function ImportDialog({ onClose, onImport }: { onClose: () => void; onImport: (j
 				)}
 				<div className="oe-tm-dialog-foot">
 					<button onClick={onClose}>Cancel</button>
-					<button className="mod-cta" disabled={!text.trim()} onClick={() => setError(onImport(text))}>
+					<button className="mod-cta" disabled={!text.trim()} onClick={() => void onImport(text).then(setError)}>
 						Import
 					</button>
 				</div>

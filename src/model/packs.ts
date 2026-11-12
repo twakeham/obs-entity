@@ -1,6 +1,6 @@
 import { FIELD_KINDS, cloneGroup, cloneType, isValidKey, type EntityTypeDef, type GroupDef } from "./types";
 import { rewriteRefs } from "./formula";
-import { isGroup, type FilterGroup } from "./views";
+import { isGroup, parseView, type ColumnDef, type FilterGroup, type GroupBy, type ViewDef } from "./views";
 import { cloneWorkflow, flatSteps, mapStepTexts, mapTemplate, newWorkflowId, readWorkflows, scopeTypes, type WorkflowDef, type WorkflowStep } from "./workflows";
 import { normaliseLayout, renameLayoutKey, workflowItem } from "./formLayout";
 
@@ -13,6 +13,17 @@ export interface TypePack {
 	types: EntityTypeDef[];
 	/** workflows for these types (imported switched off) */
 	workflows?: WorkflowDef[];
+	/** view notes: their names, their paths where they came from (workflows' view lists name them), and their definitions */
+	views?: PackView[];
+	/** type key → the text of its note template */
+	templates?: Record<string, string>;
+}
+
+/** A view note in a pack. `view` is the definition as written in the note's block. */
+export interface PackView {
+	name: string;
+	path?: string;
+	view: Record<string, unknown>;
 }
 
 export const STARTER_PACK: TypePack = {
@@ -216,6 +227,8 @@ export function parsePack(text: string): PackParse {
 	let types: unknown[];
 	let groups: unknown[] = [];
 	let workflows: unknown[] = [];
+	let views: unknown[] = [];
+	let templates: Record<string, string> = {};
 	let meta: Record<string, unknown> = {};
 	if (Array.isArray(data)) types = data;
 	else if (data && typeof data === "object" && Array.isArray((data as Record<string, unknown>).types)) {
@@ -224,12 +237,27 @@ export function parsePack(text: string): PackParse {
 		groups = Array.isArray(meta.groups) ? (meta.groups as unknown[]) : [];
 		if (meta.workflows !== undefined && !Array.isArray(meta.workflows)) return { ok: false, error: "“workflows” should be a list." };
 		workflows = Array.isArray(meta.workflows) ? (meta.workflows as unknown[]) : [];
+		if (meta.views !== undefined && !Array.isArray(meta.views)) return { ok: false, error: "“views” should be a list." };
+		views = Array.isArray(meta.views) ? (meta.views as unknown[]) : [];
+		if (meta.templates !== undefined) {
+			const t = meta.templates;
+			if (!t || typeof t !== "object" || Array.isArray(t) || Object.values(t).some((v) => typeof v !== "string")) return { ok: false, error: "“templates” should map type keys to template text." };
+			templates = { ...(t as Record<string, string>) };
+		}
 	} else if (data && typeof data === "object" && Array.isArray((data as Record<string, unknown>).fields)) types = [data];
 	else return { ok: false, error: "Expected a pack ({ types: [...] }), a type, or a list of types." };
-	if (types.length === 0 && workflows.length === 0) return { ok: false, error: "The pack has no types." };
+	if (types.length === 0 && workflows.length === 0 && views.length === 0) return { ok: false, error: "The pack has no types." };
 	for (const [i, raw] of workflows.entries()) {
 		const w = raw as { name?: unknown; steps?: unknown };
 		if (!w || typeof w !== "object" || !Array.isArray(w.steps)) return { ok: false, error: `Workflow ${typeof w?.name === "string" ? `“${w.name}”` : `#${i + 1}`} has no steps list.` };
+	}
+	for (const [i, raw] of views.entries()) {
+		const v = raw as Partial<PackView>;
+		const where = typeof v?.name === "string" && v.name.trim() ? `“${v.name}”` : `#${i + 1}`;
+		if (!v || typeof v !== "object" || typeof v.name !== "string" || !v.name.trim()) return { ok: false, error: `View ${where} has no name.` };
+		if (!v.view || typeof v.view !== "object" || Array.isArray(v.view)) return { ok: false, error: `View ${where} has no definition.` };
+		const read = parseView(v.view);
+		if (!read.def) return { ok: false, error: `View ${where}: ${read.errors[0] ?? "its definition can't be read."}` };
 	}
 
 	for (const [i, raw] of types.entries()) {
@@ -258,6 +286,8 @@ export function parsePack(text: string): PackParse {
 			groups: groups as GroupDef[],
 			types: types as EntityTypeDef[],
 			...(workflows.length ? { workflows: workflows as WorkflowDef[] } : {}),
+			...(views.length ? { views: views as PackView[] } : {}),
+			...(Object.keys(templates).length ? { templates } : {}),
 		},
 	};
 }
@@ -273,6 +303,10 @@ export interface InstallResult {
 	addedGroups: string[];
 	/** the pack's workflows, ready to add: off, with ids of their own and the renamed keys */
 	workflows: WorkflowDef[];
+	/** the pack's views, with the renamed keys, to write as view notes (`path`: where they came from) */
+	views: { name: string; path?: string; def: ViewDef }[];
+	/** the added types' templates, by their key here */
+	templates: Record<string, string>;
 }
 
 function uniqueKey(key: string, taken: Set<string>): string {
@@ -352,7 +386,16 @@ export function installPack(pack: TypePack, groups: GroupDef[], types: EntityTyp
 			for (const [from, to] of idMap) layout = renameLayoutKey(layout, workflowItem(from), workflowItem(to));
 			t.form = { ...t.form, layout };
 		}
-	return { groups: outGroups, types: outTypes, added, renamed, addedGroups, workflows: outWorkflows };
+	const outViews = (pack.views ?? []).flatMap((v) => {
+		const def = parseView(v.view).def;
+		return def ? [{ name: v.name.trim(), ...(v.path ? { path: v.path } : {}), def: renameViewKeys(def, keyMap) }] : [];
+	});
+	const templates: Record<string, string> = {};
+	for (const [k, text] of Object.entries(pack.templates ?? {})) {
+		const key = keyMap.get(k) ?? k;
+		if (added.includes(key)) templates[key] = text;
+	}
+	return { groups: outGroups, types: outTypes, added, renamed, addedGroups, workflows: outWorkflows, views: outViews, templates };
 }
 
 // ---------------------------------------------------------------- renamed keys
@@ -415,6 +458,65 @@ export function renameWorkflowKeys(wf: WorkflowDef, keys: Map<string, string>, i
 }
 
 /**
+ * References to renamed types in a view: the types it shows, links-from-a-type columns ("in:<type>.<field>") wherever
+ * a column id goes, roll-ups through them, formulas, filters, and the calendar's per-type dates.
+ */
+export function renameViewKeys(def: ViewDef, keys: Map<string, string>): ViewDef {
+	if (!keys.size) return def;
+	const id = (x: string) => renameColumnId(x, keys);
+	const ids = (xs: string[]) => xs.map(id);
+	const byId = <T>(m: Record<string, T>) => Object.fromEntries(Object.entries(m).map(([k, v]) => [id(k), v]));
+	const grp = (g: GroupBy) => ({ ...g, by: id(g.by) });
+	const col = (c: ColumnDef): ColumnDef => {
+		if (c.kind === "incoming") {
+			const type = renameTarget(c.type, keys);
+			return { ...c, type, id: id(c.id) };
+		}
+		if (c.kind === "rollup") return { ...c, rollup: { ...c.rollup, via: id(c.rollup.via), ...(c.rollup.where ? { where: renameFilter(c.rollup.where, keys) } : {}) } };
+		if (c.kind === "formula") return { ...c, formula: renameFormula(c.formula, keys) };
+		return c;
+	};
+	const out: ViewDef = {
+		...def,
+		types: def.types.map((x) => renameTarget(x, keys)),
+		columns: def.columns.map(col),
+		widths: byId(def.widths),
+		fill: ids(def.fill),
+		wrap: ids(def.wrap),
+		formats: byId(def.formats),
+		summary: byId(def.summary),
+		sort: def.sort.map((s) => ({ ...s, by: id(s.by) })),
+		group: def.group.map(grp),
+		filters: renameFilter(def.filters, keys),
+		highlight: def.highlight.map((r) => ({ ...r, target: id(r.target), when: renameFilter(r.when, keys) })),
+		...(def.freeze ? { freeze: id(def.freeze) } : {}),
+	};
+	if (def.board)
+		out.board = {
+			...def.board,
+			...(def.board.buckets ? { buckets: id(def.board.buckets) } : {}),
+			...(def.board.swimlanes ? { swimlanes: grp(def.board.swimlanes) } : {}),
+			...(def.board.cardFields ? { cardFields: ids(def.board.cardFields) } : {}),
+		};
+	if (def.calendar)
+		out.calendar = {
+			...def.calendar,
+			dates: Object.fromEntries(Object.entries(def.calendar.dates).map(([k, v]) => [renameTarget(k, keys), v])),
+			...(def.calendar.colorBy ? { colorBy: id(def.calendar.colorBy) } : {}),
+			...(def.calendar.swimlanes ? { swimlanes: grp(def.calendar.swimlanes) } : {}),
+			...(def.calendar.cardFields ? { cardFields: ids(def.calendar.cardFields) } : {}),
+		};
+	return out;
+}
+
+/**
+ * Whether a view shows only the given types: every entry of its types list is one of `typeKeys` or a group in
+ * `groupKeys` ("*", every type, never is).
+ */
+export const viewOnlyOver = (viewTypes: string[], typeKeys: Set<string>, groupKeys: Set<string> = new Set()): boolean =>
+	viewTypes.length > 0 && viewTypes.every((x) => typeKeys.has(x) || (x.startsWith("@") && groupKeys.has(x.slice(1))));
+
+/**
  * The workflows to export with some types: those that apply only to them (a scope of these types, or their groups'),
  * and the workflows those run ("Run another workflow"), whatever they apply to.
  */
@@ -435,6 +537,28 @@ export function packWorkflows(packTypes: EntityTypeDef[], all: WorkflowDef[], al
 		if (w.scope.length && st.length && st.every((t) => keys.has(t.key))) add(w);
 	}
 	return [...picked.values()].map(cloneWorkflow);
+}
+
+/** A file name (or path) numbered until it's free: "Person.md" → "Person 2.md", "Person 3.md" … */
+export function numberedFile(name: string, taken: (name: string) => boolean): string {
+	if (!taken(name)) return name;
+	const m = /^(.*?)(\.[^./]+)?$/.exec(name)!;
+	let n = 2;
+	while (taken(`${m[1]} ${n}${m[2] ?? ""}`)) n++;
+	return `${m[1]} ${n}${m[2] ?? ""}`;
+}
+
+/**
+ * Imported workflows' view lists, pointed at the view notes the pack's views were written as (`moved`: path in the
+ * pack → path here). Paths that aren't the pack's and aren't views here (`exists`) are dropped.
+ */
+export function remapWorkflowViews(workflows: WorkflowDef[], moved: Map<string, string>, exists: (path: string) => boolean): void {
+	for (const w of workflows) {
+		if (!w.views) continue;
+		const next = [...new Set(w.views.flatMap((p) => (moved.has(p) ? [moved.get(p)!] : exists(p) ? [p] : [])))];
+		if (next.length) w.views = next;
+		else delete w.views;
+	}
 }
 function nameToKey(name: string): string {
 	const k = name

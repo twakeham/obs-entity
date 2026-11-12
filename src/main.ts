@@ -545,17 +545,23 @@ export default class EntitiesPlugin extends Plugin {
 
 	/** Create a view note in the views folder and open it. */
 	async createViewNote(name: string, def: ViewDef): Promise<TFile> {
+		const file = await this.writeViewNote(name, def);
+		const leaf = this.app.workspace.getLeaf(this.settings.openInNewTab);
+		await leaf.openFile(file);
+		// Put the cursor after the block, so Live Preview shows the table rather than its source.
+		const view = leaf.view;
+		if (view instanceof MarkdownView) view.editor.setCursor(view.editor.lastLine(), 0);
+		return file;
+	}
+
+	/** Write a view note in the views folder (numbered when the name is taken). */
+	async writeViewNote(name: string, def: ViewDef): Promise<TFile> {
 		const folder = await this.factory.ensureFolder(normalizePath(this.settings.viewsFolder.trim() || "/").replace(/^\/$/, ""));
 		const base = name.replace(/[\\/:*?"<>|#^[\]]/g, " ").trim() || "View";
 		let path = normalizePath(`${folder ? `${folder}/` : ""}${base}.md`);
 		for (let n = 2; this.app.vault.getAbstractFileByPath(path); n++) path = normalizePath(`${folder ? `${folder}/` : ""}${base} ${n}.md`);
 		const file = await this.app.vault.create(path, `\`\`\`${VIEW_BLOCK}\n${stringifyYaml(serializeView(def))}\`\`\`\n`);
 		this.views.add(file.path, def.kind);
-		const leaf = this.app.workspace.getLeaf(this.settings.openInNewTab);
-		await leaf.openFile(file);
-		// Put the cursor after the block, so Live Preview shows the table rather than its source.
-		const view = leaf.view;
-		if (view instanceof MarkdownView) view.editor.setCursor(view.editor.lastLine(), 0);
 		return file;
 	}
 

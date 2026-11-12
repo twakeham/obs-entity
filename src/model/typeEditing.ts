@@ -1,6 +1,6 @@
 import { isEmptyValue } from "./frontmatter";
 import { renameLayoutKey, renameWhenKey } from "./formLayout";
-import { installPack, parsePack, type TypePack } from "./packs";
+import { installPack, parsePack, type InstallResult, type PackView, type TypePack } from "./packs";
 import { rewriteRefs } from "./formula";
 import { fieldColumn } from "./views";
 import { cloneWorkflow, type WorkflowDef } from "./workflows";
@@ -283,9 +283,14 @@ export function duplicateType(t: EntityTypeDef, takenKeys: string[]): EntityType
 	return copy;
 }
 
-/** A pack holding the given types, the groups they use, and workflows (exported as they are; imported switched off). */
-export function exportPack(types: EntityTypeDef[], groups: GroupDef[], name?: string, workflows: WorkflowDef[] = []): string {
+/**
+ * A pack holding the given types, the groups they use, and workflows (exported as they are; imported switched off),
+ * view notes and templates (type key → text).
+ */
+export function exportPack(types: EntityTypeDef[], groups: GroupDef[], name?: string, workflows: WorkflowDef[] = [], extra: { views?: PackView[]; templates?: Record<string, string> } = {}): string {
 	const used = new Set(types.map((t) => t.group));
+	const keys = new Set(types.map((t) => t.key));
+	const templates = Object.fromEntries(Object.entries(extra.templates ?? {}).filter(([k]) => keys.has(k)));
 	const pack: TypePack = {
 		obsEntitiesPack: 1,
 		...(name ? { name } : {}),
@@ -297,6 +302,8 @@ export function exportPack(types: EntityTypeDef[], groups: GroupDef[], name?: st
 			return c;
 		}),
 		...(workflows.length ? { workflows: workflows.map(cloneWorkflow) } : {}),
+		...(extra.views?.length ? { views: extra.views } : {}),
+		...(Object.keys(templates).length ? { templates } : {}),
 	};
 	return JSON.stringify(pack, null, 2);
 }
@@ -304,14 +311,14 @@ export function exportPack(types: EntityTypeDef[], groups: GroupDef[], name?: st
 /**
  * Read a pack (or single type, or list of types) as new types to review. Groups the pack needs
  * that don't exist yet are returned to be added; clashing type keys get a numbered suffix. The pack's workflows come
- * back switched off, following the renamed keys, with ids not in `workflows`.
+ * back switched off, following the renamed keys, with ids not in `workflows`; its views and templates come back to write.
  */
 export function importAsDrafts(
 	text: string,
 	groups: GroupDef[],
 	types: EntityTypeDef[],
 	workflows: WorkflowDef[] = [],
-): { error: string } | { types: EntityTypeDef[]; newGroups: GroupDef[]; renamed: Record<string, string>; workflows: WorkflowDef[] } {
+): { error: string } | ({ types: EntityTypeDef[]; newGroups: GroupDef[]; renamed: Record<string, string> } & Pick<InstallResult, "workflows" | "views" | "templates">) {
 	const parsed = parsePack(text);
 	if (!parsed.ok) return { error: parsed.error };
 	const res = installPack({ ...parsed.pack, id: undefined }, groups, types, workflows);
@@ -321,6 +328,8 @@ export function importAsDrafts(
 		newGroups: res.groups.filter((g) => res.addedGroups.includes(g.key)),
 		renamed: res.renamed,
 		workflows: res.workflows,
+		views: res.views,
+		templates: res.templates,
 	};
 }
 

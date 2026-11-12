@@ -1,5 +1,6 @@
 import { Modal, Notice, Setting } from "obsidian";
 import { CRM_PACK, installPack, parsePack } from "../../model/packs";
+import { describeWritten, writePackFiles } from "../../services/packFiles";
 import { typeIssues } from "../../model/validation";
 import type EntitiesPlugin from "../../main";
 
@@ -19,7 +20,7 @@ export class ImportPackModal extends Modal {
 		const { contentEl } = this;
 		contentEl.createEl("p", {
 			cls: "setting-item-description",
-			text: "Paste a type pack, a single type, or a list of types as JSON. Types whose key is already taken get a numbered key.",
+			text: "Paste a type pack, a single type, or a list of types as JSON. Types whose key is already taken get a numbered key. A pack's view notes and templates are written to your views and templates folders.",
 		});
 		this.textarea = contentEl.createEl("textarea", { cls: "oe-import-text", attr: { placeholder: '{ "types": [ … ] }', spellcheck: "false" } });
 		this.textarea.addEventListener("input", () => {
@@ -59,15 +60,20 @@ export class ImportPackModal extends Modal {
 			return;
 		}
 		s.groups = res.groups;
+		// Templates and view notes first: a template may be written numbered, and workflows follow the view notes.
+		const added = res.types.filter((t) => res.added.includes(t.key));
+		const written = await writePackFiles(this.plugin, res, added, res.workflows);
 		s.types = res.types;
 		// Switched off: they start running once you've looked them over and turned them on.
 		s.workflows = [...s.workflows, ...res.workflows];
 		await this.plugin.saveSettings();
 		const renamed = Object.entries(res.renamed).map(([a, b]) => `${a} → ${b}`);
+		const files = describeWritten(written);
 		new Notice(
 			`Added ${res.added.length} type${res.added.length === 1 ? "" : "s"}` +
 				(res.addedGroups.length ? ` and ${res.addedGroups.length} group${res.addedGroups.length === 1 ? "" : "s"}` : "") +
 				(res.workflows.length ? `, and ${res.workflows.length} workflow${res.workflows.length === 1 ? "" : "s"} (switched off: turn them on in the Workflows view)` : "") +
+				(files ? `. Wrote ${files}` : "") +
 				(renamed.length ? `. Renamed keys: ${renamed.join(", ")}` : "") +
 				".",
 		);

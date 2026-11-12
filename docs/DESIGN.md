@@ -650,6 +650,7 @@ Opened by clicking a group heading, or with the pencil next to a type's Group.
 - **Name**, **key** (follows the name for a new group; fixed once saved) and **icon**.
 - **Statuses:** one row per status, reorderable by drag, with the first marked "starting". Rename a status by editing its name; the row shows "was X". Add a status, or remove one (at least one must remain).
 - **Save / Discard bar.** When statuses were renamed, it offers `☑ Also update N notes: archived → retired`. This covers notes of the group's types that don't have their own statuses.
+- **Copy group as a pack** (saved groups with saved types): the group's types, their workflows (`packWorkflows`), the view notes that show only those types or the group, and the types' template files (§8.1 Import / export).
 - **Delete group:** only enabled when the group has no types. It asks first, then removes `@group` targets from relation fields.
 - **Validation:** name required, key valid and unique, at least one status, no blank or duplicate statuses.
 
@@ -672,7 +673,7 @@ Big icon, name, a "group · N notes · starter/custom · `key`" line, and the ta
 - **Search shortcuts**, as chips.
 - **More:**
   - Duplicate
-  - Copy as JSON (a pack with this type and its group)
+  - Copy as JSON (a pack with this type, its group, its workflows and its template file)
   - **Reset to starter**, for starter types; applied as a draft
   - **Delete type**, for any type. It asks first and says how many notes use it. The notes are left untouched and keep `entity: <key>`. Deleted starter types are recorded so they don't come back.
 
@@ -791,11 +792,13 @@ Shown in the **side panel** (§8.5) while the types view is the active main-area
 
 #### Import / export
 
-- **Copy as JSON:** `{ "obsEntitiesPack": 1, "groups": [ … ], "types": [ … ], "workflows": [ … ] }`, with the groups the types use (no `builtIn` or `pack` markers) and the type's workflows (`packWorkflows`: those whose scope is only this type, and the workflows they run, whatever they apply to). **Copy all types as a pack** exports everything, every workflow included. `workflows` is left out when there are none.
-- **Import pack…** accepts a pack, a single type or a list of types. It checks that the input is valid JSON, that each type has a name and a field list, that every field kind is valid, and that `workflows` (if any) is a list of workflows with steps. A pack of only workflows (`types: []`) is fine.
-  - A key that's already taken gets a suffix (`person_2`), and every reference inside the pack follows the rename (`renameTypeKeys`, `renameWorkflowKeys`): relation targets, roll-ups through links from the type (`via: "in:person.…"`) and their Only include conditions, formula fields (`[in:person.works_for]`), and the workflows' scopes, Only if, and steps (Create a note's type, For linked notes' type, For each's note type, loop filters, and the formulas and `{…}` texts in every step). Group keys aren't renamed: a group the pack has that's already here is used as it is.
+- **Copy as JSON:** `{ "obsEntitiesPack": 1, "groups": [ … ], "types": [ … ], "workflows": [ … ] }`, with the groups the types use (no `builtIn` or `pack` markers), the type's workflows (`packWorkflows`: those whose scope is only this type, and the workflows they run, whatever they apply to) and its template file's text (`templates: { <type key>: "…" }`, when the file exists). **Copy all types as a pack** exports everything: every workflow, every view note and every template file. **Copy group as a pack** (group editor) exports the group's saved types, their workflows, their template files, and the view notes over only those types or the group (`viewOnlyOver`). A type's Copy as JSON has no views. `workflows`, `views` and `templates` are left out when empty.
+- **Views in packs:** `views: [{ name, path, view }]`, where `view` is the note's first `entity-view` block as written (its YAML as data) and `path` is where the note was (workflows' Views lists name view notes by path). Text around the block isn't exported (`services/packFiles.ts`: `collectPackFiles`).
+- **Import pack…** accepts a pack, a single type or a list of types. It checks that the input is valid JSON, that each type has a name and a field list, that every field kind is valid, that `workflows` (if any) is a list of workflows with steps, that each view has a name and a definition `parseView` can read, and that `templates` maps keys to text. A pack of only workflows (`types: []`) is fine.
+  - A key that's already taken gets a suffix (`person_2`), and every reference inside the pack follows the rename (`renameTypeKeys`, `renameWorkflowKeys`): relation targets, roll-ups through links from the type (`via: "in:person.…"`) and their Only include conditions, formula fields (`[in:person.works_for]`), and the workflows' scopes, Only if, and steps (Create a note's type, For linked notes' type, For each's note type, loop filters, and the formulas and `{…}` texts in every step), and the views (`renameViewKeys`: the types shown, `in:` columns wherever a column id goes (widths, sort, group, filters, highlights, board and calendar fields), roll-ups, formulas, and the calendar's per-type dates). Group keys aren't renamed: a group the pack has that's already here is used as it is.
   - **Workflows** come in **switched off**, tidied as saved ones are (`readWorkflows`); an id that's taken gets a new one, and "Run another workflow" steps follow. From the Entity types view they open as drafts in the Workflows view (to review and save, like the types); "Import entity types…" saves them. Notes a workflow picks (a picked link value) are paths in the vault it came from, so may not exist here.
-  - **Not in packs (yet):** entity views (view notes; copy the note or its block), template files (only the template's file name and `sections`), saved layout components, and notes. A fuller pack format is for M5.
+  - **View notes and templates are written on import** (`writePackFiles`), from both import dialogs (from the Entity types view, before the drafts open). Each view becomes a note in the views folder, numbered when its name is taken (`Overdue 2.md`); imported workflows' Views lists follow the notes written, and drop paths that are neither the pack's views nor views here. Each added type's template goes to its template file; when that file already exists with other text, it's written numbered (`Task 2.md`) and the type points at it; with the same text it's left. The notice says how many were written.
+  - **Not in packs:** saved layout components ("My components"), and notes.
   - Imported types open as **new drafts** to review and save.
   - Groups the pack needs that don't exist yet are added straight away (empty groups can be deleted).
 
@@ -2152,10 +2155,10 @@ Drive a real Obsidian instance via the Chrome DevTools Protocol (Obsidian starte
 | M4 ✅ | **Browser** | Groups (or one tree), type headings, hierarchies from parent fields (cross-group option), View menu, filters with dimmed context, reveal active, collapse semantics, row/heading context menus with "New child here", state persistence | Large vaults navigable; hierarchy correct for mixed types |
 | M4.5 ✅ | **Entity properties form** | Form replacing Obsidian's Properties block on entity notes (§8.4): typed controls, link pickers limited to allowed types, rejected invalid input, problems with fixes, Ctrl/Cmd+Z history, Other properties with "Add to type", Change type with move offer, Check entities command; info card removed (settings v3) | Values can only be entered in a form the type allows; problems from elsewhere are visible and fixable |
 | M4.6 ✅ | **Entity views: table** | View notes with an `entity-view` block (§8.10): source types, columns (fields, built-ins, incoming, roll-ups; formulas added later), filters with groups and relative dates, multi-level sort, group by, inline editing with the form's rules, virtualised rows, autosave, Save as…, New / Open view commands, browser Views section | Named views can be saved, reopened elsewhere, and used to edit entities |
-| M5 | **Packs & polish** | Type packs (bundled example pack + import/export of groups), template generation, ribbon options, accessibility pass (keyboard navigation in lists, ARIA on toggles), docs | Ready for a public/BRAT release |
+| M5 (in progress) | **Packs & polish** | Fuller packs ✅ (views and templates in packs, Copy group as a pack), pack gallery and first-run picker, ribbon options, accessibility pass (keyboard navigation in lists, ARIA on toggles), docs | Ready for a public/BRAT release |
 | M7.1 ✅ | **Workflows: engine and basics** | §8.11 stage 1: the Workflows view and the type editor's Workflows tab; created / changed / manual triggers (form buttons, ⋯ menu, command, row menu and selection bar per note); Only if; set / clear / tag / link / notice steps; undo, chains, run log, master switch | Examples 1 (completed date), 5, 7 and simple 3 work |
 | M7.2 ✅ | **Workflows: other notes and forms** | Form workflows (their input form, started from commands, the ribbon, view toolbars, the Entity Browser and notes), linked-note steps, create note, named results, for each, run workflow, one run for a whole selection; loops inside loops, If / Otherwise, variables, Find notes, Add text to a note (built) | Examples 1 (milestone roll-up), 2, 3, 6, 8 work |
-| M7.3 ✅ | **Workflows: time** | Schedule and date triggers, ask, move / rename, test run, big-run confirmation, limits, workflows in type packs (views and other content wait for M5's pack format) | Example 4 works |
+| M7.3 ✅ | **Workflows: time** | Schedule and date triggers, ask, move / rename, test run, big-run confirmation, limits, workflows in type packs (views and templates came with M5's fuller packs) | Example 4 works |
 | M6+ | **Modules** | Graph, overview dashboard, bulk edit, Bases generation, domain views | Each behind a module toggle |
 
 ---
@@ -2321,6 +2324,9 @@ export interface TypePack {
   name?: string;
   groups?: GroupDef[];
   types: Omit<EntityTypeDef, "builtIn">[];
+  workflows?: WorkflowDef[];              // imported switched off
+  views?: { name: string; path?: string; view: Record<string, unknown> }[];
+  templates?: Record<string, string>;     // type key → template text
 }
 ```
 

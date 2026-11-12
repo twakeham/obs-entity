@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { packWorkflows, parsePack, renameFormula } from "../src/model/packs";
+import { numberedFile, packWorkflows, parsePack, remapWorkflowViews, renameFormula, viewOnlyOver } from "../src/model/packs";
 import { exportPack, importAsDrafts } from "../src/model/typeEditing";
 import type { EntityTypeDef, FieldDef, GroupDef } from "../src/model/types";
 import { newWorkflow, stepAt, type WorkflowDef } from "../src/model/workflows";
@@ -108,5 +108,82 @@ describe("packs with workflows", () => {
 		expect(parsePack(JSON.stringify({ obsEntitiesPack: 1, types: [], workflows: [] }))).toEqual({ ok: false, error: "The pack has no types." });
 		expect(parsePack(JSON.stringify({ types: [TASK], workflows: {} }))).toEqual({ ok: false, error: "“workflows” should be a list." });
 		expect(parsePack(JSON.stringify({ types: [TASK], workflows: [{ name: "Bad" }] }))).toEqual({ ok: false, error: "Workflow “Bad” has no steps list." });
+	});
+});
+
+describe("packs with views and templates", () => {
+	const VIEW = {
+		kind: "board",
+		types: ["task", "@work"],
+		columns: ["name", "project", { incoming: "task.project", label: "Tasks" }, { rollup: { via: "in:task.project", agg: "count", where: { all: [{ field: "in:task.project", op: "not-empty" }] } }, id: "n" }, { formula: "count([in:task.project])", id: "f" }],
+		widths: { "in:task.project": 120 },
+		wrap: ["in:task.project"],
+		sort: [{ by: "in:task.project", dir: "asc" }],
+		filters: { all: [{ field: "in:task.project", op: "not-empty" }] },
+		board: { buckets: "status", cardFields: ["in:task.project"] },
+		calendar: { dates: { task: { start: "due" } } },
+	};
+	const pack = { obsEntitiesPack: 1, types: [TASK], groups: GROUPS, views: [{ name: "Tasks", path: "Views/Tasks.md", view: VIEW }], templates: { task: "# {{title}}", other: "x" } };
+
+	it("export carries views, and templates of the exported types only", () => {
+		const out = JSON.parse(exportPack([TASK], GROUPS, "P", [], { views: pack.views, templates: { task: "T", project: "P" } }));
+		expect(out.views).toEqual(pack.views);
+		expect(out.templates).toEqual({ task: "T" });
+		expect(JSON.parse(exportPack([TASK], GROUPS)).views).toBeUndefined();
+	});
+
+	it("rename clashing keys inside views, and key templates by the new keys", () => {
+		const r = importAsDrafts(JSON.stringify(pack), GROUPS, [TASK], []);
+		if ("error" in r) throw new Error(r.error);
+		expect(r.renamed).toEqual({ task: "task_2" });
+		expect(r.templates).toEqual({ task_2: "# {{title}}" });
+		const v = r.views[0];
+		expect(v).toMatchObject({ name: "Tasks", path: "Views/Tasks.md" });
+		const d = v.def;
+		expect(d.types).toEqual(["task_2", "@work"]);
+		expect(d.columns.map((c) => c.id)).toEqual(["name", "project", "in:task_2.project", "n", "f"]);
+		expect(d.columns[2]).toMatchObject({ kind: "incoming", type: "task_2" });
+		expect(d.columns[3]).toMatchObject({ rollup: { via: "in:task_2.project", where: { items: [{ field: "in:task_2.project" }] } } });
+		expect(d.columns[4]).toMatchObject({ formula: "count([in:task_2.project])" });
+		expect(d.widths).toEqual({ "in:task_2.project": 120 });
+		expect(d.wrap).toEqual(["in:task_2.project"]);
+		expect(d.sort[0].by).toBe("in:task_2.project");
+		expect(d.filters.items[0]).toMatchObject({ field: "in:task_2.project" });
+		expect(d.board?.cardFields).toEqual(["in:task_2.project"]);
+		expect(d.calendar?.dates).toEqual({ task_2: { start: "due" } });
+	});
+
+	it("leave views as they are when nothing clashes", () => {
+		const r = importAsDrafts(JSON.stringify(pack), GROUPS, [], []);
+		if ("error" in r) throw new Error(r.error);
+		expect(r.views[0].def.types).toEqual(["task", "@work"]);
+		expect(r.templates).toEqual({ task: "# {{title}}" });
+	});
+
+	it("check views and templates when reading", () => {
+		expect(parsePack(JSON.stringify({ types: [TASK], views: {} }))).toEqual({ ok: false, error: "“views” should be a list." });
+		expect(parsePack(JSON.stringify({ types: [TASK], views: [{ view: {} }] }))).toEqual({ ok: false, error: "View #1 has no name." });
+		expect(parsePack(JSON.stringify({ types: [TASK], views: [{ name: "V" }] }))).toEqual({ ok: false, error: "View “V” has no definition." });
+		expect(parsePack(JSON.stringify({ types: [TASK], templates: { task: 1 } }))).toEqual({ ok: false, error: "“templates” should map type keys to template text." });
+	});
+
+	it("which views show only some types", () => {
+		const keys = new Set(["task", "project"]);
+		expect(viewOnlyOver(["task"], keys)).toBe(true);
+		expect(viewOnlyOver(["task", "@work"], keys, new Set(["work"]))).toBe(true);
+		expect(viewOnlyOver(["task", "person"], keys)).toBe(false);
+		expect(viewOnlyOver(["*"], keys)).toBe(false);
+		expect(viewOnlyOver([], keys)).toBe(false);
+	});
+
+	it("number template files and point workflows at the written views", () => {
+		const taken = new Set(["Task.md", "Task 2.md", "Sub/Note.md"]);
+		expect(numberedFile("Task.md", (n) => taken.has(n))).toBe("Task 3.md");
+		expect(numberedFile("Sub/Note.md", (n) => taken.has(n))).toBe("Sub/Note 2.md");
+		expect(numberedFile("Free.md", (n) => taken.has(n))).toBe("Free.md");
+		const ws = [wf({ views: ["Views/Tasks.md", "Views/Gone.md", "Views/Here.md"] }), wf({ views: ["Views/Gone.md"] })];
+		remapWorkflowViews(ws, new Map([["Views/Tasks.md", "Views/Tasks 2.md"]]), (p) => p === "Views/Here.md");
+		expect(ws[0].views).toEqual(["Views/Tasks 2.md", "Views/Here.md"]);
+		expect(ws[1].views).toBeUndefined();
 	});
 });

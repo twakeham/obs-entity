@@ -17,7 +17,7 @@ Derived from the Story Forge worldbuilding plugin, made domain-neutral. The full
 | M7.1 Workflows, stage 1 | Automation: when a note is created or a field changes, or from a button, set fields, tags and links or show a notice; the Workflows view, run log and undo | ✅ Done |
 | M7.2 Workflows, stage 2 | Creating notes, steps on linked notes, for each, running other workflows, one run for a whole selection, form workflows (from commands, the ribbon, view toolbars and the Entity Browser) | Done |
 | M7.3 Workflows, stage 3 | Test runs, big-run confirmation, ask, move / rename, schedules and date triggers, workflows in type packs | ✅ Done |
-| M5 Packs & polish | Pack picker on first run, accessibility, docs | Planned |
+| M5 Packs & polish | Fuller packs (views and templates, Copy group as a pack) ✅; pack picker on first run, accessibility, docs | In progress |
 
 ## How notes are stored
 
@@ -131,8 +131,9 @@ Opened from:
 
 **Sidebar:** types are listed under their groups.
 - **Click a group heading** to edit the group. Drag headings to reorder groups.
-- **+ New** offers a type, a duplicate of the current one, a group, **Import pack…**, or **Copy all types as a pack** (with every workflow).
-- **Packs and workflows:** a type's **Copy as JSON** includes the workflows that apply only to it (and any workflows they run). Importing a pack opens its workflows as drafts in the Workflows view, **switched off**, so you can check them before turning them on. If a type's key is already taken here (`task` → `task_2`), everything in the pack that refers to it follows: links, roll-ups, formulas, and the workflows' types, conditions and steps. Views, template files and notes aren't part of packs yet.
+- **+ New** offers a type, a duplicate of the current one, a group, **Import pack…**, or **Copy all types as a pack** (with every workflow, view note and template).
+- **Group editor → Copy group as a pack:** the group's types, their workflows, the view notes that show only those types (or the group), and their templates.
+- **Packs and workflows:** a type's **Copy as JSON** includes the workflows that apply only to it (and any workflows they run), and its template file. Importing a pack opens its workflows as drafts in the Workflows view, **switched off**, so you can check them before turning them on. Its view notes are written to your views folder (numbered when the name is taken, `Overdue 2`), and workflows that show on those views follow them. Its templates are written to your templates folder; if a type's template file already exists with different text, the pack's is written as `Task 2.md` and the type uses it. If a type's key is already taken here (`task` → `task_2`), everything in the pack that refers to it follows: links, roll-ups, formulas, the workflows' types, conditions and steps, and the views' types, columns, filters and sorting. Saved layout components and notes aren't part of packs.
 
 **Type editor tabs:**
 - **General:** name, plural, key (fixed once saved), icon, colour, group, statuses (the group's or custom), folder (the entity folder pattern or the type's own exception), folder rule (in the folder / own folder each / inside its parent, with a path preview), template, search shortcuts. Also Duplicate, Copy as JSON, Reset to starter, and Delete type.
@@ -441,7 +442,7 @@ Workflows do things for you: when a note is **created**, when a **field changes*
 | Check entities | Lists every entity whose values don't fit its type, with the problems; choose one to open it |
 | New entity view (table or board) | Pick what it shows, Table or Board, and a name; creates the view note |
 | Open entity view… | Picker of view notes |
-| Import entity types… | Paste a type pack, single type or list of types (JSON); a pack's workflows are added switched off |
+| Import entity types… | Paste a type pack, single type or list of types (JSON); a pack's workflows are added switched off, its view notes and templates written |
 | Generate template files | Writes editable templates for types without one |
 | Open workflows | The Workflows view (also a ribbon icon and settings button) |
 | Run workflow on this note… | Pick one of the button workflows (and forms with types) for the open note |
@@ -523,7 +524,7 @@ src/
     dates.ts                 DateAdapter + ISO adapter (with date-picker hooks)
     propertyTypes.ts         Obsidian property types for fields (date, number, checkbox, list)
     search.ts                switcher type prefixes
-    packs.ts                 starter + CRM packs, parsePack, installPack (types, groups, workflows; renamed keys followed), packWorkflows
+    packs.ts                 starter + CRM packs, parsePack, installPack (types, groups, workflows, views, templates; renamed keys followed), packWorkflows, renameViewKeys
     typeEditing.ts           type/group drafts, field + status renames, migrations, import/export, previews
     settings.ts              defaults and merging
     tree.ts                  browser forest: parent links, sections/type blocks, filtering with context, reveal paths
@@ -543,6 +544,7 @@ src/
     relationIndex.ts         forward + inverse edges, groupsFor, mentions
     entityFactory.ts         create/convert/retype notes, add/remove links (with Undo), folders, move
     bulkActions.ts           apply changes to many notes: progress, failures, one undo step; type, move, duplicate, delete, open, copy
+    packFiles.ts             a pack's view notes and templates: gathered for export, written on import
   settings/settingTab.ts
   ui/components/             entity picker
   ui/modals/                 create (hosts CreateForm), switcher, import types, add link, check entities, views (new / open / name / roll-up), formula editor (CodeMirror), bulk actions (set field, links, tags, folder picker)
