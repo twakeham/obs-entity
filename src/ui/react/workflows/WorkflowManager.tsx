@@ -431,6 +431,16 @@ function WorkflowEditor({
 		setDraft(next);
 	};
 	const problems = workflowProblems(wf, { ...lookup, workflows: settings.workflows });
+	// The switch acts on the saved workflow straight away (what runs), so it's the saved one's problems that keep it off.
+	const savedProblems = saved ? workflowProblems(saved, { ...lookup, workflows: settings.workflows }) : problems;
+	const setOn = async (on: boolean) => {
+		if (!saved) return edit((x) => (x.on = on));
+		saved.on = on;
+		// An open draft follows, so saving it later doesn't undo this.
+		if (wf !== saved) setDraft({ ...cloneWorkflow(wf), on });
+		await plugin.saveSettings();
+		plugin.workflows.trigger("log");
+	};
 	const formApi = useFormEditor(wf, setDraft, setTab);
 	// The side panel previews a form workflow's form as it's edited.
 	useEffect(() => onPreview?.(formApi && wf.trigger.kind === "form" ? { api: formApi, form: { title: wf.trigger.title.trim() || wf.name || "Form", button: wf.trigger.button, icon: buttonIcon(wf) } } : { api: null }));
@@ -588,8 +598,19 @@ function WorkflowEditor({
 								}}
 							/>
 						)}
-						<span className="oe-wf-onoff" title={problems.length && !wf.on ? `Fix ${plural(problems.length, "problem")} to switch it on` : undefined}>
-							<Toggle label={wf.on ? "Workflow on" : "Workflow off"} value={wf.on} disabled={!wf.on && problems.length > 0} onChange={(v) => edit((x) => (x.on = v))} />
+						<span
+							className="oe-wf-onoff"
+							title={
+								!saved
+									? "Takes effect when the new workflow is saved"
+									: !wf.on && savedProblems.length
+										? problems.length
+											? `Fix ${plural(problems.length, "problem")} to switch it on`
+											: "Save your changes (they fix its problems) to switch it on"
+										: undefined
+							}
+						>
+							<Toggle label={wf.on ? "Workflow on" : "Workflow off"} value={wf.on} disabled={!wf.on && savedProblems.length > 0} onChange={(v) => void setOn(v)} />
 							{wf.on ? "On" : "Off"}
 						</span>
 						<button className="clickable-icon" aria-label={noteless(wf) ? "Try it… (writes nothing)" : "Try on a note… (writes nothing)"} onClick={() => openTryRun(plugin, wf)}>
