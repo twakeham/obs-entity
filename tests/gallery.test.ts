@@ -4,13 +4,20 @@ import { installPack, parsePack, type InstallResult } from "../src/model/packs";
 import type { EntityTypeDef, GroupDef } from "../src/model/types";
 import { typeIssues } from "../src/model/validation";
 import { BUILTINS, isGroup, parseView, type ColumnDef, type FilterGroup, type ViewDef } from "../src/model/views";
-import { workflowProblems } from "../src/model/workflows";
+import { inScope, onNotes, workflowProblems } from "../src/model/workflows";
+import { nodeKeys, placeableKeys } from "../src/model/formLayout";
 
 /** Problems with an installed pack: its types', its views' (unknown fields) and its workflows'. */
 function problems(res: InstallResult): string[] {
 	const out: string[] = [];
 	const ctx = { typeKeys: res.types.map((t) => t.key), groupKeys: res.groups.map((g) => g.key), types: res.types, groups: res.groups };
 	for (const t of res.types) for (const i of typeIssues(t, ctx)) out.push(`type ${t.key}: ${i.at} ${i.message}`);
+	// Layouts place only what the type can: its fields, built-ins, note items, and buttons of its button workflows.
+	for (const t of res.types) {
+		const buttons = res.workflows.filter((w) => onNotes(w) && inScope(w, t)).map((w) => w.id);
+		const ok = new Set(placeableKeys(t, buttons));
+		for (const k of nodeKeys(t.form?.layout?.items ?? [])) if (!ok.has(k)) out.push(`type ${t.key}: layout places ${k}`);
+	}
 	for (const v of res.views) for (const p of viewProblems(v.def, res.types)) out.push(`view ${v.name}: ${p}`);
 	for (const w of res.workflows) for (const p of workflowProblems(w, { types: res.types, groups: res.groups, workflows: res.workflows })) out.push(`workflow ${w.name}: ${p.at} ${p.message}`);
 	return out;
@@ -20,6 +27,7 @@ function problems(res: InstallResult): string[] {
 function viewProblems(def: ViewDef, types: EntityTypeDef[]): string[] {
 	const shown = types.filter((t) => def.types.some((x) => x === "*" || x === t.key || x === `@${t.group}`));
 	if (!shown.length) return [`shows no type (${def.types.join(", ")})`];
+	if (def.kind === "board" && !def.board?.buckets) return ["a board without buckets"];
 	const known = new Set<string>([...BUILTINS, ...shown.flatMap((t) => t.fields.map((f) => f.key)), ...def.columns.filter((c) => c.kind === "rollup" || c.kind === "formula").map((c) => c.id)]);
 	const ok = (id: string) => {
 		if (known.has(id)) return true;

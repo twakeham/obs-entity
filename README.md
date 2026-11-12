@@ -109,6 +109,16 @@ In a new vault, a **Start from a pack** picker opens: choose a pack to start wit
 | Research | Paper, Author, Topic, Research note | Reading queue, Papers by topic, Research notes | Record when a paper is read, Add a note |
 | Personal knowledge | Idea, Source, Topic, Person | Idea garden (board), Sources, Evergreen ideas | Date new ideas, Make evergreen |
 | Home & assets | Item, Room, Warranty, Supplier | Inventory (by room, with totals), Warranties, Warranty calendar | Warranty about to expire (30 days before), Warranty expired |
+| TTRPG campaign (the showcase) | Campaign, Session, Player character, NPC, Faction, Location, Quest, Item, Creature, Encounter, Lore | Party, Session log, Campaign calendar, Quest board, NPC directory, Factions, World atlas, Treasury, Bestiary, Encounter planner, Lore and secrets | 16: Log a session (form), Session wrap-up, Quest completed, Lay the fallen to rest, Date new NPCs and lore, Award XP, Level up, Long rest, Give a quest, Schedule for the next session, Drop it, Number the title, Prep reminder, Game day, Quest deadline near |
+
+**The TTRPG campaign pack** is the flagship example: a system-neutral fantasy campaign that uses most of what the plugin does.
+- **Fields:** every kind, including roll-ups (party size, sessions played, hours, the next session, inventory value, total challenge of an encounter's creatures) and formulas (health %, reputation from standing, an encounter's risk from a valued choice). Coloured choices, choices with values (attitude −2 to 2, rarity, danger), labelled links (bonds, creatures ×3), two-way links (allied and rival factions), and validation (levels 1–20, a short-name pattern, an end date after the start, a summary required once a session is played).
+- **Smart defaults:** session numbers count up, a session's date is a week out, new lore and NPCs are dated.
+- **Nesting and folders:** each campaign has its own folder, holding its sessions, quests and encounters; locations nest (region › city › dungeon); items sit under whoever carries them.
+- **Forms:** player characters with coloured frames, columns, tabs, a read-only health % and Award XP / Level up buttons; sessions with a Recap tab that appears once the session is played; items whose Magic frame shows only for magical items.
+- **Templates with views inside:** a campaign note lists its party, sessions and open quests; a location lists the places inside it and who lives there; a faction lists its members.
+- **Views:** health bars and a wounded highlight, a red-to-green colour scale on faction standing and challenge, data bars on treasure, boards with swimlanes (quests by priority, encounters by difficulty), a calendar of sessions and quest deadlines, grouping with totals, and the Party view's workflow toolbar.
+- **Workflows** (switched off until you turn them on): every trigger: a form that logs a session (creating the session, giving the party XP, updating the NPCs met, adding a line to the campaign), status changes, new notes, buttons (one run for a whole selection: Long rest), a weekly schedule and dates. Steps include questions and answers, If, For each, linked notes, variables, find, create, link, clear, move, rename, and running another workflow (Award XP levels a character up when they pass the threshold).
 
 ### Starter pack
 

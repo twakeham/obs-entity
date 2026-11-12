@@ -4,6 +4,7 @@
  * installing a second pack that has one reuses the first's.
  */
 import { CRM_PACK, STARTER_PACK, type PackView, type TypePack } from "./packs";
+import { TTRPG_PACK } from "./ttrpgPack";
 import type { EntityTypeDef, FieldDef } from "./types";
 import type { FilterGroup } from "./views";
 import type { WorkflowDef, WorkflowStep, WorkflowTrigger } from "./workflows";
@@ -75,7 +76,7 @@ const STARTER: TypePack = {
 	shared: ["person"],
 	views: [
 		view("People", { kind: "table", types: ["person"], columns: ["name", "role", "works_for", "email", "phone"], sort: [{ by: "name", dir: "asc" }] }),
-		view("Projects", { kind: "board", types: ["project"], columns: ["name", "status", "owner", "due", "client"], board: { cardFields: ["owner", "due"] } }),
+		view("Projects", { kind: "board", types: ["project"], columns: ["name", "status", "owner", "due", "client"], board: { buckets: "status", cardFields: ["owner", "due"] } }),
 	],
 };
 
@@ -297,7 +298,7 @@ const DELIVERY: TypePack = {
 			sort: [{ by: "due", dir: "asc" }],
 			filters: { all: [{ field: "status", op: "none-of", value: ["done", "cancelled"] }] },
 		}),
-		view("Task board", { kind: "board", types: ["task"], columns: ["name", "status", "project", "assignee", "priority", "due"], board: { cardFields: ["project", "assignee", "due"] } }),
+		view("Task board", { kind: "board", types: ["task"], columns: ["name", "status", "project", "assignee", "priority", "due"], board: { buckets: "status", cardFields: ["project", "assignee", "due"] } }),
 		view("Overdue", {
 			kind: "table",
 			types: ["task", "milestone"],
@@ -420,7 +421,7 @@ const READING: TypePack = {
 	],
 	views: [
 		view("Reading list", { kind: "table", types: ["book"], columns: ["name", "authors", "series", "genres", "pages"], sort: [{ by: "name", dir: "asc" }], filters: { all: [{ field: "status", op: "any-of", value: ["to-read"] }] } }),
-		view("Bookshelf", { kind: "board", types: ["book"], columns: ["name", "status", "authors", "rating"], board: { cardFields: ["authors", "rating"] } }),
+		view("Bookshelf", { kind: "board", types: ["book"], columns: ["name", "status", "authors", "rating"], board: { buckets: "status", cardFields: ["authors", "rating"] } }),
 		view("Finished this year", {
 			kind: "table",
 			types: ["book"],
@@ -557,7 +558,7 @@ const KNOWLEDGE: TypePack = {
 		PERSON("knowledge"),
 	],
 	views: [
-		view("Idea garden", { kind: "board", types: ["idea"], columns: ["name", "status", "topics", "sources"], board: { cardFields: ["topics"] } }),
+		view("Idea garden", { kind: "board", types: ["idea"], columns: ["name", "status", "topics", "sources"], board: { buckets: "status", cardFields: ["topics"] } }),
 		view("Sources", { kind: "table", types: ["source"], columns: ["name", "kind", "status", "by", "topics", "consumed"], sort: [{ by: "consumed", dir: "desc" }] }),
 		view("Evergreen ideas", { kind: "table", types: ["idea"], columns: ["name", "topics", "sources", "related_ideas"], sort: [{ by: "name", dir: "asc" }], filters: { all: [{ field: "status", op: "any-of", value: ["evergreen"] }] } }),
 	],
@@ -670,4 +671,4 @@ const HOME: TypePack = {
 };
 
 /** The packs the gallery offers, in order. */
-export const GALLERY: TypePack[] = [STARTER, CRM, DELIVERY, READING, RESEARCH, KNOWLEDGE, HOME];
+export const GALLERY: TypePack[] = [STARTER, CRM, DELIVERY, READING, RESEARCH, KNOWLEDGE, HOME, TTRPG_PACK];
