@@ -17,7 +17,7 @@ Derived from the Story Forge worldbuilding plugin, made domain-neutral. The full
 | M7.1 Workflows, stage 1 | Automation: when a note is created or a field changes, or from a button, set fields, tags and links or show a notice; the Workflows view, run log and undo | ✅ Done |
 | M7.2 Workflows, stage 2 | Creating notes, steps on linked notes, for each, running other workflows, one run for a whole selection, form workflows (from commands, the ribbon, view toolbars and the Entity Browser) | Done |
 | M7.3 Workflows, stage 3 | Test runs, big-run confirmation, ask, move / rename, schedules and date triggers, workflows in type packs | ✅ Done |
-| M5 Packs & polish | Fuller packs (views and templates, Copy group as a pack) ✅; apps (export / import the whole configuration) ✅; ribbon options ✅; pack gallery and first-run picker ✅; pack picker on first run, accessibility, docs | In progress |
+| M5 Packs & polish | Fuller packs (views and templates, Copy group as a pack) ✅; apps (export / import the whole configuration) ✅; ribbon options ✅; pack gallery and first-run picker ✅, with the TTRPG campaign showcase pack ✅. Waiting until closer to release: accessibility pass, user docs, release readiness | Paused (rest before release) |
 
 ## How notes are stored
 
