@@ -142,7 +142,7 @@ export function CalendarView(p: CalendarViewProps) {
 	const laneCol = layout === "week" && cal.swimlanes ? (result.known.get(cal.swimlanes.by) ?? null) : null;
 	const laneWritable = !!laneCol && isBucketColumn(laneCol) && !cal.swimlanes?.date;
 	const lanes: Lane[] = useMemo(
-		() => (layout === "week" && result.groups ? result.groups.map((g) => ({ key: g.key, label: g.label, paths: new Set(g.rows.map((r) => r.row.path)) })) : [{ key: null, label: "", paths: null }]),
+		() => (layout === "week" && result.groups?.length ? result.groups.map((g) => ({ key: g.key, label: g.label, paths: new Set(g.rows.map((r) => r.row.path)) })) : [{ key: null, label: "", paths: null }]),
 		[result, layout],
 	);
 

@@ -98,8 +98,9 @@ export function Board(p: BoardProps) {
 	// ---- layout: lanes × buckets, each cell's cards in order
 	const laneCol = board.swimlanes ? (result.known.get(board.swimlanes.by) ?? null) : null;
 	const laneWritable = !!laneCol && isBucketColumn(laneCol) && !board.swimlanes?.date;
+	// No groups (no swimlanes, or swimlanes with nothing in them yet): one lane, so the buckets still show.
 	const lanes: Lane[] = useMemo(
-		() => (result.groups ? result.groups.map((g) => ({ key: g.key, label: g.label, group: g, rows: g.rows })) : [{ key: "", label: "", group: null, rows: result.rows }]),
+		() => (result.groups?.length ? result.groups.map((g) => ({ key: g.key, label: g.label, group: g, rows: g.rows })) : [{ key: "", label: "", group: null, rows: result.rows }]),
 		[result],
 	);
 	const buckets = useMemo(() => (bucketCol ? bucketsOf(bucketCol, result.rows, board).filter((b) => !b.hidden) : []), [bucketCol, result, board]);
