@@ -2896,13 +2896,25 @@ button.oe-tm-typegroup-title,
 	opacity: 1;
 }
 
+/*
+ * Every browser row ends with the same slot (a heading's + button, a note's status dot, a workflow's on dot, or
+ * nothing), after the same padding: the counts before it line up in one column.
+ */
+.oe-bend {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 20px;
+}
+
 .oe-tree-row {
 	--oe-type-color: var(--text-muted);
 	display: flex;
 	align-items: center;
 	gap: var(--size-4-1);
 	min-height: 26px;
-	padding-right: var(--size-4-2);
+	padding-right: var(--size-4-1);
 	border-radius: var(--radius-s);
 	cursor: pointer;
 	font-size: var(--font-ui-small);
@@ -2960,9 +2972,9 @@ button.oe-tm-typegroup-title,
 	white-space: nowrap;
 }
 
-/* Workflows in the browser: on dot at the end, off ones faint, a warning for problems */
+/* Workflows in the browser: on dot at the end (in the row's end slot), off ones faint, a warning for problems */
 .oe-workflow-row .oe-wf-dot {
-	margin: 0 var(--size-4-1) 0 var(--size-4-2);
+	margin: 0;
 }
 
 .oe-workflow-row.is-off .oe-tree-name,

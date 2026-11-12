@@ -564,7 +564,9 @@ function WorkflowsSection({
 											{!saved && <span className="oe-tm-badge is-new">new</span>}
 											{problems.length > 0 && <Icon name="alert-triangle" className="oe-workflow-warn" />}
 											{dirty && <span className="oe-tm-dirty" aria-label="Unsaved changes" />}
-											<span className={`oe-wf-dot${live ? " is-on" : ""}`} aria-label={wf.on ? "On" : "Off"} />
+											<span className="oe-bend">
+												<span className={`oe-wf-dot${live ? " is-on" : ""}`} aria-label={wf.on ? "On" : "Off"} />
+											</span>
 										</div>
 									);
 								})}
@@ -623,18 +625,21 @@ function Heading({
 			<Icon name={icon} className="oe-bheading-icon" />
 			<span className="oe-bheading-title">{title}</span>
 			<span className="oe-bheading-count">{count}</span>
-			{onAdd && (
-				<button
-					className="clickable-icon oe-bheading-add"
-					aria-label={addLabel}
-					onClick={(e) => {
-						e.stopPropagation();
-						onAdd();
-					}}
-				>
-					<Icon name="plus" />
-				</button>
-			)}
+			{/* The end slot (the + button, or nothing): the same width on every row, so the counts line up. */}
+			<span className="oe-bend">
+				{onAdd && (
+					<button
+						className="clickable-icon oe-bheading-add"
+						aria-label={addLabel}
+						onClick={(e) => {
+							e.stopPropagation();
+							onAdd();
+						}}
+					>
+						<Icon name="plus" />
+					</button>
+				)}
+			</span>
 		</div>
 	);
 }
@@ -746,7 +751,9 @@ function TreeRow({
 				<Icon name={e.type.icon} className="oe-tree-icon" />
 				<span className="oe-tree-name">{e.name}</span>
 				{hasKids && !open && <span className="oe-tree-count">{node.size}</span>}
-				<StatusDot status={e.status} color={e.status ? statusColor(e.status, e.type, plugin.settings.groups) : null} />
+				<span className="oe-bend">
+					<StatusDot status={e.status} color={e.status ? statusColor(e.status, e.type, plugin.settings.groups) : null} />
+				</span>
 			</div>
 			{open && node.children.map((c) => <TreeRow key={c.entity.path} node={c} depth={depth + 1} isOpen={isOpen} activePath={activePath} onToggle={onToggle} />)}
 		</>
