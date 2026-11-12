@@ -17,6 +17,7 @@ import {
 	noteless,
 	onNotes,
 	readWorkflows,
+	renameRefs,
 	runSteps,
 	stepScopes,
 	triggerText,
@@ -82,6 +83,19 @@ describe("form workflows", () => {
 		expect(onNotes({ ...w, scope: ["session"] })).toBe(true);
 		expect(triggerText(w, TYPES)).toBe("Form: Log session");
 		expect(triggerText({ ...w, scope: ["session"] }, TYPES)).toBe("Form: Log session (on sessions)");
+	});
+
+	it("follow a renamed answer into every step's formulas and texts", () => {
+		const steps: WorkflowStep[] = [
+			{ kind: "notice", text: "{[summary]} on {[Date]} ({{[Summary]}})" },
+			{ kind: "if", test: "formula", when: { mode: "all", items: [] }, formula: "empty([Summary])", steps: [{ kind: "var", name: "S", value: "[Summary] + \"!\"" }], otherwise: [] },
+			{ kind: "create", type: "session", name: "{[Summary]}", fields: [{ field: "date", value: "[Date]" }], template: false, open: "no", exists: "new", as: "New" },
+		];
+		const out = renameRefs(steps, "Summary", "What happened");
+		expect(out[0]).toMatchObject({ text: "{[What happened]} on {[Date]} ({{[Summary]}})" });
+		expect(out[1]).toMatchObject({ formula: "empty([What happened])", steps: [{ value: "[What happened] + \"!\"" }] });
+		expect(out[2]).toMatchObject({ name: "{[What happened]}", fields: [{ value: "[Date]" }] });
+		expect(renameRefs(steps, "Summary", "")).toBe(steps);
 	});
 
 	it("follow renamed types into a form's link fields (pack imports)", () => {

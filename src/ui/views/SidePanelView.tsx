@@ -7,6 +7,8 @@ import { PluginContext } from "../react/context";
 import { EditorContext } from "../react/types/editor";
 import { PreviewPane, type PreviewMode } from "../react/types/Preview";
 import { TypesView } from "./TypesView";
+import { WorkflowsView } from "./WorkflowsView";
+import { FormPreviewPane } from "../react/workflows/FormPreview";
 
 /** The id is the old Connections panel's, so a Connections tab saved in the workspace opens as this panel. */
 export const SIDE_PANEL_VIEW = "obs-entities-connections";
@@ -14,11 +16,12 @@ export const SIDE_PANEL_VIEW = "obs-entities-connections";
 const PREVIEW_MODES: PreviewMode[] = ["dialog", "picker", "form"];
 
 /** What the panel shows, from the last active tab in the main area. */
-type Target = { kind: "note"; path: string | null } | { kind: "types"; view: TypesView } | { kind: "none" };
+type Target = { kind: "note"; path: string | null } | { kind: "types"; view: TypesView } | { kind: "workflows"; view: WorkflowsView } | { kind: "none" };
 
 /**
  * The plugin's one right-sidebar panel. It follows the last active tab in the main area (focusing the sidebar
- * doesn't change it): a note shows its connections, the Entity types editor shows the selected type's preview.
+ * doesn't change it): a note shows its connections, the Entity types editor shows the selected type's preview, the
+ * Workflows view the open form workflow's form.
  */
 export class SidePanelView extends ItemView {
 	private root: Root | null = null;
@@ -40,11 +43,11 @@ export class SidePanelView extends ItemView {
 	}
 
 	getDisplayText(): string {
-		return this.target.kind === "types" ? "Preview" : this.target.kind === "note" ? "Connections" : "Entities";
+		return this.target.kind === "types" || this.target.kind === "workflows" ? "Preview" : this.target.kind === "note" ? "Connections" : "Entities";
 	}
 
 	getIcon(): string {
-		return this.target.kind === "types" ? "eye" : "waypoints";
+		return this.target.kind === "types" || this.target.kind === "workflows" ? "eye" : "waypoints";
 	}
 
 	getState(): Record<string, unknown> {
@@ -105,19 +108,23 @@ export class SidePanelView extends ItemView {
 		const next: Target =
 			view instanceof TypesView
 				? { kind: "types", view }
-				: view instanceof MarkdownView
-					? { kind: "note", path: view.file?.path ?? null }
-					: !view || view.getViewType() === "empty"
-						? { kind: "note", path: null }
-						: { kind: "none" };
+				: view instanceof WorkflowsView
+					? { kind: "workflows", view }
+					: view instanceof MarkdownView
+						? { kind: "note", path: view.file?.path ?? null }
+						: !view || view.getViewType() === "empty"
+							? { kind: "note", path: null }
+							: { kind: "none" };
 		const prev = this.target;
-		const prevTypes = prev.kind === "types" ? prev.view : null;
-		const nextTypes = next.kind === "types" ? next.view : null;
-		if (prevTypes !== nextTypes) {
+		// The editor view being followed (its preview), if any.
+		const source = (x: Target) => (x.kind === "types" || x.kind === "workflows" ? x.view : null);
+		const prevSource = source(prev);
+		const nextSource = source(next);
+		if (prevSource !== nextSource) {
 			this.unwatch?.();
-			this.unwatch = nextTypes ? nextTypes.onPreview(() => this.render()) : null;
+			this.unwatch = nextSource ? nextSource.onPreview(() => this.render()) : null;
 		}
-		const same = prev.kind === next.kind && (prev.kind !== "note" || prev.path === (next as { path: string | null }).path) && prevTypes === nextTypes;
+		const same = prev.kind === next.kind && (prev.kind !== "note" || prev.path === (next as { path: string | null }).path) && prevSource === nextSource;
 		this.target = next;
 		if (same) return;
 		if (prev.kind !== next.kind) (this.leaf as unknown as { updateHeader?(): void }).updateHeader?.();
@@ -148,6 +155,16 @@ export class SidePanelView extends ItemView {
 			) : (
 				<div className="oe-panel-empty">{group ? "A group is selected. Select a type to preview it." : "Select a type to preview it."}</div>
 			);
+		} else if (t.kind === "workflows") {
+			const { api, form } = t.view.preview;
+			body =
+				api && form ? (
+					<EditorContext.Provider value={api}>
+						<FormPreviewPane form={form} />
+					</EditorContext.Provider>
+				) : (
+					<div className="oe-panel-empty">Open a form workflow (Fill in a form) to preview its form here.</div>
+				);
 		} else {
 			body = <div className="oe-panel-empty">Nothing to show here. Open a note to see its connections, or the Entity types editor to preview a type.</div>;
 		}

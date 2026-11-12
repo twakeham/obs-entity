@@ -6,7 +6,7 @@
  */
 import { applyChange, type BulkChange } from "./bulk";
 import { writeDay } from "./calendarView";
-import { DateVal, FormulaError, isLink, toText, truthy, type FType, type FValue } from "./formula";
+import { DateVal, FormulaError, isLink, rewriteRefs, toText, truthy, type FType, type FValue } from "./formula";
 import { isEmptyValue } from "./frontmatter";
 import { asArray, parseLink, toWikilink } from "./links";
 import type { DateAdapter } from "./dates";
@@ -623,6 +623,77 @@ export function mapStepAt(steps: WorkflowStep[], key: string, fn: (s: WorkflowSt
 }
 /** Whether a workflow stops to ask something ("Confirm", "Ask a question"). */
 export const asksQuestion = (wf: Pick<WorkflowDef, "steps">): boolean => flatSteps(wf.steps).some((s) => s.kind === "ask" || s.kind === "input");
+
+/** A template's `{formula}` parts rewritten (the text around them as written; unchanged when none change or it can't be read). */
+export function mapTemplate(src: string, fn: (formula: string) => string): string {
+	if (!src.includes("{")) return src;
+	let changed = false;
+	try {
+		const out = parseTemplate(src)
+			.map((p) => {
+				if ("text" in p) return p.text.replace(/[{}]/g, (c) => c + c);
+				const f = fn(p.formula);
+				if (f !== p.formula) changed = true;
+				return `{${f}}`;
+			})
+			.join("");
+		return changed ? out : src;
+	} catch {
+		return src;
+	}
+}
+
+/**
+ * Every formula (`formula`) and text with `{formula}` parts (`text`) in some steps, rewritten, at any depth: values,
+ * link targets, notices, questions, names, folders, bodies, loops' lists and If formulas.
+ */
+export function mapStepTexts(steps: WorkflowStep[], formula: (src: string) => string, text: (src: string) => string): WorkflowStep[] {
+	const map = (s: WorkflowStep): WorkflowStep => {
+		switch (s.kind) {
+			case "set":
+			case "var":
+				return { ...s, value: formula(s.value) };
+			case "link":
+				return { ...s, target: formula(s.target) };
+			case "notice":
+			case "ask":
+				return { ...s, text: text(s.text) };
+			case "input":
+				return { ...s, text: text(s.text), ...(s.default ? { default: text(s.default) } : {}) };
+			case "move":
+				return { ...s, folder: text(s.folder) };
+			case "rename":
+				return { ...s, name: text(s.name) };
+			case "append":
+				return { ...s, text: text(s.text), heading: text(s.heading) };
+			case "create":
+				return {
+					...s,
+					name: text(s.name),
+					fields: s.fields.map((r) => ({ ...r, value: formula(r.value) })),
+					...(s.folder ? { folder: text(s.folder) } : {}),
+					...(s.body?.from === "text" ? { body: { ...s.body, text: text(s.body.text) } } : {}),
+				};
+			case "linked":
+				return { ...s, steps: s.steps.map(map) };
+			case "each":
+				return { ...s, formula: formula(s.formula), steps: s.steps.map(map) };
+			case "if":
+				return { ...s, formula: formula(s.formula), steps: s.steps.map(map), otherwise: s.otherwise.map(map) };
+			default:
+				return s;
+		}
+	};
+	return steps.map(map);
+}
+
+/** Steps with references to a name (`[From]`, ignoring case) changed to another (`[To]`): a form field's new label. */
+export function renameRefs(steps: WorkflowStep[], from: string, to: string): WorkflowStep[] {
+	const low = from.trim().toLowerCase();
+	if (!low || !to.trim() || low === to.trim().toLowerCase()) return steps;
+	const formula = (src: string) => (src ? rewriteRefs(src, (n) => (n.trim().toLowerCase() === low ? to.trim() : undefined)) : src);
+	return mapStepTexts(steps, formula, (src) => mapTemplate(src, formula));
+}
 
 /** "For linked notes" choices: this note's link fields, and other types' link fields that point at these types. */
 export function linkedSources(scope: string[], types: EntityTypeDef[]): { out: WorkflowField[]; in: { type: EntityTypeDef; field: FieldDef; label: string }[] } {

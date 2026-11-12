@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import type EntitiesPlugin from "../../main";
 import { PluginContext } from "../react/context";
 import { DEFAULT_WORKFLOWS_STATE, WorkflowManager, type WorkflowsRequest, type WorkflowsState } from "../react/workflows/WorkflowManager";
+import type { FormPreviewSource } from "../react/workflows/FormPreview";
 
 export const WORKFLOWS_VIEW = "obs-entities-workflows";
 
@@ -40,8 +41,24 @@ export class WorkflowsView extends ItemView {
 	async onClose(): Promise<void> {
 		this.root?.unmount();
 		this.root = null;
+		this.publish({ api: null });
 		this.plugin.workflows.trigger("drafts");
 	}
+
+	/** The open form workflow's form as edited, for the side panel's preview. */
+	preview: FormPreviewSource = { api: null };
+	private watchers = new Set<() => void>();
+
+	/** Follow `preview`; returns the function to stop. */
+	onPreview(fn: () => void): () => void {
+		this.watchers.add(fn);
+		return () => this.watchers.delete(fn);
+	}
+
+	private publish = (source: FormPreviewSource): void => {
+		this.preview = source;
+		for (const fn of this.watchers) fn();
+	};
 
 	getState(): Record<string, unknown> {
 		// Unsaved new workflows don't survive a restart; don't restore a selection pointing at one.
@@ -51,7 +68,8 @@ export class WorkflowsView extends ItemView {
 	async setState(state: unknown, result: ViewStateResult): Promise<void> {
 		if (state && typeof state === "object") {
 			const s = state as Partial<WorkflowsState>;
-			this.state = { ...DEFAULT_WORKFLOWS_STATE, ...this.state, ...s, tab: s.tab === "runs" ? "runs" : s.tab === "edit" ? "edit" : this.state.tab };
+			const tab = s.tab === "runs" || s.tab === "edit" || s.tab === "fields" || s.tab === "layout" ? s.tab : this.state.tab;
+			this.state = { ...DEFAULT_WORKFLOWS_STATE, ...this.state, ...s, tab };
 			this.render();
 		}
 		await super.setState(state, result);
@@ -74,7 +92,7 @@ export class WorkflowsView extends ItemView {
 	private render(): void {
 		this.root?.render(
 			<PluginContext.Provider value={this.plugin}>
-				<WorkflowManager state={this.state} setState={this.update} request={this.request} onRequestDone={() => (this.request = null)} />
+				<WorkflowManager state={this.state} setState={this.update} request={this.request} onRequestDone={() => (this.request = null)} onPreview={this.publish} />
 			</PluginContext.Provider>,
 		);
 	}

@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type EntitiesPlugin from "../../main";
 import { compile, findColumn, FormulaError, FTYPE_LABEL, FTYPES, FUNCTIONS, functionDef, toDisplay, toStored, toText, type FnCategory, type FnDef, type FType, type FValue, type RefColumn } from "../../model/formula";
-import { storedValue, THIS_NOTE_VAR, varGroups, type WorkflowField } from "../../model/workflows";
+import { PLAIN_TYPE, storedValue, THIS_NOTE_VAR, varGroups, type WorkflowField } from "../../model/workflows";
 import { toKey, type EntityTypeDef } from "../../model/types";
 import { cellOf, compileFormula, evaluateFormula, formulaRefColumns, resolveColumn, runView, VAR_PREFIX, varColumns, type VarSpec, type ColumnDef, type ViewDef, type ViewRow } from "../../model/views";
 import { PluginContext } from "../react/context";
@@ -40,6 +40,11 @@ export interface WorkflowFormulaOpts {
 	thisIsRow?: boolean;
 	/** the heading for the columns, e.g. "Columns of each task" in a loop */
 	columnsTitle?: string;
+	/**
+	 * no note here (a form that starts on its own, a run for the whole selection): the preview is one row, worked out
+	 * from the run's names only, and the side list has no columns
+	 */
+	noNote?: boolean;
 	/** the field the result goes in (the preview shows the value it would store, or why it can't) */
 	field?: WorkflowField;
 	done: (src: string) => void;
@@ -128,7 +133,15 @@ function FormulaEditor({
 		const byKey = new Map(field.types.map((t) => [t.key, t]));
 		return { rows: d.rows.map((r) => (byKey.has(r.type.key) && byKey.get(r.type.key) !== r.type ? { ...r, type: byKey.get(r.type.key)! } : r)), ctx: { ...d.ctx, types: field.types } };
 	}, [plugin, field]);
-	const sample: ViewRow[] = useMemo(() => runView(def, data.rows, data.ctx).rows.slice(0, 5).map((r) => r.row), [data, def]);
+	// No note to read (a form that starts on its own…): one stand-in row, worked out from the run's names only.
+	const noNote = !!workflow?.noNote;
+	const sample: ViewRow[] = useMemo(
+		() =>
+			noNote
+				? [{ path: "", name: "When it runs", type: PLAIN_TYPE, status: null, subtitle: null, tags: [], aliases: [], folder: "", mtime: 0, order: null, frontmatter: {} }]
+				: runView(def, data.rows, data.ctx).rows.slice(0, 5).map((r) => r.row),
+		[data, def, noNote],
+	);
 
 	/** The column as it would be saved, and the definition with it in place. */
 	const build = (src: string, t: FType | "", label: string): { col: FormulaCol; tmp: ViewDef } => {
@@ -366,7 +379,7 @@ function FormulaEditor({
 	// The run's names first (this note, loop items, created and found notes, variables), then the notes' columns.
 	const refGroups: { title: string; cols: RefColumn[] }[] = [
 		...varGroups(workflow?.vars ?? []).map((g) => ({ title: g.title, cols: matching.filter((c) => g.vars.some((v) => `${VAR_PREFIX}${v.name}` === c.id)) })),
-		{ title: workflow?.columnsTitle ?? "Columns", cols: matching.filter((c) => !c.id.startsWith(VAR_PREFIX)) },
+		{ title: workflow?.columnsTitle ?? "Columns", cols: noNote ? [] : matching.filter((c) => !c.id.startsWith(VAR_PREFIX)) },
 	].filter((g) => g.cols.length);
 
 	return (
@@ -411,7 +424,7 @@ function FormulaEditor({
 				<div className="oe-fx-preview">
 					<div className="oe-pop-heading">Preview</div>
 					{(workflow ? !!status.error || !text.trim() : !status.resolved) ? (
-						<div className="oe-pop-empty">{workflow ? "What the first notes would get appears here." : "The first rows' results appear here."}</div>
+						<div className="oe-pop-empty">{workflow ? (noNote ? "What it gives when it runs appears here." : "What the first notes would get appears here.") : "The first rows' results appear here."}</div>
 					) : sample.length === 0 ? (
 						<div className="oe-pop-empty">{workflow ? "No notes of these types to preview." : "The view has no rows to preview."}</div>
 					) : (

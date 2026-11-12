@@ -50,7 +50,9 @@ import {
 	workflowDef,
 	workflowFields,
 	workflowProblems,
+	renameRefs,
 	NO_NOTE_FORMULA_FORM,
+	buttonIcon,
 	buttonLabel,
 	formTypeIssues,
 	formType,
@@ -84,6 +86,7 @@ import { FieldsTab } from "../types/FieldsTab";
 import { LayoutTab } from "../types/LayoutTab";
 import { newUid, type FieldMeta, type SampleNote, type TypeDraft } from "../../../model/typeEditing";
 import { openTryRun } from "./TryRun";
+import type { FormPreviewSource } from "./FormPreview";
 import { FolderPickerModal, NotePathPickerModal } from "../../modals/bulkModals";
 
 /** The workflow editor's tabs: the workflow itself, a form's fields and layout ("Fill in a form"), and its recent runs. */
@@ -101,12 +104,18 @@ function useFormEditor(wf: WorkflowDef, setDraft: (wf: WorkflowDef) => void, set
 	const latest = useRef(wf);
 	latest.current = wf;
 	const meta = useRef<FieldMeta[]>([]);
+	/** each field's last label (by its bookkeeping id), so steps follow a renamed answer even through an empty label */
+	const labels = useRef(new Map<string, string>());
 	const t = wf.trigger.kind === "form" ? wf.trigger : null;
 	const issues = useMemo(() => (t ? formTypeIssues(t, settings) : []), [t, settings.types, settings.groups]); // eslint-disable-line react-hooks/exhaustive-deps
 	const sample: SampleNote = useMemo(() => ({ path: null, name: t?.title || "the form", status: "", frontmatter: {}, fromNote: false }), [t?.title]);
 	if (!t) return null;
 	// One bookkeeping entry per field (stable ids for the list and selection).
 	if (meta.current.length !== t.fields.length) meta.current = t.fields.map((_, i) => meta.current[i] ?? { uid: newUid(), origKey: null });
+	meta.current.forEach((m, i) => {
+		const label = t.fields[i]?.label.trim();
+		if (label && !labels.current.has(m.uid)) labels.current.set(m.uid, label);
+	});
 	const draft: TypeDraft = { type: formType(t), original: null, meta: meta.current };
 	const update = (fn: (type: EntityTypeDef, meta: FieldMeta[]) => void) => {
 		const cur = latest.current;
@@ -120,6 +129,14 @@ function useFormEditor(wf: WorkflowDef, setDraft: (wf: WorkflowDef) => void, set
 		tr.fields = type.fields;
 		if (type.form?.layout) tr.layout = type.form.layout;
 		else delete tr.layout;
+		// A field's new label: the steps' references to its answer follow ([Summary] → [What happened]).
+		m.forEach((x, i) => {
+			const label = type.fields[i]?.label.trim();
+			if (!label) return;
+			const was = labels.current.get(x.uid);
+			if (was && was !== label) next.steps = renameRefs(next.steps, was, label);
+			labels.current.set(x.uid, label);
+		});
 		latest.current = next;
 		setDraft(next);
 	};
@@ -211,7 +228,20 @@ const valueText = (v: unknown) => (v === undefined || v === null || v === "" ? "
  * and save bar, or every workflow's Recent runs. The Entity Browser lists the workflows (by what starts them), with
  * Recent runs and Disable all.
  */
-export function WorkflowManager({ state, setState, request, onRequestDone }: { state: WorkflowsState; setState: (p: Partial<WorkflowsState>) => void; request: WorkflowsRequest | null; onRequestDone: () => void }) {
+export function WorkflowManager({
+	state,
+	setState,
+	request,
+	onRequestDone,
+	onPreview,
+}: {
+	state: WorkflowsState;
+	setState: (p: Partial<WorkflowsState>) => void;
+	request: WorkflowsRequest | null;
+	onRequestDone: () => void;
+	/** the side panel's preview of the open form workflow's form */
+	onPreview?: (source: FormPreviewSource) => void;
+}) {
 	const plugin = usePlugin();
 	const settings = plugin.settings;
 	const [, setTick] = useState(0);
@@ -250,6 +280,10 @@ export function WorkflowManager({ state, setState, request, onRequestDone }: { s
 		...[...drafts.entries()].filter(([id]) => id.startsWith("new:")).map(([id, wf]) => ({ id, wf, isNew: true })),
 	];
 	const selected = listed.find((x) => x.id === state.selected);
+	// No form workflow open: nothing to preview (an open one publishes its own).
+	useEffect(() => {
+		if (!selected || state.selected === "runs") onPreview?.({ api: null });
+	});
 
 	return (
 		<div className="oe-tm oe-wf">
@@ -303,6 +337,7 @@ export function WorkflowManager({ state, setState, request, onRequestDone }: { s
 					}}
 					tab={state.tab}
 					setTab={(tab) => setState({ tab })}
+					onPreview={onPreview}
 				/>
 			) : (
 				<main className="oe-tm-main oe-tm-empty">
@@ -365,6 +400,7 @@ function WorkflowEditor({
 	onDuplicate,
 	tab: wantTab,
 	setTab,
+	onPreview,
 }: {
 	id: string;
 	wf: WorkflowDef;
@@ -377,6 +413,7 @@ function WorkflowEditor({
 	onDuplicate: (copy: WorkflowDef) => void;
 	tab: WorkflowTab;
 	setTab: (tab: WorkflowTab) => void;
+	onPreview?: (source: FormPreviewSource) => void;
 }) {
 	const plugin = usePlugin();
 	const settings = plugin.settings;
@@ -393,6 +430,8 @@ function WorkflowEditor({
 	};
 	const problems = workflowProblems(wf, { ...lookup, workflows: settings.workflows });
 	const formApi = useFormEditor(wf, setDraft, setTab);
+	// The side panel previews a form workflow's form as it's edited.
+	useEffect(() => onPreview?.(formApi && wf.trigger.kind === "form" ? { api: formApi, form: { title: wf.trigger.title.trim() || wf.name || "Form", button: wf.trigger.button, icon: buttonIcon(wf) } } : { api: null }));
 	// A new workflow isn't nagged about what it hasn't got yet until Save is tried.
 	const shownProblems = attempted || !isNew ? problems : problems.filter((p) => p.at !== "name" && p.at !== "steps" && p.at !== "scope");
 	const at = (k: string) => shownProblems.filter((p) => p.at === k);
@@ -741,6 +780,9 @@ function WorkflowEditor({
 										<button onClick={() => setTab("layout")}>
 											<Icon name="layout-dashboard" /> Form layout
 										</button>
+										<button title="Show the form in the side panel, as it opens" onClick={() => void plugin.activateSidePanel()}>
+											<Icon name="eye" /> Preview
+										</button>
 									</span>
 								</Row>
 								<div className="oe-wf-help">
@@ -1083,7 +1125,7 @@ function scopeForNew(wf: WorkflowDef, path: string, block: number, lookup: { typ
 const THIS_IS = "The note the workflow runs on";
 
 /** What the formula editor needs to know about where a formula is: whether its preview notes are "This note", and what its columns are. */
-const editorContext = (sc: StepScope) => ({ thisIsRow: !sc.item && !sc.noNote, ...(sc.item ? { columnsTitle: `Columns of ${sc.defaultLabel.toLowerCase()}` } : {}) });
+const editorContext = (sc: StepScope) => ({ thisIsRow: !sc.item && !sc.noNote, ...(sc.noNote ? { noNote: true } : {}), ...(sc.item ? { columnsTitle: `Columns of ${sc.defaultLabel.toLowerCase()}` } : {}) });
 
 /** "Add step": the kinds of step, grouped by what they do. */
 const STEP_GROUPS: { title: string; kinds: StepKind[] }[] = [

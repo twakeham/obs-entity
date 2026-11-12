@@ -1,7 +1,7 @@
 import { FIELD_KINDS, cloneGroup, cloneType, isValidKey, type EntityTypeDef, type GroupDef } from "./types";
 import { rewriteRefs } from "./formula";
 import { isGroup, type FilterGroup } from "./views";
-import { cloneWorkflow, flatSteps, newWorkflowId, parseTemplate, readWorkflows, scopeTypes, type NoteStep, type WorkflowDef, type WorkflowStep } from "./workflows";
+import { cloneWorkflow, flatSteps, mapStepTexts, mapTemplate, newWorkflowId, readWorkflows, scopeTypes, type WorkflowDef, type WorkflowStep } from "./workflows";
 import { normaliseLayout, renameLayoutKey, workflowItem } from "./formLayout";
 
 /** A shareable bundle of types (and the groups they use), and workflows. */
@@ -374,21 +374,8 @@ export function renameFormula(src: string, keys: Map<string, string>): string {
 
 /** A template's {formula} parts with their references renamed (unchanged when none are). */
 function renameTemplate(src: string, keys: Map<string, string>): string {
-	if (!keys.size || !src.includes("{")) return src;
-	let changed = false;
-	try {
-		const out = parseTemplate(src)
-			.map((p) => {
-				if ("text" in p) return p.text.replace(/[{}]/g, (c) => c + c);
-				const f = renameFormula(p.formula, keys);
-				if (f !== p.formula) changed = true;
-				return `{${f}}`;
-			})
-			.join("");
-		return changed ? out : src;
-	} catch {
-		return src;
-	}
+	if (!keys.size) return src;
+	return mapTemplate(src, (f) => renameFormula(f, keys));
 }
 
 function renameFilter(g: FilterGroup, keys: Map<string, string>): FilterGroup {
@@ -411,51 +398,20 @@ export function renameTypeKeys(t: EntityTypeDef, keys: Map<string, string>): voi
 export function renameWorkflowKeys(wf: WorkflowDef, keys: Map<string, string>, ids: Map<string, string> = new Map()): WorkflowDef {
 	const f = (src: string) => renameFormula(src, keys);
 	const tx = (src: string) => renameTemplate(src, keys);
-	const note = (s: NoteStep): NoteStep => {
-		switch (s.kind) {
-			case "set":
-				return { ...s, value: f(s.value) };
-			case "var":
-				return { ...s, value: f(s.value) };
-			case "link":
-				return { ...s, target: f(s.target) };
-			case "notice":
-			case "ask":
-				return { ...s, text: tx(s.text) };
-			case "input":
-				return { ...s, text: tx(s.text), ...(s.default ? { default: tx(s.default) } : {}) };
-			case "move":
-				return { ...s, folder: tx(s.folder) };
-			case "rename":
-				return { ...s, name: tx(s.name) };
-			case "append":
-				return { ...s, text: tx(s.text), heading: tx(s.heading) };
-			case "create":
-				return {
-					...s,
-					type: renameTarget(s.type, keys),
-					name: tx(s.name),
-					fields: s.fields.map((r) => ({ ...r, value: f(r.value) })),
-					...(s.folder ? { folder: tx(s.folder) } : {}),
-					...(s.body?.from === "text" ? { body: { ...s.body, text: tx(s.body.text) } } : {}),
-				};
-			case "run":
-				return { ...s, workflow: ids.get(s.workflow) ?? s.workflow };
-			default:
-				return s;
-		}
-	};
+	// Formulas and texts (mapStepTexts), then the types, filters and workflows steps name.
 	const step = (s: WorkflowStep): WorkflowStep => {
 		if (s.kind === "linked") return { ...s, source: s.source.dir === "in" ? { ...s.source, type: renameTarget(s.source.type, keys) } : s.source, when: renameFilter(s.when, keys), steps: s.steps.map(step) };
-		if (s.kind === "each") return { ...s, formula: f(s.formula), itemType: s.itemType ? renameTarget(s.itemType, keys) : s.itemType, when: renameFilter(s.when, keys), steps: s.steps.map(step) };
-		if (s.kind === "if") return { ...s, formula: f(s.formula), when: renameFilter(s.when, keys), steps: s.steps.map(step), otherwise: s.otherwise.map(step) };
+		if (s.kind === "each") return { ...s, itemType: s.itemType ? renameTarget(s.itemType, keys) : s.itemType, when: renameFilter(s.when, keys), steps: s.steps.map(step) };
+		if (s.kind === "if") return { ...s, when: renameFilter(s.when, keys), steps: s.steps.map(step), otherwise: s.otherwise.map(step) };
 		if (s.kind === "find") return { ...s, types: s.types.map((x) => renameTarget(x, keys)), when: renameFilter(s.when, keys), ...(s.sort ? { sort: { ...s.sort, by: renameColumnId(s.sort.by, keys) } } : {}) };
-		return note(s);
+		if (s.kind === "create") return { ...s, type: renameTarget(s.type, keys) };
+		if (s.kind === "run") return { ...s, workflow: ids.get(s.workflow) ?? s.workflow };
+		return s;
 	};
 	const t = wf.trigger;
 	// A form's link fields may point at renamed types.
 	const trigger = t.kind === "form" ? { ...t, fields: t.fields.map((x) => (x.targets ? { ...x, targets: x.targets.map((y) => renameTarget(y, keys)) } : x)) } : t;
-	return { ...wf, scope: wf.scope.map((x) => renameTarget(x, keys)), trigger, when: renameFilter(wf.when, keys), steps: wf.steps.map(step) };
+	return { ...wf, scope: wf.scope.map((x) => renameTarget(x, keys)), trigger, when: renameFilter(wf.when, keys), steps: mapStepTexts(wf.steps, f, tx).map(step) };
 }
 
 /**
