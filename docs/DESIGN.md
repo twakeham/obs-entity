@@ -888,13 +888,14 @@ A left-sidebar view (ribbon `library`, command **Open entity browser**).
 - **Sections:** one section per group, in group order (default). Alternatively, **Sections: none** shows one tree.
 - **Type headings** (on by default): inside a section, each type gets a collapsible heading with a count. Entities are listed under the heading of their root's type. With headings off, roots are listed directly.
 - **Hierarchy:** a **forest** built from each type's `parentFields`. An entity's parent is the first parent field (in priority order) whose target exists. Siblings sort by type order, then `order`, then name (numeric-aware: "Chapter 2" before "Chapter 10").
+- **Children of other types** (`children`): **nest under their parent** (default, `"parent"`), or are **listed under their own type** (`"type"`): a note whose parent is of another type is a root under its own type's heading, in name order, and its row's tooltip starts "In <parent>" (`TreeNode.parent`, kept through filtering). With that, **Nest under parents of the same type** (`sameTypeNesting`, on by default) keeps same-type trees (a city in its region); off, every type is a flat list. The cross-group options don't apply then (same-type parents share a group), so they're disabled.
 - **Children whose parent is in another group** have two options:
   - **stay in their own group** (default): they become roots in their own section;
   - **nest under the parent:** they appear in the parent's section.
 - **Cycles** are broken: nodes reachable only through a cycle become roots.
 - **Notes under another type's heading:** a note is listed under the heading of its tree's top-level type, so a type whose notes nest under another type's (sessions under their campaign) has few or none under its own heading. Each block records them (`nested`, and `nestedUnder`: the headings they're under, in type order). Such a heading is kept even without Show empty types (with a section that only has such headings); when all its notes are elsewhere its count is their number, faint and italic, with a tooltip ("All 17 sessions listed under Campaigns"), and the placeholder line reads **All 17 under Campaigns · show them**; with notes of its own as well, **+3 more under Projects · show them** follows them. The line (a button) sets the browser's type filter to the type, which lists every note of it with its ancestors dimmed. Hidden while filtering. Nesting under the same type (a place in a place) isn't "elsewhere".
 - **"Show empty types"** lists types (and groups) with no notes, with a "No … yet" placeholder.
-- These four options live in a **View** menu (sliders button) and are saved with the view state.
+- These options live in a **View** menu (sliders button) and are saved with the view state.
 
 #### Rows
 

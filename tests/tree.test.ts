@@ -118,6 +118,25 @@ describe("buildBrowser", () => {
 		expect([deals.count, deals.nested, deals.nestedUnder.map((t) => t.key)]).toEqual([0, 1, ["company"]]);
 	});
 
+	it("can list children of other types under their own type, keeping same-type nesting or not", () => {
+		const s = buildBrowser(entities, edges, TYPES, GROUPS, { ...DEFAULT_BROWSER_OPTIONS, children: "type" });
+		expect(shape(s).find((x) => x.section === "work")!.blocks).toEqual(["project: Apollo(Lander)", "note: Kickoff, Lander notes, Loose note"]);
+		expect(shape(s).find((x) => x.section === "directory")!.blocks).toEqual(["person: Ada", "organisation: Acme(Acme UK)", "place: Earth(London)"]);
+		// Nothing is under another type's heading now.
+		expect(s.flatMap((x) => x.blocks).every((b) => b.nested === 0)).toBe(true);
+		// Each note not listed under its parent knows it (shown on hover); Lander is still under Apollo.
+		const notes = s.find((x) => x.key === "work")!.blocks[1].roots;
+		expect(notes.map((n) => n.parent?.name ?? null)).toEqual(["Apollo", "Lander", null]);
+		expect(s.find((x) => x.key === "work")!.blocks[0].roots[0].children[0].parent).toBeUndefined();
+		// Without same-type nesting: every type a flat list; each note knows its parent.
+		const flat = buildBrowser(entities, edges, TYPES, GROUPS, { ...DEFAULT_BROWSER_OPTIONS, children: "type", sameTypeNesting: false });
+		const work = flat.find((x) => x.key === "work")!.blocks;
+		expect(shape(flat).find((x) => x.section === "work")!.blocks).toEqual(["project: Apollo, Lander", "note: Kickoff, Lander notes, Loose note"]);
+		expect(work[0].roots.map((n) => n.parent?.name ?? null)).toEqual([null, "Apollo"]);
+		// A filter keeps it.
+		expect(filterBrowser(flat, (e) => e.name === "Lander")[0].blocks[0].roots[0].parent?.name).toBe("Apollo");
+	});
+
 	it("counts the notes of a type listed under other types' headings, and keeps their heading", () => {
 		const s = buildBrowser(entities, edges, TYPES, GROUPS, DEFAULT_BROWSER_OPTIONS);
 		const block = (key: string) => s.flatMap((x) => x.blocks).find((b) => b.type?.key === key)!;

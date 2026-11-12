@@ -250,6 +250,7 @@ A left sidebar tree of all entities, with your views and workflows above them. O
 - The **View** menu (sliders button) changes this:
   - **Sections:** groups, or none (one tree).
   - **Type headings:** on or off.
+  - **Children of other types:** nest under their parent (a campaign's sessions inside the campaign), or are **listed under their own type** (all sessions under Sessions, in a flat list; hover a note to see what it's in). With the second, **Nest under parents of the same type** keeps a city inside its region (switch it off for flat lists everywhere).
   - **Children in other groups:** stay in their own group, or nest under their parent.
   - **Show empty types.**
   - **Show views** and **Show workflows**: turn either off for an entities-only browser.

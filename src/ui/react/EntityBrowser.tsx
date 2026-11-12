@@ -61,7 +61,7 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 	const version = useRelationsVersion();
 	const listRef = useRef<HTMLDivElement>(null);
 	const { types, groups } = plugin.settings;
-	const opts: BrowserOptions = { sections: state.sections, typeHeadings: state.typeHeadings, crossGroup: state.crossGroup, showEmpty: state.showEmpty };
+	const opts: BrowserOptions = { sections: state.sections, typeHeadings: state.typeHeadings, crossGroup: state.crossGroup, showEmpty: state.showEmpty, children: state.children, sameTypeNesting: state.sameTypeNesting };
 	const [views, setViews] = useState(() => plugin.views.all());
 	useEffect(() => {
 		const ref = plugin.views.on("updated", () => setViews(plugin.views.all()));
@@ -78,7 +78,7 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 			tags: Array.from(tagSet).sort((a, b) => a.localeCompare(b)),
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [version, types, groups, plugin, state.sections, state.typeHeadings, state.crossGroup, state.showEmpty]);
+	}, [version, types, groups, plugin, state.sections, state.typeHeadings, state.crossGroup, state.showEmpty, state.children, state.sameTypeNesting]);
 
 	const statuses = useMemo(() => {
 		const all = [...groups.flatMap((g) => g.statuses), ...types.flatMap((t) => t.statuses ?? [])];
@@ -181,8 +181,11 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 		opt("sections", "Sections: groups", state.sections === "groups", { sections: "groups" });
 		opt("sections", "Sections: none (one tree)", state.sections === "none", { sections: "none" });
 		opt("headings", "Type headings", state.typeHeadings, { typeHeadings: !state.typeHeadings });
-		opt("cross", "Children in other groups stay in their own group", state.crossGroup === "own", { crossGroup: "own" }, state.sections === "none");
-		opt("cross", "Children in other groups nest under their parent", state.crossGroup === "parent", { crossGroup: "parent" }, state.sections === "none");
+		opt("children", "Children of other types nest under their parent", state.children === "parent", { children: "parent" });
+		opt("children", "Children of other types are listed under their own type", state.children === "type", { children: "type" });
+		opt("children", "Nest under parents of the same type", state.sameTypeNesting, { sameTypeNesting: !state.sameTypeNesting }, state.children !== "type");
+		opt("cross", "Children in other groups stay in their own group", state.crossGroup === "own", { crossGroup: "own" }, state.sections === "none" || state.children === "type");
+		opt("cross", "Children in other groups nest under their parent", state.crossGroup === "parent", { crossGroup: "parent" }, state.sections === "none" || state.children === "type");
 		opt("empty", "Show empty types", state.showEmpty, { showEmpty: !state.showEmpty });
 		opt("show", "Show views", state.showViews, { showViews: !state.showViews });
 		opt("show", "Show workflows", state.showWorkflows, { showWorkflows: !state.showWorkflows });
@@ -775,7 +778,7 @@ function TreeRow({
 				onAuxClick={(evt) => evt.button === 1 && plugin.openPath(e.path, "tab")}
 				onMouseOver={onHover}
 				onContextMenu={onMenu}
-				title={e.subtitle || undefined}
+				title={[node.parent ? `In ${node.parent.name}` : "", e.subtitle ?? ""].filter(Boolean).join(" · ") || undefined}
 			>
 				<span
 					className={`oe-tree-toggle${hasKids ? "" : " is-leaf"}`}

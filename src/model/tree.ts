@@ -9,6 +9,8 @@ export interface TreeNode<E extends EntityInfo = EntityInfo> {
 	size: number;
 	/** shown only because a descendant matches the filter */
 	context?: boolean;
+	/** its parent, when it isn't listed under it (children under their own type) */
+	parent?: E;
 }
 
 /** How the browser arranges entities (the View menu). */
@@ -21,9 +23,13 @@ export interface BrowserOptions {
 	crossGroup: "own" | "parent";
 	/** show types (and groups) that have no entities, so they can be created from their heading */
 	showEmpty: boolean;
+	/** where a note whose parent is of another type goes: in its parent's tree ("parent"), or under its own type's heading ("type") */
+	children: "parent" | "type";
+	/** with children under their own type: still nest notes under a parent of the same type (a city in its region) */
+	sameTypeNesting: boolean;
 }
 
-export const DEFAULT_BROWSER_OPTIONS: BrowserOptions = { sections: "groups", typeHeadings: true, crossGroup: "own", showEmpty: false };
+export const DEFAULT_BROWSER_OPTIONS: BrowserOptions = { sections: "groups", typeHeadings: true, crossGroup: "own", showEmpty: false, children: "parent", sameTypeNesting: true };
 
 /** A run of trees inside a section: under a type heading, or all roots when type headings are off. */
 export interface BrowserBlock<E extends EntityInfo = EntityInfo> {
@@ -126,8 +132,22 @@ export function buildBrowser<E extends EntityInfo>(entities: E[], edges: Edge[],
 	const known = new Set(groups.map((g) => g.key));
 	const groupOf = (t: EntityTypeDef) => (known.has(t.group) ? t.group : "");
 	const sameGroupOnly = opts.sections === "groups" && opts.crossGroup === "own";
-	const parent = parentMap(entities, edges, sameGroupOnly ? (c, p) => groupOf(c.type) === groupOf(p.type) : undefined);
+	const inGroup = (c: E, p: E) => !sameGroupOnly || groupOf(c.type) === groupOf(p.type);
+	// Children under their own type: only a parent of the same type (when that nesting is on) holds a note.
+	const byType = opts.children === "type";
+	const parent = parentMap(entities, edges, byType ? (c, p) => opts.sameTypeNesting && c.type.key === p.type.key && inGroup(c, p) : sameGroupOnly ? inGroup : undefined);
 	const roots = buildForest(entities, parent, typeOrder);
+	// The parent each note isn't listed under (shown on hover).
+	if (byType) {
+		const byPath = new Map(entities.map((e) => [e.path, e]));
+		const real = parentMap(entities, edges, sameGroupOnly ? inGroup : undefined);
+		const note = (n: TreeNode<E>) => {
+			const p = real.get(n.entity.path);
+			if (p && p !== parent.get(n.entity.path)) n.parent = byPath.get(p);
+			n.children.forEach(note);
+		};
+		roots.forEach(note);
+	}
 
 	// Where each note is listed: under the heading of its tree's top-level type. A note whose top is of another type
 	// (a session under its campaign) is "nested" for its own type's heading.
@@ -189,7 +209,7 @@ export function filterForest<E extends EntityInfo>(roots: TreeNode<E>[], match: 
 		const kids = filterForest(node.children, match);
 		const hit = match(node.entity);
 		if (hit || kids.length > 0) {
-			out.push({ entity: node.entity, children: kids, size: kids.reduce((n, c) => n + 1 + c.size, 0), ...(hit ? {} : { context: true }) });
+			out.push({ entity: node.entity, children: kids, size: kids.reduce((n, c) => n + 1 + c.size, 0), ...(node.parent ? { parent: node.parent } : {}), ...(hit ? {} : { context: true }) });
 		}
 	}
 	return out;
