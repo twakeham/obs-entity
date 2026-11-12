@@ -23,7 +23,8 @@ import { Icon } from "./Icon";
 import { BOARD_ICON } from "../../model/board";
 import { CALENDAR_ICON, dateFields } from "../../model/calendarView";
 import { VIEW_KIND_ICON } from "../../model/views";
-import { cloneWorkflow, newTrigger, newWorkflow, noteless, scopeTypes, triggerText, TRIGGER_ICONS, TRIGGER_LABELS, WORKFLOW_CATEGORIES, workflowProblems, type WorkflowDef } from "../../model/workflows";
+import { buttonIcon, buttonLabel, cloneWorkflow, inScope, newTrigger, newWorkflow, noteless, onNotes, scopeTypes, triggerText, TRIGGER_ICONS, TRIGGER_LABELS, WORKFLOW_CATEGORIES, workflowProblems, type WorkflowDef } from "../../model/workflows";
+import { NotePickerModal } from "../modals/workflowModals";
 import { viewMatches, workflowMatches, type BrowserFilter } from "../../model/browserFilter";
 import { openTryRun } from "./workflows/TryRun";
 import { ConfirmModal } from "./types/TypeManager";
@@ -449,6 +450,24 @@ function WorkflowsSection({
 			return m.showAtMouseEvent(evt.nativeEvent);
 		}
 		m.addItem((i) => i.setSection("open").setTitle("Recent runs").setIcon("history").onClick(() => void plugin.activateWorkflows({ open: id, tab: "runs" })));
+		// Run it from here: a form that starts on its own opens its form; buttons and forms on notes pick a note first.
+		if (noteless(saved) || onNotes(saved)) {
+			const runnable = saved.on && !paused && !workflowProblems(saved, settings).length;
+			const why = !saved.on ? " (switch it on first)" : paused ? " (workflows are paused)" : !runnable ? " (fix its problems first)" : "";
+			m.addItem((i) => {
+				i.setSection("run")
+					.setTitle(`${noteless(saved) ? "Fill in the form…" : "Run on a note…"}${why}`)
+					.setIcon(buttonIcon(saved))
+					.onClick(() => {
+						if (!runnable) return;
+						if (noteless(saved)) return void plugin.runWorkflow(saved, []);
+						const notes = plugin.index.all().filter((e) => inScope(saved, e.type));
+						if (!notes.length) return void new Notice(saved.scope.length ? "There are no notes of these types to run it on." : "There are no notes to run it on.");
+						new NotePickerModal(plugin.app, notes, `Run “${buttonLabel(saved)}” on a note…`, (entity) => void plugin.runWorkflow(saved, [entity.path])).open();
+					});
+				if (!runnable) i.setDisabled(true);
+			});
+		}
 		m.addItem((i) => i.setSection("open").setTitle(noteless(wf) ? "Try it…" : "Try on a note…").setIcon("flask-conical").onClick(() => openTryRun(plugin, wf)));
 		// A workflow with problems can't be switched on until they're fixed (it couldn't run).
 		const blocked = !saved.on && workflowProblems(saved, settings).length > 0;

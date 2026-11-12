@@ -27,7 +27,7 @@ import { TYPES_VIEW, TypesView } from "./ui/views/TypesView";
 import type { GroupDraft, TypeDraft } from "./model/typeEditing";
 import { calcCell, emptyBoard, emptyView, fieldColumn, formatCell, resolveColumn, serializeView, sourceTypes, typeViewDef, type ViewContext, type ViewDef, type ViewKind, type ViewRow, columnFromId } from "./model/views";
 import { defaultBuckets } from "./model/board";
-import { BIG_RUN, buttonIcon, buttonLabel, inScope, noteless, onNotes, runsOnce, workflowProblems, type FormTrigger, type WorkflowDef } from "./model/workflows";
+import { BIG_RUN, buttonIcon, buttonLabel, formsFor, inScope, noteless, onNotes, runsOnce, workflowProblems, type FormTrigger, type WorkflowDef } from "./model/workflows";
 import { WorkflowEngine } from "./services/workflows";
 import { WORKFLOWS_VIEW, WorkflowsView } from "./ui/views/WorkflowsView";
 import type { WorkflowsRequest } from "./ui/react/workflows/WorkflowManager";
@@ -290,6 +290,7 @@ export default class EntitiesPlugin extends Plugin {
 
 	onunload(): void {
 		this.form?.unload();
+		this.clearWorkflowRibbon();
 	}
 
 	/** Re-place or remove the properties form in open notes (after its setting changes). */
@@ -671,6 +672,7 @@ export default class EntitiesPlugin extends Plugin {
 	/** One "Create <type>" command per type. Commands for deleted types become unavailable. */
 	private registerTypeCommands(): void {
 		this.registerWorkflowCommands();
+		this.syncWorkflowRibbon();
 		for (const type of this.settings.types) {
 			const id = `create-${type.key}`;
 			if (this.typeCommandIds.has(id)) continue;
@@ -687,6 +689,49 @@ export default class EntitiesPlugin extends Plugin {
 				},
 			});
 		}
+	}
+
+	/** Ribbon icons of forms set to have one, by workflow id: the icon element and what it shows (icon + title). */
+	private workflowRibbon = new Map<string, { el: HTMLElement; shows: string }>();
+
+	/**
+	 * An icon in the ribbon for each form that starts on its own, is on and is set to have one (`ribbon`); it opens the
+	 * form. Kept in step with the settings: added, re-made when its icon or title changes, removed when it's no longer
+	 * wanted. Each has a stable id (`obs-entities:workflow-<id>`), so where it's been moved to (or hidden) stays.
+	 */
+	private syncWorkflowRibbon(): void {
+		const ribbon = (this.app.workspace as unknown as { leftRibbon?: { addRibbonItemButton?: (id: string, icon: string, title: string, cb: (evt: MouseEvent) => unknown) => HTMLElement; removeRibbonAction?: (id: string) => void } }).leftRibbon;
+		const ribbonId = (id: string) => `${this.manifest.id}:workflow-${id}`;
+		const want = new Map(formsFor(this.settings.workflows, "ribbon").map((w) => [w.id, w]));
+		const showsOf = (w: WorkflowDef) => `${buttonIcon(w)}|${buttonLabel(w)}`;
+		for (const [id, r] of this.workflowRibbon) {
+			const w = want.get(id);
+			if (w && showsOf(w) === r.shows) continue;
+			r.el.detach();
+			ribbon?.removeRibbonAction?.(ribbonId(id));
+			this.workflowRibbon.delete(id);
+		}
+		for (const w of want.values()) {
+			if (this.workflowRibbon.has(w.id)) continue;
+			const id = w.id;
+			const run = () => {
+				const cur = this.settings.workflows.find((x) => x.id === id);
+				if (cur) void this.runWorkflow(cur, []);
+			};
+			const title = `Entities: ${buttonLabel(w)}`;
+			const el = ribbon?.addRibbonItemButton ? ribbon.addRibbonItemButton(ribbonId(id), buttonIcon(w), title, run) : this.addRibbonIcon(buttonIcon(w), title, run);
+			this.workflowRibbon.set(id, { el, shows: showsOf(w) });
+		}
+	}
+
+	/** Take the forms' ribbon icons away (the plugin is unloading). */
+	private clearWorkflowRibbon(): void {
+		const ribbon = (this.app.workspace as unknown as { leftRibbon?: { removeRibbonAction?: (id: string) => void } }).leftRibbon;
+		for (const [id, r] of this.workflowRibbon) {
+			r.el.detach();
+			ribbon?.removeRibbonAction?.(`${this.manifest.id}:workflow-${id}`);
+		}
+		this.workflowRibbon.clear();
 	}
 
 	/**

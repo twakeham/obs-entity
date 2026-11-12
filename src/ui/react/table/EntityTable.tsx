@@ -50,6 +50,7 @@ import { ConfirmModal } from "../types/TypeManager";
 import { PluginContext, usePlugin, useRelationsVersion } from "../context";
 import { HOVER_SOURCE } from "../EntityChip";
 import { Icon } from "../Icon";
+import { ToolbarForms } from "../workflows/ToolbarForms";
 import { CellEditor, CellView, editTarget } from "./cells";
 import { GroupValue } from "../EntityBits";
 import { summarize, summaryOptions, type SummaryResult } from "../../../model/summary";
@@ -1572,6 +1573,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 						)}
 						<ToolButton name="highlight" icon="highlighter" label="Highlight" count={(def.highlight ?? []).filter((r) => !r.off).length} active={pop?.name === "highlight"} onClick={openPop} />
 						<ToolButton name="columns" icon={isBoard || isCalendar ? "list" : "columns-3"} label={isBoard || isCalendar ? "Card fields" : "Columns"} count={0} active={pop?.name === "columns"} onClick={openPop} />
+						<ToolbarForms />
 						<button className="clickable-icon" aria-label="More options" onClick={moreMenu}>
 							<Icon name="more-horizontal" />
 						</button>

@@ -11,6 +11,7 @@ import {
 	answerTexts,
 	formAnswers,
 	formType,
+	formsFor,
 	isFormType,
 	newWorkflow,
 	NO_NOTE_FORM,
@@ -83,6 +84,19 @@ describe("form workflows", () => {
 		expect(onNotes({ ...w, scope: ["session"] })).toBe(true);
 		expect(triggerText(w, TYPES)).toBe("Form: Log session");
 		expect(triggerText({ ...w, scope: ["session"] }, TYPES)).toBe("Form: Log session (on sessions)");
+	});
+
+	it("offer forms that start on their own in the ribbon and on toolbars, when on and set to", () => {
+		const [a, b, c, d] = readWorkflows([
+			{ ...form({ id: "a" }), ribbon: true, toolbar: true },
+			{ ...form({ id: "b", on: false }), ribbon: true },
+			{ ...form({ id: "c", scope: ["campaign"] }), ribbon: true, toolbar: true },
+			{ ...form({ id: "d" }), toolbar: "yes" },
+		]);
+		expect(a).toMatchObject({ ribbon: true, toolbar: true });
+		expect(d.toolbar).toBeUndefined();
+		expect(formsFor([a, b, c, d], "ribbon").map((w) => w.id)).toEqual(["a"]);
+		expect(formsFor([a, b, c, d], "toolbar").map((w) => w.id)).toEqual(["a"]);
 	});
 
 	it("follow a renamed answer into every step's formulas and texts", () => {

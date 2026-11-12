@@ -121,6 +121,9 @@ export const noteless = (wf: Pick<WorkflowDef, "trigger" | "scope">): boolean =>
 /** Workflows started by someone on notes: buttons, and form workflows with types. */
 export const onNotes = (wf: Pick<WorkflowDef, "trigger" | "scope">): boolean => wf.trigger.kind === "manual" || (wf.trigger.kind === "form" && wf.scope.length > 0);
 
+/** Forms that start on their own, switched on and set to show in a place (the ribbon, views' toolbars). */
+export const formsFor = (all: WorkflowDef[], place: "ribbon" | "toolbar"): WorkflowDef[] => all.filter((w) => w.on && w[place] && noteless(w));
+
 /** Why a step can't act on (or read) "this note" in a run for a whole selection. */
 export const NO_NOTE = "A run for the whole selection has no single note: put this inside a For each over [Selected notes], or make it act on a note an earlier step creates.";
 /** Why a step can't act on "this note" in a form workflow that starts on its own. */
@@ -198,6 +201,10 @@ export interface WorkflowDef {
 	isolated?: true;
 	/** a command of its own (buttons and forms), so it can have a hotkey */
 	command?: true;
+	/** a form that starts on its own: an icon of its own in the ribbon */
+	ribbon?: true;
+	/** a form that starts on its own: offered on views' toolbars */
+	toolbar?: true;
 }
 
 export const TRIGGER_LABELS: Record<TriggerKind, string> = { created: "When a note is created", changed: "When a field changes", manual: "Run on notes", form: "Fill in a form", schedule: "On a schedule", date: "On a date" };
@@ -426,6 +433,8 @@ export function readWorkflows(raw: unknown, types?: EntityTypeDef[]): WorkflowDe
 			steps: readSteps(w.steps),
 			...(w.isolated === true ? { isolated: true as const } : {}),
 			...(w.command === true ? { command: true as const } : {}),
+			...(w.ribbon === true ? { ribbon: true as const } : {}),
+			...(w.toolbar === true ? { toolbar: true as const } : {}),
 		});
 	}
 	if (types)

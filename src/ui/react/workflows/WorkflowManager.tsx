@@ -797,6 +797,16 @@ function WorkflowEditor({
 								<Toggle label="Its own command" value={!!wf.command} onChange={(v) => edit((x) => (v ? (x.command = true) : delete x.command))} />
 							</Row>
 						)}
+						{noteless(wf) && (
+							<>
+								<Row label="Ribbon icon" desc="An icon of its own in the ribbon on the left, which opens the form.">
+									<Toggle label="Ribbon icon" value={!!wf.ribbon} onChange={(v) => edit((x) => (v ? (x.ribbon = true) : delete x.ribbon))} />
+								</Row>
+								<Row label="On view toolbars" desc="A button on the toolbar of every table, board and calendar view (several forms share a Forms menu).">
+									<Toggle label="On view toolbars" value={!!wf.toolbar} onChange={(v) => edit((x) => (v ? (x.toolbar = true) : delete x.toolbar))} />
+								</Row>
+							</>
+						)}
 						{t.kind === "schedule" && (
 							<>
 								<Row label="Every">
