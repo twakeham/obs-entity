@@ -23,7 +23,7 @@ import { Icon } from "./Icon";
 import { BOARD_ICON } from "../../model/board";
 import { CALENDAR_ICON, dateFields } from "../../model/calendarView";
 import { VIEW_KIND_ICON } from "../../model/views";
-import { cloneWorkflow, newWorkflow, noteless, scopeTypes, triggerText, TRIGGER_ICONS, WORKFLOW_CATEGORIES, workflowProblems, type WorkflowDef } from "../../model/workflows";
+import { cloneWorkflow, newTrigger, newWorkflow, noteless, scopeTypes, triggerText, TRIGGER_ICONS, TRIGGER_LABELS, WORKFLOW_CATEGORIES, workflowProblems, type WorkflowDef } from "../../model/workflows";
 import { viewMatches, workflowMatches, type BrowserFilter } from "../../model/browserFilter";
 import { openTryRun } from "./workflows/TryRun";
 import { ConfirmModal } from "./types/TypeManager";
@@ -525,6 +525,18 @@ function WorkflowsSection({
 								className="oe-bblock-header"
 								onToggle={() => toggleHeading(key)}
 								addLabel=""
+								onMenu={(evt) => {
+									// A new workflow of this category's kind (Scheduled: on a schedule, or on a date).
+									const m = new Menu();
+									for (const k of c.kinds)
+										m.addItem((i) =>
+											i
+												.setTitle(`New workflow: ${TRIGGER_LABELS[k]}`)
+												.setIcon(TRIGGER_ICONS[k])
+												.onClick(() => plugin.openWorkflowDraft({ ...newWorkflow([], newTrigger(k)), name: "" })),
+										);
+									m.showAtMouseEvent(evt.nativeEvent);
+								}}
 							/>
 							{catOpen && !items.length && (
 								<div className="oe-tree-empty" style={{ paddingLeft: `${2 * INDENT + 22}px` }}>

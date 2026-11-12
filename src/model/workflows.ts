@@ -244,6 +244,24 @@ export function newWorkflow(scope: string[] = [], trigger: WorkflowTrigger = { k
 	return { id: newWorkflowId(), name: "New workflow", on: true, scope, trigger, when: { mode: "all", items: [] }, steps: [] };
 }
 
+/** A new trigger of a kind, with its usual starting options (a button's label is its workflow's name until one is set). */
+export function newTrigger(kind: TriggerKind): WorkflowTrigger {
+	switch (kind) {
+		case "created":
+			return { kind };
+		case "changed":
+			return { kind, field: COMMON_KEYS.status };
+		case "manual":
+			return { kind };
+		case "form":
+			return { kind, title: "", button: "", fields: [] };
+		case "schedule":
+			return { kind, every: "day", at: DEFAULT_AT, day: 1, hours: 4, limit: DEFAULT_LIMIT };
+		case "date":
+			return { kind, field: "", offset: 0, at: DEFAULT_AT, limit: DEFAULT_LIMIT };
+	}
+}
+
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const str = (v: unknown) => (typeof v === "string" ? v : "");
 const strList = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
@@ -2143,7 +2161,7 @@ export function triggerText(wf: WorkflowDef, types: EntityTypeDef[]): string {
 		case "manual":
 			return `Button: ${t.label || wf.name}${t.selection === "once" ? " (once for the selection)" : ""}`;
 		case "form":
-			return `Form: ${t.title.trim() || wf.name}${wf.scope.length ? ` (on ${scope.length === 1 ? (scope[0].plural || scope[0].name).toLowerCase() : "notes"})` : ""}`;
+			return `Form: ${t.title.trim() || wf.name || "untitled"}${wf.scope.length ? ` (on ${scope.length === 1 ? (scope[0].plural || scope[0].name).toLowerCase() : "notes"})` : ""}`;
 		case "schedule": {
 			if (t.every === "hours") return t.hours === 1 ? "Every hour" : `Every ${t.hours} hours`;
 			return t.every === "day" ? `Every day at ${t.at}` : `Every ${WEEKDAYS[t.day] ?? "week"} at ${t.at}`;

@@ -30,6 +30,7 @@ import {
 	fixedFromFormula,
 	formulaFromFixed,
 	newWorkflow,
+	newTrigger,
 	parseTemplate,
 	passesWhen,
 	readWorkflows,
@@ -105,6 +106,14 @@ describe("workflow definitions", () => {
 		expect(ws[0].steps).toEqual([{ kind: "set", field: "completed", value: "today()" }]);
 		expect(ws[1].id).not.toBe("a");
 		expect(ws[1]).toMatchObject({ name: "Workflow", on: false, scope: [], trigger: { kind: "manual", label: "Go" } });
+	});
+
+	it("start a new trigger of each kind, as saved workflows read it back", () => {
+		for (const kind of ["created", "changed", "manual", "form", "schedule", "date"] as const) {
+			const t = newTrigger(kind);
+			expect(t.kind).toBe(kind);
+			expect(readWorkflows([{ ...newWorkflow([], t) }])[0].trigger).toEqual(t);
+		}
 	});
 
 	it("list the fields a workflow can use: status, the scoped types' stored fields, tags", () => {
