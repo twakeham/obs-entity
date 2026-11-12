@@ -155,6 +155,11 @@ export const RESERVED_KEYS: ReadonlySet<string> = new Set(Object.values(COMMON_K
 
 export const DEFAULT_STATUSES = ["draft", "active", "done"];
 
+/** The key of the stand-in type a workflow's form is edited and shown as (no real type's key starts with "@"). */
+export const FORM_TYPE_KEY = "@form";
+/** Whether a type is a workflow's form (fields and a layout only: no notes, status, tags or note items). */
+export const isFormType = (t: Pick<EntityTypeDef, "key">): boolean => t.key === FORM_TYPE_KEY;
+
 export function typeMatchesTarget(type: EntityTypeDef, targets: RelationTarget[] | undefined): boolean {
 	if (!targets || targets.length === 0) return true;
 	return targets.some((t) => t === "*" || t === type.key || t === `@${type.group}`);

@@ -23,7 +23,7 @@ import { Icon } from "./Icon";
 import { BOARD_ICON } from "../../model/board";
 import { CALENDAR_ICON, dateFields } from "../../model/calendarView";
 import { VIEW_KIND_ICON } from "../../model/views";
-import { cloneWorkflow, newWorkflow, scopeTypes, triggerText, TRIGGER_ICONS, WORKFLOW_CATEGORIES, workflowProblems, type WorkflowDef } from "../../model/workflows";
+import { cloneWorkflow, newWorkflow, noteless, scopeTypes, triggerText, TRIGGER_ICONS, WORKFLOW_CATEGORIES, workflowProblems, type WorkflowDef } from "../../model/workflows";
 import { viewMatches, workflowMatches, type BrowserFilter } from "../../model/browserFilter";
 import { openTryRun } from "./workflows/TryRun";
 import { ConfirmModal } from "./types/TypeManager";
@@ -449,7 +449,7 @@ function WorkflowsSection({
 			return m.showAtMouseEvent(evt.nativeEvent);
 		}
 		m.addItem((i) => i.setSection("open").setTitle("Recent runs").setIcon("history").onClick(() => void plugin.activateWorkflows({ open: id, tab: "runs" })));
-		m.addItem((i) => i.setSection("open").setTitle("Try on a note…").setIcon("flask-conical").onClick(() => openTryRun(plugin, wf)));
+		m.addItem((i) => i.setSection("open").setTitle(noteless(wf) ? "Try it…" : "Try on a note…").setIcon("flask-conical").onClick(() => openTryRun(plugin, wf)));
 		// A workflow with problems can't be switched on until they're fixed (it couldn't run).
 		const blocked = !saved.on && workflowProblems(saved, settings).length > 0;
 		m.addItem((i) => {

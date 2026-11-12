@@ -7782,6 +7782,15 @@ button.oe-calv-more:hover {
 	margin-top: var(--size-4-1);
 }
 
+/* A form workflow's own problems (answer names), above its fields. */
+.oe-wf-form-body > .oe-wf-form-issues {
+	margin-bottom: var(--size-4-3);
+}
+
+.oe-wf-run-note.is-form {
+	font-weight: var(--font-semibold);
+}
+
 .oe-wf-try-add > .oe-tm-muted {
 	display: flex;
 	align-items: center;

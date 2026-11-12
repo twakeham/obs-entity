@@ -27,6 +27,13 @@ export interface EditorApi {
 	noteCount: number;
 	/** example note used by previews */
 	sample: SampleNote;
+	/**
+	 * Editing a workflow's form ("Fill in a form"), not a type: only what a form has (no calculated fields, reverse
+	 * links, unique values, auto numbers, linked-note defaults, built-in properties, note items or create-dialog options).
+	 */
+	form?: true;
+	/** what the Layout tab's undo history is kept under (unset: the type's key); each workflow's form has its own */
+	historyId?: string;
 }
 
 /** The sample as an entity of the draft type, for reusing card and picker logic. */

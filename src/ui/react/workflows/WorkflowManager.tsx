@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEven
 import { statusUnion } from "../../../model/bulk";
 import { statusColorAmong, type ColorMap } from "../../../model/colors";
 import { todayDays } from "../../../model/formConditions";
-import { COMMON_KEYS, isListValued, typeMatchesTarget, type EntityTypeDef, type GroupDef } from "../../../model/types";
+import { cloneType, COMMON_KEYS, isListValued, typeMatchesTarget, type EntityTypeDef, type GroupDef } from "../../../model/types";
 import { availableColumns, compileFormula, resolveColumn, type ColumnDef, type VarSpec, type ViewDef, type ViewRow } from "../../../model/views";
 import {
 	cloneWorkflow,
@@ -50,6 +50,12 @@ import {
 	workflowDef,
 	workflowFields,
 	workflowProblems,
+	NO_NOTE_FORMULA_FORM,
+	buttonLabel,
+	formTypeIssues,
+	formType,
+	noteless,
+	type FormTrigger,
 	type CreateField,
 	type CreateLink,
 	type FixedValue,
@@ -73,11 +79,68 @@ import { ChoiceControl } from "../EntityForm";
 import { DateBox, FiltersPanel, LinkValues, type ColumnChoice } from "../table/popovers";
 import { ConfirmModal, SaveActions } from "../types/TypeManager";
 import { IconPicker, Row, Section, Segmented, TargetPicker, TextInput, Toggle, type SectionCollapse } from "../types/controls";
+import { EditorContext, type EditorApi } from "../types/editor";
+import { FieldsTab } from "../types/FieldsTab";
+import { LayoutTab } from "../types/LayoutTab";
+import { newUid, type FieldMeta, type SampleNote, type TypeDraft } from "../../../model/typeEditing";
 import { openTryRun } from "./TryRun";
 import { FolderPickerModal, NotePathPickerModal } from "../../modals/bulkModals";
 
-/** The workflow editor's tabs: the workflow itself, and its recent runs. */
-export type WorkflowTab = "edit" | "runs";
+/** The workflow editor's tabs: the workflow itself, a form's fields and layout ("Fill in a form"), and its recent runs. */
+export type WorkflowTab = "edit" | "fields" | "layout" | "runs";
+
+/**
+ * The type editor's context for a workflow's form: its fields and layout as a type (`formType`), so the type editor's
+ * Fields and Layout tabs edit it (in form mode). Null when the workflow isn't a form. Edits go to the workflow's draft,
+ * one after another (several in one event build on each other).
+ */
+function useFormEditor(wf: WorkflowDef, setDraft: (wf: WorkflowDef) => void, setTab: (tab: WorkflowTab) => void): EditorApi | null {
+	const plugin = usePlugin();
+	const settings = plugin.settings;
+	const [fieldUid, setFieldUid] = useState<string | null>(null);
+	const latest = useRef(wf);
+	latest.current = wf;
+	const meta = useRef<FieldMeta[]>([]);
+	const t = wf.trigger.kind === "form" ? wf.trigger : null;
+	const issues = useMemo(() => (t ? formTypeIssues(t, settings) : []), [t, settings.types, settings.groups]); // eslint-disable-line react-hooks/exhaustive-deps
+	const sample: SampleNote = useMemo(() => ({ path: null, name: t?.title || "the form", status: "", frontmatter: {}, fromNote: false }), [t?.title]);
+	if (!t) return null;
+	// One bookkeeping entry per field (stable ids for the list and selection).
+	if (meta.current.length !== t.fields.length) meta.current = t.fields.map((_, i) => meta.current[i] ?? { uid: newUid(), origKey: null });
+	const draft: TypeDraft = { type: formType(t), original: null, meta: meta.current };
+	const update = (fn: (type: EntityTypeDef, meta: FieldMeta[]) => void) => {
+		const cur = latest.current;
+		if (cur.trigger.kind !== "form") return;
+		const type = cloneType(formType(cur.trigger));
+		const m = meta.current.map((x) => ({ ...x }));
+		fn(type, m);
+		meta.current = m;
+		const next = cloneWorkflow(cur);
+		const tr = next.trigger as FormTrigger;
+		tr.fields = type.fields;
+		if (type.form?.layout) tr.layout = type.form.layout;
+		else delete tr.layout;
+		latest.current = next;
+		setDraft(next);
+	};
+	return {
+		draft,
+		update,
+		issues,
+		issuesAt: (at) => issues.filter((i) => i.at === at),
+		allTypes: settings.types,
+		groups: settings.groups,
+		openType: (key) => void plugin.activateTypes(key),
+		openGroup: () => void plugin.activateTypes(),
+		fieldUid,
+		setFieldUid,
+		setTab: (tab) => setTab(tab === "layout" ? "layout" : "fields"),
+		noteCount: 0,
+		sample,
+		form: true,
+		historyId: `workflow-form:${wf.id}`,
+	};
+}
 
 export interface WorkflowsState {
 	/** a workflow id, "new:<n>" for an unsaved one, "runs" for Recent runs, or null */
@@ -102,6 +165,7 @@ const TRIGGER_OPTIONS: { value: TriggerKind; label: string; icon: string }[] = [
 	{ value: "changed", label: "Field changes", icon: "pencil" },
 	{ value: "created", label: "Note created", icon: "file-plus" },
 	{ value: "manual", label: "Run on notes", icon: "mouse-pointer-click" },
+	{ value: "form", label: "Form", icon: "clipboard-list" },
 	{ value: "schedule", label: "Schedule", icon: "clock" },
 	{ value: "date", label: "Date reached", icon: "calendar-clock" },
 ];
@@ -316,8 +380,9 @@ function WorkflowEditor({
 }) {
 	const plugin = usePlugin();
 	const settings = plugin.settings;
-	// A new workflow hasn't run: it only has the editor.
-	const tab: WorkflowTab = isNew ? "edit" : wantTab;
+	// A new workflow hasn't run: no Recent runs. Only a form has fields and a layout.
+	const isForm = wf.trigger.kind === "form";
+	const tab: WorkflowTab = (isNew && wantTab === "runs") || (!isForm && (wantTab === "fields" || wantTab === "layout")) ? "edit" : wantTab;
 	const lookup = { types: settings.types, groups: settings.groups };
 	const dirty = isNew || (!!saved && !sameJson(wf, saved));
 	const [attempted, setAttempted] = useState(false);
@@ -327,6 +392,7 @@ function WorkflowEditor({
 		setDraft(next);
 	};
 	const problems = workflowProblems(wf, { ...lookup, workflows: settings.workflows });
+	const formApi = useFormEditor(wf, setDraft, setTab);
 	// A new workflow isn't nagged about what it hasn't got yet until Save is tried.
 	const shownProblems = attempted || !isNew ? problems : problems.filter((p) => p.at !== "name" && p.at !== "steps" && p.at !== "scope");
 	const at = (k: string) => shownProblems.filter((p) => p.at === k);
@@ -360,7 +426,7 @@ function WorkflowEditor({
 		const m = new Menu();
 		m.addItem((i) =>
 			i
-				.setTitle("Try on a note…")
+				.setTitle(noteless(wf) ? "Try it…" : "Try on a note…")
 				.setIcon("flask-conical")
 				.onClick(() => openTryRun(plugin, wf)),
 		);
@@ -395,7 +461,9 @@ function WorkflowEditor({
 							? { kind, every: "day", day: 1, hours: 4, ...keep }
 							: kind === "date"
 								? { kind, field: dateFields[0]?.key ?? "", offset: 0, ...keep }
-								: { kind, label: x.name || "Run" };
+								: kind === "form"
+									? { kind, title: x.name || "", button: "", fields: [] }
+									: { kind, label: x.name || "Run" };
 		});
 	const watched = t.kind === "changed" ? fields.find((f) => f.key === t.field) : undefined;
 	const valueChoices = (f: WorkflowField | undefined): { value: string; label: string }[] => {
@@ -466,7 +534,7 @@ function WorkflowEditor({
 							<SaveActions
 								label={isNew ? "New workflow, not saved yet" : "Unsaved changes"}
 								problems={attempted ? problems.length : 0}
-								onProblems={() => (setAttempted(true), setTab("edit"), unfoldProblems())}
+								onProblems={() => (setAttempted(true), setTab(problems[0]?.at === "form" ? "fields" : "edit"), unfoldProblems())}
 								onDiscard={onDiscarded}
 								onSave={() => {
 									setAttempted(true);
@@ -483,7 +551,7 @@ function WorkflowEditor({
 							<Toggle label={wf.on ? "Workflow on" : "Workflow off"} value={wf.on} disabled={!wf.on && problems.length > 0} onChange={(v) => edit((x) => (x.on = v))} />
 							{wf.on ? "On" : "Off"}
 						</span>
-						<button className="clickable-icon" aria-label="Try on a note… (writes nothing)" onClick={() => openTryRun(plugin, wf)}>
+						<button className="clickable-icon" aria-label={noteless(wf) ? "Try it… (writes nothing)" : "Try on a note… (writes nothing)"} onClick={() => openTryRun(plugin, wf)}>
 							<Icon name="flask-conical" />
 						</button>
 						<button className="clickable-icon" aria-label="Workflow options" onClick={menu}>
@@ -495,8 +563,23 @@ function WorkflowEditor({
 					<button role="tab" aria-selected={tab === "edit"} data-tab="edit" className={`oe-tm-tab${tab === "edit" ? " is-active" : ""}`} onClick={() => setTab("edit")}>
 						<Icon name="pencil-ruler" />
 						Editor
-						{shownProblems.length > 0 && <Icon name="alert-circle" className="oe-tm-issue-dot" />}
+						{shownProblems.some((p) => p.at !== "form") && <Icon name="alert-circle" className="oe-tm-issue-dot" />}
 					</button>
+					{formApi && (
+						<button role="tab" aria-selected={tab === "fields"} data-tab="fields" className={`oe-tm-tab${tab === "fields" ? " is-active" : ""}`} onClick={() => setTab("fields")}>
+							<Icon name="text-cursor-input" />
+							Form fields
+							<span className="oe-tm-tabcount">{formApi.draft.type.fields.length}</span>
+							{formApi.issues.some((i) => i.at.startsWith("field:")) && <Icon name="alert-circle" className="oe-tm-issue-dot" />}
+						</button>
+					)}
+					{formApi && (
+						<button role="tab" aria-selected={tab === "layout"} data-tab="layout" className={`oe-tm-tab${tab === "layout" ? " is-active" : ""}`} onClick={() => setTab("layout")}>
+							<Icon name="layout-dashboard" />
+							Form layout
+							{formApi.issues.some((i) => i.at === "form:layout") && <Icon name="alert-circle" className="oe-tm-issue-dot" />}
+						</button>
+					)}
 					{!isNew && (
 						<button role="tab" aria-selected={tab === "runs"} data-tab="runs" className={`oe-tm-tab${tab === "runs" ? " is-active" : ""}`} onClick={() => setTab("runs")}>
 							<Icon name="history" />
@@ -506,7 +589,24 @@ function WorkflowEditor({
 					)}
 				</nav>
 			</header>
-			{tab === "runs" ? (
+			{formApi && (tab === "fields" || tab === "layout") ? (
+				<EditorContext.Provider value={formApi}>
+					<div className={`oe-tm-body is-${tab} oe-wf-form-body`}>
+						{tab === "fields" && at("form").some((p) => !formApi.issues.some((i) => i.message === p.message)) && (
+							<div className="oe-wf-form-issues">
+								{at("form")
+									.filter((p) => !formApi.issues.some((i) => i.message === p.message))
+									.map((p, i) => (
+										<div key={i} className="oe-tm-issue">
+											<Icon name="alert-circle" /> {p.message}
+										</div>
+									))}
+							</div>
+						)}
+						{tab === "fields" ? <FieldsTab /> : <LayoutTab />}
+					</div>
+				</EditorContext.Provider>
+			) : tab === "runs" ? (
 				<div className="oe-tm-body is-runs">
 					<div className="oe-tm-muted oe-wf-runs-intro">
 						{runs.length ? `Its last ${plural(runs.length, "run")}, newest first (Recent runs, on the Workflows heading's right-click menu in the Entity Browser, keeps the last 200 of every workflow).` : "It hasn't run yet."} Undo puts back what a run changed, while its notes haven't changed since.
@@ -524,7 +624,18 @@ function WorkflowEditor({
 						<Row label="Name" issues={at("name")}>
 							<TextInput label="Workflow name" value={wf.name} placeholder="e.g. Completed date" autoFocus={isNew && !wf.name} invalid={at("name").length > 0} onChange={(v) => edit((x) => (x.name = v))} />
 						</Row>
-						<Row label="Applies to" desc={needsScope(t.kind) ? "The types of note it watches." : "The types of note it can be run on. Leave empty for any note."} issues={at("scope")} stacked>
+						<Row
+							label="Applies to"
+							desc={
+								needsScope(t.kind)
+									? "The types of note it watches."
+									: t.kind === "form"
+										? "Empty: the form starts on its own, with no note. With types: it's a button on those notes."
+										: "The types of note it can be run on. Leave empty for any note."
+							}
+							issues={at("scope")}
+							stacked
+						>
 							<TargetPicker values={wf.scope} types={settings.types} groups={settings.groups} invalid={at("scope").length > 0} onChange={(v) => edit((x) => (x.scope = v.filter((s) => s !== "*")))} />
 						</Row>
 						<Row
@@ -611,6 +722,39 @@ function WorkflowEditor({
 								</Row>
 							</>
 						)}
+						{t.kind === "form" && (
+							<>
+								<Row label="Title" desc="At the top of the form, and in the command palette (Fill in a form…).">
+									<div className="oe-wf-button-row">
+										<IconPicker value={t.icon ?? ""} color="var(--text-muted)" empty="clipboard-list" onChange={(v) => edit((x) => x.trigger.kind === "form" && (v ? (x.trigger.icon = v) : delete x.trigger.icon))} />
+										<TextInput label="Form title" value={t.title} placeholder={wf.name || "e.g. Log session"} onChange={(v) => edit((x) => x.trigger.kind === "form" && (x.trigger.title = v))} />
+									</div>
+								</Row>
+								<Row label="Button" desc="The button that sends the form.">
+									<TextInput label="Send button" value={t.button} placeholder="Run" onChange={(v) => edit((x) => x.trigger.kind === "form" && (x.trigger.button = v))} />
+								</Row>
+								<Row label="The form" desc={t.fields.length ? `${plural(t.fields.length, "field")}: ${t.fields.map((f) => f.label || f.key).join(", ")}. Steps use each answer by its label, e.g. [${t.fields[0].label || "Date"}].` : "No fields yet: it runs straight away. Add them on the Form fields tab."}>
+									<span className="oe-wf-inline">
+										<button onClick={() => setTab("fields")}>
+											<Icon name="text-cursor-input" /> Form fields
+										</button>
+										<button onClick={() => setTab("layout")}>
+											<Icon name="layout-dashboard" /> Form layout
+										</button>
+									</span>
+								</Row>
+								<div className="oe-wf-help">
+									{wf.scope.length
+										? "It runs on notes of these types, like a button: on their properties form, the ⋯ menu, tables' row menus and selection bar, and Run workflow on this note…. It asks the form first (once for all the selected notes)."
+										: "With no types (Applies to) it starts on its own, with no note: from the command palette (Fill in a form…). Steps act on notes the form picks, or ones they create or find."}
+								</div>
+							</>
+						)}
+						{(t.kind === "manual" || t.kind === "form") && (
+							<Row label="Command" desc={`Its own command in the command palette (“Workflow: ${buttonLabel(wf)}”), so it can have a hotkey.${t.kind === "manual" || wf.scope.length ? " It runs on the note that's open." : ""}`}>
+								<Toggle label="Its own command" value={!!wf.command} onChange={(v) => edit((x) => (v ? (x.command = true) : delete x.command))} />
+							</Row>
+						)}
 						{t.kind === "schedule" && (
 							<>
 								<Row label="Every">
@@ -687,16 +831,19 @@ function WorkflowEditor({
 						)}
 					</Section>
 
+					{(!noteless(wf) || wf.when.items.length > 0) && (
 					<Section
 						title="Only if"
 						icon="filter"
 						className="oe-wf-panel is-only-if"
 						desc={
-							isTimed(t)
-								? "Conditions on each note when it runs. None: every note of these types."
-								: runsOnce(wf)
-									? `Conditions on each selected note: those that don't match are left out of [${SELECTION_VAR}]. None: every selected note of these types.`
-									: "Conditions on the note, after the change. None: it always runs."
+							noteless(wf)
+								? "A form that starts on its own has no note to check: remove these conditions (an If step can test the answers)."
+								: isTimed(t)
+									? "Conditions on each note when it runs. None: every note of these types."
+									: runsOnce(wf)
+										? `Conditions on each selected note: those that don't match are left out of [${SELECTION_VAR}]. None: every selected note of these types.`
+										: "Conditions on the note, after the change. None: it always runs."
 						}
 						collapse={fold("only-if", conditionCount ? `${plural(conditionCount, "condition")}${wf.when.items.length > 1 ? (wf.when.mode === "all" ? ", all must match" : ", any can match") : ""}` : "No conditions: it always runs.")}
 					>
@@ -709,6 +856,7 @@ function WorkflowEditor({
 							<FiltersPanel filters={wf.when} choices={choices} ctx={ctx} valuesOf={valuesOf} heading="Run only for notes that match" emptyText="No conditions: it runs for every note." onChange={(g) => edit((x) => (x.when = g))} />
 						</div>
 					</Section>
+					)}
 
 					<Section
 						title="Do"
@@ -910,7 +1058,7 @@ function blankStep(kind: StepKind, wf: WorkflowDef, sc: StepScope, workflows: Wo
 		}
 		case "each":
 			// Once for the selection: a loop over the selected notes, of the workflow's type when it has one.
-			if (sc.noNote && !sc.loop) return { kind, formula: `[${SELECTION_VAR}]`, items: "notes", itemType: sc.types.length === 1 ? sc.types[0].key : "", when: { mode: "all", items: [] }, as: uniqueName(sc.types.length === 1 ? sc.types[0].name : "Note", used), steps: [] };
+			if (sc.noNote && !sc.loop && sc.vars.some((v) => v.role === "selection")) return { kind, formula: `[${SELECTION_VAR}]`, items: "notes", itemType: sc.types.length === 1 ? sc.types[0].key : "", when: { mode: "all", items: [] }, as: uniqueName(sc.types.length === 1 ? sc.types[0].name : "Note", used), steps: [] };
 			return { kind, formula: "", items: "values", itemType: "", when: { mode: "all", items: [] }, as: uniqueName("Item", used), steps: [] };
 	}
 }
@@ -1120,10 +1268,21 @@ function StepCard({
 				<select className="dropdown oe-pop-select" aria-label="On" value={on ?? ""} onChange={(e) => changeOn(e.target.value)}>
 					<option value="">{sc.defaultLabel}</option>
 					{onChoices.some((o) => o.value === ON_THIS) && <option value={ON_THIS}>This note</option>}
-					{onChoices.some((o) => o.value !== ON_THIS && !o.made && !o.found) && (
+					{onChoices.some((o) => o.value !== ON_THIS && !o.made && !o.found && !o.answer) && (
 						<optgroup label="Loops this is inside">
 							{onChoices
-								.filter((o) => o.value !== ON_THIS && !o.made && !o.found)
+								.filter((o) => o.value !== ON_THIS && !o.made && !o.found && !o.answer)
+								.map((o) => (
+									<option key={o.value} value={o.value}>
+										{o.label}
+									</option>
+								))}
+						</optgroup>
+					)}
+					{onChoices.some((o) => o.answer) && (
+						<optgroup label="Picked on the form">
+							{onChoices
+								.filter((o) => o.answer)
 								.map((o) => (
 									<option key={o.value} value={o.value}>
 										{o.label}
@@ -1940,7 +2099,8 @@ function CreateBody({ wf, sc, step, onChange }: { wf: WorkflowDef; sc: StepScope
 	const links = createLinkOptions({ scope: sc.scope }, step.type, types);
 	const set = (patch: Partial<CreateStep>) => onChange({ ...step, ...patch });
 	const typeName = type?.name.toLowerCase() ?? "note";
-	const which = sc.loop === "notes" ? sc.defaultLabel.replace(/^Each /, "the ") : sc.noNote ? "the selected notes" : "this note";
+	const selection = sc.vars.some((v) => v.role === "selection");
+	const which = sc.loop === "notes" ? sc.defaultLabel.replace(/^Each /, "the ") : sc.noNote ? (selection ? "the selected notes" : "the form's answers") : "this note";
 	const setType = (key: string) => {
 		const t = types.find((x) => x.key === key);
 		// Another kind of note: its fields, link, folder and body start again (not linked).
@@ -2046,7 +2206,11 @@ function CreateBody({ wf, sc, step, onChange }: { wf: WorkflowDef; sc: StepScope
 				formRow(
 					"Link",
 					sc.noNote && !step.link ? (
-						<span className="oe-tm-muted">No single note to link it to here: link the selected notes to it inside a For each over [{SELECTION_VAR}] (Add or remove a link, to [{step.as.trim() || "the new note"}]).</span>
+						selection ? (
+							<span className="oe-tm-muted">No single note to link it to here: link the selected notes to it inside a For each over [{SELECTION_VAR}] (Add or remove a link, to [{step.as.trim() || "the new note"}]).</span>
+						) : (
+							<span className="oe-tm-muted">The form has no note to link it to: set its link fields under Fields (e.g. to [Campaign], a note the form picks), or add a link to it on that note (Add or remove a link, On the note).</span>
+						)
 					) : (
 						<select
 							className="dropdown oe-pop-select oe-wf-create-link"
@@ -2424,7 +2588,8 @@ function FormulaBox({
 			if (template) {
 				for (const p of parseTemplate(value)) if ("formula" in p) compileFormula(p.formula, def, lookup, { workflow: true, vars });
 			} else compileFormula(value, def, lookup, { workflow: true, vars });
-			if (sc.noNote && readsNote(value, def, lookup, vars, template)) error = "There's no single note here, so a formula can't read its fields: use [Selected notes], or a note an earlier step creates.";
+			if (sc.noNote && readsNote(value, def, lookup, vars, template))
+				error = sc.vars.some((v) => v.role === "selection") ? "There's no single note here, so a formula can't read its fields: use [Selected notes], or a note an earlier step creates." : NO_NOTE_FORMULA_FORM;
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
 		}
@@ -2526,6 +2691,8 @@ function RunList({ runs, showWorkflow, empty = "No runs yet." }: { runs: RunReco
 								<span className="oe-wf-run-note is-selection" title={r.selection.map((p) => (p.split("/").pop() ?? p).replace(/\.md$/, "")).join(", ")}>
 									{r.note}
 								</span>
+							) : !r.path ? (
+								<span className="oe-wf-run-note is-form">{r.note}</span>
 							) : (
 								<NoteLink path={now(r.path)} name={r.note} />
 							)}

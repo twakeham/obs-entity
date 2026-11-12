@@ -1,4 +1,4 @@
-import { COMMON_KEYS, type EntityTypeDef } from "./types";
+import { COMMON_KEYS, isFormType, type EntityTypeDef } from "./types";
 import { columnFromId, fieldColumn } from "./views";
 
 /**
@@ -329,6 +329,8 @@ export function slotHelp(slot: LayoutField | undefined, description: string | un
  * and the buttons of its button workflows (`buttons`: their ids).
  */
 export function placeableKeys(type: EntityTypeDef, buttons: string[] = []): string[] {
+	// A workflow's form: its fields only.
+	if (isFormType(type)) return type.fields.map((f) => f.key);
 	const builtins = LAYOUT_BUILTINS.filter((k) => k !== COMMON_KEYS.order || !!type.parentFields?.length);
 	return [...type.fields.map((f) => f.key), ...builtins, ...Object.values(NOTE_ITEMS), ...buttons.map(workflowItem)];
 }

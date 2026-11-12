@@ -1,6 +1,6 @@
 import { FuzzySuggestModal, Modal, Setting, SuggestModal, type App, type FuzzyMatch } from "obsidian";
 import type EntitiesPlugin from "../../main";
-import { triggerText, type WorkflowDef } from "../../model/workflows";
+import { buttonLabel, triggerText, type WorkflowDef } from "../../model/workflows";
 import type { EntityRecord } from "../../services/entityIndex";
 import { renderEntityMatch, searchEntities, type EntityMatch } from "../components/entityPicker";
 
@@ -35,9 +35,10 @@ export class WorkflowPickerModal extends FuzzySuggestModal<WorkflowDef> {
 		private plugin: EntitiesPlugin,
 		private list: WorkflowDef[],
 		private onPick: (wf: WorkflowDef) => void,
+		placeholder = "Run a workflow…",
 	) {
 		super(plugin.app);
-		this.setPlaceholder("Run a workflow…");
+		this.setPlaceholder(placeholder);
 	}
 
 	getItems(): WorkflowDef[] {
@@ -45,7 +46,7 @@ export class WorkflowPickerModal extends FuzzySuggestModal<WorkflowDef> {
 	}
 
 	getItemText(wf: WorkflowDef): string {
-		return wf.trigger.kind === "manual" && wf.trigger.label ? wf.trigger.label : wf.name;
+		return buttonLabel(wf);
 	}
 
 	renderSuggestion(m: FuzzyMatch<WorkflowDef>, el: HTMLElement): void {
@@ -58,7 +59,7 @@ export class WorkflowPickerModal extends FuzzySuggestModal<WorkflowDef> {
 	}
 }
 
-const wf_desc = (wf: WorkflowDef, plugin: EntitiesPlugin) => (wf.trigger.kind === "manual" && wf.trigger.label && wf.trigger.label !== wf.name ? wf.name : triggerText(wf, plugin.settings.types));
+const wf_desc = (wf: WorkflowDef, plugin: EntitiesPlugin) => (buttonLabel(wf) !== wf.name ? wf.name : triggerText(wf, plugin.settings.types));
 
 /**
  * "Confirm": Yes or No (closing it is No). `rest`: notes still to go in a selection, offered "Same answer for the

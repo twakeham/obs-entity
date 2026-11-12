@@ -27,11 +27,12 @@ import { TYPES_VIEW, TypesView } from "./ui/views/TypesView";
 import type { GroupDraft, TypeDraft } from "./model/typeEditing";
 import { calcCell, emptyBoard, emptyView, fieldColumn, formatCell, resolveColumn, serializeView, sourceTypes, typeViewDef, type ViewContext, type ViewDef, type ViewKind, type ViewRow, columnFromId } from "./model/views";
 import { defaultBuckets } from "./model/board";
-import { BIG_RUN, buttonIcon, buttonLabel, inScope, runsOnce, type WorkflowDef } from "./model/workflows";
+import { BIG_RUN, buttonIcon, buttonLabel, inScope, noteless, onNotes, runsOnce, workflowProblems, type FormTrigger, type WorkflowDef } from "./model/workflows";
 import { WorkflowEngine } from "./services/workflows";
 import { WORKFLOWS_VIEW, WorkflowsView } from "./ui/views/WorkflowsView";
 import type { WorkflowsRequest } from "./ui/react/workflows/WorkflowManager";
 import { confirmRun, WorkflowPickerModal } from "./ui/modals/workflowModals";
+import { askForm } from "./ui/modals/workflowFormModal";
 import { initialDates } from "./model/calendarView";
 import { VIEW_BLOCK, ViewIndex } from "./services/viewIndex";
 import { NewViewModal, OpenViewModal } from "./ui/modals/viewModals";
@@ -215,6 +216,16 @@ export default class EntitiesPlugin extends Plugin {
 				const list = this.workflows.manualFor(entity);
 				if (!entity || !list.length) return false;
 				if (!checking) new WorkflowPickerModal(this, list, (wf) => void this.runWorkflow(wf, [entity.path])).open();
+				return true;
+			},
+		});
+		this.addCommand({
+			id: "fill-in-form",
+			name: "Fill in a form…",
+			checkCallback: (checking) => {
+				const list = this.settings.workflows.filter((w) => w.on && noteless(w));
+				if (!list.length) return false;
+				if (!checking) new WorkflowPickerModal(this, list, (wf) => void this.runWorkflow(wf, []), "Fill in a form…").open();
 				return true;
 			},
 		});
@@ -608,7 +619,10 @@ export default class EntitiesPlugin extends Plugin {
 		if (this.index?.isReady()) this.index.rebuild();
 	}
 
-	/** Run a manual workflow on notes, asking first when it has a confirmation or the selection is big. */
+	/**
+	 * Run a button or form workflow on notes (none: a form that starts on its own). A form asks its questions first
+	 * (once, for every note); a button its confirmation; a big selection asks too.
+	 */
 	async runWorkflow(wf: WorkflowDef, paths: string[]): Promise<void> {
 		const confirm = wf.trigger.kind === "manual" ? wf.trigger.confirm : undefined;
 		const many = paths.length > BIG_RUN;
@@ -616,13 +630,24 @@ export default class EntitiesPlugin extends Plugin {
 			const body = [confirm, many ? (runsOnce(wf) ? `It runs once, on all ${paths.length} notes together. You can undo it afterwards.` : `It runs on ${paths.length} notes, one run each. You can undo them afterwards.`) : ""].filter(Boolean).join(" ");
 			if (!(await confirmRun(this.app, buttonLabel(wf), body))) return;
 		}
-		await this.workflows.runOn(wf, paths);
+		let form: Record<string, unknown> | undefined;
+		if (wf.trigger.kind === "form") {
+			if (this.workflows.paused) return void new Notice("Workflows are paused.");
+			const problems = workflowProblems(wf, this.settings);
+			if (problems.length) return void new Notice(`“${wf.name}” can't run: ${problems[0].message}`);
+			if (wf.trigger.fields.length) {
+				const answers = await askForm(this, wf as WorkflowDef & { trigger: FormTrigger });
+				if (!answers) return;
+				form = answers;
+			} else form = {};
+		}
+		await this.workflows.runOn(wf, paths, form);
 	}
 
-	/** Workflows run from buttons that apply to every one of these types (each type once). */
+	/** Workflows run from buttons (and forms) that apply to every one of these types (each type once). */
 	manualWorkflows(types: EntityTypeDef[]): WorkflowDef[] {
 		if (!types.length) return [];
-		return this.settings.workflows.filter((w) => w.on && w.trigger.kind === "manual" && types.every((t) => inScope(w, t)));
+		return this.settings.workflows.filter((w) => w.on && onNotes(w) && types.every((t) => inScope(w, t)));
 	}
 
 	/** Add a "run" item per button workflow that applies to all these notes (row menus, the selection, the form's ⋯). */
@@ -645,6 +670,7 @@ export default class EntitiesPlugin extends Plugin {
 
 	/** One "Create <type>" command per type. Commands for deleted types become unavailable. */
 	private registerTypeCommands(): void {
+		this.registerWorkflowCommands();
 		for (const type of this.settings.types) {
 			const id = `create-${type.key}`;
 			if (this.typeCommandIds.has(id)) continue;
@@ -657,6 +683,34 @@ export default class EntitiesPlugin extends Plugin {
 					const t = this.getType(key);
 					if (!t) return false;
 					if (!checking) this.openCreateModal(t);
+					return true;
+				},
+			});
+		}
+	}
+
+	/**
+	 * A command per button or form workflow set to have one ("Workflow: Log session"), so it can have a hotkey; its name
+	 * follows the workflow's. A form that starts on its own opens its form; others run on the active note when it's
+	 * one of theirs. Commands of workflows deleted, switched off or no longer set to have one are unavailable.
+	 */
+	private registerWorkflowCommands(): void {
+		for (const wf of this.settings.workflows) {
+			if (!wf.command || !(onNotes(wf) || noteless(wf))) continue;
+			const id = wf.id;
+			this.addCommand({
+				id: `workflow-${id}`,
+				name: `Workflow: ${buttonLabel(wf)}`,
+				checkCallback: (checking) => {
+					const w = this.settings.workflows.find((x) => x.id === id);
+					if (!w || !w.on || !w.command) return false;
+					if (noteless(w)) {
+						if (!checking) void this.runWorkflow(w, []);
+						return true;
+					}
+					const entity = this.index.getByFile(this.app.workspace.getActiveFile());
+					if (!onNotes(w) || !entity || !inScope(w, entity.type)) return false;
+					if (!checking) void this.runWorkflow(w, [entity.path]);
 					return true;
 				},
 			});

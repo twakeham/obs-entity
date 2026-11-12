@@ -22,6 +22,11 @@ export interface CreateFormProps {
 	onCancel?: () => void;
 	/** receives the dialog's "create now" (for Ctrl/Cmd+Enter anywhere in the modal) */
 	onSubmitReady?: (submit: () => void) => void;
+	/**
+	 * A workflow's form ("Fill in a form"): its title, icon and send button; no name, status, tags or folder, and
+	 * every field shown. `type` is the form as a type (`formType`).
+	 */
+	workflowForm?: { title: string; button: string; icon: string };
 }
 
 /** What the dialog edits: relations held like the properties form's controls hold them (wikilinks). */
@@ -38,7 +43,7 @@ const hasValue = (v: unknown) => !isEmptyValue(v) && v !== false;
  * The create dialog's form: name and status, then the type's fields (its layout's frames marked "Show in create
  * dialog", or the fields set to show in the dialog), "Show N more fields", tags, and where the note will go.
  */
-export function CreateForm({ type: initialType, initial, preview, onPickType, onSubmit, onCancel, onSubmitReady }: CreateFormProps) {
+export function CreateForm({ type: initialType, initial, preview, onPickType, onSubmit, onCancel, onSubmitReady, workflowForm }: CreateFormProps) {
 	const plugin = usePlugin();
 	const [type, setType] = useState(initialType);
 	useEffect(() => setType(initialType), [initialType]);
@@ -81,6 +86,8 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 		set({ fields: fillLinked(type, { ...stateRef.current.fields, [key]: v }, key) });
 	};
 	const [showAll, setShowAll] = useState(false);
+	// A workflow's form shows every field.
+	const showing = showAll || !!workflowForm;
 	const [busy, setBusy] = useState(false);
 	const rootRef = useRef<HTMLDivElement>(null);
 	/** each tab group's open tab */
@@ -127,7 +134,7 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 		const a = document.activeElement;
 		if (a instanceof HTMLElement && rootRef.current?.contains(a) && a.matches("input, textarea")) a.blur();
 		const s = stateRef.current;
-		if (!s.name.trim()) {
+		if (!workflowForm && !s.name.trim()) {
 			new Notice("Please enter a name.");
 			return;
 		}
@@ -162,6 +169,15 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 	useEffect(() => {
 		onSubmitReady?.(() => void submitRef.current());
 	}, [onSubmitReady]);
+	// A workflow's form has no name box to start in: its first text box (not a date's or a link's, whose calendar or
+	// list would pop up).
+	useEffect(() => {
+		if (!workflowForm || preview) return;
+		const dates = new Set(type.fields.filter((f) => f.kind === "date").map((f) => f.key));
+		const first = [...(rootRef.current?.querySelectorAll<HTMLElement>(".oe-form-body .oe-prop-input") ?? [])].find((el) => !dates.has(el.closest<HTMLElement>(".oe-prop[data-key]")?.dataset.key ?? ""));
+		first?.focus();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
 
 	const changeType = () =>
 		onPickType?.((t) => {
@@ -261,7 +277,7 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 	if (!resolved) {
 		// No layout: the fields set to show in the dialog, required ones, subtitle fields and any with a value.
 		const subtitle = new Set(type.card?.subtitle ?? []);
-		const visible = stored.filter((f) => showAll || f.inModal || f.required || requiredKeys.has(f.key) || subtitle.has(f.key) || hasValue(state.fields[f.key]));
+		const visible = stored.filter((f) => showing || f.inModal || f.required || requiredKeys.has(f.key) || subtitle.has(f.key) || hasValue(state.fields[f.key]));
 		hidden = stored.length - visible.length;
 		body = <div className="oe-form-rows">{visible.map((f) => propFor(f.key))}</div>;
 	} else {
@@ -271,7 +287,7 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 			closed: new Set(),
 			toggle: () => {},
 			flagged: (keys) => keys.some((k) => (missingKeys.includes(k) && !hasValue(state.fields[k])) || problemsNow.some((p) => p.key === k)),
-			include: (part) => showAll || part.create !== false,
+			include: (part) => showing || part.create !== false,
 			shows: (w) => evalWhen(w, type, condValues(state), whenCtx),
 			tab: (g) => openTabs[g] ?? 0,
 			setTab: (g, t) => setOpenTabs((o) => ({ ...o, [g]: t })),
@@ -282,57 +298,59 @@ export function CreateForm({ type: initialType, initial, preview, onPickType, on
 		// (Not ones a condition hides.)
 		const off = condHidden(state);
 		const outside = stored.filter((f) => !shownKeys.has(f.key) && !off.has(f.key));
-		const needed = showAll ? [] : outside.filter((f) => f.required || requiredKeys.has(f.key) || hasValue(state.fields[f.key]));
+		const needed = showing ? [] : outside.filter((f) => f.required || requiredKeys.has(f.key) || hasValue(state.fields[f.key]));
 		if (needed.length) nodes.push(extraFrame("required", needed.every((f) => f.required || requiredKeys.has(f.key)) ? "Required" : "Required and filled in", needed.map((f) => propFor(f.key)), "is-required"));
 		// Fields that aren't placed, with "Show more fields".
-		if (showAll && !layout!.hideUnplaced) {
+		if (showing && !layout!.hideUnplaced) {
 			const others = resolved.unplaced.filter((k) => !shownKeys.has(k)).map((k) => propFor(k));
-			if (others.length) nodes.push(extraFrame("other", "Other fields", others));
+			if (others.length) nodes.push(extraFrame("other", workflowForm ? "More" : "Other fields", others));
 		}
 		hidden = stored.filter((f) => !shownKeys.has(f.key) && !off.has(f.key)).length;
 		body = <div className="oe-form-layout">{nodes}</div>;
 	}
 
 	const factoryValues = values(state);
-	const folder = plugin.factory.folderFor(type, { ...factoryValues, name: factoryValues.name || type.name });
+	const folder = workflowForm ? "" : plugin.factory.folderFor(type, { ...factoryValues, name: factoryValues.name || type.name });
 
 	return (
-		<div ref={rootRef} className="oe-form oe-create-form is-editing" style={{ "--oe-type-color": type.color } as CSSProperties} data-entity-type={type.key}>
+		<div ref={rootRef} className={`oe-form oe-create-form is-editing${workflowForm ? " is-workflow-form" : ""}`} style={{ "--oe-type-color": type.color } as CSSProperties} data-entity-type={type.key}>
 			<div className="oe-modal-header">
 				<span className="oe-type-icon oe-type-icon-lg" style={{ "--oe-type-color": type.color } as CSSProperties}>
-					<Icon name={type.icon} />
+					<Icon name={workflowForm?.icon ?? type.icon} />
 				</span>
-				<h2>New {(type.name || "entity").toLowerCase()}</h2>
+				<h2>{workflowForm ? workflowForm.title : `New ${(type.name || "entity").toLowerCase()}`}</h2>
 				{onPickType && (
 					<button type="button" className="clickable-icon oe-change-type" aria-label="Change type" onClick={changeType}>
 						<Icon name="repeat" />
 					</button>
 				)}
 			</div>
-			<div className="oe-form-rows oe-create-top">
-				{!shownKeys.has(NOTE_ITEMS.name) && (
-					<PropRow k="name" label="Name" icon="text-cursor-input" problems={[]} empty={!state.name} editable onFix={() => {}}>
-						{nameInput()}
+			{!workflowForm && (
+				<div className="oe-form-rows oe-create-top">
+					{!shownKeys.has(NOTE_ITEMS.name) && (
+						<PropRow k="name" label="Name" icon="text-cursor-input" problems={[]} empty={!state.name} editable onFix={() => {}}>
+							{nameInput()}
+						</PropRow>
+					)}
+					<PropRow k="status" label="Status" icon="circle-dot" problems={[]} empty={false} editable onFix={() => {}}>
+						<StatusControl type={type} value={status} editable problem={undefined} onCommit={(v) => set({ status: String(v ?? "") })} />
 					</PropRow>
-				)}
-				<PropRow k="status" label="Status" icon="circle-dot" problems={[]} empty={false} editable onFix={() => {}}>
-					<StatusControl type={type} value={status} editable problem={undefined} onCommit={(v) => set({ status: String(v ?? "") })} />
-				</PropRow>
-			</div>
+				</div>
+			)}
 			<div className="oe-form-body">{body}</div>
-			{(hidden > 0 || showAll) && (
+			{!workflowForm && (hidden > 0 || showAll) && (
 				<button type="button" className="oe-form-more" onClick={() => setShowAll(!showAll)}>
 					{showAll ? "Show fewer fields" : `Show ${hidden} more field${hidden === 1 ? "" : "s"}`}
 				</button>
 			)}
-			{!shownKeys.has(COMMON_KEYS.tags) && <div className="oe-form-rows oe-create-tags">{propFor(COMMON_KEYS.tags)}</div>}
-			<div className="oe-create-folder">Will be created in {folder || "the vault root"}/</div>
+			{!workflowForm && !shownKeys.has(COMMON_KEYS.tags) && <div className="oe-form-rows oe-create-tags">{propFor(COMMON_KEYS.tags)}</div>}
+			{!workflowForm && <div className="oe-create-folder">Will be created in {folder || "the vault root"}/</div>}
 			<div className="oe-create-buttons">
 				<button type="button" onClick={onCancel} disabled={preview}>
 					Cancel
 				</button>
 				<button type="button" className="mod-cta" onClick={() => void submit()} disabled={preview || busy}>
-					Create
+					{workflowForm ? workflowForm.button.trim() || "Run" : "Create"}
 				</button>
 			</div>
 		</div>

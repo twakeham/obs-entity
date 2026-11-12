@@ -11,8 +11,10 @@ import { isEmptyValue } from "./frontmatter";
 import { asArray, parseLink, toWikilink } from "./links";
 import type { DateAdapter } from "./dates";
 import { joinPath } from "./paths";
+import { normaliseLayout, type FormLayout } from "./formLayout";
+import { typeIssues, type TypeIssue } from "./validation";
 import type { AddWhere, BodyAdd } from "./noteBody";
-import { COMMON_KEYS, isCalculated, isListValued, statusesFor, typeExplicitlyTargeted, typeMatchesTarget, type EntityTypeDef, type FieldDef, type GroupDef } from "./types";
+import { COMMON_KEYS, FIELD_KINDS, FORM_TYPE_KEY, isCalculated, isListValued, statusesFor, typeExplicitlyTargeted, typeMatchesTarget, type EntityTypeDef, type FieldDef, type GroupDef } from "./types";
 import { compileFormula, dateValue, emptyView, evaluateFormula, formulaRefColumns, filterFields, runView, withThisNote, type FilterGroup, type LinkValue, type SortLevel, type VarSpec, type ViewContext, type ViewDef, type ViewRow } from "./views";
 
 // ---------------------------------------------------------------- definitions
@@ -24,8 +26,25 @@ export type WorkflowTrigger =
 	| { kind: "created" }
 	| { kind: "changed"; field: string; from?: string[]; to?: ChangedTo }
 	| { kind: "manual"; label?: string; icon?: string; confirm?: string; selection?: "once" }
+	| FormTrigger
 	| ScheduleTrigger
 	| DateTrigger;
+
+/**
+ * "Fill in a form": its form (fields and a layout, as a type's, edited with the type editor's tabs), a title and the
+ * button that sends it. Without types (Applies to empty) it starts on its own, with no note: from the command palette
+ * and so on. With types it's a button on those notes, like "Run on notes", that asks first. The answers are names
+ * the steps use: `[Date]`, `[Attendees]`.
+ */
+export interface FormTrigger {
+	kind: "form";
+	title: string;
+	/** the send button's text (empty: "Run") */
+	button: string;
+	icon?: string;
+	fields: FieldDef[];
+	layout?: FormLayout;
+}
 
 /**
  * "On a schedule": every day at a time, every week on a day at a time, or every N hours; one run per scoped note
@@ -96,8 +115,16 @@ export const SELECTION_VAR = "Selected notes";
 /** A button workflow run once for all the selected notes together (no single "this note"), rather than once for each. */
 export const runsOnce = (wf: Pick<WorkflowDef, "trigger">): boolean => wf.trigger.kind === "manual" && wf.trigger.selection === "once";
 
+/** A form workflow without types: it starts on its own (the command palette…), with no note. */
+export const noteless = (wf: Pick<WorkflowDef, "trigger" | "scope">): boolean => wf.trigger.kind === "form" && !wf.scope.length;
+
+/** Workflows started by someone on notes: buttons, and form workflows with types. */
+export const onNotes = (wf: Pick<WorkflowDef, "trigger" | "scope">): boolean => wf.trigger.kind === "manual" || (wf.trigger.kind === "form" && wf.scope.length > 0);
+
 /** Why a step can't act on (or read) "this note" in a run for a whole selection. */
 export const NO_NOTE = "A run for the whole selection has no single note: put this inside a For each over [Selected notes], or make it act on a note an earlier step creates.";
+/** Why a step can't act on "this note" in a form workflow that starts on its own. */
+export const NO_NOTE_FORM = "This form starts on its own, so there's no note it runs on: make the step act (On) on a note the form picks or an earlier step creates or finds, or give the workflow types (Applies to) to run it on notes.";
 
 /** Where "For linked notes" gets its notes: this note's link field, or another type's link field pointing here. */
 export type LinkedSource = { dir: "out"; field: string } | { dir: "in"; type: string; field: string };
@@ -169,15 +196,18 @@ export interface WorkflowDef {
 	 * "Run another workflow" steps still run, as part of it.
 	 */
 	isolated?: true;
+	/** a command of its own (buttons and forms), so it can have a hotkey */
+	command?: true;
 }
 
-export const TRIGGER_LABELS: Record<TriggerKind, string> = { created: "When a note is created", changed: "When a field changes", manual: "Run on notes", schedule: "On a schedule", date: "On a date" };
-export const TRIGGER_ICONS: Record<TriggerKind, string> = { created: "file-plus", changed: "pencil", manual: "mouse-pointer-click", schedule: "clock", date: "calendar-clock" };
+export const TRIGGER_LABELS: Record<TriggerKind, string> = { created: "When a note is created", changed: "When a field changes", manual: "Run on notes", form: "Fill in a form", schedule: "On a schedule", date: "On a date" };
+export const TRIGGER_ICONS: Record<TriggerKind, string> = { created: "file-plus", changed: "pencil", manual: "mouse-pointer-click", form: "clipboard-list", schedule: "clock", date: "calendar-clock" };
 /** Workflows by what starts them, as the Entity Browser lists them. */
 export const WORKFLOW_CATEGORIES: { key: string; kinds: TriggerKind[]; title: string; icon: string }[] = [
 	{ key: "created", kinds: ["created"], title: "When created", icon: "file-plus" },
 	{ key: "changed", kinds: ["changed"], title: "When changed", icon: "pencil" },
 	{ key: "manual", kinds: ["manual"], title: "Run on notes", icon: "mouse-pointer-click" },
+	{ key: "form", kinds: ["form"], title: "Forms", icon: "clipboard-list" },
 	{ key: "timed", kinds: ["schedule", "date"], title: "Scheduled", icon: "clock" },
 ];
 export const STEP_LABELS: Record<StepKind, string> = {
@@ -234,6 +264,17 @@ function readTrigger(raw: unknown): WorkflowTrigger {
 			limit: wholeIn(raw.limit, 1, 10000, DEFAULT_LIMIT),
 		};
 	if (raw.kind === "date") return { kind: "date", field: str(raw.field), offset: wholeIn(raw.offset, -3650, 3650, 0), at: isTime(raw.at) ? raw.at : DEFAULT_AT, limit: wholeIn(raw.limit, 1, 10000, DEFAULT_LIMIT) };
+	if (raw.kind === "form") {
+		const layout = raw.layout !== undefined ? normaliseLayout(raw.layout) : null;
+		return {
+			kind: "form",
+			title: str(raw.title),
+			button: str(raw.button),
+			...(str(raw.icon) ? { icon: str(raw.icon) } : {}),
+			fields: (Array.isArray(raw.fields) ? raw.fields : []).map(readFormField).filter((f): f is FieldDef => !!f),
+			...(layout ? { layout } : {}),
+		};
+	}
 	if (raw.kind === "changed") {
 		const to = raw.to === "filled" || raw.to === "empty" ? raw.to : Array.isArray(raw.to) ? strList(raw.to) : undefined;
 		const from = Array.isArray(raw.from) ? strList(raw.from) : undefined;
@@ -246,6 +287,17 @@ function readTrigger(raw: unknown): WorkflowTrigger {
 		...(str(raw.confirm) ? { confirm: str(raw.confirm) } : {}),
 		...(raw.selection === "once" ? { selection: "once" as const } : {}),
 	};
+}
+
+/** Field kinds a form can ask for (calculated ones have nothing to fill in). */
+export const FORM_FIELD_KINDS: FieldDef["kind"][] = FIELD_KINDS.filter((k) => k !== "rollup" && k !== "formula");
+
+/** A form's field as saved (a type's field definition), or null when it isn't usable. */
+function readFormField(raw: unknown): FieldDef | null {
+	if (!isObj(raw) || typeof raw.key !== "string" || typeof raw.kind !== "string" || !FORM_FIELD_KINDS.includes(raw.kind as FieldDef["kind"])) return null;
+	const f = JSON.parse(JSON.stringify(raw)) as FieldDef;
+	if (typeof f.label !== "string") f.label = f.key;
+	return f;
 }
 
 function readFixed(v: unknown): FixedValue | undefined {
@@ -355,6 +407,7 @@ export function readWorkflows(raw: unknown, types?: EntityTypeDef[]): WorkflowDe
 			when: readGroup(w.when),
 			steps: readSteps(w.steps),
 			...(w.isolated === true ? { isolated: true as const } : {}),
+			...(w.command === true ? { command: true as const } : {}),
 		});
 	}
 	if (types)
@@ -382,9 +435,111 @@ export const scopeTypes = (wf: Pick<WorkflowDef, "scope">, types: EntityTypeDef[
 /** The view definition a workflow's formulas and conditions are read against (its scope's columns). */
 export const workflowDef = (wf: Pick<WorkflowDef, "scope" | "when">): ViewDef => ({ ...emptyView(wf.scope.length ? wf.scope : ["*"]), filters: wf.when });
 
-/** A button workflow's label and icon (its name and a lightning bolt when not set). */
-export const buttonLabel = (wf: WorkflowDef): string => (wf.trigger.kind === "manual" && wf.trigger.label?.trim()) || wf.name || "Run workflow";
-export const buttonIcon = (wf: WorkflowDef): string => (wf.trigger.kind === "manual" && wf.trigger.icon) || "zap";
+/** A button workflow's label and icon (its name and a lightning bolt when not set); a form's title and icon. */
+export const buttonLabel = (wf: WorkflowDef): string => (wf.trigger.kind === "manual" && wf.trigger.label?.trim()) || (wf.trigger.kind === "form" && wf.trigger.title.trim()) || wf.name || "Run workflow";
+export const buttonIcon = (wf: WorkflowDef): string => (wf.trigger.kind === "manual" && wf.trigger.icon) || (wf.trigger.kind === "form" && (wf.trigger.icon || "clipboard-list")) || "zap";
+
+// ---------------------------------------------------------------- forms
+
+/** The key of the stand-in type a form is edited and shown as (no real type's key starts with "@"). */
+export { FORM_TYPE_KEY, isFormType } from "./types";
+
+/** A form as a type with no notes: its fields and layout, so the type editor's tabs and the form controls work on it. */
+export function formType(t: Pick<FormTrigger, "title" | "icon" | "fields" | "layout">): EntityTypeDef {
+	return { key: FORM_TYPE_KEY, name: t.title.trim() || "Form", plural: "Forms", icon: t.icon || "clipboard-list", color: "", group: "", template: "", fields: t.fields, ...(t.layout ? { form: { layout: t.layout } } : {}), builtIn: false };
+}
+
+/** The formula type of a form answer. */
+export function answerType(kind: FieldDef["kind"]): FType {
+	switch (kind) {
+		case "number":
+			return "number";
+		case "date":
+			return "date";
+		case "boolean":
+			return "bool";
+		case "multiselect":
+		case "list":
+			return "list";
+		case "relation":
+			return "links";
+		default:
+			return "text";
+	}
+}
+
+/** A form's answers as names the steps use (by field label). */
+export const answerSpecs = (t: FormTrigger): VarSpec[] => t.fields.filter((f) => f.label.trim()).map((f) => ({ name: f.label.trim(), type: answerType(f.kind), role: "form" }));
+
+/** Form link answers that hold one note: steps can act on them ("On"). */
+export const answerNotes = (t: FormTrigger): FieldDef[] => t.fields.filter((f) => f.kind === "relation" && !isListValued(f) && f.label.trim());
+
+/**
+ * A form's answers (its values as frontmatter stores them) as formula values, by label: numbers, dates, checkboxes,
+ * lists, links (to the notes they name; a name that isn't a note is a link to nothing), text. Empty: null.
+ */
+export function formAnswers(t: FormTrigger, values: Record<string, unknown>, ctx: Pick<ViewContext, "dates" | "resolve">, linkText: LinkTextOf): Record<string, FValue> {
+	const out: Record<string, FValue> = {};
+	for (const f of t.fields) {
+		const name = f.label.trim();
+		if (!name) continue;
+		const raw = values[f.key];
+		const empty = isEmptyValue(raw);
+		switch (f.kind) {
+			case "number": {
+				const n = typeof raw === "number" ? raw : typeof raw === "string" && raw.trim() !== "" ? Number(raw) : NaN;
+				out[name] = Number.isFinite(n) ? n : null;
+				break;
+			}
+			case "date": {
+				const p = empty ? null : ctx.dates.parse(raw);
+				out[name] = p && p.ok && typeof p.value === "number" ? new DateVal(p.value) : null;
+				break;
+			}
+			case "boolean":
+				out[name] = raw === true || raw === "true";
+				break;
+			case "multiselect":
+			case "list":
+				out[name] = asArray(raw).map((x) => String(x)).filter((x) => x !== "");
+				break;
+			case "relation":
+				out[name] = asArray(raw).flatMap((x): LinkValue[] => {
+					const s = typeof x === "string" ? x : isObj(x) && typeof x.target === "string" ? x.target : "";
+					const lp = parseLink(s);
+					if (!lp) return [];
+					const path = ctx.resolve(lp.path, "");
+					return [{ path, linktext: path ? linkText(path) : lp.path, name: (path ? baseName(path) : lp.path.split("/").pop()) ?? lp.path, ...(lp.display ? { label: lp.display } : {}) }];
+				});
+				break;
+			default:
+				out[name] = empty ? null : String(raw);
+		}
+	}
+	return out;
+}
+
+/** What's wrong with a form's fields and layout, as the type editor checks a type's (its fields' and layout's problems only). */
+export function formIssues(t: Pick<FormTrigger, "title" | "icon" | "fields" | "layout">, lookup: Pick<ViewContext, "types" | "groups">): string[] {
+	return formTypeIssues(t, lookup).map((i) => i.message);
+}
+/** The same, with where each is ("field:<i>:key", "form:layout"…), for the form's editor. */
+export function formTypeIssues(t: Pick<FormTrigger, "title" | "icon" | "fields" | "layout">, lookup: Pick<ViewContext, "types" | "groups">): TypeIssue[] {
+	const ft = formType(t);
+	return typeIssues(ft, { typeKeys: lookup.types.map((x) => x.key), groupKeys: lookup.groups.map((g) => g.key), types: lookup.types, groups: lookup.groups }).filter((i) => i.at.startsWith("field:") || i.at === "form:layout");
+}
+
+/** A form's answers in words, for the run log: "Date" “2026-11-12”. Empty answers are left out. */
+export function answerTexts(t: FormTrigger, values: Record<string, unknown>): { question: string; answer: string }[] {
+	return t.fields.flatMap((f) => {
+		const raw = values[f.key];
+		if (isEmptyValue(raw) || (f.kind === "boolean" && raw !== true)) return [];
+		const text = asArray(raw)
+			.map((x) => (typeof x === "string" ? (parseLink(x)?.display ?? parseLink(x)?.path ?? x) : String(x)))
+			.join(", ");
+		return [{ question: f.label || f.key, answer: f.kind === "boolean" ? "Yes" : text }];
+	});
+}
 
 /** Triggers that need types (they react to notes of those types). */
 export const needsScope = (k: TriggerKind) => k === "created" || k === "changed" || k === "schedule" || k === "date";
@@ -484,6 +639,7 @@ const VAR_GROUPS: { role: VarSpec["role"]; title: string }[] = [
 	{ role: "item", title: "Loop items" },
 	{ role: "created", title: "Created notes" },
 	{ role: "found", title: "Found notes" },
+	{ role: "form", title: "The form's answers" },
 	{ role: "answer", title: "Answers" },
 	{ role: "variable", title: "Variables" },
 	{ role: undefined, title: "Notes and values" },
@@ -507,8 +663,8 @@ export interface StepScope {
 	vars: VarSpec[];
 	/** which of `vars` have no value until the run: variables and answers ("Set a variable", "Ask a question" before this step) */
 	variables?: string[];
-	/** "On" choices besides the default: stored value, label, the note''s types; `made`: a note this run creates (`plain`: with no type); `found`: a "Find notes" step's first */
-	on: { value: string; label: string; types: EntityTypeDef[]; made?: true; plain?: true; found?: true }[];
+	/** "On" choices besides the default: stored value, label, the note''s types; `made`: a note this run creates (`plain`: with no type); `found`: a "Find notes" step's first; `answer`: a note the form picks */
+	on: { value: string; label: string; types: EntityTypeDef[]; made?: true; plain?: true; found?: true; answer?: true }[];
 	/** the default note in the On picker: "This note", or "Each <name>" in a loop of notes */
 	defaultLabel: string;
 	/** inside a loop (of notes, or of values) */
@@ -529,9 +685,12 @@ export function stepScopes(wf: Pick<WorkflowDef, "scope" | "when" | "steps"> & P
 	const all = lookup.types;
 	const out = new Map<string, StepScope>();
 	const once = !!wf.trigger && runsOnce({ trigger: wf.trigger });
+	const alone = !!wf.trigger && noteless({ trigger: wf.trigger, scope: wf.scope });
 	const top: StepScope = once
 		? { def: workflowDef(wf), scope: wf.scope, types: scopeTypes(wf, all), fields: workflowFields(wf, all), vars: [{ name: SELECTION_VAR, type: "links", role: "selection" }], on: [], defaultLabel: "No single note", noNote: true }
-		: { def: workflowDef(wf), scope: wf.scope, types: scopeTypes(wf, all), fields: workflowFields(wf, all), vars: [{ name: THIS_NOTE_VAR, type: "links", role: "this" }], on: [], defaultLabel: "This note" };
+		: alone
+			? { def: workflowDef(wf), scope: wf.scope, types: scopeTypes(wf, all), fields: workflowFields(wf, all), vars: [], on: [], defaultLabel: "No note", noNote: true }
+			: { def: workflowDef(wf), scope: wf.scope, types: scopeTypes(wf, all), fields: workflowFields(wf, all), vars: [{ name: THIS_NOTE_VAR, type: "links", role: "this" }], on: [], defaultLabel: "This note" };
 	const withCreated = (sc: StepScope, s: WorkflowStep): StepScope =>
 		s.kind === "create" && s.as.trim()
 			? { ...sc, vars: [...sc.vars, { name: s.as.trim(), type: "links", role: "created" }], on: [...sc.on, { value: s.as.trim(), label: s.as.trim(), types: all.filter((t) => t.key === s.type), made: true, ...(s.type === PLAIN_NOTE ? { plain: true as const } : {}) }] }
@@ -550,7 +709,7 @@ export function stepScopes(wf: Pick<WorkflowDef, "scope" | "when" | "steps"> & P
 			fields: workflowFields({ scope }, all),
 			vars: [...cur.vars, { name: as, type: "links", role: "item" }],
 			// Inside a loop inside another: the outer loop's note, by its name.
-			on: [...(once || hasThis ? [] : [{ value: ON_THIS, label: "This note", types: scopeTypes(wf, all) }]), ...cur.on, ...(cur.item ? [{ value: cur.item.name, label: cur.item.name, types: cur.item.types }] : [])],
+			on: [...(once || alone || hasThis ? [] : [{ value: ON_THIS, label: "This note", types: scopeTypes(wf, all) }]), ...cur.on, ...(cur.item ? [{ value: cur.item.name, label: cur.item.name, types: cur.item.types }] : [])],
 			defaultLabel: `Each ${as.toLowerCase()}`,
 			loop: "notes",
 			item: { name: as, types: its },
@@ -566,7 +725,7 @@ export function stepScopes(wf: Pick<WorkflowDef, "scope" | "when" | "steps"> & P
 					? {
 							...cur,
 							vars: [...cur.vars, ...globals.filter((g) => !cur.vars.some((v) => v.name === g.name))],
-							variables: globals.filter((g) => g.role === "variable" || g.role === "answer").map((g) => g.name),
+							variables: globals.filter((g) => g.role === "variable" || g.role === "answer" || g.role === "form").map((g) => g.name),
 							on: [...cur.on, ...globalOn.filter((g) => !cur.on.some((o) => o.value === g.value))],
 						}
 					: cur;
@@ -604,6 +763,14 @@ export function stepScopes(wf: Pick<WorkflowDef, "scope" | "when" | "steps"> & P
 		if (!had) globals.push({ name, type, role });
 		else if (had.type !== type) had.type = "any";
 	};
+	// A form's answers: names from the start; ones that pick a note can be acted on.
+	if (wf.trigger?.kind === "form") {
+		globals.push(...answerSpecs(wf.trigger));
+		for (const f of answerNotes(wf.trigger)) {
+			const ts = f.targets?.length ? all.filter((t) => typeMatchesTarget(t, f.targets)) : all;
+			globalOn.push({ value: f.label.trim(), label: f.label.trim(), types: ts, answer: true });
+		}
+	}
 	walk(wf.steps, String, top);
 	return out;
 }
@@ -830,22 +997,24 @@ type Lookup = Pick<ViewContext, "types" | "groups">;
 
 /** A formula that reads a note's columns where there's no single note (`noNote`): only named notes and values can be read. */
 const NO_NOTE_FORMULA = "There's no single note here, so a formula can't read its fields: use [Selected notes] (e.g. count([Selected notes])), or a note an earlier step creates.";
+/** The same, in a form workflow that starts on its own. */
+export const NO_NOTE_FORMULA_FORM = "This form starts on its own, so there's no note for a formula to read: use the form's answers, or a note an earlier step creates or finds.";
 
-const formulaError = (src: string, def: ViewDef, lookup: Lookup, vars: VarSpec[] = [], noNote = false): string | null => {
+const formulaError = (src: string, def: ViewDef, lookup: Lookup, vars: VarSpec[] = [], noNote: string | false = false): string | null => {
 	try {
 		const { refs } = compileFormula(src, def, lookup, { workflow: true, vars });
-		return noNote && refs.size ? NO_NOTE_FORMULA : null;
+		return noNote && refs.size ? noNote : null;
 	} catch (e) {
 		return e instanceof Error ? e.message : String(e);
 	}
 };
 
-const templateError = (src: string, def: ViewDef, lookup: Lookup, vars: VarSpec[] = [], noNote = false): string | null => {
+const templateError = (src: string, def: ViewDef, lookup: Lookup, vars: VarSpec[] = [], noNote: string | false = false): string | null => {
 	try {
 		for (const p of parseTemplate(src))
 			if ("formula" in p) {
 				const { refs } = compileFormula(p.formula, def, lookup, { workflow: true, vars });
-				if (noNote && refs.size) return NO_NOTE_FORMULA;
+				if (noNote && refs.size) return noNote;
 			}
 		return null;
 	} catch (e) {
@@ -876,6 +1045,9 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 	const def = workflowDef(wf);
 	const t = wf.trigger;
 	const once = runsOnce(wf);
+	const alone = noteless(wf);
+	const noNoteMsg = alone ? NO_NOTE_FORM : NO_NOTE;
+	const noNoteFormula = alone ? NO_NOTE_FORMULA_FORM : NO_NOTE_FORMULA;
 	if (t.kind === "changed") {
 		const calc = types.flatMap((x) => x.fields).find((f) => f.key === t.field && isCalculated(f));
 		if (calc) add("trigger", `${calc.label} is calculated, so it never changes in the note: watch the fields it's worked out from.`);
@@ -902,6 +1074,22 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 	const varNames = new Set<string>();
 	const reserved = (lower: string) => lower === THIS_NOTE_VAR.toLowerCase() || lower === SELECTION_VAR.toLowerCase();
 	const isField = (lower: string, sc: StepScope) => formulaRefColumns(sc.def, lookup).some((c) => c.label.toLowerCase() === lower);
+	if (t.kind === "form") {
+		for (const m of formIssues(t, lookup)) add("form", m);
+		// The answers are names: unique, and (with a note to read) not a column's label.
+		const top = scopes.get("0") ?? stepScopes({ ...wf, steps: [{ kind: "notice", text: "" }] }, lookup).get("0")!;
+		for (const f of t.fields) {
+			const name = f.label.trim();
+			const lower = name.toLowerCase();
+			if (!name) continue;
+			if (names.has(lower)) add("form", `Two of the form's fields are called “${name}”: steps use the answers by name, so give one another label.`);
+			else if (reserved(lower)) add("form", `“${name}” is a name workflows already use: give the field another label.`);
+			else if (!alone && isField(lower, top)) add("form", `“${name}” is already a field of these notes: give the form's field another label, so steps can tell the answer from the note's field.`);
+			else if (/[[\]{}]/.test(name)) add("form", `A field the steps use by name can't have brackets or braces in its label (“${name}”).`);
+			names.add(lower);
+		}
+		if (alone && wf.when.items.length) add("when", "This form starts on its own, with no note to check: remove the conditions (an If step can test the answers).");
+	}
 	/** A name later steps use (a created note, a loop's item): unique, and not a column's label. */
 	const nameOk = (at: string, raw: string, sc: StepScope, what: string) => {
 		const as = raw.trim();
@@ -915,16 +1103,16 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 		const sc = scopes.get(key);
 		if (!sc) return;
 		// A run for a whole selection has no "this note" to act on.
-		if (once && "on" in s && s.on === ON_THIS) return add(at, NO_NOTE);
+		if ((once || alone) && "on" in s && s.on === ON_THIS) return add(at, noNoteMsg);
 		const target = stepTarget(s, sc, lookup.types);
 		if (!target) return add(at, `No earlier step creates or finds “${(s as { on?: string }).on}”.`);
 		const tTypes = target.types;
 		const tFields = target.fields;
-		const fErr = (src: string) => formulaError(src, sc.def, lookup, sc.vars, !!sc.noNote);
-		const tErr = (src: string) => templateError(src, sc.def, lookup, sc.vars, !!sc.noNote);
-		if (sc.noNote && !("on" in s && s.on !== undefined) && (s.kind === "set" || s.kind === "clear" || s.kind === "tag" || s.kind === "link" || s.kind === "append" || s.kind === "move" || s.kind === "rename" || s.kind === "run" || (s.kind === "if" && s.test === "filter"))) add(at, NO_NOTE);
-		if (sc.noNote && s.kind === "create" && s.link && s.type !== PLAIN_NOTE) add(at, "There's no single note to link the new note to: link it inside a For each over [Selected notes], or leave Link empty.");
-		if (sc.noNote && s.kind === "linked") add(at, "For linked notes starts from a note: use For each over [Selected notes] instead.");
+		const fErr = (src: string) => formulaError(src, sc.def, lookup, sc.vars, sc.noNote ? noNoteFormula : false);
+		const tErr = (src: string) => templateError(src, sc.def, lookup, sc.vars, sc.noNote ? noNoteFormula : false);
+		if (sc.noNote && !("on" in s && s.on !== undefined) && (s.kind === "set" || s.kind === "clear" || s.kind === "tag" || s.kind === "link" || s.kind === "append" || s.kind === "move" || s.kind === "rename" || s.kind === "run" || (s.kind === "if" && s.test === "filter"))) add(at, noNoteMsg);
+		if (sc.noNote && s.kind === "create" && s.link && s.type !== PLAIN_NOTE) add(at, alone ? "The form has no note to link the new note to: leave Link empty, and set its link fields under Fields (e.g. to [Campaign])." : "There's no single note to link the new note to: link it inside a For each over [Selected notes], or leave Link empty.");
+		if (sc.noNote && s.kind === "linked") add(at, alone ? "For linked notes starts from a note, and the form has none: use For each over a note the form picks, e.g. For each over [Campaign]." : "For linked notes starts from a note: use For each over [Selected notes] instead.");
 		const fieldOk = (fkey: string, what: string) => {
 			if (!fkey) return add(at, `Choose the field to ${what}.`);
 			const calc = tTypes.flatMap((x) => x.fields).find((f) => f.key === fkey && isCalculated(f));
@@ -1018,7 +1206,7 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 				const lower = name.toLowerCase();
 				// Setting a variable again is fine; its name can't be a note's, a loop item's or a field's.
 				if (!name) add(at, "Name the variable, e.g. Total.");
-				else if (names.has(lower) || reserved(lower)) add(at, `“${name}” is already the name of a note or loop item: choose another.`);
+				else if (names.has(lower) || reserved(lower)) add(at, `“${name}” is already the name of ${t.kind === "form" ? "a note, a loop item or one of the form's answers" : "a note or loop item"}: choose another.`);
 				else if (isField(lower, sc)) add(at, `“${name}” is already a field's name: choose another.`);
 				else if (/[[\]{}]/.test(name)) add(at, "A variable's name can't have brackets or braces in it.");
 				if (name) varNames.add(lower);
@@ -1103,6 +1291,7 @@ export function workflowProblems(wf: WorkflowDef, lookup: Lookup & { workflows?:
 				else {
 					if (tTypes.length && !tTypes.some((x) => inScope(sub, x))) add(at, `“${sub.name}” doesn't apply to ${tTypes.length === 1 ? (tTypes[0].plural || tTypes[0].name) : "these notes"}.`);
 					if (asksQuestion(sub)) add(at, `“${sub.name}” stops to ask you something, so it can't be run from another workflow.`);
+					if (sub.trigger.kind === "form") add(at, `“${sub.name}” has a form to fill in, so it can't be run from another workflow.`);
 					if (!checking.includes(sub.id) && workflowProblems(sub, lookup, [...checking, wf.id]).length) add(at, `“${sub.name}” has problems, so it can't run.`);
 				}
 				break;
@@ -1389,6 +1578,10 @@ export interface StepEnv {
 	 * the notes as [Selected notes].
 	 */
 	selection?: ViewRow[];
+	/** a form workflow that started on its own: no "this note" (`row` is a stand-in) */
+	noNote?: true;
+	/** a form's answers, by name (`formAnswers`) */
+	form?: Record<string, FValue>;
 }
 
 /** Where "Move the note" / "Rename the note" send a note: a folder (vault root ""), its type's folder rules, a new name. */
@@ -1457,9 +1650,9 @@ function withFrontmatter(row: ViewRow, fm: Record<string, unknown>): ViewRow {
 }
 
 /** Render a template for a note (`vars`: notes earlier steps created, by name). */
-export function renderTemplate(src: string, row: ViewRow, def: ViewDef, env: Pick<StepEnv, "ctx" | "old"> & { vars?: Record<string, FValue> }): string {
+export function renderTemplate(src: string, row: ViewRow, def: ViewDef, env: Pick<StepEnv, "ctx" | "old"> & { vars?: Record<string, FValue>; first?: ReadonlySet<string> }): string {
 	return parseTemplate(src)
-		.map((p) => ("text" in p ? p.text : valueText(evaluateFormula(p.formula, row, def, env.ctx, { workflow: true, old: env.old, vars: env.vars }), env.ctx)))
+		.map((p) => ("text" in p ? p.text : valueText(evaluateFormula(p.formula, row, def, env.ctx, { workflow: true, old: env.old, vars: env.vars, first: env.first }), env.ctx)))
 		.join("");
 }
 
@@ -1533,8 +1726,9 @@ interface Frame {
  * that fails stops the run: the result has the error, the frontmatter as it was and no other notes.
  */
 export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
-	// Once for a whole selection: no "this note" (a stand-in with no path or fields), the selection as [Selected notes].
-	const noMain = !!env.selection;
+	// Once for a whole selection, or a form that started on its own: no "this note" (a stand-in with no path or
+	// fields); the selection as [Selected notes].
+	const noMain = !!env.selection || !!env.noNote;
 	const mainRow: ViewRow = noMain ? { ...env.row, path: "", name: "", status: null, subtitle: null, tags: [], aliases: [], folder: "", frontmatter: {} } : env.row;
 	const start = copy(mainRow.frontmatter);
 	const notices: string[] = [];
@@ -1566,6 +1760,8 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 	const allFields = workflowFields({ scope: [] }, ctx.types);
 	/** The names formulas can use here: variables, then created notes and loop items. */
 	const varsOf = (f: Frame): Record<string, FValue> => ({ ...f.globals, ...f.vars });
+	/** A form's answers: before the columns in formulas (a form that starts on its own reads no note). */
+	const first: ReadonlySet<string> = new Set(wf.trigger.kind === "form" ? answerSpecs(wf.trigger).map((v) => v.name) : []);
 	/** A workflow's variables, all empty until a step sets them (one that doesn't run leaves its variable empty). */
 	/** A workflow's notes found first: none until its Find notes step runs. */
 	const foundOf = (w: WorkflowDef) => new Map<string, RunNote | null>(flatSteps(w.steps).flatMap((s) => (s.kind === "find" && s.keep === "first" && s.as.trim() ? [[s.as.trim(), null] as const] : [])));
@@ -1579,7 +1775,7 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 						: [],
 			),
 		);
-	const evalIn = (f: Frame, src: string) => evaluateFormula(src, f.reader.row, f.def, ctx, { workflow: true, old: f.reader === f.main ? f.old : undefined, vars: varsOf(f) });
+	const evalIn = (f: Frame, src: string) => evaluateFormula(src, f.reader.row, f.def, ctx, { workflow: true, old: f.reader === f.main ? f.old : undefined, vars: varsOf(f), first });
 	/** A picked value or formula, as the note's field stores it (the note's own type's definition of the field). */
 	const valueFor = (f: Frame, wfield: WorkflowField, n: RunNote, fixed: FixedValue | undefined, formula: string): unknown => {
 		const own = n.row.type.fields.find((x) => x.key === wfield.key);
@@ -1597,7 +1793,7 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 		const n = on === undefined ? (f.item ?? f.main) : on === ON_THIS ? f.main : (f.named.get(on) ?? f.found.get(on));
 		if (n === null) return null;
 		if (!n) throw new Error(`No earlier step created “${on}”.`);
-		if (noMain && n === main) throw new Error(NO_NOTE);
+		if (noMain && n === main) throw new Error(env.noNote ? NO_NOTE_FORM : NO_NOTE);
 		return n;
 	};
 	const targetOf = (f: Frame, on: string | undefined): RunNote => {
@@ -1680,7 +1876,7 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 				return;
 			}
 			case "notice":
-				notices.push(renderTemplate(s.text, f.reader.row, f.def, { ctx, old: f.reader === f.main ? f.old : undefined, vars: varsOf(f) }));
+				notices.push(renderTemplate(s.text, f.reader.row, f.def, { ctx, old: f.reader === f.main ? f.old : undefined, vars: varsOf(f), first }));
 				return;
 			case "var":
 				f.globals[s.name.trim()] = evalIn(f, s.value);
@@ -1710,7 +1906,7 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 			case "ask": {
 				if (f.inLoop) throw new Error("It can't confirm inside a loop.");
 				if (f.depth > 0) throw new Error(`“${f.wf.name}” stops to ask you something, so it can't be run from another workflow.`);
-				const text = renderTemplate(s.text, f.reader.row, f.def, { ctx, old: f.old, vars: varsOf(f) }).trim() || "Carry on?";
+				const text = renderTemplate(s.text, f.reader.row, f.def, { ctx, old: f.old, vars: varsOf(f), first }).trim() || "Carry on?";
 				if (env.answers !== "all" && !env.answers?.has(key ?? at)) throw new AskFirst(key ?? at, text);
 				asked.push(text);
 				return;
@@ -1718,7 +1914,7 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 			case "input": {
 				if (f.inLoop) throw new Error("It can't ask a question inside a loop.");
 				if (f.depth > 0) throw new Error(`“${f.wf.name}” stops to ask you something, so it can't be run from another workflow.`);
-				const tx = (src: string) => renderTemplate(src, f.reader.row, f.def, { ctx, old: f.old, vars: varsOf(f) });
+				const tx = (src: string) => renderTemplate(src, f.reader.row, f.def, { ctx, old: f.old, vars: varsOf(f), first });
 				const question = tx(s.text).trim() || "Your answer?";
 				const k = key ?? at;
 				let answer = env.inputs?.get(k);
@@ -1736,7 +1932,7 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 			case "rename": {
 				const note = targetOf(f, s.on);
 				if (note.created) throw new Error("A note this workflow creates is named and placed by its Create a note step.");
-				const text = (src: string) => renderTemplate(src, f.reader.row, f.def, { ctx, old: f.reader === f.main ? f.old : undefined, vars: varsOf(f) });
+				const text = (src: string) => renderTemplate(src, f.reader.row, f.def, { ctx, old: f.reader === f.main ? f.old : undefined, vars: varsOf(f), first });
 				if (s.kind === "rename") {
 					const name = text(s.name).trim();
 					if (!name) throw new Error("The new name is empty.");
@@ -1747,7 +1943,7 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 			}
 			case "append": {
 				const note = targetOf(f, s.on);
-				const text = (src: string) => renderTemplate(src, f.reader.row, f.def, { ctx, old: f.reader === f.main ? f.old : undefined, vars: varsOf(f) });
+				const text = (src: string) => renderTemplate(src, f.reader.row, f.def, { ctx, old: f.reader === f.main ? f.old : undefined, vars: varsOf(f), first });
 				const body = text(s.text);
 				if (!body.trim()) return;
 				const heading = s.where === "heading" ? text(s.heading).trim() : "";
@@ -1763,7 +1959,7 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 				const base = f.item ?? f.main;
 				const link = plain ? undefined : s.link;
 				if (link && noMain && base === main) throw new Error("There's no single note to link the new note to.");
-				const text = (src: string) => renderTemplate(src, f.reader.row, f.def, { ctx, old: f.reader === f.main ? f.old : undefined, vars: varsOf(f) });
+				const text = (src: string) => renderTemplate(src, f.reader.row, f.def, { ctx, old: f.reader === f.main ? f.old : undefined, vars: varsOf(f), first });
 				const name = (s.name.trim() ? text(s.name) : "").trim() || `New ${type.name.toLowerCase()}`;
 				const fm: Record<string, unknown> = {};
 				const draft: RunNote = { path: "", row: { path: "", name, type, status: null, subtitle: null, tags: [], aliases: [], folder: "", mtime: 0, order: null, frontmatter: fm }, start: {}, fm };
@@ -1864,8 +2060,16 @@ export function runSteps(wf: WorkflowDef, env: StepEnv): RunResult {
 	};
 
 	// [Selected notes] in a run for the whole selection; else [This note], the note it runs on.
-	const selected: Record<string, FValue> = env.selection ? { [SELECTION_VAR]: env.selection.map((r): LinkValue => ({ path: r.path, linktext: env.linkText(r.path), name: r.name })) } : { [THIS_NOTE_VAR]: linkOf(main) };
-	const top: Frame = { wf, main, reader: main, def: workflowDef(wf), scope: wf.scope, vars: selected, globals: globalsOf(wf), found: foundOf(wf), named: new Map(), old: env.old, depth: 0, stack: [wf.id] };
+	const selected: Record<string, FValue> = env.selection ? { [SELECTION_VAR]: env.selection.map((r): LinkValue => ({ path: r.path, linktext: env.linkText(r.path), name: r.name })) } : env.noNote ? {} : { [THIS_NOTE_VAR]: linkOf(main) };
+	// A form's answers are names for the whole run; one that picks a note can be acted on (none picked: steps on it are skipped).
+	const found = foundOf(wf);
+	if (wf.trigger.kind === "form")
+		for (const fd of answerNotes(wf.trigger)) {
+			const v = env.form?.[fd.label.trim()];
+			const link = Array.isArray(v) ? v.find(isLink) : undefined;
+			found.set(fd.label.trim(), link?.path ? noteAt(link.path) : null);
+		}
+	const top: Frame = { wf, main, reader: main, def: workflowDef(wf), scope: wf.scope, vars: selected, globals: { ...globalsOf(wf), ...(env.form ?? {}) }, found, named: new Map(), old: env.old, depth: 0, stack: [wf.id] };
 	try {
 		exec(wf.steps, top, String);
 	} catch (e) {
@@ -1938,6 +2142,8 @@ export function triggerText(wf: WorkflowDef, types: EntityTypeDef[]): string {
 		}
 		case "manual":
 			return `Button: ${t.label || wf.name}${t.selection === "once" ? " (once for the selection)" : ""}`;
+		case "form":
+			return `Form: ${t.title.trim() || wf.name}${wf.scope.length ? ` (on ${scope.length === 1 ? (scope[0].plural || scope[0].name).toLowerCase() : "notes"})` : ""}`;
 		case "schedule": {
 			if (t.every === "hours") return t.hours === 1 ? "Every hour" : `Every ${t.hours} hours`;
 			return t.every === "day" ? `Every day at ${t.at}` : `Every ${WEEKDAYS[t.day] ?? "week"} at ${t.at}`;

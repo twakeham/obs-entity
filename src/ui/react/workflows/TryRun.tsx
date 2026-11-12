@@ -2,7 +2,7 @@ import { Notice } from "obsidian";
 import type EntitiesPlugin from "../../../main";
 import { asArray } from "../../../model/links";
 import { formatValue, type FormatEnv } from "../../../model/fieldFormats";
-import { fieldLabel, inScope, isBigRun, movedText, reachText, runReach, runsOnce, stepLabel, type FieldChange, type WorkflowDef } from "../../../model/workflows";
+import { fieldLabel, inScope, isBigRun, movedText, noteless, reachText, runReach, runsOnce, stepLabel, type FieldChange, type WorkflowDef } from "../../../model/workflows";
 import type { EntityTypeDef } from "../../../model/types";
 import type { BodyAdd } from "../../../model/noteBody";
 import type { TryRun } from "../../../services/workflows";
@@ -13,12 +13,19 @@ import { Icon } from "../Icon";
 
 /** "Try on a note…": pick a note the workflow applies to, then show what it would do there (nothing is written). */
 export function openTryRun(plugin: EntitiesPlugin, wf: WorkflowDef): void {
+	const show = (res: TryRun) => new ReactModal(plugin, `Try “${wf.name || "New workflow"}”`, (close) => <TryRunResult wf={wf} res={res} again={() => (close(), openTryRun(plugin, wf))} close={close} />, "oe-wf-try-modal").open();
+	// A form that starts on its own runs on no note: tried straight away, with its default answers.
+	if (noteless(wf)) {
+		const res = plugin.workflows.tryRun(wf, "");
+		if (res) show(res);
+		return;
+	}
 	const notes = plugin.index.all().filter((e) => inScope(wf, e.type));
 	if (!notes.length) return void new Notice(wf.scope.length ? "There are no notes of these types to try it on." : "There are no notes to try it on.");
 	new NotePickerModal(plugin.app, notes, `Try “${wf.name || "New workflow"}” on a note…`, (entity) => {
 		const res = plugin.workflows.tryRun(wf, entity.path);
 		if (!res) return void new Notice(`${entity.name} isn't an entity.`);
-		new ReactModal(plugin, `Try “${wf.name || "New workflow"}”`, (close) => <TryRunResult wf={wf} res={res} again={() => (close(), openTryRun(plugin, wf))} close={close} />, "oe-wf-try-modal").open();
+		show(res);
 	}).open();
 }
 
@@ -97,11 +104,39 @@ export function TryRunResult({ wf, res, again, close }: { wf: WorkflowDef; res: 
 	const reach = r && !r.error && !r.stopped ? runReach(r) : null;
 	const others = r?.others.filter((o) => o.path !== res.row.path) ?? [];
 	const moveOf = (path: string) => res.moves.find((m) => m.path === path);
+	const alone = noteless(wf);
 	return (
 		<div className="oe-wf-try">
-			<div className="oe-wf-try-on">
-				On <strong>{res.row.name}</strong> <span className="oe-tm-muted">({res.row.type.name})</span>
-			</div>
+			{alone ? (
+				<div className="oe-wf-try-on">
+					The form <strong>{res.row.name}</strong> <span className="oe-tm-muted">(it starts on its own, with no note)</span>
+				</div>
+			) : (
+				<div className="oe-wf-try-on">
+					On <strong>{res.row.name}</strong> <span className="oe-tm-muted">({res.row.type.name})</span>
+				</div>
+			)}
+			{res.answers && (
+				<div className="oe-wf-try-banner is-ask">
+					<Icon name="clipboard-list" />
+					<div>
+						{res.answers.length ? (
+							<>
+								With the form's default answers:{" "}
+								{res.answers.map((a, i) => (
+									<span key={i}>
+										{i ? ", " : ""}
+										{a.question} “{a.answer}”
+									</span>
+								))}
+								.{wf.trigger.kind === "form" && res.answers.length < wf.trigger.fields.length ? " The rest are empty." : ""}
+							</>
+						) : (
+							"With the form left empty (its fields have no defaults)."
+						)}
+					</div>
+				</div>
+			)}
 			{res.problems.length > 0 && (
 				<div className="oe-wf-try-banner is-error">
 					<Icon name="alert-circle" />
@@ -145,12 +180,14 @@ export function TryRunResult({ wf, res, again, close }: { wf: WorkflowDef; res: 
 							<Icon name="message-circle-question" /> It asks “{a.question}”. Taken as {a.answer ? `“${a.answer}” (its default answer)` : "an empty answer"} here.
 						</div>
 					))}
-					<div className="oe-wf-try-note">
-						<div className="oe-wf-try-title">{res.row.name}</div>
-						<Changes changes={r.changes} types={types} quiet={!!moveOf(res.row.path) || r.adds.length > 0} />
-						<Adds adds={r.adds} />
-						<MoveLine move={moveOf(res.row.path)} />
-					</div>
+					{!alone && (
+						<div className="oe-wf-try-note">
+							<div className="oe-wf-try-title">{res.row.name}</div>
+							<Changes changes={r.changes} types={types} quiet={!!moveOf(res.row.path) || r.adds.length > 0} />
+							<Adds adds={r.adds} />
+							<MoveLine move={moveOf(res.row.path)} />
+						</div>
+					)}
 					{others.map((o) => (
 						<div key={o.path} className="oe-wf-try-note">
 							<div className="oe-wf-try-title">
@@ -181,7 +218,7 @@ export function TryRunResult({ wf, res, again, close }: { wf: WorkflowDef; res: 
 			<div className="oe-bulk-footer">
 				<span className="oe-pop-hint">Nothing has been saved.</span>
 				<span className="oe-spacer" />
-				<button onClick={again}>Try another note…</button>
+				<button onClick={again}>{alone ? "Try again" : "Try another note…"}</button>
 				<button className="mod-cta" onClick={close}>
 					Close
 				</button>

@@ -107,7 +107,12 @@ function FormulaEditor({
 		while (taken.has(`formula_${n}`)) n++;
 		return `formula_${n}`;
 	}, [def, existing]);
-	const refCols: RefColumn[] = useMemo(() => [...formulaRefColumns(def, lookup).filter((c) => c.id !== id), ...varColumns(workflow?.vars ?? [])], [def, lookup, id, workflow]);
+	// A form's answers come before the columns, as compileFormula puts them.
+	const formVars = useMemo(() => (workflow?.vars ?? []).filter((v): v is VarSpec => typeof v !== "string" && v.role === "form"), [workflow]);
+	const refCols: RefColumn[] = useMemo(
+		() => [...varColumns(formVars), ...formulaRefColumns(def, lookup).filter((c) => c.id !== id), ...varColumns((workflow?.vars ?? []).filter((v) => typeof v === "string" || v.role !== "form"))],
+		[def, lookup, id, workflow, formVars],
+	);
 	const [name, setName] = useState(existing?.label ?? "");
 	const [text, setText] = useState(() => (workflow ? workflow.value : existing ? toDisplay(existing.formula, refCols) : ""));
 	const [type, setType] = useState<FType | "">(existing?.type ?? "");
@@ -334,7 +339,7 @@ function FormulaEditor({
 					if (workflow.thisIsRow && THIS_NOTE_VAR in vars) vars[THIS_NOTE_VAR] = { path: row.path, linktext: row.path.replace(/\.md$/, ""), name: row.name };
 					let v: FValue;
 					try {
-						v = evaluateFormula(text, row, def, data.ctx, { workflow: true, vars });
+						v = evaluateFormula(text, row, def, data.ctx, { workflow: true, vars, first: new Set(formVars.map((x) => x.name)) });
 					} catch (e) {
 						// Sums and dates with a variable in them can't be worked out from its name.
 						if (usedVars.length) return { name: row.name, cell: { text: "", pending: `Uses ${usedVars.map((n) => `[${n}]`).join(", ")}: worked out when it runs` } };

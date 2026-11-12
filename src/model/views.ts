@@ -1636,7 +1636,7 @@ export const VAR_PREFIX = "var:";
 export interface VarSpec {
 	name: string;
 	type: FType;
-	role?: "this" | "selection" | "item" | "created" | "found" | "answer" | "variable";
+	role?: "this" | "selection" | "item" | "created" | "found" | "answer" | "form" | "variable";
 }
 export const varColumns = (vars: (string | VarSpec)[]): RefColumn[] =>
 	vars.map((v) => (typeof v === "string" ? { id: `${VAR_PREFIX}${v}`, label: v, type: "links" as FType } : { id: `${VAR_PREFIX}${v.name}`, label: v.name, type: v.type }));
@@ -1703,7 +1703,10 @@ export function compileFormula(
 	ctx: Pick<ViewContext, "types" | "groups">,
 	opts: { workflow?: boolean; vars?: (string | VarSpec)[] } = {},
 ): { compiled: Compiled; refs: Map<string, ResolvedColumn> } {
-	const compiled = compile(src, [...formulaRefColumns(def, ctx), ...varColumns(opts.vars ?? [])], opts);
+	// A form's answers come before the columns (a form that starts on its own has no note, so "Name" is its answer).
+	const vars = opts.vars ?? [];
+	const isAnswer = (v: string | VarSpec) => typeof v !== "string" && v.role === "form";
+	const compiled = compile(src, [...varColumns(vars.filter(isAnswer)), ...formulaRefColumns(def, ctx), ...varColumns(vars.filter((v) => !isAnswer(v)))], opts);
 	const universe = formulaUniverse(def, ctx);
 	const refs = new Map<string, ResolvedColumn>();
 	for (const id of compiled.refs) {
@@ -1720,8 +1723,9 @@ export function compileFormula(
  * A formula's raw value for one note (workflows): `old` is the note before the change, for old(); `vars` the notes
  * earlier steps created, by name. Throws a FormulaError.
  */
-export function evaluateFormula(src: string, row: ViewRow, def: ViewDef, ctx: ViewContext, opts: { workflow?: boolean; old?: ViewRow; vars?: Record<string, FValue> } = {}): FValue {
-	const vars = Object.entries(opts.vars ?? {}).map(([name, v]): VarSpec => ({ name, type: isLink(v) || (Array.isArray(v) && v.length > 0 && v.every(isLink)) ? "links" : "any" }));
+export function evaluateFormula(src: string, row: ViewRow, def: ViewDef, ctx: ViewContext, opts: { workflow?: boolean; old?: ViewRow; vars?: Record<string, FValue>; first?: ReadonlySet<string> } = {}): FValue {
+	// `first`: names that come before the columns (a form's answers), as compileFormula puts them.
+	const vars = Object.entries(opts.vars ?? {}).map(([name, v]): VarSpec => ({ name, type: isLink(v) || (Array.isArray(v) && v.length > 0 && v.every(isLink)) ? "links" : "any", ...(opts.first?.has(name) ? { role: "form" as const } : {}) }));
 	const { compiled, refs } = compileFormula(src, def, ctx, { workflow: opts.workflow, vars });
 	return evaluate(compiled.ast, rowEnv(row, refs, ctx, opts.old, opts.vars));
 }

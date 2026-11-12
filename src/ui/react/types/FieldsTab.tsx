@@ -43,11 +43,12 @@ function startCalc(f: FieldDef, t: EntityTypeDef, allTypes: EntityTypeDef[], gro
 	}
 }
 
-/** Menu of field kinds for "+ Add field". */
-export function addFieldMenu(evt: MouseEvent, add: (kind: FieldKind) => void, addRelationship?: () => void) {
+/** Menu of field kinds for "+ Add field" (`formOnly`: a workflow's form, without calculated kinds). */
+export function addFieldMenu(evt: MouseEvent, add: (kind: FieldKind) => void, addRelationship?: () => void, formOnly = false) {
 	const menu = new Menu();
 	for (const kind of KIND_ORDER) {
 		if (kind === "relation" && addRelationship) continue;
+		if (formOnly && (kind === "rollup" || kind === "formula")) continue;
 		// Calculated kinds get their own section.
 		if (kind === "rollup") menu.addSeparator();
 		menu.addItem((i) => i.setTitle(`${KIND_INFO[kind].label} — ${KIND_INFO[kind].desc}`).setIcon(KIND_INFO[kind].icon).onClick(() => add(kind)));
@@ -76,8 +77,8 @@ export function useAddField() {
 	};
 }
 
-export function FieldsTab({ addRelationship }: { addRelationship: () => void }) {
-	const { draft, update, issues, fieldUid, setFieldUid } = useEditor();
+export function FieldsTab({ addRelationship }: { addRelationship?: () => void }) {
+	const { draft, update, issues, fieldUid, setFieldUid, form } = useEditor();
 	const fields = draft.type.fields;
 	const addField = useAddField();
 	const [drag, setDrag] = useState<{ from: number; over: number | null } | null>(null);
@@ -108,11 +109,11 @@ export function FieldsTab({ addRelationship }: { addRelationship: () => void }) 
 					<span className="oe-tm-muted">
 						{fields.length} field{fields.length === 1 ? "" : "s"} · drag to reorder
 					</span>
-					<button className="mod-cta" onClick={(e) => addFieldMenu(e, addField, addRelationship)}>
+					<button className="mod-cta" onClick={(e) => addFieldMenu(e, addField, addRelationship, !!form)}>
 						<Icon name="plus" /> Add field
 					</button>
 				</div>
-				{fields.length === 0 && <div className="oe-tm-empty">No fields yet. Every note still gets a name, status and tags.</div>}
+				{fields.length === 0 && <div className="oe-tm-empty">{form ? "No fields yet. Add what the form asks for: steps use each answer by its label." : "No fields yet. Every note still gets a name, status and tags."}</div>}
 				<div className="oe-tm-rows" onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && drag && setDrag({ ...drag, over: null })}>
 					{fields.map((f, i) => {
 						const uid = draft.meta[i]?.uid ?? String(i);
@@ -168,7 +169,7 @@ export function FieldsTab({ addRelationship }: { addRelationship: () => void }) 
 }
 
 function FieldBadges({ field: f }: { field: FieldDef }) {
-	const { allTypes, groups, draft } = useEditor();
+	const { allTypes, groups, draft, form } = useEditor();
 	const card = draft.type.card;
 	const badges: { text: string; cls?: string; style?: CSSProperties; icon?: string }[] = [];
 	if (f.kind === "relation") {
@@ -181,7 +182,7 @@ function FieldBadges({ field: f }: { field: FieldDef }) {
 		if (f.multiple) badges.push({ text: "many" });
 	}
 	if (f.required) badges.push({ text: "required", cls: "is-required" });
-	if (f.inModal) badges.push({ text: "in create dialog", icon: "square-pen" });
+	if (f.inModal && !form) badges.push({ text: "in create dialog", icon: "square-pen" });
 	if (card?.subtitle?.includes(f.key)) badges.push({ text: "subtitle", icon: "text" });
 	return (
 		<span className="oe-tm-badges">
@@ -221,7 +222,7 @@ function calcFormatAs(t: EntityTypeDef, f: FieldDef, allTypes: EntityTypeDef[], 
 }
 
 function FieldDetails({ index }: { index: number }) {
-	const { draft, update, issues, issuesAt, allTypes, groups, setFieldUid } = useEditor();
+	const { draft, update, issues, issuesAt, allTypes, groups, setFieldUid, form } = useEditor();
 	const f = draft.type.fields[index];
 	const meta = draft.meta[index];
 	const set = (fn: (f: FieldDef) => void) => update((t) => fn(t.fields[index]));
@@ -339,14 +340,14 @@ function FieldDetails({ index }: { index: number }) {
 								})
 							}
 						>
-							{KIND_ORDER.map((k) => (
+							{KIND_ORDER.filter((k) => !form || (k !== "rollup" && k !== "formula")).map((k) => (
 								<option key={k} value={k}>
 									{KIND_INFO[k].label}
 								</option>
 							))}
 						</select>
 					</Row>
-					<Row label="Label" desc={isCalculated(f) ? "Shown in the properties form, views and formulas." : "Shown in the create dialog and the properties form."}>
+					<Row label="Label" desc={form ? "Shown on the form. Steps use the answer by this name, e.g. [Date]." : isCalculated(f) ? "Shown in the properties form, views and formulas." : "Shown in the create dialog and the properties form."}>
 						<TextInput
 							label="Field label"
 							value={f.label}
@@ -360,9 +361,11 @@ function FieldDetails({ index }: { index: number }) {
 						/>
 					</Row>
 					<Row
-						label="Frontmatter key"
+						label={form ? "Key" : "Frontmatter key"}
 						desc={
-							meta?.origKey && meta.origKey !== f.key ? (
+							form ? (
+								"Used by the form's layout and conditions."
+							) : meta?.origKey && meta.origKey !== f.key ? (
 								<>
 									Was <code>{meta.origKey}</code>. You can update existing notes when you save.
 								</>
@@ -372,15 +375,15 @@ function FieldDetails({ index }: { index: number }) {
 						}
 						issues={issuesAt(`field:${index}:key`)}
 					>
-						<TextInput label="Frontmatter key" className="oe-tm-mono" value={f.key} invalid={issuesAt(`field:${index}:key`).length > 0} onChange={(v) => update((t) => setKey(t, v.trim()))} />
+						<TextInput label={form ? "Key" : "Frontmatter key"} className="oe-tm-mono" value={f.key} invalid={issuesAt(`field:${index}:key`).length > 0} onChange={(v) => update((t) => setKey(t, v.trim()))} />
 					</Row>
-					<Row label="Description" desc={isCalculated(f) ? "Help text, shown where a form layout asks for it." : "Help text shown under the field in the create dialog."}>
+					<Row label="Description" desc={form ? "Help text shown under the field on the form." : isCalculated(f) ? "Help text, shown where a form layout asks for it." : "Help text shown under the field in the create dialog."}>
 						<TextInput label="Description" value={f.description ?? ""} placeholder="Optional" onChange={(v) => set((x) => (v.trim() ? (x.description = v) : delete x.description))} />
 					</Row>
 
 					{defaultKinds(f).length > 0 && <DefaultRow field={f} index={index} />}
 
-					{!calc && (
+					{!calc && !form && (
 						<Row label="Show in the create dialog" desc="Otherwise it's under “Show more fields”.">
 							<Toggle label="Show in the create dialog" value={!!f.inModal} onChange={(v) => set((x) => (x.inModal = v))} />
 						</Row>
@@ -461,10 +464,12 @@ function FieldDetails({ index }: { index: number }) {
 							<Row label="Links to" desc="Which kinds of entity this field can point at." issues={issuesAt(`field:${index}:targets`)} stacked>
 								<TargetPicker values={f.targets ?? []} types={allTypes} groups={groups} invalid={issuesAt(`field:${index}:targets`).length > 0} onChange={(v) => set((x) => (x.targets = v))} />
 							</Row>
-							<Row label="Shown on the other note as" desc={f.symmetric ? "Optional: the link reads the same both ways." : "E.g. “Members” for a “Member of” field. Leave empty to show the field name."}>
-								<TextInput label="Inverse label" value={f.inverse ?? ""} placeholder={f.symmetric ? f.label : `${f.label || "Field"} (from ${draft.type.name || "type"})`} onChange={(v) => set((x) => (x.inverse = v.trim() ? v : undefined))} />
-							</Row>
-							<Row label="How many links">
+							{!form && (
+								<Row label="Shown on the other note as" desc={f.symmetric ? "Optional: the link reads the same both ways." : "E.g. “Members” for a “Member of” field. Leave empty to show the field name."}>
+									<TextInput label="Inverse label" value={f.inverse ?? ""} placeholder={f.symmetric ? f.label : `${f.label || "Field"} (from ${draft.type.name || "type"})`} onChange={(v) => set((x) => (x.inverse = v.trim() ? v : undefined))} />
+								</Row>
+							)}
+							<Row label="How many links" desc={form ? "One: steps can act on the note picked (On). Many: a list, e.g. for For each." : undefined}>
 								<Segmented
 									label="How many links"
 									value={f.multiple || f.labelled ? "many" : "one"}
@@ -476,21 +481,25 @@ function FieldDetails({ index }: { index: number }) {
 									onChange={(v) => set((x) => (x.multiple = v === "many"))}
 								/>
 							</Row>
-							<Row label="Reads both ways" desc="Like partners: if A is B's partner, B is A's partner.">
-								<Toggle label="Reads both ways" value={!!f.symmetric} onChange={(v) => set((x) => (x.symmetric = v || undefined))} />
-							</Row>
-							<Row label="Each link has its own label" desc="Like contacts: Ada — account owner, Grace — technical lead.">
-								<Toggle
-									label="Each link has its own label"
-									value={!!f.labelled}
-									onChange={(v) =>
-										set((x) => {
-											x.labelled = v || undefined;
-											if (v) x.multiple = true;
-										})
-									}
-								/>
-							</Row>
+							{!form && (
+								<Row label="Reads both ways" desc="Like partners: if A is B's partner, B is A's partner.">
+									<Toggle label="Reads both ways" value={!!f.symmetric} onChange={(v) => set((x) => (x.symmetric = v || undefined))} />
+								</Row>
+							)}
+							{!form && (
+								<Row label="Each link has its own label" desc="Like contacts: Ada — account owner, Grace — technical lead.">
+									<Toggle
+										label="Each link has its own label"
+										value={!!f.labelled}
+										onChange={(v) =>
+											set((x) => {
+												x.labelled = v || undefined;
+												if (v) x.multiple = true;
+											})
+										}
+									/>
+								</Row>
+							)}
 						</>
 					)}
 
@@ -502,8 +511,8 @@ function FieldDetails({ index }: { index: number }) {
 
 			{pane === "validation" && (
 				<>
-					<div className="oe-tm-muted oe-tm-rules-desc">Values that break a rule are still saved, and shown as problems on the note. The create dialog waits until they're fixed.</div>
-					<Row label="Required" desc="Must be filled in when creating a note. Notes where it's empty show a warning.">
+					<div className="oe-tm-muted oe-tm-rules-desc">{form ? "The form waits until the answers keep to these rules." : "Values that break a rule are still saved, and shown as problems on the note. The create dialog waits until they're fixed."}</div>
+					<Row label="Required" desc={form ? "Must be filled in before the form can be sent." : "Must be filled in when creating a note. Notes where it's empty show a warning."}>
 						<Toggle label="Required" value={!!f.required} onChange={(v) => set((x) => (x.required = v || undefined))} />
 					</Row>
 					<ValidationRows key={`${index}:${f.kind}`} field={f} index={index} />
@@ -524,9 +533,10 @@ const DEFAULT_KIND_LABELS: Record<"none" | "fixed" | DefaultFrom["kind"], string
 /** The default for new notes: a fixed value, a date relative to today, a linked note's value, or the next number. */
 function DefaultRow({ field: f, index }: { field: FieldDef; index: number }) {
 	const plugin = usePlugin();
-	const { draft, update, issuesAt, allTypes } = useEditor();
+	const { draft, update, issuesAt, allTypes, form } = useEditor();
 	const issues = issuesAt(`field:${index}:default`);
-	const kinds = defaultKinds(f);
+	// A form has no linked note to copy from, nor notes to number.
+	const kinds = defaultKinds(f).filter((k) => !form || (k !== "linked" && k !== "auto"));
 	const options: (keyof typeof DEFAULT_KIND_LABELS)[] = kinds.includes("fixed") ? kinds : ["none", ...kinds];
 	const kind = f.defaultFrom?.kind ?? (kinds.includes("fixed") ? "fixed" : "none");
 	const relations = draft.type.fields.filter((x, i) => i !== index && x.kind === "relation" && x.key);
@@ -612,6 +622,7 @@ function DefaultRow({ field: f, index }: { field: FieldDef; index: number }) {
 						? "One more than the highest number the type's notes use. Put {n} where the number goes."
 						: "One more than the highest number the type's notes use."
 					: "Prefilled when creating a note.";
+	if (form && !kinds.length) return null;
 	return (
 		<Row label="Default" desc={desc} issues={issues} stacked={!!d || f.kind === "multiselect" || f.kind === "list"}>
 			<div className="oe-tm-default">
@@ -854,7 +865,7 @@ function NumberBox({ label, value, whole, invalid, onChange }: { label: string; 
  */
 function ValidationRows({ field: f, index }: { field: FieldDef; index: number }) {
 	const plugin = usePlugin();
-	const { draft, update, issuesAt, allTypes, groups } = useEditor();
+	const { draft, update, issuesAt, allTypes, groups, form } = useEditor();
 	const type = draft.type;
 	const g = ruleGroups(f);
 	const r = f.rules ?? {};
@@ -902,7 +913,7 @@ function ValidationRows({ field: f, index }: { field: FieldDef; index: number })
 	}
 	const whenCtx = { types: allTypes, groups };
 	const choices: ColumnChoice[] = whenColumns(type, whenCtx)
-		.filter((col) => col.id !== fieldColumn(f.key).id)
+		.filter((col) => col.id !== fieldColumn(f.key).id && (!form || col.def.kind === "field"))
 		.map((col) => ({ col, group: col.def.kind === "field" ? "Fields" : "Properties" }));
 	const valuesOf = (id: string) => (id === COMMON_KEYS.tags ? [...new Set(plugin.index.ofType(draft.original?.key ?? type.key).flatMap((e) => e.tags))].sort() : []);
 
@@ -1001,14 +1012,14 @@ function ValidationRows({ field: f, index }: { field: FieldDef; index: number })
 						{range("Items", "minItems", "maxItems", true)}
 					</Row>
 				)}
-				{takesUnique(f.kind) && (
+				{takesUnique(f.kind) && !form && (
 					<Row label="Unique" desc={`No two ${type.plural || "notes"} can have the same value (ignoring case).`}>
 						<Toggle label="Unique" value={!!r.unique} onChange={(v) => setRule("unique", v || undefined)} />
 					</Row>
 				)}
 				<Row
 					label="Required when…"
-					desc={f.required ? "Not needed: the field is always required." : r.requiredWhen ? `Required when ${whenText(r.requiredWhen, type, whenCtx)}.` : "Only required for some notes, e.g. a due date once the status is In progress."}
+					desc={f.required ? "Not needed: the field is always required." : r.requiredWhen ? `Required when ${whenText(r.requiredWhen, type, whenCtx)}.` : form ? "Only required for some answers, e.g. a reason once Cancelled is ticked." : "Only required for some notes, e.g. a due date once the status is In progress."}
 					stacked={whenOpen || !!r.requiredWhen}
 				>
 					{f.required ? null : whenOpen || r.requiredWhen ? (

@@ -452,7 +452,10 @@ export function renameWorkflowKeys(wf: WorkflowDef, keys: Map<string, string>, i
 		if (s.kind === "find") return { ...s, types: s.types.map((x) => renameTarget(x, keys)), when: renameFilter(s.when, keys), ...(s.sort ? { sort: { ...s.sort, by: renameColumnId(s.sort.by, keys) } } : {}) };
 		return note(s);
 	};
-	return { ...wf, scope: wf.scope.map((x) => renameTarget(x, keys)), when: renameFilter(wf.when, keys), steps: wf.steps.map(step) };
+	const t = wf.trigger;
+	// A form's link fields may point at renamed types.
+	const trigger = t.kind === "form" ? { ...t, fields: t.fields.map((x) => (x.targets ? { ...x, targets: x.targets.map((y) => renameTarget(y, keys)) } : x)) } : t;
+	return { ...wf, scope: wf.scope.map((x) => renameTarget(x, keys)), trigger, when: renameFilter(wf.when, keys), steps: wf.steps.map(step) };
 }
 
 /**

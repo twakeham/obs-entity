@@ -9,14 +9,20 @@ import { askQuestion, askText, confirmRun } from "../ui/modals/workflowModals";
 import { COMMON_KEYS } from "../model/types";
 import type { ViewContext, ViewRow } from "../model/views";
 import {
+	answerTexts,
+	buttonLabel,
 	changeMatches,
 	dateCheckDue,
 	dateReached,
 	dueAt,
+	formAnswers,
+	formType,
 	inScope,
 	isBigRun,
 	isTimed,
 	MAX_CHAIN,
+	noteless,
+	onNotes,
 	passesWhen,
 	PLAIN_NOTE,
 	PLAIN_TYPE,
@@ -92,6 +98,8 @@ export interface TryRun {
 	result: RunResult | null;
 	/** where moved and renamed notes would go (null: they'd stay put), or why they can't */
 	moves: { path: string; to: string | null; error?: string }[];
+	/** a form's answers it was tried with (its defaults), in words */
+	answers?: { question: string; answer: string }[];
 }
 
 /** Runs caused by one change, and the ones they cause in turn. */
@@ -172,10 +180,10 @@ export class WorkflowEngine extends Events {
 		this.trigger("log");
 	}
 
-	/** Workflows that can be run on a note (manual ones in scope, switched on). */
+	/** Workflows that can be run on a note (buttons and forms in scope, switched on). */
 	manualFor(rec: EntityRecord | undefined): WorkflowDef[] {
 		if (!rec) return [];
-		return this.plugin.settings.workflows.filter((w) => w.on && w.trigger.kind === "manual" && inScope(w, rec.type));
+		return this.plugin.settings.workflows.filter((w) => w.on && onNotes(w) && inScope(w, rec.type));
 	}
 
 	private enqueue(task: () => Promise<unknown>): void {
@@ -379,8 +387,8 @@ export class WorkflowEngine extends Events {
 		new Notice(frag, 10000);
 	}
 
-	/** Run a workflow on notes by hand: one run each, then a notice with Undo. */
-	async runOn(wf: WorkflowDef, paths: string[]): Promise<RunRecord[]> {
+	/** Run a workflow on notes by hand: one run each, then a notice with Undo. A form's answers (`form`) go to every run; a form that starts on its own runs once, on no note. */
+	async runOn(wf: WorkflowDef, paths: string[], form?: Record<string, unknown>): Promise<RunRecord[]> {
 		if (this.paused) {
 			new Notice("Workflows are paused.");
 			return [];
@@ -391,16 +399,19 @@ export class WorkflowEngine extends Events {
 			return [];
 		}
 		const done: RunRecord[] = [];
-		if (runsOnce(wf)) {
+		if (noteless(wf)) {
+			const r = await new Promise<RunRecord | null>((resolve) => this.enqueue(async () => resolve(await this.run(wf, "", { chain: fresh(), manual: true, ...(form ? { form } : {}) }))));
+			if (r) done.push(r);
+		} else if (runsOnce(wf)) {
 			// Once for the whole selection: one run, with every selected note.
 			const r = await new Promise<RunRecord | null>((resolve) => this.enqueue(async () => resolve(await this.run(wf, paths[0] ?? "", { chain: fresh(), manual: true, selection: paths }))));
 			if (r) done.push(r);
 		}
 		// Agreeing to one big run agrees to the rest of the selection's; an answer can be kept for the rest too.
 		const batch: Batch = { agreed: false, answers: new Map(), inputs: new Map(), left: 0 };
-		for (const [i, p] of (runsOnce(wf) ? [] : paths).entries()) {
+		for (const [i, p] of (runsOnce(wf) || noteless(wf) ? [] : paths).entries()) {
 			batch.left = paths.length - i - 1;
-			const r = await new Promise<RunRecord | null>((resolve) => this.enqueue(async () => resolve(await this.run(wf, p, { chain: fresh(), manual: true, batch }))));
+			const r = await new Promise<RunRecord | null>((resolve) => this.enqueue(async () => resolve(await this.run(wf, p, { chain: fresh(), manual: true, batch, ...(form ? { form } : {}) }))));
 			if (r) done.push(r);
 		}
 		const changed = done.filter((r) => (r.changes.length || r.added || r.created?.length || r.others?.length || r.moved?.length) && !r.error);
@@ -442,31 +453,35 @@ export class WorkflowEngine extends Events {
 	private async run(
 		wf: WorkflowDef,
 		path: string,
-		opts: { chain: Chain; before?: Record<string, unknown>; manual?: boolean; batch?: Batch; unattended?: boolean; limit?: number; selection?: string[] },
+		opts: { chain: Chain; before?: Record<string, unknown>; manual?: boolean; batch?: Batch; unattended?: boolean; limit?: number; selection?: string[]; form?: Record<string, unknown> },
 	): Promise<RunRecord | null> {
 		const { plugin } = this;
 		const { app } = plugin;
 		const sel = opts.selection;
+		// A form that starts on its own: no note.
+		const alone = noteless(wf);
 		const file = app.vault.getAbstractFileByPath(path);
 		const rec = plugin.index.get(path);
-		if (!sel && (!(file instanceof TFile) || !rec)) return null;
-		// What the run is on, in words: the note, or "3 selected notes".
-		const label = sel ? `${sel.length} selected note${sel.length === 1 ? "" : "s"}` : rec!.name;
+		if (!sel && !alone && (!(file instanceof TFile) || !rec)) return null;
+		// What the run is on, in words: the note, "3 selected notes", or the form.
+		const label = sel ? `${sel.length} selected note${sel.length === 1 ? "" : "s"}` : alone ? buttonLabel(wf) : rec!.name;
+		const formWords = opts.form && wf.trigger.kind === "form" ? answerTexts(wf.trigger, opts.form) : [];
 		const base: Omit<RunRecord, "selection"> & { selection?: string[] } = {
 			id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
 			time: Date.now(),
 			workflow: wf.id,
 			name: wf.name,
-			path,
+			path: alone ? "" : path,
 			note: label,
 			trigger: wf.trigger.kind,
 			changes: [],
 			notices: [],
 			...(sel ? { selection: sel } : {}),
+			...(formWords.length ? { inputs: formWords } : {}),
 		};
 		const problems = workflowProblems(wf, plugin.settings);
 		if (problems.length) return this.record({ ...base, error: `The workflow has problems: ${problems[0].message}` });
-		const key = sel ? `${wf.id}|selection` : `${wf.id}|${path}`;
+		const key = sel ? `${wf.id}|selection` : alone ? `${wf.id}|form` : `${wf.id}|${path}`;
 		if (opts.chain.seen.has(key)) return this.record({ ...base, stopped: "It already ran on this note in this chain of changes." });
 		if (opts.chain.depth >= MAX_CHAIN) return this.record({ ...base, stopped: `Stopped after ${MAX_CHAIN} workflows set each other off.` });
 		let res: RunResult;
@@ -486,12 +501,14 @@ export class WorkflowEngine extends Events {
 				if (chosen.length < sel.length) base.note = `${chosen.length} of ${sel.length} selected notes`;
 				base.selection = chosen.map((r) => r.path);
 				res = this.simulate(wf, chosen[0], rows, ctx, undefined, answers, chosen, inputs);
+			} else if (alone) {
+				res = this.simulate(wf, this.standIn(wf), rows, ctx, undefined, answers, undefined, inputs, opts.form ?? {});
 			} else {
 				const row = rows.find((r) => r.path === path);
 				if (!row) return null;
 				const old: ViewRow | undefined = opts.before ? { ...row, frontmatter: opts.before, status: typeof opts.before[COMMON_KEYS.status] === "string" ? (opts.before[COMMON_KEYS.status] as string) : null } : undefined;
 				if (!passesWhen(wf, row, ctx)) return replanned ? this.record({ ...base, stopped: "The note no longer matched Only if." }) : null;
-				res = this.simulate(wf, row, rows, ctx, old, answers, undefined, inputs);
+				res = this.simulate(wf, row, rows, ctx, old, answers, undefined, inputs, opts.form);
 			}
 			if (res.stopped) {
 				if (opts.manual) new Notice(`“${wf.name}” stopped: ${res.stopped}`);
@@ -556,7 +573,7 @@ export class WorkflowEngine extends Events {
 			...(edited.length ? { others: edited.map((o) => ({ path: o.path, name: o.name, changes: o.changes, ...(o.adds ? { added: o.adds.length } : {}) })) } : {}),
 			...(res.via.length ? { via: res.via } : {}),
 			...(res.asked.length ? { asked: res.asked } : {}),
-			...(res.inputs.length ? { inputs: res.inputs } : {}),
+			...(res.inputs.length || formWords.length ? { inputs: [...formWords, ...res.inputs] } : {}),
 		};
 		if (res.changes.length || res.adds.length || made.length || edited.length || moving.length) {
 			const chain: Chain = { depth: opts.chain.depth + 1, seen: new Set([...opts.chain.seen, key]), root: opts.chain.root ?? record.id };
@@ -684,8 +701,8 @@ export class WorkflowEngine extends Events {
 		return true;
 	}
 
-	/** What a workflow's steps would do on a note: worked out on copies, nothing written. */
-	private simulate(wf: WorkflowDef, row: ViewRow, rows: ViewRow[], ctx: ViewContext, old?: ViewRow, answers?: Set<string> | "all", selection?: ViewRow[], inputs?: Map<string, string>): RunResult {
+	/** What a workflow's steps would do on a note: worked out on copies, nothing written. `form`: a form's answers (as frontmatter stores them). */
+	private simulate(wf: WorkflowDef, row: ViewRow, rows: ViewRow[], ctx: ViewContext, old?: ViewRow, answers?: Set<string> | "all", selection?: ViewRow[], inputs?: Map<string, string>, form?: Record<string, unknown>): RunResult {
 		const { app } = this.plugin;
 		const linkText = (p: string) => {
 			const target = app.vault.getAbstractFileByPath(p);
@@ -694,22 +711,39 @@ export class WorkflowEngine extends Events {
 			const name = p.replace(/\.md$/, "").split("/").pop() ?? p;
 			return app.metadataCache.getFirstLinkpathDest(name, row.path) ? p.replace(/\.md$/, "") : name;
 		};
-		return runSteps(wf, { ctx, row, old, linkText, place: this.placer(rows), workflows: this.plugin.settings.workflows, rows, answers, ...(inputs ? { inputs } : {}), ...(selection ? { selection } : {}) });
+		const t = wf.trigger;
+		const formEnv = t.kind === "form" ? { form: formAnswers(t, form ?? {}, ctx, linkText), ...(noteless(wf) ? { noNote: true as const } : {}) } : {};
+		return runSteps(wf, { ctx, row, old, linkText, place: this.placer(rows), workflows: this.plugin.settings.workflows, rows, answers, ...(inputs ? { inputs } : {}), ...(selection ? { selection } : {}), ...formEnv });
+	}
+
+	/** The note a form that starts on its own runs on: none (a stand-in with no path or fields, named for the form). */
+	private standIn(wf: WorkflowDef): ViewRow {
+		return { path: "", name: buttonLabel(wf), type: PLAIN_TYPE, status: null, subtitle: null, tags: [], aliases: [], folder: "", mtime: 0, order: null, frontmatter: {} };
+	}
+
+	/** A form's default answers (what it opens with), for a test run. */
+	formDefaults(wf: WorkflowDef): Record<string, unknown> {
+		if (wf.trigger.kind !== "form") return {};
+		return emptyFormValues(formType(wf.trigger), this.plugin.settings.groups, "", { today: todayDays(), dates: this.plugin.dates }).fields as Record<string, unknown>;
 	}
 
 	/**
 	 * "Try on a note…": what a workflow (saved, or a draft) would do on a note, writing nothing. The steps are worked
 	 * out even when the note doesn't match Only if (`passes` says so). A workflow run once for the selection is tried
-	 * as if that note were the whole selection. Null when the note isn't an entity.
+	 * as if that note were the whole selection; a form with its default answers (one that starts on its own, on no
+	 * note: `path` ""). Null when the note isn't an entity.
 	 */
 	tryRun(wf: WorkflowDef, path: string): TryRun | null {
 		const { rows, ctx } = this.plugin.viewData();
-		const row = rows.find((r) => r.path === path);
+		const alone = noteless(wf);
+		const row = alone ? this.standIn(wf) : rows.find((r) => r.path === path);
 		if (!row) return null;
 		const problems = workflowProblems(wf, this.plugin.settings).map((p) => p.message);
-		if (problems.length) return { row, problems, passes: false, result: null, moves: [] };
+		const form = wf.trigger.kind === "form" ? this.formDefaults(wf) : undefined;
+		const answers = form && wf.trigger.kind === "form" ? answerTexts(wf.trigger, form) : undefined;
+		if (problems.length) return { row, problems, passes: false, result: null, moves: [], ...(answers ? { answers } : {}) };
 		// Questions are taken as answered Yes, to show everything the run would do.
-		const result = this.simulate(wf, row, rows, ctx, undefined, "all", runsOnce(wf) ? [row] : undefined);
+		const result = this.simulate(wf, row, rows, ctx, undefined, "all", runsOnce(wf) ? [row] : undefined, undefined, form);
 		const taken = new Set<string>();
 		const moves = result.error || result.stopped ? [] : this.moving(path, result).map((m) => {
 			try {
@@ -718,7 +752,7 @@ export class WorkflowEngine extends Events {
 				return { path: m.path, to: null, error: (e as Error).message };
 			}
 		});
-		return { row, problems, passes: passesWhen(wf, row, ctx), result, moves };
+		return { row, problems, passes: alone || passesWhen(wf, row, ctx), result, moves, ...(answers ? { answers } : {}) };
 	}
 
 	/** Write a run's field changes to a note, tagged with the chain (the changes it causes continue it) or silent (null: none). */

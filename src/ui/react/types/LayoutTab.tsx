@@ -61,7 +61,7 @@ import {
 } from "../../../model/formLayout";
 import { conditionProblems, todayDays, whenColumns, whenText, type WhenContext } from "../../../model/formConditions";
 import { COMMON_KEYS } from "../../../model/types";
-import { buttonIcon, buttonLabel, inScope } from "../../../model/workflows";
+import { buttonIcon, buttonLabel, inScope, onNotes } from "../../../model/workflows";
 import { FiltersPanel, type ColumnChoice } from "../table/popovers";
 import { PluginContext, usePlugin } from "../context";
 import { Icon } from "../Icon";
@@ -270,12 +270,12 @@ function saveFolded(app: App, typeKey: string | undefined, folded: Set<PalSectio
  */
 export function LayoutTab() {
 	const plugin = usePlugin();
-	const { draft, update, issuesAt, setTab, setFieldUid, groups, allTypes } = useEditor();
+	const { draft, update, issuesAt, setTab, setFieldUid, groups, allTypes, form, historyId } = useEditor();
 	const type = draft.type;
 	const raw = type.form?.layout;
 	const layout = useMemo(() => (raw ? normaliseLayout(raw) : null), [raw]);
 	const base: FormLayout = layout ?? { items: [] };
-	const histId = draft.original?.key ?? `new:${type.key}`;
+	const histId = historyId ?? draft.original?.key ?? `new:${type.key}`;
 	/** the selected node, or the selected tab (one or the other) */
 	const [sel, setSel] = useState<LayoutPath | null>(null);
 	const [selTab, setSelTab] = useState<TabRef | null>(null);
@@ -398,7 +398,7 @@ export function LayoutTab() {
 
 	// ---- what's placed
 	// Button workflows for this type (on or off): their buttons can be placed.
-	const buttonFlows = plugin.settings.workflows.filter((w) => w.trigger.kind === "manual" && inScope(w, type));
+	const buttonFlows = plugin.settings.workflows.filter((w) => onNotes(w) && inScope(w, type));
 	const flowOf = (k: string) => (isWorkflowItem(k) ? plugin.settings.workflows.find((w) => w.id === workflowOfItem(k)) : undefined);
 	const placeable = placeableKeys(type, buttonFlows.map((w) => w.id));
 	const placedAt = new Map<string, LayoutPath>();
@@ -417,7 +417,9 @@ export function LayoutTab() {
 	const whenCtx: WhenContext = { types: allTypes, groups, dates: plugin.dates, today: todayDays() };
 	const whenSummary = (w: LayoutWhen) => whenText(w, type, whenCtx);
 	const whenBroken = (w: LayoutWhen) => conditionProblems(w, type, whenCtx).some((p) => !p.incomplete);
-	const choices: ColumnChoice[] = whenColumns(type, whenCtx).map((col) => ({ col, group: col.def.kind === "field" ? "Fields" : "Properties" }));
+	const choices: ColumnChoice[] = whenColumns(type, whenCtx)
+		.filter((col) => !form || col.def.kind === "field")
+		.map((col) => ({ col, group: col.def.kind === "field" ? "Fields" : "Properties" }));
 	const viewCtx = useMemo(() => plugin.viewData().ctx, [plugin]);
 	const valuesOf = (id: string) => (id === COMMON_KEYS.tags ? [...new Set(plugin.index.ofType(draft.original?.key ?? type.key).flatMap((e) => e.tags))].sort() : []);
 	const whenEditor = (w: LayoutWhen | undefined, set: (w: LayoutWhen | undefined, tag?: string) => void, tag: string) => (
@@ -1353,7 +1355,7 @@ export function LayoutTab() {
 							{n.icon && <Icon name={n.icon} className="oe-ld-frame-icon" />}
 							<span className="oe-ld-caption">{n.caption || <span className="oe-ld-faint">No caption</span>}</span>
 							{whenBadge(n.when)}
-							{n.create === false && (
+							{n.create === false && !form && (
 								<span className="oe-ld-badge" title="Not in the create dialog">
 									<Icon name="eye-off" /> Create dialog
 								</span>
@@ -1407,7 +1409,7 @@ export function LayoutTab() {
 									>
 										{t.icon && <Icon name={t.icon} />}
 										<span>{t.caption}</span>
-										{t.create === false && <Icon name="eye-off" className="oe-ld-tab-off" />}
+										{t.create === false && !form && <Icon name="eye-off" className="oe-ld-tab-off" />}
 										{t.when && (
 											<span className="oe-ld-tab-when" title={`Shown only when ${whenSummary(t.when)}`}>
 												<Icon name="eye" />
@@ -1514,10 +1516,12 @@ export function LayoutTab() {
 							)}
 						</div>
 					</div>
-					<div className="oe-ld-prop-row">
-						<span>Show in the create dialog</span>
-						<Toggle label="Show in the create dialog" value={def.create !== false} onChange={(v) => changeTab(t, (x) => ({ ...x, create: v ? undefined : false }))} />
-					</div>
+					{!form && (
+						<div className="oe-ld-prop-row">
+							<span>Show in the create dialog</span>
+							<Toggle label="Show in the create dialog" value={def.create !== false} onChange={(v) => changeTab(t, (x) => ({ ...x, create: v ? undefined : false }))} />
+						</div>
+					)}
 					<p className="oe-tm-muted oe-ld-note">Required fields are always asked for when creating a note.</p>
 					{whenEditor(def.when, (w, tag) => changeTab(t, (x) => ({ ...x, when: w }), tag), `when:tab:${pk(t.group)}:${t.tab}`)}
 					<div className="oe-ld-prop-buttons">
@@ -1578,10 +1582,12 @@ export function LayoutTab() {
 						<span>Starts collapsed</span>
 						<Toggle label="Starts collapsed" disabled={!fr.collapsible} value={!!fr.collapsed} onChange={(v) => change(sel, (n) => ({ ...(n as LayoutFrame), collapsed: v ? true : undefined }))} />
 					</div>
-					<div className="oe-ld-prop-row">
-						<span>Show in the create dialog</span>
-						<Toggle label="Show in the create dialog" value={fr.create !== false} onChange={(v) => change(sel, (n) => ({ ...(n as LayoutFrame), create: v ? undefined : false }))} />
-					</div>
+					{!form && (
+						<div className="oe-ld-prop-row">
+							<span>Show in the create dialog</span>
+							<Toggle label="Show in the create dialog" value={fr.create !== false} onChange={(v) => change(sel, (n) => ({ ...(n as LayoutFrame), create: v ? undefined : false }))} />
+						</div>
+					)}
 					<p className="oe-tm-muted oe-ld-note">Required fields are always asked for when creating a note.</p>
 					<div className="oe-ld-prop-col">
 						<span>Icon</span>
@@ -1835,7 +1841,7 @@ export function LayoutTab() {
 							/>
 						</div>
 					)}
-					{!READ_ONLY_ITEMS.includes(f.key) && (
+					{!READ_ONLY_ITEMS.includes(f.key) && !form && (
 						<div className="oe-ld-prop-row">
 							<span>Read-only on this form</span>
 							<Toggle label="Read-only on this form" value={!!f.readOnly} onChange={(v) => setSlot({ readOnly: v ? true : undefined })} />
@@ -1896,29 +1902,31 @@ export function LayoutTab() {
 					fieldsLeft ? `${fieldsLeft} not placed yet` : "all placed",
 					type.fields.length ? type.fields.map((f) => paletteField(f.key)) : <div className="oe-tm-muted oe-ld-note">No fields yet.</div>,
 				)}
-				{palSection("properties", "Properties", placedOf(builtinKeys), builtinKeys.map(paletteField))}
-				{palSection(
-					"readonly",
-					"Read-only",
-					placedOf(READ_ONLY_ITEMS),
-					<>
-						{READ_ONLY_ITEMS.map(paletteField)}
-						<p className="oe-tm-muted oe-ld-note">Not placed, the name is the note's title, status, type and subtitle are in the form's top line, and the others are at the end.</p>
-					</>,
-				)}
-				{palSection(
-					"buttons",
-					"Workflow buttons",
-					buttonKeys.length ? placedOf(buttonKeys) : null,
-					buttonKeys.length ? (
+				{!form && palSection("properties", "Properties", placedOf(builtinKeys), builtinKeys.map(paletteField))}
+				{!form &&
+					palSection(
+						"readonly",
+						"Read-only",
+						placedOf(READ_ONLY_ITEMS),
 						<>
-							{buttonKeys.map(paletteField)}
-							<p className="oe-tm-muted oe-ld-note">Buttons of workflows that run on notes of this type. Not placed, they're in a strip at the top of the form.</p>
-						</>
-					) : (
-						<p className="oe-tm-muted oe-ld-note">No workflows run on these notes from a button yet: make one with “Run on notes” in Workflows.</p>
-					),
-				)}
+							{READ_ONLY_ITEMS.map(paletteField)}
+							<p className="oe-tm-muted oe-ld-note">Not placed, the name is the note's title, status, type and subtitle are in the form's top line, and the others are at the end.</p>
+						</>,
+					)}
+				{!form &&
+					palSection(
+						"buttons",
+						"Workflow buttons",
+						buttonKeys.length ? placedOf(buttonKeys) : null,
+						buttonKeys.length ? (
+							<>
+								{buttonKeys.map(paletteField)}
+								<p className="oe-tm-muted oe-ld-note">Buttons of workflows that run on notes of this type. Not placed, they're in a strip at the top of the form.</p>
+							</>
+						) : (
+							<p className="oe-tm-muted oe-ld-note">No workflows run on these notes from a button yet: make one with “Run on notes” in Workflows.</p>
+						),
+					)}
 				{palSection(
 					"saved",
 					"My components",
