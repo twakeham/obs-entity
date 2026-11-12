@@ -121,8 +121,36 @@ export const noteless = (wf: Pick<WorkflowDef, "trigger" | "scope">): boolean =>
 /** Workflows started by someone on notes: buttons, and form workflows with types. */
 export const onNotes = (wf: Pick<WorkflowDef, "trigger" | "scope">): boolean => wf.trigger.kind === "manual" || (wf.trigger.kind === "form" && wf.scope.length > 0);
 
-/** Forms that start on their own, switched on and set to show in a place (the ribbon, views' toolbars). */
-export const formsFor = (all: WorkflowDef[], place: "ribbon" | "toolbar"): WorkflowDef[] => all.filter((w) => w.on && w[place] && noteless(w));
+/** Forms that start on their own, switched on and set to have a ribbon icon. */
+export const formsFor = (all: WorkflowDef[], place: "ribbon"): WorkflowDef[] => all.filter((w) => w.on && w[place] && noteless(w));
+
+/** Workflows a view's toolbar offers (`viewPath`: the view note's): buttons and forms, switched on, set to show on it or on every view. */
+export const viewWorkflows = (all: WorkflowDef[], viewPath: string): WorkflowDef[] =>
+	all.filter((w) => w.on && (noteless(w) || onNotes(w)) && (w.allViews || !!w.views?.includes(viewPath)));
+
+/** Follow a renamed view note (`to`) or a deleted one (null) in workflows' views; true when any changed. */
+export function moveViewPath(all: WorkflowDef[], from: string, to: string | null): boolean {
+	let changed = false;
+	for (const w of all) {
+		if (!w.views?.includes(from)) continue;
+		const next = [...new Set(w.views.flatMap((p) => (p === from ? (to ? [to] : []) : [p])))];
+		if (next.length) w.views = next;
+		else delete w.views;
+		changed = true;
+	}
+	return changed;
+}
+
+/**
+ * What a button or form on a view's toolbar would run on, given the selected notes: a form that starts on its own,
+ * nothing (it's always ready); others, the selected notes it applies to (none: it can't run, and `why` says so).
+ */
+export function toolbarTarget(wf: WorkflowDef, selected: { path: string; type: EntityTypeDef }[]): { paths: string[]; why?: string } {
+	if (noteless(wf)) return { paths: [] };
+	if (!selected.length) return { paths: [], why: "Select the notes to run it on" };
+	const paths = selected.filter((e) => inScope(wf, e.type)).map((e) => e.path);
+	return paths.length ? { paths } : { paths, why: "It doesn't apply to the selected notes" };
+}
 
 /** Why a step can't act on (or read) "this note" in a run for a whole selection. */
 export const NO_NOTE = "A run for the whole selection has no single note: put this inside a For each over [Selected notes], or make it act on a note an earlier step creates.";
@@ -203,8 +231,10 @@ export interface WorkflowDef {
 	command?: true;
 	/** a form that starts on its own: an icon of its own in the ribbon */
 	ribbon?: true;
-	/** a form that starts on its own: offered on views' toolbars */
-	toolbar?: true;
+	/** buttons and forms: the views (view note paths) whose toolbars offer it */
+	views?: string[];
+	/** buttons and forms: offered on every view's toolbar */
+	allViews?: true;
 }
 
 export const TRIGGER_LABELS: Record<TriggerKind, string> = { created: "When a note is created", changed: "When a field changes", manual: "Run on notes", form: "Fill in a form", schedule: "On a schedule", date: "On a date" };
@@ -434,7 +464,8 @@ export function readWorkflows(raw: unknown, types?: EntityTypeDef[]): WorkflowDe
 			...(w.isolated === true ? { isolated: true as const } : {}),
 			...(w.command === true ? { command: true as const } : {}),
 			...(w.ribbon === true ? { ribbon: true as const } : {}),
-			...(w.toolbar === true ? { toolbar: true as const } : {}),
+			...(strList(w.views).length ? { views: [...new Set(strList(w.views))] } : {}),
+			...(w.allViews === true ? { allViews: true as const } : {}),
 		});
 	}
 	if (types)

@@ -3136,10 +3136,30 @@ button.oe-tm-typegroup-title,
 	border-bottom: 1px solid var(--background-modifier-border);
 }
 
-/* Narrow views: toolbar buttons show just their icons (and counts). */
+/* The workflows a view offers, as a row of buttons under its toolbar (⋯ → Show workflow toolbar); they wrap. */
+.oe-view-workflowbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--size-4-1);
+	padding: var(--size-4-1) var(--size-4-2);
+	background-color: var(--background-secondary);
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.oe-view-workflowbar .oe-view-tool:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+
+/* Narrow views: toolbar buttons show just their icons (and counts); the workflow buttons keep their labels. */
 @container (max-width: 760px) {
 	.oe-view-tool-label {
 		display: none;
+	}
+
+	.oe-view-workflowbar .oe-view-tool-label {
+		display: inline;
 	}
 }
 
@@ -7797,6 +7817,54 @@ button.oe-calv-more:hover {
 /* A form workflow's own problems (answer names), above its fields. */
 .oe-wf-form-body > .oe-wf-form-issues {
 	margin-bottom: var(--size-4-3);
+}
+
+/* A button or form workflow's Views tab: the views whose toolbars offer it. */
+.oe-wf-views {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	max-width: 720px;
+}
+
+.oe-wf-views-intro {
+	margin-bottom: var(--size-4-3);
+}
+
+.oe-wf-views-row {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	padding: var(--size-2-3) var(--size-4-2);
+	border-radius: var(--radius-s);
+	font-size: var(--font-ui-small);
+	cursor: pointer;
+}
+
+.oe-wf-views-row:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.oe-wf-views-row.is-all {
+	margin-bottom: var(--size-4-2);
+	border-bottom: 1px solid var(--background-modifier-border);
+	border-radius: 0;
+}
+
+.oe-wf-views-row.is-covered {
+	opacity: 0.6;
+	cursor: default;
+}
+
+.oe-wf-views-row svg {
+	width: 14px;
+	height: 14px;
+	color: var(--text-muted);
+}
+
+.oe-wf-views-name {
+	color: var(--text-normal);
+	font-weight: var(--font-normal);
 }
 
 .oe-wf-run-note.is-form {

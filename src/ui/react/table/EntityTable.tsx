@@ -50,7 +50,7 @@ import { ConfirmModal } from "../types/TypeManager";
 import { PluginContext, usePlugin, useRelationsVersion } from "../context";
 import { HOVER_SOURCE } from "../EntityChip";
 import { Icon } from "../Icon";
-import { ToolbarForms } from "../workflows/ToolbarForms";
+import { ViewWorkflowsBar, ViewWorkflowsMenu } from "../workflows/ViewWorkflows";
 import { CellEditor, CellView, editTarget } from "./cells";
 import { GroupValue } from "../EntityBits";
 import { summarize, summaryOptions, type SummaryResult } from "../../../model/summary";
@@ -783,6 +783,18 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 					new Notice("Copied the view's block. Paste it into any note.");
 				}),
 		);
+		// The workflows this view offers (each workflow's Views tab): a row of buttons, or a Workflows menu in the toolbar.
+		m.addItem((i) =>
+			i
+				.setSection("workflows")
+				.setTitle("Show workflow toolbar")
+				.setIcon("zap")
+				.setChecked(!!def.workflowBar)
+				.onClick(() => {
+					const { workflowBar: _w, ...rest } = defRef.current;
+					update(def.workflowBar ? rest : { ...rest, workflowBar: true });
+				}),
+		);
 		if (isBoard) boardMoreItems(m, { x: e.clientX, y: e.clientY });
 		else if (isCalendar) {
 			const c = calendarOf(def);
@@ -1504,6 +1516,7 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 						</button>
 					))}
 				</div>
+				{!def.workflowBar && <ViewWorkflowsMenu viewPath={sourcePath} selected={selectedEntities} />}
 				<span className="oe-spacer" />
 				{selectedEntities.length > 0 ? (
 					<div className="oe-selbar" role="toolbar" aria-label="Selected entities">
@@ -1573,13 +1586,13 @@ export function EntityTable({ initial, warnings, sourcePath, stateKey, save, edi
 						)}
 						<ToolButton name="highlight" icon="highlighter" label="Highlight" count={(def.highlight ?? []).filter((r) => !r.off).length} active={pop?.name === "highlight"} onClick={openPop} />
 						<ToolButton name="columns" icon={isBoard || isCalendar ? "list" : "columns-3"} label={isBoard || isCalendar ? "Card fields" : "Columns"} count={0} active={pop?.name === "columns"} onClick={openPop} />
-						<ToolbarForms />
 						<button className="clickable-icon" aria-label="More options" onClick={moreMenu}>
 							<Icon name="more-horizontal" />
 						</button>
 					</>
 				)}
 			</div>
+			{def.workflowBar && <ViewWorkflowsBar viewPath={sourcePath} selected={selectedEntities} />}
 			{warnings.length > 0 && (
 				<div className="oe-view-warning">
 					<button className="oe-pop-link" onClick={() => setShowWarnings(!showWarnings)}>

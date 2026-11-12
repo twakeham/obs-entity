@@ -27,7 +27,7 @@ import { TYPES_VIEW, TypesView } from "./ui/views/TypesView";
 import type { GroupDraft, TypeDraft } from "./model/typeEditing";
 import { calcCell, emptyBoard, emptyView, fieldColumn, formatCell, resolveColumn, serializeView, sourceTypes, typeViewDef, type ViewContext, type ViewDef, type ViewKind, type ViewRow, columnFromId } from "./model/views";
 import { defaultBuckets } from "./model/board";
-import { BIG_RUN, buttonIcon, buttonLabel, formsFor, inScope, noteless, onNotes, runsOnce, workflowProblems, type FormTrigger, type WorkflowDef } from "./model/workflows";
+import { BIG_RUN, buttonIcon, buttonLabel, formsFor, inScope, moveViewPath, noteless, onNotes, runsOnce, workflowProblems, type FormTrigger, type WorkflowDef } from "./model/workflows";
 import { WorkflowEngine } from "./services/workflows";
 import { WORKFLOWS_VIEW, WorkflowsView } from "./ui/views/WorkflowsView";
 import type { WorkflowsRequest } from "./ui/react/workflows/WorkflowManager";
@@ -106,6 +106,13 @@ export default class EntitiesPlugin extends Plugin {
 		this.registerMarkdownCodeBlockProcessor(VIEW_BLOCK, (source, el, ctx) => ctx.addChild(new ViewBlock(this, source, el, ctx)));
 		this.registerEvent(this.app.vault.on("rename", (file, oldPath) => this.formHistory.rename(oldPath, file.path)));
 		this.registerEvent(this.app.vault.on("delete", (file) => this.formHistory.clear(file.path)));
+		// Workflows offered on views follow a renamed view note, and drop a deleted one (drafts too).
+		const followView = (from: string, to: string | null) => {
+			moveViewPath([...this.workflowDrafts.values()], from, to);
+			if (moveViewPath(this.settings.workflows, from, to)) void this.saveSettings().then(() => this.workflows.trigger("drafts"));
+		};
+		this.registerEvent(this.app.vault.on("rename", (file, oldPath) => followView(oldPath, file.path)));
+		this.registerEvent(this.app.vault.on("delete", (file) => followView(file.path, null)));
 		this.app.workspace.onLayoutReady(() => this.syncPropertyTypes());
 
 		this.registerView(SIDE_PANEL_VIEW, (leaf) => new SidePanelView(leaf, this));

@@ -197,6 +197,8 @@ export interface ViewDef {
 	board?: BoardDef;
 	/** the calendar layout's own settings (kept whichever layout is shown) */
 	calendar?: CalendarDef;
+	/** the workflows offered on this view show as a row of buttons under the toolbar (unset: a Workflows menu in the toolbar) */
+	workflowBar?: true;
 }
 
 /** Card widths (px) per card size. */
@@ -468,7 +470,8 @@ export function parseView(raw: unknown): { def: ViewDef | null; errors: string[]
 	const board = raw.board === undefined || raw.board === null ? {} : { board: parseBoard(raw.board, errors) };
 	const calendar = raw.calendar === undefined || raw.calendar === null ? {} : { calendar: parseCalendar(raw.calendar, errors) };
 	if (errors.length && !VIEW_KINDS.includes(kind)) return { def: null, errors };
-	return { def: { kind, types: types.length ? types : ["*"], columns, widths, fill, ...freeze, ...density, wrap, ...wrapLines, formats, summary, sort, group, ...groupSummaries, ...groupFieldNames, filters, highlight, ...board, ...calendar }, errors };
+	const workflowBar = raw.workflowBar === true ? { workflowBar: true as const } : {};
+	return { def: { kind, types: types.length ? types : ["*"], columns, widths, fill, ...freeze, ...density, wrap, ...wrapLines, formats, summary, sort, group, ...groupSummaries, ...groupFieldNames, filters, highlight, ...board, ...calendar, ...workflowBar }, errors };
 }
 
 const strList = (v: unknown) => [...new Set(asArray(v).filter((x): x is string => typeof x === "string" && !!x.trim()).map((x) => x.trim()))];
@@ -739,6 +742,7 @@ export function serializeView(def: ViewDef): Record<string, unknown> {
 	if (board) out.board = board;
 	const calendar = serializeCalendar(def.calendar);
 	if (calendar) out.calendar = calendar;
+	if (def.workflowBar) out.workflowBar = true;
 	return out;
 }
 

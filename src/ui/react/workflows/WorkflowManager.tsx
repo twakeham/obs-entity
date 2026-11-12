@@ -4,7 +4,7 @@ import { statusUnion } from "../../../model/bulk";
 import { statusColorAmong, type ColorMap } from "../../../model/colors";
 import { todayDays } from "../../../model/formConditions";
 import { cloneType, COMMON_KEYS, isListValued, typeMatchesTarget, type EntityTypeDef, type GroupDef } from "../../../model/types";
-import { availableColumns, compileFormula, resolveColumn, type ColumnDef, type VarSpec, type ViewDef, type ViewRow } from "../../../model/views";
+import { availableColumns, compileFormula, resolveColumn, VIEW_KIND_ICON, type ColumnDef, type VarSpec, type ViewDef, type ViewRow } from "../../../model/views";
 import {
 	cloneWorkflow,
 	createLinkOptions,
@@ -89,8 +89,8 @@ import { openTryRun } from "./TryRun";
 import type { FormPreviewSource } from "./FormPreview";
 import { FolderPickerModal, NotePathPickerModal } from "../../modals/bulkModals";
 
-/** The workflow editor's tabs: the workflow itself, a form's fields and layout ("Fill in a form"), and its recent runs. */
-export type WorkflowTab = "edit" | "fields" | "layout" | "runs";
+/** The workflow editor's tabs: the workflow itself, a form's fields and layout ("Fill in a form"), the views a button or form shows on, and its recent runs. */
+export type WorkflowTab = "edit" | "fields" | "layout" | "views" | "runs";
 
 /**
  * The type editor's context for a workflow's form: its fields and layout as a type (`formType`), so the type editor's
@@ -417,9 +417,11 @@ function WorkflowEditor({
 }) {
 	const plugin = usePlugin();
 	const settings = plugin.settings;
-	// A new workflow hasn't run: no Recent runs. Only a form has fields and a layout.
+	// A new workflow hasn't run: no Recent runs. Only a form has fields and a layout; only buttons and forms show on views.
 	const isForm = wf.trigger.kind === "form";
-	const tab: WorkflowTab = (isNew && wantTab === "runs") || (!isForm && (wantTab === "fields" || wantTab === "layout")) ? "edit" : wantTab;
+	const onViews = wf.trigger.kind === "manual" || isForm;
+	const tab: WorkflowTab =
+		(isNew && wantTab === "runs") || (!isForm && (wantTab === "fields" || wantTab === "layout")) || (!onViews && wantTab === "views") ? "edit" : wantTab;
 	const lookup = { types: settings.types, groups: settings.groups };
 	const dirty = isNew || (!!saved && !sameJson(wf, saved));
 	const [attempted, setAttempted] = useState(false);
@@ -619,6 +621,13 @@ function WorkflowEditor({
 							{formApi.issues.some((i) => i.at === "form:layout") && <Icon name="alert-circle" className="oe-tm-issue-dot" />}
 						</button>
 					)}
+					{onViews && (
+						<button role="tab" aria-selected={tab === "views"} data-tab="views" className={`oe-tm-tab${tab === "views" ? " is-active" : ""}`} onClick={() => setTab("views")}>
+							<Icon name="table" />
+							Views
+							<span className="oe-tm-tabcount">{wf.allViews ? "all" : (wf.views?.length ?? 0)}</span>
+						</button>
+					)}
 					{!isNew && (
 						<button role="tab" aria-selected={tab === "runs"} data-tab="runs" className={`oe-tm-tab${tab === "runs" ? " is-active" : ""}`} onClick={() => setTab("runs")}>
 							<Icon name="history" />
@@ -645,6 +654,10 @@ function WorkflowEditor({
 						{tab === "fields" ? <FieldsTab /> : <LayoutTab />}
 					</div>
 				</EditorContext.Provider>
+			) : tab === "views" ? (
+				<div className="oe-tm-body is-views">
+					<ViewsTab wf={wf} edit={edit} />
+				</div>
 			) : tab === "runs" ? (
 				<div className="oe-tm-body is-runs">
 					<div className="oe-tm-muted oe-wf-runs-intro">
@@ -798,14 +811,16 @@ function WorkflowEditor({
 							</Row>
 						)}
 						{noteless(wf) && (
-							<>
-								<Row label="Ribbon icon" desc="An icon of its own in the ribbon on the left, which opens the form.">
-									<Toggle label="Ribbon icon" value={!!wf.ribbon} onChange={(v) => edit((x) => (v ? (x.ribbon = true) : delete x.ribbon))} />
-								</Row>
-								<Row label="On view toolbars" desc="A button on the toolbar of every table, board and calendar view (several forms share a Forms menu).">
-									<Toggle label="On view toolbars" value={!!wf.toolbar} onChange={(v) => edit((x) => (v ? (x.toolbar = true) : delete x.toolbar))} />
-								</Row>
-							</>
+							<Row label="Ribbon icon" desc="An icon of its own in the ribbon on the left, which opens the form.">
+								<Toggle label="Ribbon icon" value={!!wf.ribbon} onChange={(v) => edit((x) => (v ? (x.ribbon = true) : delete x.ribbon))} />
+							</Row>
+						)}
+						{(t.kind === "manual" || t.kind === "form") && (
+							<Row label="On views" desc={wf.allViews ? "On every view's toolbar." : wf.views?.length ? `On ${plural(wf.views.length, "view")}'s toolbar.` : "Not on any view's toolbar yet."}>
+								<button onClick={() => setTab("views")}>
+									<Icon name="table" /> Choose views
+								</button>
+							</Row>
 						)}
 						{t.kind === "schedule" && (
 							<>
@@ -927,6 +942,54 @@ function WorkflowEditor({
 				</div>
 			)}
 		</main>
+	);
+}
+
+/**
+ * A button or form workflow's Views tab: the views whose toolbars offer it (every view, or the ones checked), with how
+ * it shows there and what it runs on.
+ */
+function ViewsTab({ wf, edit }: { wf: WorkflowDef; edit: (fn: (x: WorkflowDef) => void) => void }) {
+	const plugin = usePlugin();
+	const [views, setViews] = useState(() => plugin.views.all());
+	useEffect(() => {
+		const ref = plugin.views.on("updated", () => setViews(plugin.views.all()));
+		return () => plugin.views.offref(ref);
+	}, [plugin]);
+	const picked = new Set(wf.views ?? []);
+	const toggle = (path: string, on: boolean) =>
+		edit((x) => {
+			const next = new Set(x.views ?? []);
+			if (on) next.add(path);
+			else next.delete(path);
+			if (next.size) x.views = [...next];
+			else delete x.views;
+		});
+	const sorted = [...views].sort((a, b) => a.basename.localeCompare(b.basename, undefined, { numeric: true }));
+	return (
+		<div className="oe-wf-views">
+			<div className="oe-tm-muted oe-wf-views-intro">
+				{noteless(wf)
+					? "The views whose toolbars offer this form. It opens the form."
+					: "The views whose toolbars offer this workflow. It runs on the view's selected notes that it applies to (select some first)."}{" "}
+				Each view shows them in a Workflows menu after its Table / Board / Calendar buttons, or, with ⋯ → Show workflow toolbar, as a row of buttons under the toolbar.
+			</div>
+			<label className="oe-wf-views-row is-all">
+				<input type="checkbox" checked={!!wf.allViews} onChange={(e) => edit((x) => (e.target.checked ? (x.allViews = true) : delete x.allViews))} />
+				<Icon name="layers" />
+				<span className="oe-wf-views-name">All views</span>
+				<span className="oe-tm-muted">including ones made later</span>
+			</label>
+			{sorted.length === 0 && <div className="oe-tm-muted">No views yet: make one with New entity view, or + under Views in the Entity Browser.</div>}
+			{sorted.map((f) => (
+				<label key={f.path} className={`oe-wf-views-row${wf.allViews ? " is-covered" : ""}`}>
+					<input type="checkbox" checked={!!wf.allViews || picked.has(f.path)} disabled={!!wf.allViews} onChange={(e) => toggle(f.path, e.target.checked)} />
+					<Icon name={VIEW_KIND_ICON[plugin.views.kind(f.path) ?? "table"] ?? "table"} />
+					<span className="oe-wf-views-name">{f.basename}</span>
+					<span className="oe-tm-muted">{f.parent && !f.parent.isRoot() ? f.parent.path : ""}</span>
+				</label>
+			))}
+		</div>
 	);
 }
 

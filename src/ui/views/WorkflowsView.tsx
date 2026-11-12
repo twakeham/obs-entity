@@ -68,7 +68,7 @@ export class WorkflowsView extends ItemView {
 	async setState(state: unknown, result: ViewStateResult): Promise<void> {
 		if (state && typeof state === "object") {
 			const s = state as Partial<WorkflowsState>;
-			const tab = s.tab === "runs" || s.tab === "edit" || s.tab === "fields" || s.tab === "layout" ? s.tab : this.state.tab;
+			const tab = s.tab === "runs" || s.tab === "edit" || s.tab === "fields" || s.tab === "layout" || s.tab === "views" ? s.tab : this.state.tab;
 			this.state = { ...DEFAULT_WORKFLOWS_STATE, ...this.state, ...s, tab };
 			this.render();
 		}

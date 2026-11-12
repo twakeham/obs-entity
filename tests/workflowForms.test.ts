@@ -6,12 +6,15 @@ import { placeableKeys, resolveLayout } from "../src/model/formLayout";
 import { renameWorkflowKeys } from "../src/model/packs";
 import type { EntityTypeDef, FieldDef, GroupDef } from "../src/model/types";
 import { DateVal } from "../src/model/formula";
-import { compileFormula, type ViewContext, type ViewRow } from "../src/model/views";
+import { compileFormula, parseView, serializeView, type ViewContext, type ViewRow } from "../src/model/views";
 import {
 	answerTexts,
 	formAnswers,
 	formType,
 	formsFor,
+	moveViewPath,
+	toolbarTarget,
+	viewWorkflows,
 	isFormType,
 	newWorkflow,
 	NO_NOTE_FORM,
@@ -86,17 +89,46 @@ describe("form workflows", () => {
 		expect(triggerText({ ...w, scope: ["session"] }, TYPES)).toBe("Form: Log session (on sessions)");
 	});
 
-	it("offer forms that start on their own in the ribbon and on toolbars, when on and set to", () => {
-		const [a, b, c, d] = readWorkflows([
-			{ ...form({ id: "a" }), ribbon: true, toolbar: true },
+	it("offer forms that start on their own in the ribbon, when on and set to", () => {
+		const [a, b, c] = readWorkflows([
+			{ ...form({ id: "a" }), ribbon: true },
 			{ ...form({ id: "b", on: false }), ribbon: true },
-			{ ...form({ id: "c", scope: ["campaign"] }), ribbon: true, toolbar: true },
-			{ ...form({ id: "d" }), toolbar: "yes" },
+			{ ...form({ id: "c", scope: ["campaign"] }), ribbon: true },
 		]);
-		expect(a).toMatchObject({ ribbon: true, toolbar: true });
-		expect(d.toolbar).toBeUndefined();
-		expect(formsFor([a, b, c, d], "ribbon").map((w) => w.id)).toEqual(["a"]);
-		expect(formsFor([a, b, c, d], "toolbar").map((w) => w.id)).toEqual(["a"]);
+		expect(a.ribbon).toBe(true);
+		expect(formsFor([a, b, c], "ribbon").map((w) => w.id)).toEqual(["a"]);
+	});
+
+	it("offer buttons and forms on the views picked (or all), following renamed and deleted views", () => {
+		const button: WorkflowDef = { ...newWorkflow(["session"], { kind: "manual" }), id: "btn", name: "Close", steps: [{ kind: "tag", op: "add", tag: "x" }] };
+		const [f, b, all, timed] = readWorkflows([
+			{ ...form({ id: "f" }), views: ["Views/Sessions.md", "Views/Sessions.md", 3] },
+			{ ...button, views: ["Views/Sessions.md"] },
+			{ ...form({ id: "all" }), allViews: true },
+			{ ...newWorkflow(["session"], { kind: "created" }), id: "t", views: ["Views/Sessions.md"] },
+		]);
+		expect(f.views).toEqual(["Views/Sessions.md"]);
+		expect(viewWorkflows([f, b, all, timed], "Views/Sessions.md").map((w) => w.id)).toEqual(["f", "btn", "all"]);
+		expect(viewWorkflows([f, b, all, timed], "Views/Other.md").map((w) => w.id)).toEqual(["all"]);
+		expect(viewWorkflows([{ ...f, on: false }], "Views/Sessions.md")).toEqual([]);
+		// What they run on: a form on nothing; a button on the selected notes it applies to.
+		const ann = { path: "Ann.md", type: SESSION };
+		const dragons = { path: "Dragons.md", type: CAMPAIGN };
+		expect(toolbarTarget(f, [])).toEqual({ paths: [] });
+		expect(toolbarTarget(b, [])).toEqual({ paths: [], why: "Select the notes to run it on" });
+		expect(toolbarTarget(b, [dragons])).toEqual({ paths: [], why: "It doesn't apply to the selected notes" });
+		expect(toolbarTarget(b, [ann, dragons])).toEqual({ paths: ["Ann.md"] });
+		const list = [f, b];
+		expect(moveViewPath(list, "Views/Sessions.md", "Views/All sessions.md")).toBe(true);
+		expect(list.map((w) => w.views)).toEqual([["Views/All sessions.md"], ["Views/All sessions.md"]]);
+		expect(moveViewPath(list, "Views/Nope.md", null)).toBe(false);
+		expect(moveViewPath(list, "Views/All sessions.md", null)).toBe(true);
+		expect(list.map((w) => w.views)).toEqual([undefined, undefined]);
+		// A view's own setting: the workflows as a row of buttons, kept in its definition.
+		const def = parseView({ types: ["session"], workflowBar: true }).def!;
+		expect(def.workflowBar).toBe(true);
+		expect(serializeView(def).workflowBar).toBe(true);
+		expect(serializeView(parseView({ types: ["session"], workflowBar: "yes" }).def!)).not.toHaveProperty("workflowBar");
 	});
 
 	it("follow a renamed answer into every step's formulas and texts", () => {
