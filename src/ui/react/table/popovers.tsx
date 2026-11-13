@@ -1078,7 +1078,7 @@ export function HighlightPanel({
 							<span className="oe-drag" aria-hidden="true">
 								<Icon name="grip-vertical" />
 							</span>
-							<input type="checkbox" checked={!r.off} aria-label="Rule on" onChange={(e) => set(i, { ...r, off: e.target.checked ? undefined : true })} />
+							<input type="checkbox" checked={!r.off} aria-label="Rule on" title={r.off ? "Off: tick to turn this rule on" : "On: untick to turn this rule off"} onChange={(e) => set(i, { ...r, off: e.target.checked ? undefined : true })} />
 							{r.kind === "bar" ? (
 								<span className="oe-hl-sample is-bar" aria-hidden="true">
 									<span style={{ background: cssColor(r.bar?.color ?? "blue") }} />
@@ -1094,7 +1094,7 @@ export function HighlightPanel({
 							<button className="oe-hl-title" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : i)}>
 								<span className="oe-hl-name">{r.name || ruleSummary(r, choices)}</span>
 								<span className="oe-hl-meta">
-									{targetLabel(r.target)} · {w.unit(n)}
+									{targetLabel(r.target)} · {r.off ? "off" : w.unit(n)}
 								</span>
 							</button>
 							<button className="clickable-icon oe-hl-caret" aria-label={isOpen ? "Collapse rule" : "Expand rule"} aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : i)}>

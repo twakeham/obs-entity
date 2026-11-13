@@ -368,7 +368,7 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
   - a style: fill colour, text colour, bold / italic / strikethrough, and an optional icon (one of the quick choices, or **…** to search all of Obsidian's icons)
 - The colours come from the theme, so they work in light and dark mode.
 - **The first matching rule wins:** drag rules to reorder them. A cell rule sits on top of the row's rule. What it leaves unset (e.g. no fill) comes from the row's rule.
-- Rules can be switched off without deleting them. Each rule shows how many rows it matches.
+- Rules can be switched off (the tick box at the left of each rule) without deleting them. Each rule shows how many rows it matches, or "off".
 
 **Data bars and colour scales** are two more kinds of rule for number and date columns: **Highlight → Data bar / Colour scale**, or right-click a header → **Data bar…** / **Colour scale…**.
 - **Data bars** draw a bar behind each value: Budget, Estimate (h), % done. You can set the colour, a gradient, or bars only. Negative numbers draw leftwards in red.

@@ -1587,7 +1587,7 @@ highlight:
 - **Hover and selection** still show: they're mixed over the fill. A row fill also covers the checkbox and filler cells.
 - **Editing:**
   - The toolbar's **Highlight (n)** button (n counts enabled rules) opens the rule list. Each rule shows a sample, its name (or a summary of its first condition), its target and how many shown rows match.
-  - Rules can be turned on and off, reordered by dragging, removed, and expanded to edit (click the title or the caret beside ×; one is open at a time): name, apply to (whole row or a column), conditions, fill and text swatches, B / I / S toggles and icon (ten quick choices, then **…** to search every Lucide icon with the type editor's `IconPicker`, `compact`; a chosen icon from there shows in its place).
+  - Rules can be turned on and off (an off rule is dimmed and says "off" instead of its count), reordered by dragging, removed, and expanded to edit (click the title or the caret beside ×; one is open at a time): name, apply to (whole row or a column), conditions, fill and text swatches, B / I / S toggles and icon (ten quick choices, then **…** to search every Lucide icon with the type editor's `IconPicker`, `compact`; a chosen icon from there shows in its place).
   - Right-clicking a header gives **Highlight cells…**, which adds a cell rule for that column, with a condition on it and a yellow fill, and opens it.
 - `runView` returns each row's matching rule per target (`hl`) and a match count per rule. Boards and calendars use row rules to colour cards and entries (and a future gallery will).
 
