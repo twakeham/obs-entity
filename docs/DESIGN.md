@@ -2126,6 +2126,13 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
   - `{ new: <type> }` opens the create dialog;
   - `{ workflow: <id> }` runs a form workflow, or one on notes after picking them;
   - `{ open: <note> }` opens a note or view.
+  - **Layout** (`layout`, `ButtonLayout`; `DEFAULT_BUTTON_LAYOUT` otherwise):
+    - `variant`: `solid` (default; the button's colour, white text), `soft` (tinted), `outline` or `plain` (text only). The colour is the default style's or a rule's fill, else the accent colour;
+    - `size`: `s`, `m`, `l`;
+    - `width`: `fill` (the cell, default) or `fit` (its label), placed by `align` (`left`, `center`, `right`, which also aligns a filling button's contents);
+    - `icon`: `before`, `above`, `after`, or `only` (the label as a tooltip and aria-label);
+    - `description`: a small second line under the label; cards' `[Title]`s become their values (`fillCaption`).
+    - A whole-button rule can carry a `layout` too, and only a rule can set `state: disabled`: the button greys out, doesn't run, and its tooltip says why ("Disabled: <rule name>"). A rule's icon replaces the button's.
 
 **`notes()` formula function** (everywhere formulas run: table columns, workflows, dashboards). `notes("quest")`, `notes("@table")` or `notes()` returns links to every note of that type, group, or all. It combines with `filter`, `map`, `prop`, `count`, `sum`, e.g. `count(filter(notes("quest"), prop(item, "Status") = "active"))`. Results are cached per evaluation pass, so a column using it doesn't rescan the vault for every row.
 
@@ -2141,7 +2148,7 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
   - fill tints the component (or the value, as a pill), and text colours its title, value or text;
   - bold, italic and strikethrough apply;
   - the icon shows before the title (charts, lists) or the value (cards);
-  - a button's fill becomes its colour.
+  - a button's fill becomes its colour (solid: its background; soft, outline and plain: its tint, border or text).
 - **Evaluation:** `evaluateDashboard` returns `looks` (`ComponentLook`: the box style, a card's value style and its layout with the caption filled in, and per rule whether it applies now, or for lists how many notes match).
 - **Older notes:** cards' older colour rules (`rules: [{ op, value, color, on, icon }]`) are read as highlight rules on Value and written back as `highlight`.
 
@@ -2177,7 +2184,7 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
     - **Style:**
       - cards: **Card**, the layout as segmented buttons (Size S / M / L / XL / Fit, Align as icons, Label, Icon, Accent) and a Caption box. A whole-card rule has the same options at its end as drop-downs starting at "Unchanged" (`HighlightPanel`'s `ruleExtra`);
       - charts: **Chart** (`ChartLookFields`), only what the chart type uses: Colours (Field / One / Palette / Shades) and a Colour swatch, toggles (Value labels, Gridlines, Legend, Total in middle, Smooth curve, Shade under, Dots, Rounded) and segmented buttons (Legend at, Hole, Show, Thickness). Setting one back to its default drops it from the block;
-      - buttons: their **Button icon** (the icon picker, with No icon);
+      - buttons: **Button**, the icon (the icon picker, with No icon), then the layout as segmented buttons (Variant, Size, Width, Align, Icon) and a Description box. A whole-button rule has these as drop-downs, plus Button: Enabled / Disabled (`LayoutFields` with `BUTTON_SPEC`; cards use it with `CARD_SPEC`);
       - every component: **Default style** (`StyleFields`: fill, text colour, bold / italic / strike, icon; no icon for text, buttons and views), then **Conditional styling** (the views' `HighlightPanel`, with dashboard wording, without data bars or colour scales). A list's is **Row highlighting**;
       - **The format** is a preset (Automatic, Number, Whole number, One / Two decimal places, Currency, Percent, Compact) or **Custom pattern…**. "Looks like: 33,600 gp" shows the component's own value in it.
     - A "By <field>" chart title follows the field until it's changed by hand.

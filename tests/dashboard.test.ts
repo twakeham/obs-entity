@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { isoDateAdapter } from "../src/model/dates";
 import { CRM_PACK, STARTER_PACK } from "../src/model/packs";
 import { extractEdges } from "../src/model/relations";
-import { chartLook, DEFAULT_CARD_LAYOUT, evaluateDashboard, newComponent, parseDashboard, readingOrder, runSource, serializeDashboard, type DashEnv } from "../src/model/dashboard";
+import { chartLook, DEFAULT_BUTTON_LAYOUT, DEFAULT_CARD_LAYOUT, evaluateDashboard, newComponent, parseDashboard, readingOrder, runSource, serializeDashboard, type DashEnv } from "../src/model/dashboard";
 import { parseView, type ViewContext, type ViewRow } from "../src/model/views";
 
 const TYPES = [...STARTER_PACK.types, ...CRM_PACK.types];
@@ -354,5 +354,29 @@ describe("dashboard styles: default styles, highlight rules and the notes behind
 		expect(out.layout).toEqual({ size: "fit", label: "below" });
 		expect((out.highlight as Record<string, unknown>[]).map((h) => h.layout)).toEqual([{ accent: "top" }, undefined]);
 		expect(parseDashboard({ kind: "dashboard", components: [out] }).def).toEqual(def);
+	});
+
+	it("lay out a button, and let a whole-button rule change it or disable it", () => {
+		const raw = {
+			kind: "dashboard",
+			components: [
+				{ id: "n", kind: "card", title: "Projects", source: { types: ["project"] }, value: { agg: "count" } },
+				{
+					id: "b",
+					kind: "button",
+					label: "Go",
+					layout: { variant: "outline", size: "l", width: "fit", icon: "only", description: "[Projects] to do", state: "disabled", align: "middle" },
+					highlight: [{ ...rule("row", "card:n", ">", 3, { fill: "grey" }), name: "Too many", layout: { state: "disabled", variant: "plain", caption: "x" } }],
+				},
+			],
+		};
+		const { def, errors } = parseDashboard(raw);
+		expect(errors).toEqual([]);
+		const b = def.components[1];
+		// A button's own layout can't disable it (only a rule can); unknown values are dropped.
+		expect(b.kind === "button" && b.layout).toEqual({ variant: "outline", size: "l", width: "fit", icon: "only", description: "[Projects] to do" });
+		expect(b.highlight![0]).toMatchObject({ layout: { state: "disabled", variant: "plain" } });
+		expect(evaluateDashboard(def, env).looks.get("b")!.button).toEqual({ ...DEFAULT_BUTTON_LAYOUT, variant: "plain", size: "l", width: "fit", icon: "only", description: "4 to do", state: "disabled", why: "Too many" });
+		expect(parseDashboard({ kind: "dashboard", components: serializeDashboard(def).components }).def).toEqual(def);
 	});
 });

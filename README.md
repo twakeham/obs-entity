@@ -467,7 +467,7 @@ A **dashboard** is a page you build from components on a grid: summary cards, ch
   - **The grid** (middle): drag components to move them, and their bottom-right corner to resize. Click one to select it.
   - **Settings** (right): the selected component's title (edit it at the top) and a **⋯** menu with **Duplicate** and **Delete**, then two tabs.
     - **Data:** where its notes come from (**Types | View | Formula**; with Types, pick the types and add filter conditions right there) and what it shows (a card picks its field first, then         a summary that fits it: Sum or Average for a number, Earliest or Latest for a date), then, for cards and charts, **Display as**: the number format (presets, or a custom pattern, with an example of the value in it). Each part shows its live result: "→ 13 notes", "= 5".
-        - **Style:** a card's **Card** layout, the component's **Default style** and **Conditional styling** (below); a button's icon.
+        - **Style:** a card's **Card** layout, a chart's **Chart** options or a button's **Button** options, then the component's **Default style** and **Conditional styling** (below).
   - Changes aren't saved until **Save**. **Discard** throws them away. Leaving the dashboard keeps the unsaved changes for when you come back.
 - **Where the notes come from** (summary cards, charts and lists), one of:
   - **Types and filters:** pick types or groups, and filter them just like a view.
@@ -508,6 +508,8 @@ A **dashboard** is a page you build from components on a grid: summary cards, ch
 - **View:** shows a view note, with its own toolbar.
 - **Text:** Markdown (headings, links, embeds).
 - **Button:** a label and icon that creates a note of a type, runs a workflow (forms open their form; buttons on notes ask which note), or opens a note or view.
+  - **Button style** (Style tab → **Button**): its icon; Solid, Soft (tinted), Outline or Plain; size S / M / L; filling its cell or fitting its label (left, centre or right); the icon before, above or after the label, or the icon only; and a description under the label (cards' `[Title]`s show their values, e.g. "[Active quests] on the go"). Its colour is the Default style's fill.
+  - A rule can change any of these, or **disable** the button, e.g. when [Active quests] > 8. A disabled button greys out and its tooltip gives the rule's name.
 - **Narrow widths:** in a sidebar or on a phone, the components stack in reading order at full width.
 
 Dashboard-wide filters (e.g. pick a campaign and everything follows) and dashboards that follow the note they're embedded in are coming next.

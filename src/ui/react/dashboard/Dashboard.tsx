@@ -7,6 +7,7 @@ import {
 	COMPONENT_KINDS,
 	COMPONENT_LABELS,
 	DEFAULT_SIZE,
+	DEFAULT_BUTTON_LAYOUT,
 	DEFAULT_CARD_LAYOUT,
 	chartLook,
 	evaluateDashboard,
@@ -286,7 +287,7 @@ function ComponentBody({ c, card, list, chart, look, path, editing }: { c: DashC
 		case "text":
 			return <TextBox text={c.text} path={path} />;
 		case "button":
-			return <ButtonBox c={c} />;
+			return <ButtonBox c={c} look={look} />;
 	}
 }
 
@@ -419,9 +420,14 @@ function TextBox({ text, path }: { text: string; path: string }) {
 	return <div className="oe-dash-text-body markdown-rendered" ref={ref} />;
 }
 
-function ButtonBox({ c }: { c: Extract<DashComponent, { kind: "button" }> }) {
+function ButtonBox({ c, look }: { c: Extract<DashComponent, { kind: "button" }>; look?: ComponentLook }) {
 	const plugin = usePlugin();
+	const L = look?.button ?? DEFAULT_BUTTON_LAYOUT;
+	const off = L.state === "disabled";
+	// A whole-button rule's icon replaces the button's own.
+	const icon = look?.box.icon ?? c.icon;
 	const run = () => {
+		if (off) return;
 		const a = c.action;
 		if (!a) return void new Notice("This button has no action yet: edit the dashboard to give it one.");
 		if ("new" in a) {
@@ -442,10 +448,25 @@ function ButtonBox({ c }: { c: Extract<DashComponent, { kind: "button" }> }) {
 		if (!notes.length) return void new Notice("There are no notes to run it on.");
 		new NotePickerModal(plugin.app, notes, `Run “${buttonLabel(wf)}” on a note…`, (entity) => void plugin.runWorkflow(wf, [entity.path])).open();
 	};
+	const iconOnly = L.icon === "only" && !!icon;
+	const tip = off ? `Disabled${"why" in L && L.why ? `: ${L.why}` : " by a rule"}` : iconOnly ? [c.label, L.description].filter(Boolean).join(" · ") : undefined;
 	return (
-		<button className="oe-dash-button-body mod-cta" onClick={run}>
-			{c.icon && <Icon name={c.icon} />}
-			<span>{c.label}</span>
-		</button>
+		<div className={`oe-dash-button-wrap is-align-${L.align}${L.width === "fill" ? " is-fill" : ""}`} title={tip}>
+			<button
+				className={`oe-dash-button-body is-${L.variant} is-size-${L.size} is-icon-${iconOnly ? "only" : L.icon === "only" ? "before" : L.icon}${L.variant === "solid" ? " mod-cta" : ""}${off ? " is-disabled" : ""}`}
+				aria-disabled={off || undefined}
+				aria-label={iconOnly ? c.label : undefined}
+				onClick={run}
+			>
+				{icon && L.icon !== "after" && <Icon name={icon} />}
+				{!iconOnly && (
+					<span className="oe-dash-button-text">
+						<span className="oe-dash-button-label">{c.label}</span>
+						{L.description && <span className="oe-dash-button-desc">{L.description}</span>}
+					</span>
+				)}
+				{icon && L.icon === "after" && <Icon name={icon} />}
+			</button>
+		</div>
 	);
 }

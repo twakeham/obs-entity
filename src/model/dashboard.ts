@@ -86,8 +86,31 @@ export interface CardLayout {
 }
 export const DEFAULT_CARD_LAYOUT: Required<CardLayout> = { size: "m", align: "left", label: "above", caption: "", icon: "inline", accent: "none" };
 
-/** A dashboard's highlight rule: a card's whole-card rules can also change its layout. */
-export type DashRule = HighlightRule & { layout?: CardLayout };
+/** A dashboard's highlight rule: a card's or button's whole-component rules can also change its layout. */
+export type DashRule = HighlightRule & { layout?: CardLayout | ButtonLayout };
+
+export const BUTTON_VARIANTS = ["solid", "soft", "outline", "plain"] as const;
+const BUTTON_SIZES = ["s", "m", "l"] as const;
+const BUTTON_WIDTHS = ["fill", "fit"] as const;
+const BUTTON_ICON_AT = ["before", "above", "after", "only"] as const;
+const BUTTON_STATES = ["enabled", "disabled"] as const;
+
+/**
+ * How a button looks: solid (the accent or fill colour), soft (tinted), outline or plain (text only); its size;
+ * filling its cell or fitting its label; where its label and icon sit; its icon before, above or after the label, or
+ * on its own (the label as a tooltip); a description under the label (`[Value]`-style card names are filled in).
+ * A whole-button rule can change any of it, and can disable the button (`state`).
+ */
+export interface ButtonLayout {
+	variant?: (typeof BUTTON_VARIANTS)[number];
+	size?: (typeof BUTTON_SIZES)[number];
+	width?: (typeof BUTTON_WIDTHS)[number];
+	align?: (typeof CARD_ALIGNS)[number];
+	icon?: (typeof BUTTON_ICON_AT)[number];
+	description?: string;
+	state?: (typeof BUTTON_STATES)[number];
+}
+export const DEFAULT_BUTTON_LAYOUT: Required<ButtonLayout> = { variant: "solid", size: "m", width: "fill", align: "center", icon: "before", description: "", state: "enabled" };
 
 const CHART_COLORINGS = ["field", "one", "palette", "shades"] as const;
 const LEGEND_AT = ["right", "below"] as const;
@@ -191,7 +214,7 @@ export type DashComponent =
 	| (Base & { kind: "list"; source?: DashSource; fields: ColumnDef[]; sort: SortLevel[]; limit: number })
 	| (Base & { kind: "view"; view: string })
 	| (Base & { kind: "text"; text: string })
-	| (Base & { kind: "button"; label: string; icon?: string; action?: ButtonAction });
+	| (Base & { kind: "button"; label: string; icon?: string; action?: ButtonAction; layout?: ButtonLayout });
 
 export interface DashboardDef {
 	kind: "dashboard";
@@ -281,7 +304,7 @@ function parseStyle(raw: unknown): HighlightStyle | undefined {
 	return Object.keys(s).length ? s : undefined;
 }
 
-function parseHighlightRules(raw: unknown, errors: string[], where: string, layouts: boolean): DashRule[] {
+function parseHighlightRules(raw: unknown, errors: string[], where: string, layouts: "card" | "button" | null): DashRule[] {
 	if (raw === undefined || raw === null) return [];
 	const out: DashRule[] = [];
 	// One at a time, so each keeps its own layout (a rule with a problem is left out).
@@ -291,7 +314,7 @@ function parseHighlightRules(raw: unknown, errors: string[], where: string, layo
 		const r = def?.highlight?.[0];
 		// Dashboards style with highlight rules only (no data bars or colour scales).
 		if (!r || (r.kind && r.kind !== "highlight")) continue;
-		const layout = layouts && isObj(item) ? parseLayout(item.layout) : undefined;
+		const layout = layouts && isObj(item) ? (layouts === "card" ? parseLayout(item.layout) : parseButtonLayout(item.layout, true)) : undefined;
 		out.push(layout && r.target === ROW_TARGET ? { ...r, layout } : r);
 	}
 	return out;
@@ -310,6 +333,22 @@ function parseLayout(raw: unknown): CardLayout | undefined {
 		...(str(raw.caption) ? { caption: str(raw.caption) } : {}),
 		...(one(raw.icon, CARD_ICONS) ? { icon: one(raw.icon, CARD_ICONS) } : {}),
 		...(one(raw.accent, CARD_ACCENTS) ? { accent: one(raw.accent, CARD_ACCENTS) } : {}),
+	};
+	return Object.keys(l).length ? l : undefined;
+}
+
+/** A button's layout; `state` (disabling it) only in a rule. */
+function parseButtonLayout(raw: unknown, rule = false): ButtonLayout | undefined {
+	if (!isObj(raw)) return undefined;
+	const one = <T extends string>(v: unknown, of: readonly T[]) => (of.includes(v as T) ? (v as T) : undefined);
+	const l: ButtonLayout = {
+		...(one(raw.variant, BUTTON_VARIANTS) ? { variant: one(raw.variant, BUTTON_VARIANTS) } : {}),
+		...(one(raw.size, BUTTON_SIZES) ? { size: one(raw.size, BUTTON_SIZES) } : {}),
+		...(one(raw.width, BUTTON_WIDTHS) ? { width: one(raw.width, BUTTON_WIDTHS) } : {}),
+		...(one(raw.align, CARD_ALIGNS) ? { align: one(raw.align, CARD_ALIGNS) } : {}),
+		...(one(raw.icon, BUTTON_ICON_AT) ? { icon: one(raw.icon, BUTTON_ICON_AT) } : {}),
+		...(str(raw.description) ? { description: str(raw.description) } : {}),
+		...(rule && one(raw.state, BUTTON_STATES) ? { state: one(raw.state, BUTTON_STATES) } : {}),
 	};
 	return Object.keys(l).length ? l : undefined;
 }
@@ -375,7 +414,7 @@ export function parseDashboard(raw: unknown): { def: DashboardDef; errors: strin
 		const title = str(c.title);
 		const where = title || `Component ${i + 1}`;
 		const style = parseStyle(c.style);
-		const highlight = [...parseHighlightRules(c.highlight, errors, where, kind === "card"), ...(kind === "card" ? legacyRules(c.rules) : [])];
+		const highlight = [...parseHighlightRules(c.highlight, errors, where, kind === "card" || kind === "button" ? kind : null), ...(kind === "card" ? legacyRules(c.rules) : [])];
 		const base = { id, at, ...(title ? { title } : {}), ...(style ? { style } : {}), ...(highlight.length ? { highlight } : {}) };
 		const source = parseSource(c.source, errors, where);
 		switch (kind) {
@@ -428,7 +467,8 @@ export function parseDashboard(raw: unknown): { def: DashboardDef; errors: strin
 				break;
 			case "button": {
 				const action = parseAction(c.action);
-				def.components.push({ ...base, kind, label: str(c.label) || "Button", ...(str(c.icon) ? { icon: str(c.icon) } : {}), ...(action ? { action } : {}) });
+				const layout = parseButtonLayout(c.layout);
+				def.components.push({ ...base, kind, label: str(c.label) || "Button", ...(str(c.icon) ? { icon: str(c.icon) } : {}), ...(action ? { action } : {}), ...(layout ? { layout } : {}) });
 				break;
 			}
 		}
@@ -481,6 +521,7 @@ export function serializeDashboard(def: DashboardDef): Record<string, unknown> {
 				out.label = c.label;
 				if (c.icon) out.icon = c.icon;
 				if (c.action) out.action = c.action;
+				if (c.layout && Object.keys(c.layout).length) out.layout = c.layout;
 				break;
 		}
 		return out;
@@ -696,15 +737,23 @@ export function evaluateDashboard(def: DashboardDef, env: DashEnv): { cards: Map
 		const first = (target: string) => rules.find((r, i) => matched[i] && !r.off && r.target === target);
 		const valueRule = c.kind === "card" ? first(VALUE_ID) : undefined;
 		const boxRule = first(ROW_TARGET);
+		const set = <T extends object>(o: T | undefined) => Object.fromEntries(Object.entries(o ?? {}).filter(([, v]) => v !== undefined && v !== "")) as T;
 		const card =
 			c.kind === "card"
 				? (() => {
-						const set = (o: CardLayout | undefined) => Object.fromEntries(Object.entries(o ?? {}).filter(([, v]) => v !== undefined && v !== "")) as CardLayout;
-						const l = { ...DEFAULT_CARD_LAYOUT, ...set(c.layout), ...set(boxRule?.layout) };
+						const l = { ...DEFAULT_CARD_LAYOUT, ...set(c.layout), ...set(boxRule?.layout as CardLayout | undefined) };
 						return { ...l, caption: l.caption ? fillCaption(l.caption, def, cards, c) : "" };
 					})()
 				: undefined;
-		looks.set(c.id, { box: { ...c.style, ...boxRule?.style }, ...(valueRule ? { value: valueRule.style } : {}), ...(card ? { card } : {}), matched });
+		const button =
+			c.kind === "button"
+				? (() => {
+						const l = { ...DEFAULT_BUTTON_LAYOUT, ...set(c.layout), ...set(boxRule?.layout as ButtonLayout | undefined) };
+						const off = l.state === "disabled";
+						return { ...l, description: l.description ? fillCaption(l.description, def, cards, c) : "", ...(off && boxRule?.name ? { why: boxRule.name } : {}) };
+					})()
+				: undefined;
+		looks.set(c.id, { box: { ...c.style, ...boxRule?.style }, ...(valueRule ? { value: valueRule.style } : {}), ...(card ? { card } : {}), ...(button ? { button } : {}), matched });
 	}
 	return { cards, lists, charts, looks };
 }
@@ -728,6 +777,8 @@ export interface ComponentLook {
 	box: HighlightStyle;
 	value?: HighlightStyle;
 	card?: Required<CardLayout>;
+	/** a button's layout, its description filled in; `why` it's disabled (the rule's name) */
+	button?: Required<ButtonLayout> & { why?: string };
 	matched: number[];
 }
 

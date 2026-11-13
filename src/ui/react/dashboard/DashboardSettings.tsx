@@ -8,11 +8,13 @@ import {
 	CHART_LABELS,
 	COMPONENT_ICONS,
 	COMPONENT_LABELS,
+	DEFAULT_BUTTON_LAYOUT,
 	DEFAULT_CARD_LAYOUT,
 	VALUE_ID,
 	valueColumns,
 	cardName,
 	runSource,
+	type ButtonLayout,
 	type CardLayout,
 	type ChartLook,
 	type ChartSort,
@@ -705,7 +707,7 @@ function StyleTab(props: Props) {
 		<>
 			{c.kind === "card" && (
 				<Section title="Card">
-					<CardLayoutFields layout={c.layout ?? {}} onChange={(layout) => onChange({ ...c, layout })} />
+					<LayoutFields spec={CARD_SPEC} layout={(c.layout ?? {}) as Record<string, string>} onChange={(layout) => onChange({ ...c, layout: layout as CardLayout | undefined })} />
 				</Section>
 			)}
 			{c.kind === "chart" && (
@@ -714,10 +716,11 @@ function StyleTab(props: Props) {
 				</Section>
 			)}
 			{c.kind === "button" && (
-				<Section title="Button icon">
+				<Section title="Button">
 					<Row label="Icon">
 						<IconPicker clearable value={c.icon ?? ""} color="var(--text-normal)" empty="No icon" onChange={(v) => onChange({ ...c, icon: v || undefined })} />
 					</Row>
+					<LayoutFields spec={BUTTON_SPEC} layout={(c.layout ?? {}) as Record<string, string>} onChange={(layout) => onChange({ ...c, layout: layout as ButtonLayout | undefined })} />
 				</Section>
 			)}
 			<Section title="Default style">
@@ -766,12 +769,13 @@ function ValueRules({ c, def, env, cards, look, onChange }: Props) {
 				add: "Rule",
 			}}
 			ruleExtra={
-				isCard
+				isCard || c.kind === "button"
 					? (r, set) =>
 							r.target === ROW_TARGET ? (
-								<CardLayoutFields
+								<LayoutFields
 									rule
-									layout={(r as DashRule).layout ?? {}}
+									spec={isCard ? CARD_SPEC : BUTTON_SPEC}
+									layout={((r as DashRule).layout ?? {}) as Record<string, string>}
 									onChange={(layout) => {
 										const { layout: _, ...rest } = r as DashRule;
 										set(layout ? ({ ...rest, layout } as DashRule) : rest);
@@ -928,29 +932,83 @@ const LAYOUT_OPTIONS = {
 } as const satisfies Record<Exclude<keyof CardLayout, "caption">, readonly { value: string; label: string; icon?: string }[]>;
 const LAYOUT_NAMES: Record<Exclude<keyof CardLayout, "caption">, string> = { size: "Size", align: "Align", label: "Label", icon: "Icon", accent: "Accent" };
 
+type Choice = { value: string; label: string; icon?: string };
+/** What a layout editor shows: drop-down / segmented choices per key, rule-only keys, and one text key. */
+interface LayoutSpec {
+	what: string;
+	options: Record<string, readonly Choice[]>;
+	names: Record<string, string>;
+	defaults: Record<string, string>;
+	ruleOnly?: string[];
+	text: { key: string; label: string; hint: string };
+}
+const ALIGN_CHOICES = LAYOUT_OPTIONS.align;
+const CARD_SPEC: LayoutSpec = {
+	what: "Card",
+	options: LAYOUT_OPTIONS,
+	names: LAYOUT_NAMES,
+	defaults: DEFAULT_CARD_LAYOUT,
+	text: { key: "caption", label: "Caption", hint: "[Value] and other cards' [Title]s show their values, e.g. of [All quests]." },
+};
+const BUTTON_SPEC: LayoutSpec = {
+	what: "Button",
+	options: {
+		variant: [
+			{ value: "solid", label: "Solid" },
+			{ value: "soft", label: "Soft" },
+			{ value: "outline", label: "Outline" },
+			{ value: "plain", label: "Plain" },
+		],
+		size: [
+			{ value: "s", label: "S" },
+			{ value: "m", label: "M" },
+			{ value: "l", label: "L" },
+		],
+		width: [
+			{ value: "fill", label: "Fill the cell" },
+			{ value: "fit", label: "Fit the label" },
+		],
+		align: ALIGN_CHOICES,
+		icon: [
+			{ value: "before", label: "Before" },
+			{ value: "above", label: "Above" },
+			{ value: "after", label: "After" },
+			{ value: "only", label: "Only" },
+		],
+		state: [
+			{ value: "enabled", label: "Enabled" },
+			{ value: "disabled", label: "Disabled" },
+		],
+	},
+	names: { variant: "Variant", size: "Size", width: "Width", align: "Align", icon: "Icon", state: "Button" },
+	defaults: DEFAULT_BUTTON_LAYOUT,
+	ruleOnly: ["state"],
+	text: { key: "description", label: "Description", hint: "A small second line under the label. Cards' [Title]s show their values." },
+};
+
 /**
- * A summary card's layout: segmented buttons for the card's own, or (`rule`) drop-downs that start at "Unchanged",
- * for what a whole-card rule changes. Unset keys are dropped (undefined when nothing's set).
+ * A card's or button's layout: segmented buttons for the component's own, or (`rule`) drop-downs that start at
+ * "Unchanged", for what a whole-component rule changes. Unset keys are dropped (undefined when nothing's set).
  */
-function CardLayoutFields({ layout, onChange, rule }: { layout: CardLayout; onChange: (l: CardLayout | undefined) => void; rule?: boolean }) {
-	const set = (patch: Partial<CardLayout>) => {
+function LayoutFields({ spec, layout, onChange, rule }: { spec: LayoutSpec; layout: Record<string, string | undefined>; onChange: (l: Record<string, string> | undefined) => void; rule?: boolean }) {
+	const set = (patch: Record<string, string | undefined>) => {
 		const next: Record<string, unknown> = { ...layout, ...patch };
 		for (const k of Object.keys(next)) if (next[k] === undefined || next[k] === "") delete next[k];
-		onChange(Object.keys(next).length ? (next as CardLayout) : undefined);
+		onChange(Object.keys(next).length ? (next as Record<string, string>) : undefined);
 	};
-	const keys = Object.keys(LAYOUT_OPTIONS) as (keyof typeof LAYOUT_OPTIONS)[];
-	const captionHint = "[Value] and other cards' [Title]s show their values, e.g. of [All quests].";
+	const keys = Object.keys(spec.options).filter((k) => rule || !spec.ruleOnly?.includes(k));
+	const { text } = spec;
 	if (rule)
 		return (
 			<div className="oe-hl-grid oe-dash-rule-layout">
-				<span className="oe-hl-label oe-dash-rule-layout-head">Card</span>
+				<span className="oe-hl-label oe-dash-rule-layout-head">{spec.what}</span>
 				<span />
 				{keys.map((k) => (
 					<Fragment key={k}>
-						<span className="oe-hl-label">{LAYOUT_NAMES[k]}</span>
-						<select className="dropdown oe-pop-select" aria-label={`Card ${LAYOUT_NAMES[k].toLowerCase()}`} value={layout[k] ?? ""} onChange={(e) => set({ [k]: e.target.value || undefined })}>
+						<span className="oe-hl-label">{spec.names[k]}</span>
+						<select className="dropdown oe-pop-select" aria-label={`${spec.what} ${spec.names[k].toLowerCase()}`} value={layout[k] ?? ""} onChange={(e) => set({ [k]: e.target.value || undefined })}>
 							<option value="">Unchanged</option>
-							{LAYOUT_OPTIONS[k].map((o) => (
+							{spec.options[k].map((o) => (
 								<option key={o.value} value={o.value}>
 									{o.label}
 								</option>
@@ -958,26 +1016,26 @@ function CardLayoutFields({ layout, onChange, rule }: { layout: CardLayout; onCh
 						</select>
 					</Fragment>
 				))}
-				<span className="oe-hl-label">Caption</span>
-				<input type="text" className="oe-pop-input" aria-label="Card caption" placeholder="Unchanged" title={captionHint} value={layout.caption ?? ""} onChange={(e) => set({ caption: e.target.value })} />
+				<span className="oe-hl-label">{text.label}</span>
+				<input type="text" className="oe-pop-input" aria-label={`${spec.what} ${text.label.toLowerCase()}`} placeholder="Unchanged" title={text.hint} value={layout[text.key] ?? ""} onChange={(e) => set({ [text.key]: e.target.value })} />
 			</div>
 		);
-	const d = DEFAULT_CARD_LAYOUT;
+	const d = spec.defaults;
 	return (
 		<>
 			{keys.map((k) => (
-				<Row key={k} label={LAYOUT_NAMES[k]}>
+				<Row key={k} label={spec.names[k]}>
 					<Segmented
-						label={`Card ${LAYOUT_NAMES[k].toLowerCase()}`}
+						label={`${spec.what} ${spec.names[k].toLowerCase()}`}
 						iconsOnly={k === "align"}
-						value={(layout[k] ?? d[k]) as string}
+						value={layout[k] ?? d[k]}
 						onChange={(v: string) => set({ [k]: v === d[k] ? undefined : v })}
-						options={[...LAYOUT_OPTIONS[k]] as { value: string; label: string; icon?: string }[]}
+						options={[...spec.options[k]]}
 					/>
 				</Row>
 			))}
-			<Row label="Caption" hint={captionHint}>
-				<input type="text" aria-label="Card caption" placeholder="None" value={layout.caption ?? ""} onChange={(e) => set({ caption: e.target.value })} />
+			<Row label={text.label} hint={text.hint}>
+				<input type="text" aria-label={`${spec.what} ${text.label.toLowerCase()}`} placeholder="None" value={layout[text.key] ?? ""} onChange={(e) => set({ [text.key]: e.target.value })} />
 			</Row>
 		</>
 	);

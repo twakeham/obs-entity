@@ -9267,15 +9267,125 @@ button.oe-calv-more:hover {
 	margin-top: var(--size-4-2);
 }
 
-.oe-dash-button-body {
+/* a button: its cell holds it (filling it, or fitting its label, placed by its alignment) */
+.oe-dash-button-wrap {
 	width: 100%;
 	height: 100%;
 	display: flex;
 	align-items: center;
 	justify-content: center;
+	padding: 2px;
+}
+
+.oe-dash-button-wrap.is-align-left { justify-content: flex-start; }
+.oe-dash-button-wrap.is-align-right { justify-content: flex-end; }
+
+.oe-dash-button-body {
+	/* the button's colour: its default style's or a rule's fill, else the accent colour */
+	--oe-btn: var(--oe-hl-fill, var(--interactive-accent));
+	display: flex;
+	align-items: center;
+	justify-content: center;
 	gap: var(--size-4-2);
-	border-radius: 0;
+	max-width: 100%;
+	max-height: 100%;
+	height: auto;
 	margin: 0;
+	padding: 6px 14px;
+	border-radius: var(--radius-m);
+	font-size: var(--font-ui-medium);
+}
+
+.oe-dash-button-wrap.is-fill .oe-dash-button-body {
+	width: 100%;
+	height: 100%;
+}
+
+.oe-dash-button-wrap.is-fill.is-align-left .oe-dash-button-body { justify-content: flex-start; text-align: left; }
+.oe-dash-button-wrap.is-fill.is-align-right .oe-dash-button-body { justify-content: flex-end; text-align: right; }
+
+.oe-dash-button-body.is-solid {
+	background-color: var(--oe-btn);
+	color: var(--text-on-accent);
+}
+
+.oe-dash-button-body.is-soft {
+	background-color: color-mix(in srgb, var(--oe-btn) 18%, transparent);
+	color: var(--oe-btn);
+	box-shadow: none;
+}
+
+.oe-dash-button-body.is-outline {
+	background-color: transparent;
+	border: 1px solid var(--oe-btn);
+	color: var(--oe-btn);
+	box-shadow: none;
+}
+
+.oe-dash-button-body.is-plain {
+	background-color: transparent;
+	color: var(--oe-btn);
+	box-shadow: none;
+}
+
+.oe-dash-button-body:is(.is-soft, .is-outline, .is-plain):hover {
+	background-color: color-mix(in srgb, var(--oe-btn) 28%, transparent);
+}
+
+.oe-dash-button-body.is-solid:hover {
+	background-color: color-mix(in srgb, var(--oe-btn) 85%, var(--text-normal));
+}
+
+.oe-dash-button-body.is-size-s { font-size: var(--font-ui-small); padding: 4px 10px; gap: var(--size-4-1); }
+.oe-dash-button-body.is-size-l { font-size: var(--font-ui-larger); padding: 10px 20px; }
+
+.oe-dash-button-body .oe-icon {
+	display: inline-flex;
+	flex-shrink: 0;
+}
+
+.oe-dash-button-body .oe-icon svg {
+	width: 1.15em;
+	height: 1.15em;
+}
+
+.oe-dash-button-body.is-icon-above {
+	flex-direction: column;
+	gap: 4px;
+}
+
+.oe-dash-button-body.is-icon-only {
+	padding: 6px;
+}
+
+.oe-dash-button-body.is-icon-only .oe-icon svg {
+	width: 1.5em;
+	height: 1.5em;
+}
+
+.oe-dash-button-text {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	line-height: 1.25;
+}
+
+.oe-dash-button-label,
+.oe-dash-button-desc {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.oe-dash-button-desc {
+	font-size: 0.78em;
+	font-weight: var(--font-normal);
+	opacity: 0.8;
+}
+
+.oe-dash-button-body.is-disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
 }
 
 /* dashboards, D2: charts, card colour rules, drill-down tabs */
@@ -9908,11 +10018,6 @@ circle.oe-chart-hit:focus-visible {
 .oe-dash-head .oe-hl-icon,
 .oe-dash-list-row .oe-hl-icon {
 	margin-right: 0;
-}
-
-.oe-dash-item.oe-hl-fill .oe-dash-button-body {
-	background-color: var(--oe-hl-fill);
-	color: var(--text-on-accent);
 }
 
 .oe-dash-item.oe-hl-text .oe-dash-button-body {
