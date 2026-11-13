@@ -255,7 +255,11 @@ Each tab has its own search, filters, View options, **+** menu, and Collapse/Exp
 Clicking a tab yourself sticks until you open something else. Open the browser with the **library** ribbon icon or **Open entity browser**.
 
 **Layout (Entities tab):**
-- **Views** at the top: your view notes, with each one's layout icon.
+- **Views**, listed with what they show:
+  - A view of one type is listed under that type's heading (Quest board under Quests).
+  - A view of types in one group is listed under the group (Campaign calendar under At the table).
+  - Anything wider is in the **Views** section at the top.
+  - **To put a view somewhere else,** drag it onto any group or type heading (e.g. Campaign calendar onto Campaigns), or onto **Views**. You can also right-click it and use **Show under…**. The choice is saved in the view note (`place:` in its block), so it syncs. Moving a view back to its automatic spot removes `place:`.
 - One section per group, with a heading per type.
 - Entities nest under their parent, using the type's parent fields, e.g. Lander and Design review under Apollo Moonshot.
 - Notes are listed under the heading of the type at the top of their branch: a campaign's sessions are under **Campaigns**. Their own type's heading still shows, with how many there are (faint) and a line such as **All 17 under Campaigns · show them**, which filters the browser to that type (each with what it's under). A type with some notes of its own and some under other headings shows **+3 more under Projects · show them** after its own.
@@ -288,7 +292,7 @@ Clicking a tab yourself sticks until you open something else. Open the browser w
 - **While filtering**, matches stay inside their hierarchy: parents that don't match are dimmed, and sections with no matches hide. A bar shows the tab's match count and **Clear**; nothing at all is "Nothing matches."
 - **Collapsing while filtering** is temporary, so clearing the filter brings back your normal layout.
 
-**Following the open note:** the browser switches to the right tab and expands to the open note (or the Views heading, for a view note) once, without undoing anything you collapse afterwards. The tab, options, filters and expanded rows are remembered.
+**Following the open note:** the browser switches to the right tab and expands to the open note (or the heading a view note is listed under) once, without undoing anything you collapse afterwards. The tab, options, filters and expanded rows are remembered.
 
 ## Entity views
 
@@ -306,7 +310,7 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
 
 **Creating and opening views:**
 - **New entity view** (command, the + on the browser's **Views** section, or "New table view of …" / "New board of …" / "New calendar of …" on a type or group heading): pick what it shows, Table, Board or Calendar, name it, and the note is created.
-- **Open entity view…** lists the view notes. The browser's **Entities** tab lists them at the top.
+- **Open entity view…** lists the view notes. The browser's **Entities** tab lists them too: under the type or group they show, or in **Views** at the top.
 - **Embed** a view in any note with `![[Active projects]]`, or paste the block anywhere.
 
 **Toolbar:**
@@ -602,7 +606,8 @@ src/
     board.ts                 boards: bucket fields, buckets in order, card fields, the run definition, manual card order
     calendarView.ts          calendar views: date fields per type, entries, months / weeks / agenda, bars in lanes, moves
     formLayout.ts            custom form layouts: format, tidying, resolving against a type, field renames
-    viewBlock.ts             find / rewrite an entity-view block inside a note
+    viewBlock.ts             find / rewrite an entity-view block inside a note (and its place: line)
+    viewPlace.ts             where the Entity Browser lists a view note: place:, or worked out from its types
   services/
     entityIndex.ts           entities from the metadata cache
     relationIndex.ts         forward + inverse edges, groupsFor, mentions

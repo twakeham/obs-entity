@@ -3064,9 +3064,19 @@ select.oe-status.has-color {
 .oe-typegroup-row.is-static {
 	cursor: default;
 }
-.oe-typegroup-row.is-drop-target {
+.oe-typegroup-row.is-drop-target,
+.oe-bheading.is-drop-target {
 	outline: 1px dashed var(--interactive-accent);
 	outline-offset: -1px;
+}
+
+.oe-bheading.is-drop-target {
+	background-color: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+}
+
+.oe-place-suggestion .oe-place-note {
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
 }
 .oe-typegroup-row .oe-tree-count,
 .oe-type-row .oe-tree-count {

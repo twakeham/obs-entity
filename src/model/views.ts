@@ -199,6 +199,11 @@ export interface ViewDef {
 	calendar?: CalendarDef;
 	/** the workflows offered on this view show as a row of buttons under the toolbar (unset: a Workflows menu in the toolbar) */
 	workflowBar?: true;
+	/**
+	 * where the Entity Browser lists the view note: a type key (under its heading), "@group" (in the group's
+	 * section) or "views" (the top Views section); unset: worked out from `types` (see viewPlace.ts)
+	 */
+	place?: string;
 }
 
 /** Card widths (px) per card size. */
@@ -471,7 +476,8 @@ export function parseView(raw: unknown): { def: ViewDef | null; errors: string[]
 	const calendar = raw.calendar === undefined || raw.calendar === null ? {} : { calendar: parseCalendar(raw.calendar, errors) };
 	if (errors.length && !VIEW_KINDS.includes(kind)) return { def: null, errors };
 	const workflowBar = raw.workflowBar === true ? { workflowBar: true as const } : {};
-	return { def: { kind, types: types.length ? types : ["*"], columns, widths, fill, ...freeze, ...density, wrap, ...wrapLines, formats, summary, sort, group, ...groupSummaries, ...groupFieldNames, filters, highlight, ...board, ...calendar, ...workflowBar }, errors };
+	const place = typeof raw.place === "string" && raw.place.trim() ? { place: raw.place.trim() } : {};
+	return { def: { kind, types: types.length ? types : ["*"], columns, widths, fill, ...freeze, ...density, wrap, ...wrapLines, formats, summary, sort, group, ...groupSummaries, ...groupFieldNames, filters, highlight, ...board, ...calendar, ...workflowBar, ...place }, errors };
 }
 
 const strList = (v: unknown) => [...new Set(asArray(v).filter((x): x is string => typeof x === "string" && !!x.trim()).map((x) => x.trim()))];
@@ -743,6 +749,7 @@ export function serializeView(def: ViewDef): Record<string, unknown> {
 	const calendar = serializeCalendar(def.calendar);
 	if (calendar) out.calendar = calendar;
 	if (def.workflowBar) out.workflowBar = true;
+	if (def.place) out.place = def.place;
 	return out;
 }
 

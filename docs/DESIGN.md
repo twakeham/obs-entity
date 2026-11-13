@@ -509,6 +509,7 @@ src/
     templates.ts                renderTemplate, defaultTemplate
     paths.ts                    joinPath, sanitizeFileName, uniquePath, resolveEntityFolder
     tree.ts                     parentMap, buildForest, filterForest, ancestorsOf, buildBrowserGroups, childOptions
+    viewPlace.ts                viewSpot, autoViewSpot, placeFor, placeViews (view notes among the browser's headings)
     typeEditing.ts              drafts, fieldChanges, migrateFrontmatter, incomingRelations,
                                 relationshipField, describeRelationship, duplicateType,
                                 exportPack, importPack, sampleValues
@@ -882,7 +883,7 @@ A left-sidebar view (ribbon `library`, command **Open entity browser**).
 #### Tabs
 
 A tab bar at the top (`role="tablist"`, icon and text) splits the browser in two (`tab` in the browser state, `"entities"` by default):
-- **Entities** (`library`): **Views** (the view notes, `showViews`), then the group sections and the notes in them. Everything below under Grouping, Rows and Reveal applies here.
+- **Entities** (`library`): the view notes (`showViews`, see Views in the browser below), then the group sections and the notes in them. Everything below under Grouping, Rows and Reveal applies here.
 - **Configure** (`settings-2`): the setup. It has the entity types section (`TypesSection`, §8.1), then **Workflows**, each switchable in View options.
 
 Each tab has its own toolbar contents, filters and match bar:
@@ -895,7 +896,38 @@ Each tab has its own toolbar contents, filters and match bar:
 **Following what's open** (`BrowserView`, on change events only, so a tab clicked by hand stays until something else opens):
 - `file-open` of an indexed entity or a view note (`ViewIndex.has`) switches to Entities.
 - `active-leaf-change` to the Entity types view or the Workflows view switches to Configure.
-- Opening a view note also unfolds the Views heading once, so its row shows as active.
+- Opening a view note also unfolds the headings it's listed under once, so its row shows as active.
+
+#### Views in the browser
+
+View notes are listed with the notes they're about. Each view's spot (`model/viewPlace.ts`) is one of three:
+- **The top Views section.**
+- **A group's section:** listed first, under the group heading.
+- **A type's heading:** listed first, above the notes.
+
+**Choosing the spot** (`viewSpot`):
+- The view block's `place:` decides it when set: a type key, `"@group"` or `"views"` (§8.10 Entity views).
+- Otherwise it's automatic (`autoViewSpot`):
+  - one type → that type's heading;
+  - types or `@group`s all in one group → that group's section (the TTRPG pack's Campaign calendar, of sessions and quests, is under At the table);
+  - anything else (several groups, or `*`) → Views.
+- A `place:` naming a type or group that no longer exists counts as unset.
+
+**Where it's shown** (`placeViews`, among the sections and headings actually shown, so filtering and view options are respected):
+- With no heading for its type (type headings off, no notes and not Show empty types, or filtered out), a view goes to its type's group section.
+- With no section for its group (Sections: none, or filtered out), it goes to Views.
+- Rows are indented like the level they're in. A heading's count stays its notes' count.
+
+**Moving a view:**
+- **Drag** its row (`application/x-oe-view`, carrying the path) onto a group heading, a type heading or the Views heading. Any heading is allowed, not just the view's own types. The heading under the pointer is highlighted (`.oe-bheading.is-drop-target`).
+- **Right-click → Show under…** (`ViewPlaceModal`) lists Views, each group and its types, marked "here now" and "automatic".
+
+**Saving a move:**
+- Moving a view saves `place:` with `placeFor`, or removes it when the new spot is the automatic one. Blocks only carry `place:` when the view was moved somewhere else.
+- `ViewIndex.setPlace` edits just that line of the note's first block (`setBlockPlace`), so the rest keeps its formatting. It unfolds the target heading.
+- `place` is part of `ViewDef`, so saving the view from its tab keeps it.
+
+**The Views heading** stays while every view is listed elsewhere (count 0, "Drag a view here to list it at the top"), except while filtering. That way there's always somewhere to drop one back, and the list doesn't shift when a drag starts.
 
 #### Grouping
 
@@ -1302,6 +1334,7 @@ filters: { all: [{ field: status, op: is-not, value: done }] }
 | `highlight` | Conditional formatting rules, in priority order (see Highlight rules). Optional. |
 | `summary` | Column id → summary aggregation, shown in the summary row and group headers (see Summaries). Optional. |
 | `board` | The board layout's own settings (see Board). Kept whichever layout is shown. Optional. |
+| `place` | Where the Entity Browser lists the view note (§8.3 Views in the browser): a type key (under its heading), `"@group"` (in the group's section) or `"views"` (the top Views section). Optional: unset, it's worked out from `types`. Written by dragging the view in the browser or **Show under…**. |
 
 **Shared and per-layout settings.** Both layouts use `types`, `filters`, `sort`, `highlight`, `formats`, `summary` and the column definitions (roll-ups and formulas are defined once, in `columns`). The table alone uses the shown `columns` and their order, `group`, `widths`, `fill`, `freeze`, `density` and `wrap`; the board alone uses `board:`. Formats and summaries are kept for card fields that aren't table columns.
 

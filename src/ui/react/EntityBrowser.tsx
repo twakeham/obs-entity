@@ -1,5 +1,5 @@
 import { Menu, Notice, TFile } from "obsidian";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type MouseEvent, type ReactNode } from "react";
 import {
 	branchPaths,
 	buildBrowser,
@@ -30,6 +30,8 @@ import { VIEW_KIND_ICON } from "../../model/views";
 import { buttonIcon, buttonLabel, cloneWorkflow, inScope, newTrigger, newWorkflow, noteless, onNotes, scopeTypes, triggerText, TRIGGER_ICONS, TRIGGER_LABELS, WORKFLOW_CATEGORIES, workflowProblems, type WorkflowDef } from "../../model/workflows";
 import { NotePickerModal } from "../modals/workflowModals";
 import { typeMatches, viewMatches, workflowMatches, type BrowserFilter } from "../../model/browserFilter";
+import { placeFor, placeViews, viewSpot, type ViewSpot } from "../../model/viewPlace";
+import { ViewPlaceModal } from "../modals/viewPlaceModal";
 import { openTryRun } from "./workflows/TryRun";
 import { ConfirmModal, copyAllTypesAsPack, type TypesRequest } from "./types/TypeManager";
 
@@ -59,6 +61,8 @@ export interface BrowserState extends BrowserOptions {
 export const DEFAULT_BROWSER_STATE: BrowserState = { ...DEFAULT_BROWSER_OPTIONS, tab: "entities", search: "", type: "", status: "", tag: "", configSearch: "", configType: "", expanded: [], collapsed: [], showTypes: true, showViews: true, showWorkflows: true };
 
 const INDENT = 14;
+/** what a dragged view row carries (its path) */
+const VIEW_DRAG = "application/x-oe-view";
 const sKey = (s: BrowserSection) => `s:${s.key}`;
 const bKey = (b: BrowserBlock) => `b:${b.key}`;
 
@@ -115,6 +119,25 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 	}, [sections, entFiltering, query, state.type, state.status, state.tag]);
 	const entFilter: BrowserFilter = { query, type: state.type, status: state.status, tag: state.tag };
 	const shownViews = !state.showViews ? [] : entFiltering ? views.filter((f) => viewMatches(f.basename, plugin.views.types(f.path), entFilter, types)) : views;
+	// Views are listed where they belong (their place:, or worked out from their types) among the headings shown.
+	const placed = placeViews(
+		shownViews.map((f) => ({ view: f, spot: viewSpot(plugin.views.types(f.path), plugin.views.place(f.path), types, groups) })),
+		shown,
+		types,
+	);
+	/** the headings above each placed view, to unfold when it's opened */
+	const viewHeads = new Map<string, string[]>();
+	for (const f of placed.top) viewHeads.set(f.path, ["v:views"]);
+	for (const s of shown) {
+		for (const f of placed.sections.get(s.key) ?? []) viewHeads.set(f.path, [sKey(s)]);
+		for (const b of s.blocks) for (const f of placed.blocks.get(b.key) ?? []) viewHeads.set(f.path, [sKey(s), bKey(b)]);
+	}
+	/** Move a view to a heading (saved in its block), and unfold that heading so it shows there. */
+	const moveView = (path: string, spot: ViewSpot, heads: string[]) => {
+		void plugin.views.setPlace(path, placeFor(spot, plugin.views.types(path), types, groups));
+		if (!filtering && heads.some((h) => collapsed.has(h))) setState({ collapsed: state.collapsed.filter((k) => !heads.includes(k)) });
+	};
+	const viewRows = (list: TFile[] | undefined, depth: number) => (list ?? []).map((f) => <ViewRow key={f.path} file={f} depth={depth} active={activePath === f.path} />);
 	// What matches, for the count above the list.
 	const matchedTypes = state.showTypes && cfgFiltering ? listedTypes(plugin).filter((x) => typeMatches(x.t, cfgFilter)).length : 0;
 	const matchedWorkflows = state.showWorkflows && cfgFiltering ? [...plugin.settings.workflows.map((w) => plugin.workflowDrafts.get(w.id) ?? w), ...[...plugin.workflowDrafts.entries()].filter(([id]) => id.startsWith("new:")).map(([, w]) => w)].filter((w) => workflowMatches(w, cfgFilter, types)).length : 0;
@@ -167,7 +190,8 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 		if (!activePath || revealed.current === activePath) return;
 		if (plugin.views.has(activePath)) {
 			revealed.current = activePath;
-			if (collapsed.has("v:views")) setState({ collapsed: state.collapsed.filter((k) => k !== "v:views") });
+			const heads = viewHeads.get(activePath) ?? [];
+			if (heads.some((h) => collapsed.has(h))) setState({ collapsed: state.collapsed.filter((k) => !heads.includes(k)) });
 			return;
 		}
 		const at = locate(sections, activePath);
@@ -308,40 +332,27 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 
 			<div className="oe-browser-list" ref={listRef} role="tabpanel">
 				{onConfig && state.showTypes && <TypesSection isCollapsed={isCollapsed} toggleHeading={toggleHeading} filter={cfgFilter} filtering={cfgFiltering} />}
-				{!onConfig && shownViews.length > 0 && (
+				{/* Kept while every view is listed elsewhere (not filtering), so there's always somewhere to drop one back. */}
+				{!onConfig && (placed.top.length > 0 || (shownViews.length > 0 && !entFiltering)) && (
 					<section className={`oe-bsection oe-bviews${viewsOpen ? "" : " is-collapsed"}`} data-section="views">
 						<Heading
 							depth={0}
 							open={viewsOpen}
 							icon="table"
 							title="Views"
-							count={shownViews.length}
+							count={placed.top.length}
 							className="oe-bsection-header"
 							onToggle={() => toggleHeading("v:views")}
 							onAdd={() => plugin.newView()}
 							addLabel="New entity view"
+							onDropView={(path) => moveView(path, { kind: "views" }, ["v:views"])}
 						/>
-						{viewsOpen &&
-							shownViews.map((f) => (
-								<div
-									key={f.path}
-									className={`oe-tree-row oe-view-row${activePath === f.path ? " is-active" : ""}`}
-									style={{ paddingLeft: `${INDENT + 4}px` }}
-									data-path={f.path}
-									onClick={(evt) => plugin.openPath(f.path, evt.nativeEvent)}
-									onAuxClick={(evt) => evt.button === 1 && plugin.openPath(f.path, "tab")}
-									onContextMenu={(evt) => {
-										evt.preventDefault();
-										const m = new Menu();
-										plugin.app.workspace.trigger("file-menu", m, f, "obs-entities-browser");
-										m.showAtMouseEvent(evt.nativeEvent);
-									}}
-								>
-									<span className="oe-tree-toggle is-leaf" />
-									<Icon name={VIEW_KIND_ICON[plugin.views.kind(f.path) ?? "table"] ?? "table"} className="oe-tree-icon" />
-									<span className="oe-tree-name">{f.basename}</span>
-								</div>
-							))}
+						{viewsOpen && viewRows(placed.top, 1)}
+						{viewsOpen && placed.top.length === 0 && (
+							<div className="oe-tree-empty" style={{ paddingLeft: `${INDENT + 22}px` }}>
+								Drag a view here to list it at the top
+							</div>
+						)}
 					</section>
 				)}
 				{onConfig && state.showWorkflows && <WorkflowsSection isCollapsed={isCollapsed} toggleHeading={toggleHeading} filter={cfgFilter} filtering={cfgFiltering} />}
@@ -379,8 +390,10 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 												}
 											: undefined
 									}
+									onDropView={s.group ? (path) => moveView(path, { kind: "group", key: s.group!.key }, [sid]) : undefined}
 								/>
 							)}
+							{!sClosed && viewRows(placed.sections.get(s.key), groupSections ? 1 : 0)}
 							{!sClosed &&
 								s.blocks.map((b) => {
 									const bid = bKey(b);
@@ -418,10 +431,12 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 														m.addItem((i) => i.setSection("config").setTitle(`Configure the ${t.name} type`).setIcon("shapes").onClick(() => void plugin.activateTypes(t.key)));
 														m.showAtMouseEvent(evt.nativeEvent);
 													}}
+													onDropView={(path) => moveView(path, { kind: "type", key: t.key }, [sid, bid])}
 												/>
 											)}
 											{!bClosed && (
 												<div className="oe-tree">
+													{viewRows(placed.blocks.get(b.key), base)}
 													{b.roots.map((n) => (
 														<TreeRow key={n.entity.path} node={n} depth={base} isOpen={isOpen} activePath={activePath} onToggle={toggleNode} />
 													))}
@@ -882,6 +897,7 @@ function Heading({
 	onAdd,
 	addLabel,
 	onMenu,
+	onDropView,
 }: {
 	depth: number;
 	open: boolean;
@@ -897,16 +913,39 @@ function Heading({
 	onAdd?: () => void;
 	addLabel: string;
 	onMenu?: (evt: MouseEvent) => void;
+	/** a view row dropped here (by its path): list the view under this heading */
+	onDropView?: (path: string) => void;
 }) {
+	// Entering a child element fires enter before the parent's leave, so count them.
+	const [over, setOver] = useState(0);
+	const carriesView = (e: DragEvent) => !!onDropView && e.dataTransfer.types.includes(VIEW_DRAG);
 	return (
 		<div
-			className={`oe-bheading ${className}`}
+			className={`oe-bheading ${className}${over > 0 ? " is-drop-target" : ""}`}
 			style={{ paddingLeft: `${depth * INDENT + 4}px`, ...(color ? { "--oe-type-color": color } : {}) } as CSSProperties}
 			onClick={onToggle}
 			onContextMenu={(e) => {
 				if (!onMenu) return;
 				e.preventDefault();
 				onMenu(e);
+			}}
+			onDragEnter={(e) => {
+				if (!carriesView(e)) return;
+				e.preventDefault();
+				setOver((n) => n + 1);
+			}}
+			onDragOver={(e) => {
+				if (!carriesView(e)) return;
+				e.preventDefault();
+				e.dataTransfer.dropEffect = "move";
+			}}
+			onDragLeave={(e) => carriesView(e) && setOver((n) => Math.max(0, n - 1))}
+			onDrop={(e) => {
+				if (!carriesView(e)) return;
+				e.preventDefault();
+				setOver(0);
+				const path = e.dataTransfer.getData(VIEW_DRAG);
+				if (path) onDropView!(path);
 			}}
 		>
 			<Icon name={open ? "chevron-down" : "chevron-right"} className="oe-tree-chevron" />
@@ -930,6 +969,39 @@ function Heading({
 					</button>
 				)}
 			</span>
+		</div>
+	);
+}
+
+/**
+ * A view note's row: its layout's icon and name. Click opens it; drag it onto a heading to list it there; right-click
+ * for "Show under…" (the same, from a list) and the file menu.
+ */
+function ViewRow({ file, depth, active }: { file: TFile; depth: number; active: boolean }) {
+	const plugin = usePlugin();
+	return (
+		<div
+			className={`oe-tree-row oe-view-row${active ? " is-active" : ""}`}
+			style={{ paddingLeft: `${depth * INDENT + 4}px` }}
+			data-path={file.path}
+			draggable
+			onDragStart={(e) => {
+				e.dataTransfer.setData(VIEW_DRAG, file.path);
+				e.dataTransfer.effectAllowed = "move";
+			}}
+			onClick={(evt) => plugin.openPath(file.path, evt.nativeEvent)}
+			onAuxClick={(evt) => evt.button === 1 && plugin.openPath(file.path, "tab")}
+			onContextMenu={(evt) => {
+				evt.preventDefault();
+				const m = new Menu();
+				m.addItem((i) => i.setSection("open").setTitle("Show under…").setIcon("folder-input").onClick(() => new ViewPlaceModal(plugin, file).open()));
+				plugin.app.workspace.trigger("file-menu", m, file, "obs-entities-browser");
+				m.showAtMouseEvent(evt.nativeEvent);
+			}}
+		>
+			<span className="oe-tree-toggle is-leaf" />
+			<Icon name={VIEW_KIND_ICON[plugin.views.kind(file.path) ?? "table"] ?? "table"} className="oe-tree-icon" />
+			<span className="oe-tree-name">{file.basename}</span>
 		</div>
 	);
 }

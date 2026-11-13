@@ -45,6 +45,19 @@ export function findViewBlocks(text: string): BlockSpan[] {
 }
 
 /**
+ * Set (or with null, remove) the top-level `place:` key in a block's content, touching only that line so the rest
+ * keeps its formatting.
+ */
+export function setBlockPlace(inner: string, place: string | null): string {
+	const lines = inner.replace(/\r\n/g, "\n").split("\n");
+	const kept = lines.filter((l) => !/^place[ \t]*:/.test(l));
+	if (place === null) return kept.join("\n");
+	while (kept.length && !kept[kept.length - 1].trim()) kept.pop();
+	kept.push(`place: ${JSON.stringify(place)}`);
+	return kept.join("\n");
+}
+
+/**
  * Replace the content of one `entity-view` block. The block is the one opening at `lineStart` when given and
  * present, otherwise the one whose content matches `source`. Returns null when it can't be found.
  */
