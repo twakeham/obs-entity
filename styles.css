@@ -9047,6 +9047,55 @@ button.oe-calv-more:hover {
 	font-size: var(--font-ui-small);
 }
 
+/* conditions (filters and highlight rules) on one line in the narrow panel: field and value share the width, the operator takes what it needs */
+.oe-dash-settings .oe-condition {
+	gap: 4px;
+}
+
+.oe-dash-settings .oe-condition > :is(select, input) {
+	font-size: var(--font-ui-small);
+}
+
+.oe-dash-settings .oe-condition > select.oe-pop-select:first-child {
+	flex: 3 1 60px;
+	width: auto;
+	min-width: 0;
+	max-width: none;
+}
+
+.oe-dash-settings .oe-condition > select.oe-pop-select:nth-child(2) {
+	flex: 2 1 60px;
+	width: auto;
+	min-width: 0;
+	max-width: none;
+}
+
+.oe-dash-settings .oe-condition > :is(input, .oe-datebox, .oe-range) {
+	flex: 2 1 40px;
+	width: auto;
+	min-width: 0;
+}
+
+/* choice pills and link pickers need the width: their own line under the field and operator */
+.oe-dash-settings .oe-condition > :is(.oe-pop-pills, .oe-pop-links) {
+	order: 1;
+	flex: 1 1 100%;
+	min-width: 0;
+}
+
+.oe-dash-settings .oe-condition > .oe-condition-issue {
+	order: 2;
+}
+
+.oe-dash-settings .oe-condition > .oe-spacer {
+	display: none;
+}
+
+.oe-dash-settings .oe-condition > button.clickable-icon {
+	flex: none;
+	margin-left: auto;
+}
+
 /* components */
 .oe-dash-item {
 	display: flex;
