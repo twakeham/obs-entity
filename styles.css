@@ -9212,3 +9212,294 @@ button.oe-calv-more:hover {
 	border-radius: 0;
 	margin: 0;
 }
+
+/* dashboards, D2: charts, card colour rules, drill-down tabs */
+.oe-dash-chart-body {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 0;
+}
+
+.oe-chart-area {
+	flex: 1;
+	min-height: 0;
+	overflow: hidden auto;
+}
+
+.oe-chart-area > .oe-chart-donut,
+.oe-chart-area > .oe-chart-progress {
+	padding: 0 var(--size-4-3) var(--size-4-2);
+}
+
+.oe-chart-area > svg {
+	display: block;
+	overflow: visible;
+}
+
+.oe-chart-fill {
+	fill: var(--oe-c, var(--interactive-accent));
+}
+
+.oe-chart-hit {
+	cursor: pointer;
+	outline: none;
+}
+
+.oe-chart-hit:hover,
+.oe-chart-hit:focus-visible {
+	opacity: 0.8;
+}
+
+rect.oe-chart-hit:focus-visible,
+path.oe-chart-hit:focus-visible,
+circle.oe-chart-hit:focus-visible {
+	stroke: var(--text-normal);
+	stroke-width: 2px;
+}
+
+.oe-chart-hit.is-empty {
+	cursor: default;
+}
+
+.oe-chart-grid line {
+	stroke: var(--background-modifier-border);
+	stroke-width: 1px;
+}
+
+.oe-chart-grid text,
+.oe-chart-label {
+	fill: var(--text-muted);
+	font-size: 10px;
+}
+
+.oe-chart-value {
+	fill: var(--text-normal);
+	font-size: 10px;
+	font-variant-numeric: tabular-nums;
+}
+
+.oe-chart-total {
+	fill: var(--text-normal);
+	font-size: 15px;
+	font-weight: var(--font-bold);
+}
+
+.oe-chart-line {
+	fill: none;
+	stroke: var(--interactive-accent);
+	stroke-width: 2px;
+	stroke-linejoin: round;
+}
+
+.oe-chart-area-fill {
+	fill: var(--interactive-accent);
+	opacity: 0.12;
+}
+
+.oe-chart-point {
+	fill: var(--background-primary);
+	stroke: var(--interactive-accent);
+	stroke-width: 2px;
+}
+
+.oe-chart-legend {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--size-4-1) var(--size-4-3);
+	padding: 0 var(--size-4-3) var(--size-4-1);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.oe-chart-key {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+}
+
+.oe-chart-legend.is-list {
+	flex-direction: column;
+	flex-wrap: nowrap;
+	gap: 2px;
+	padding: 0;
+	min-width: 0;
+	overflow-y: auto;
+}
+
+.oe-chart-legend.is-list .oe-chart-key {
+	border-radius: var(--radius-s);
+	padding: 1px 4px;
+}
+
+.oe-chart-legend.is-list .oe-chart-key.oe-chart-hit:hover {
+	background: var(--background-modifier-hover);
+	opacity: 1;
+}
+
+.oe-chart-key-label {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.oe-chart-key-value {
+	color: var(--text-normal);
+	font-variant-numeric: tabular-nums;
+}
+
+.oe-chart-donut {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--size-4-2);
+	height: 100%;
+}
+
+.oe-chart-donut.is-side {
+	flex-direction: row;
+	align-items: center;
+}
+
+.oe-chart-donut > svg {
+	flex-shrink: 0;
+}
+
+.oe-chart-donut .oe-chart-legend.is-list {
+	align-self: stretch;
+	flex: 1;
+	justify-content: center;
+}
+
+.oe-chart-progress {
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	gap: var(--size-4-1);
+	height: 100%;
+	padding: 0 var(--size-4-1);
+}
+
+.oe-chart-progress-pct {
+	font-size: 1.6em;
+	font-weight: var(--font-bold);
+	font-variant-numeric: tabular-nums;
+}
+
+.oe-chart-progress-track {
+	height: 10px;
+	border-radius: 5px;
+	background: var(--background-modifier-border);
+	overflow: hidden;
+}
+
+.oe-chart-progress-done {
+	height: 100%;
+	border-radius: 5px;
+	background: var(--interactive-accent);
+}
+
+.oe-chart-progress-text {
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+}
+
+/* summary cards: clicking opens their notes; colour rules tint the value or the whole card */
+.oe-dash-card-body.is-clickable {
+	cursor: pointer;
+}
+
+.oe-dash-card-body.is-clickable:hover {
+	background: var(--background-modifier-hover);
+}
+
+.oe-dash-card-body.is-tinted {
+	background: color-mix(in srgb, var(--oe-c) 16%, var(--background-primary));
+	box-shadow: inset 3px 0 0 var(--oe-c);
+}
+
+.oe-dash-card-body.is-tinted.is-clickable:hover {
+	background: color-mix(in srgb, var(--oe-c) 24%, var(--background-primary));
+}
+
+.oe-dash-card-value {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+.oe-dash-card-value > span {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.oe-dash-card-value.is-coloured {
+	color: var(--oe-c);
+}
+
+.oe-dash-card-icon {
+	display: inline-flex;
+	color: var(--oe-c, var(--text-muted));
+}
+
+.oe-dash-card-icon svg {
+	width: 0.8em;
+	height: 0.8em;
+}
+
+/* the edit panel's colour rules */
+.oe-dash-rule {
+	padding: var(--size-4-1) 0;
+	border-bottom: 1px solid var(--background-modifier-border);
+	margin-bottom: var(--size-4-1);
+}
+
+.oe-dash-rule input[type="number"] {
+	width: 70px;
+	flex: 1;
+}
+
+.oe-dash-rule .oe-dash-op {
+	flex: 0 0 auto;
+	width: 58px;
+}
+
+.oe-dash-muted-label {
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+}
+
+/* a dashboard's drill-down tab */
+.oe-drill-tab {
+	display: flex;
+	flex-direction: column;
+}
+
+.oe-drill-bar {
+	display: flex;
+	align-items: baseline;
+	gap: var(--size-4-3);
+	padding: var(--size-4-2) var(--size-4-3);
+	border-bottom: 1px solid var(--background-modifier-border);
+	font-size: var(--font-ui-small);
+	flex-shrink: 0;
+}
+
+.oe-drill-hint {
+	color: var(--text-faint);
+}
+
+.oe-drill-table {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.oe-drill-table > * {
+	flex: 1;
+	min-height: 0;
+}

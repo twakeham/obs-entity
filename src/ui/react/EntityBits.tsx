@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { PaletteColor } from "../../model/colors";
+import { statusTone, type PaletteColor } from "../../model/colors";
 import { choicePillClass } from "../components/choicePicker";
 import { choiceText, choiceTitle } from "../../model/choiceValues";
 import type { RelationGroup } from "../../model/relations";
@@ -7,30 +7,7 @@ import type { FieldDef } from "../../model/types";
 import { EntityChip } from "./EntityChip";
 import { Icon } from "./Icon";
 
-const STATUS_TONES: Record<string, string> = {
-	done: "done",
-	complete: "done",
-	completed: "done",
-	won: "done",
-	active: "active",
-	open: "active",
-	"in-progress": "active",
-	customer: "active",
-	"on-hold": "hold",
-	blocked: "hold",
-	lead: "hold",
-	prospect: "hold",
-	archived: "closed",
-	abandoned: "closed",
-	lost: "closed",
-	inactive: "closed",
-	former: "closed",
-};
-
-/** Colour family for a status word (draft/idea and unknown words are neutral). */
-export function statusTone(status: string | null): string {
-	return (status && STATUS_TONES[status.toLowerCase()]) || "neutral";
-}
+export { statusTone };
 
 /** Classes for a value with a palette colour (none without one). */
 export const colorClass = (c: PaletteColor | null | undefined): string => (c ? ` has-color oe-c-${c}` : "");

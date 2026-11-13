@@ -204,6 +204,8 @@ export interface ViewDef {
 	 * section) or "views" (the Views section, at the bottom); unset: worked out from `types` (see viewPlace.ts)
 	 */
 	place?: string;
+	/** only these notes (paths): a drill-down from a dashboard chart or card; never saved */
+	only?: string[];
 }
 
 /** Card widths (px) per card size. */
@@ -2365,7 +2367,8 @@ export function highlightOf(def: ViewDef, r: ResultRow, colId: string): { style:
 /** Filter, sort and group the rows of a view. */
 export function runView(def: ViewDef, all: ViewRow[], ctx: ViewContext, search = ""): ViewResult {
 	const sources = new Set(sourceTypes(def, ctx.types).map((t) => t.key));
-	const rows = all.filter((r) => sources.has(r.type.key));
+	const only = def.only ? new Set(def.only) : null;
+	const rows = all.filter((r) => sources.has(r.type.key) && (!only || only.has(r.path)));
 	// Columns used as grouping levels aren't shown: their value is in the group header.
 	const columns = def.columns.filter((c) => !def.group.some((g) => g.by === c.id)).map((c) => resolveColumn(c, def, ctx));
 	const known = new Map(columns.map((c) => [c.id, c]));

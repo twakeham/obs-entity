@@ -17,8 +17,8 @@ Derived from the Story Forge worldbuilding plugin, made domain-neutral. The full
 | M7.1 Workflows, stage 1 | Automation: when a note is created or a field changes, or from a button, set fields, tags and links or show a notice; the Workflows view, run log and undo | ✅ Done |
 | M7.2 Workflows, stage 2 | Creating notes, steps on linked notes, for each, running other workflows, one run for a whole selection, form workflows (from commands, the ribbon, view toolbars and the Entity Browser) | Done |
 | M7.3 Workflows, stage 3 | Test runs, big-run confirmation, ask, move / rename, schedules and date triggers, workflows in type packs | ✅ Done |
-| M8.1 Dashboards: core | Dashboards built on a grid: summary cards, lists, embedded views, text and buttons, with view and edit modes; `notes()` in formulas | In progress |
-| M8.2 Dashboards: charts | Charts, card colour rules, click-through | Planned |
+| M8.1 Dashboards: core | Dashboards built on a grid: summary cards, lists, embedded views, text and buttons, with view and edit modes; `notes()` in formulas | ✅ Done |
+| M8.2 Dashboards: charts | Bar, horizontal bar, stacked bar, donut, line and progress charts; card colour rules; click a card, bar or slice to see its notes | ✅ Done |
 | M8.3 Dashboards: interactive | Dashboard filters, `{this}` when embedded, cross-filtering, dashboards in packs | Planned |
 | M5 Packs & polish | Fuller packs (views and templates, Copy group as a pack) ✅; apps (export / import the whole configuration) ✅; ribbon options ✅; pack gallery and first-run picker ✅, with the TTRPG campaign showcase pack ✅. Waiting until closer to release: accessibility pass, user docs, release readiness | Paused (rest before release) |
 
@@ -458,16 +458,16 @@ Any view can also be shown as a **calendar** of its notes by date: use the **Tab
 
 ### Dashboards
 
-A **dashboard** is a page you build from components on a grid: summary cards, lists, views, text and buttons. Each one is a view note (marked **DASHBOARD** in the Entity Browser), so it syncs, opens as a tab and can be embedded in any note with `![[My dashboard]]`.
+A **dashboard** is a page you build from components on a grid: summary cards, charts, lists, views, text and buttons. Each one is a view note (marked **DASHBOARD** in the Entity Browser), so it syncs, opens as a tab and can be embedded in any note with `![[My dashboard]]`.
 
 - **New dashboard:** the Entity Browser's **+** (Entities tab) → **New dashboard**. Name it, and it opens ready to edit.
-- **View mode** (how it opens) just shows the components. Lists and views are live: click a note to open it, and edit in an embedded view as usual.
+- **View mode** (how it opens) just shows the components. Lists and views are live: click a note to open it, and edit in an embedded view as usual. **Click a summary card, or a bar, slice or point in a chart,** to open the notes behind it as a table in a new tab. You can edit them there, or use ⋯ → **Save as…** to keep the table as a view.
 - **Edit** (top right) switches to the editor:
   - **Add** (left): drag a component onto the grid, or click it to add it at the bottom.
   - **The grid** (middle): drag components to move them, and their bottom-right corner to resize. Click one to select it.
   - **Settings** (right): the selected component's options, and **Duplicate** / **Delete**.
   - Changes aren't saved until **Save**. **Discard** throws them away. Leaving the dashboard keeps the unsaved changes for when you come back.
-- **Where the notes come from** (summary cards and lists), one of:
+- **Where the notes come from** (summary cards, charts and lists), one of:
   - **Types and filters:** pick types or groups, and filter them just like a view.
   - **A saved view:** uses that view's types, filters and sort.
   - **A formula** giving notes, e.g. `filter(notes("quest"), prop(item, "Status") = "active")`.
@@ -475,13 +475,20 @@ A **dashboard** is a page you build from components on a grid: summary cards, li
   - **A summary of some notes:** how many there are, or a summary of a field: sum, average, median, min / max, earliest / latest, % filled, % of one choice, and so on.
   - **A formula over other cards:** refer to them by title, e.g. `[Completed quests] / [All quests] * 100`.
   - **Format:** optional, e.g. `currency`, `percent`, `#,##0 gp`.
+  - **Colour rules:** e.g. "When < 3: red, the card" and "When ≥ 10: green, the value, with a tick". The first rule the value meets colours the value or the whole card, and can add an icon. Percentages compare as shown (50 for 50%).
+- **Chart:** the notes as a picture.
+  - **Bar**, **Horizontal bar** (for long labels) and **Donut**: one bar or slice per value of a field, e.g. Status or Priority. They come in the field's own order, with statuses in their colours.
+  - **Stacked bar:** each bar is split by a second field, e.g. priority split by status.
+  - **Line over time:** notes per week, month or year by a date field, with empty periods shown as zero.
+  - **Progress:** how many of the notes are done ("Done when" is a filter, e.g. Status is completed), as a bar with "38%" and "5 of 13".
+  - Each can count the notes, or sum or average a number field (e.g. sum of Reward gold). Hover for the numbers.
 - **List:** the notes with their status, up to four fields, sorted and limited (with "+N more"). Click one to open it.
 - **View:** shows a view note, with its own toolbar.
 - **Text:** Markdown (headings, links, embeds).
 - **Button:** a label and icon that creates a note of a type, runs a workflow (forms open their form; buttons on notes ask which note), or opens a note or view.
 - **Narrow widths:** in a sidebar or on a phone, the components stack in reading order at full width.
 
-Charts, colour rules on cards, and dashboard-wide filters (e.g. pick a campaign and everything follows) are coming next.
+Dashboard-wide filters (e.g. pick a campaign and everything follows) and dashboards that follow the note they're embedded in are coming next.
 
 ## Workflows
 
@@ -639,7 +646,7 @@ src/
     formLayout.ts            custom form layouts: format, tidying, resolving against a type, field renames
     viewBlock.ts             find / rewrite an entity-view block inside a note (and its place: line)
     viewPlace.ts             where the Entity Browser lists a view note: place:, or worked out from its types
-    dashboard.ts             dashboards: parse / serialize, components, sources (view, types and filters, formula), card values and card formulas, lists
+    dashboard.ts             dashboards: parse / serialize, components, sources (view, types and filters, formula), card values, card formulas and colour rules, charts, lists, drill-downs
   services/
     entityIndex.ts           entities from the metadata cache
     relationIndex.ts         forward + inverse edges, groupsFor, mentions
@@ -654,9 +661,9 @@ src/
   ui/react/table/            EntityTable (toolbar, virtual rows, editing; hosts the board too), cells, popovers (filters, sort, group, columns)
   ui/react/board/            Board (buckets, swimlanes, cards, pointer drag and drop, keyboard), Buckets and Swimlanes panels
   ui/react/calendar/         CalendarView (Month, Week, Agenda, No date list, dragging), Dates panel
-  ui/react/dashboard/        Dashboard (grid with react-grid-layout, view and edit modes, card / list / view / text / button), DashboardSettings (the edit panel)
+  ui/react/dashboard/        Dashboard (grid with react-grid-layout, view and edit modes, card / chart / list / view / text / button), Chart (SVG bar, horizontal bar, stacked, donut, line, progress), DashboardSettings (the edit panel)
   ui/react/types/            Entity types view: TypeManager (sidebar, group editor, save), General/Fields/Relationships/Display/Layout tabs, Preview, controls
-  ui/views/                  BrowserView (left sidebar), SidePanelView (right sidebar: connections or type preview), TypesView (main area), EntityViewView (view notes as full tabs), viewBlock (renders entity-view blocks in notes)
+  ui/views/                  BrowserView (left sidebar), SidePanelView (right sidebar: connections or type preview), TypesView (main area), EntityViewView (view notes as full tabs), DrillView (the notes behind a dashboard card or chart, as a table), viewBlock (renders entity-view blocks in notes)
 tests/                       model, relations, typeEditing, tree, form, views, viewBlock, formats, formula, bulk, board, calendar, form layout, choice-value, workflow, pack and dashboard tests
 styles.css                   all classes prefixed `oe-`
 ```

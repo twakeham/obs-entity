@@ -2,6 +2,7 @@ import { Component, MarkdownRenderer, Notice, stringifyYaml } from "obsidian";
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import ReactGridLayout, { useContainerWidth, type Layout } from "react-grid-layout";
 import {
+	CHART_LABELS,
 	COMPONENT_ICONS,
 	COMPONENT_KINDS,
 	COMPONENT_LABELS,
@@ -14,6 +15,7 @@ import {
 	serializeDashboard,
 	STACK_BELOW,
 	type CardOut,
+	type ChartOut,
 	type ComponentKind,
 	type DashComponent,
 	type DashboardDef,
@@ -28,6 +30,7 @@ import { StatusDot } from "../EntityBrowser";
 import { Icon } from "../Icon";
 import { EntityTable } from "../table/EntityTable";
 import { DashboardSettings } from "./DashboardSettings";
+import { Chart } from "./Chart";
 
 const MARGIN = 10;
 /** what's being dragged from the palette */
@@ -126,7 +129,7 @@ export function Dashboard({ path, initial, errors, save, openEditor }: { path: s
 			onClick={editing ? () => setSelected(c.id) : undefined}
 			style={stacked ? { height: `${c.at.h * ROW_HEIGHT + (c.at.h - 1) * MARGIN}px` } : undefined}
 		>
-			<ComponentBody c={c} card={out.cards.get(c.id)} list={out.lists.get(c.id)} path={path} editing={editing} />
+			<ComponentBody c={c} card={out.cards.get(c.id)} list={out.lists.get(c.id)} chart={out.charts.get(c.id)} path={path} editing={editing} />
 		</div>
 	);
 	const chosen = def.components.find((c) => c.id === selected) ?? null;
@@ -257,10 +260,13 @@ export function Dashboard({ path, initial, errors, save, openEditor }: { path: s
 }
 
 /** A component's contents (the same in view and edit mode; in edit mode they don't take clicks). */
-function ComponentBody({ c, card, list, path, editing }: { c: DashComponent; card?: CardOut; list?: ListOut; path: string; editing: boolean }) {
+function ComponentBody({ c, card, list, chart, path, editing }: { c: DashComponent; card?: CardOut; list?: ListOut; chart?: ChartOut; path: string; editing: boolean }) {
+	const plugin = usePlugin();
 	switch (c.kind) {
 		case "card":
-			return <CardBox c={c} out={card} />;
+			return <CardBox c={c} out={card} editing={editing} />;
+		case "chart":
+			return chart ? <Chart kind={c.chart} title={c.title || CHART_LABELS[c.chart]} out={chart} open={(d) => void plugin.openDrill(d)} /> : null;
 		case "list":
 			return <ListBox c={c} out={list} />;
 		case "view":
@@ -272,11 +278,29 @@ function ComponentBody({ c, card, list, path, editing }: { c: DashComponent; car
 	}
 }
 
-function CardBox({ c, out }: { c: Extract<DashComponent, { kind: "card" }>; out?: CardOut }) {
+function CardBox({ c, out, editing }: { c: Extract<DashComponent, { kind: "card" }>; out?: CardOut; editing: boolean }) {
+	const plugin = usePlugin();
+	const rule = out?.rule;
+	const tint = rule?.color ? ` oe-c-${rule.color}` : "";
+	const drill = !editing && out?.drill && out.drill.paths.length ? out.drill : null;
 	return (
-		<div className="oe-dash-card-body" title={out?.count !== undefined ? `Over ${out.count} note${out.count === 1 ? "" : "s"}` : undefined}>
+		<div
+			className={`oe-dash-card-body${rule?.on === "card" && rule.color ? ` is-tinted${tint}` : ""}${drill ? " is-clickable" : ""}`}
+			title={out?.count !== undefined ? `${out.count} note${out.count === 1 ? "" : "s"}${drill ? ": click to open them as a table" : ""}` : undefined}
+			role={drill ? "button" : undefined}
+			tabIndex={drill ? 0 : undefined}
+			onClick={drill ? () => void plugin.openDrill(drill) : undefined}
+			onKeyDown={drill ? (e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), void plugin.openDrill(drill)) : undefined}
+		>
 			<div className="oe-dash-card-title">{c.title || out?.label || "Card"}</div>
-			{out?.error ? <div className="oe-dash-problem">{out.error}</div> : <div className="oe-dash-card-value">{out?.text || "–"}</div>}
+			{out?.error ? (
+				<div className="oe-dash-problem">{out.error}</div>
+			) : (
+				<div className={`oe-dash-card-value${rule?.on !== "card" && rule?.color ? ` is-coloured${tint}` : ""}`}>
+					{rule?.icon && <Icon name={rule.icon} className={`oe-dash-card-icon${tint}`} />}
+					<span>{out?.text || "–"}</span>
+				</div>
+			)}
 		</div>
 	);
 }

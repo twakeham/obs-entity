@@ -39,11 +39,12 @@ import { confirmRun, WorkflowPickerModal } from "./ui/modals/workflowModals";
 import { askForm } from "./ui/modals/workflowFormModal";
 import { initialDates } from "./model/calendarView";
 import { VIEW_BLOCK, ViewIndex, type NoteViewKind } from "./services/viewIndex";
-import { serializeDashboard, type DashboardDef } from "./model/dashboard";
+import { serializeDashboard, type DashboardDef, type Drill } from "./model/dashboard";
 import { findViewBlocks, replaceViewBlock } from "./model/viewBlock";
 import { NameModal, NewViewModal, OpenViewModal } from "./ui/modals/viewModals";
 import { ViewBlock } from "./ui/views/viewBlock";
 import { ENTITY_VIEW, EntityViewView } from "./ui/views/EntityViewView";
+import { DRILL_VIEW, DrillView } from "./ui/views/DrillView";
 
 /**
  * Locale for number formats: Obsidian's language, refined by the system's region when they share a language
@@ -131,6 +132,7 @@ export default class EntitiesPlugin extends Plugin {
 		this.registerView(TYPES_VIEW, (leaf) => new TypesView(leaf, this));
 		this.registerView(BROWSER_VIEW, (leaf) => new BrowserView(leaf, this));
 		this.registerView(ENTITY_VIEW, (leaf) => new EntityViewView(leaf, this));
+		this.registerView(DRILL_VIEW, (leaf) => new DrillView(leaf, this));
 		this.registerView(WORKFLOWS_VIEW, (leaf) => new WorkflowsView(leaf, this));
 		this.patchViewNotes();
 		const refresh = () => this.refreshViewActions();
@@ -644,6 +646,20 @@ export default class EntitiesPlugin extends Plugin {
 		const file = await this.app.vault.create(path, text);
 		this.views.add(file.path, kind);
 		return file;
+	}
+
+	/**
+	 * Open the notes behind a dashboard card, bar or slice as a table in a new tab. A source with only names (its own
+	 * types and filters, or a formula) gets a new view's usual columns.
+	 */
+	async openDrill(drill: Drill): Promise<void> {
+		let def = drill.def;
+		if (def.columns.length < 3) {
+			const usual = this.defaultView(def.types.length === 1 ? def.types[0] : "*");
+			def = { ...def, columns: [...usual.columns, ...def.columns.filter((c) => !usual.columns.some((u) => u.id === c.id))] };
+		}
+		const leaf = this.app.workspace.getLeaf("tab");
+		await leaf.setViewState({ type: DRILL_VIEW, active: true, state: { title: drill.title, def: serializeView({ ...def, group: [] }), only: drill.paths } });
 	}
 
 	/** Unsaved dashboard edits, by note path, kept for the session (DESIGN §8.12). */

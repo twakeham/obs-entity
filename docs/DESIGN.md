@@ -2087,7 +2087,15 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
   - From a source: `value: { agg, column? }`, using the table summary row's aggregations (`summarize`). Count, sum, average, median, min / max, earliest / latest, % filled, % of a choice, and so on. `column` is a field key, a built-in, or a roll-up or formula column object as in views; without it, `count` counts notes.
   - Or `value: { formula }`, with no source: a formula over other cards, referred to by title (`[All quests]`), and `notes()`. Cards are evaluated in dependency order; a cycle is a problem shown on the card.
   - `format` uses the display format patterns (§8.10 Formats).
-  - Later (D2): colour and icon rules, and clicking through to the matching notes.
+  - **Colour rules** (`rules`): `{ op, value, color?, on: value | card, icon? }`, with `op` one of `< <= > >= = !=` and a number. The first rule the value meets applies (`cardRule`). It colours the value's text, or tints the whole card (a wash of the colour and a coloured left edge), and can show a highlight icon before the value. Values compare as shown: percentages as 0–100 (`CardOut.num`), dates not at all.
+  - **Clicking** a card with a source opens its notes as a table (below).
+- **chart:** a chart of a source's notes (`chart`):
+  - `bar`, `hbar` (horizontal, for long labels), `stacked` and `donut` group the notes by `by` (any field or built-in; links and multiple choices count a note once per value). Groups come in the field's order (statuses in status order, choices in choice order) using the view grouping, with "No …" for empty ones. `stacked` splits each bar by `split`, its parts in that field's order.
+  - `line`: the notes by a date field `by`, every `week` (Monday), `month` (default) or `year`. Every step from the first to the last date is shown, empty ones too (at most 400).
+  - `progress`: the notes meeting `done` (a filter group, e.g. Status is done) against all of them, as a bar with "38%" and "5 of 13".
+  - `measure`: `{ agg: count }` (default), or `sum` / `avg` of a number `column`. `format` formats the values.
+  - Colours: a status's own colour, else its tone's (done green, active blue, on hold orange: `statusPaint`, the same as status dots); a choice's colour; otherwise the accent colour for bars, and a fixed cycle of palette colours for donut slices and stacked parts.
+  - Drawn as SVG (`ui/react/dashboard/Chart.tsx`), sized to the cell. Value axes use round steps, and whole steps for counts. Each bar, slice, part and point has a tooltip, is focusable, and opens its notes on click or Enter. Progress opens the done notes.
 - **list:** the source's notes, top `limit` by `sort`. Each row shows its name and status dot plus up to three `fields`. Click opens the note.
 - **view:** an embedded view note, using its own toolbar and scrolling inside the cell.
 - **text:** Markdown, rendered with Obsidian's renderer (headings, links, embeds).
@@ -2098,6 +2106,11 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
 
 **`notes()` formula function** (everywhere formulas run: table columns, workflows, dashboards). `notes("quest")`, `notes("@table")` or `notes()` returns links to every note of that type, group, or all. It combines with `filter`, `map`, `prop`, `count`, `sum`, e.g. `count(filter(notes("quest"), prop(item, "Status") = "active"))`. Results are cached per evaluation pass, so a column using it doesn't rescan the vault for every row.
 
+**The notes behind a card, bar or slice** (`Drill`: a title, the definition its source ran with, and the exact note paths):
+- In view mode, clicking opens them as a table in a new tab (`DrillView`, `obs-entities-drill`). The table runs on the definition with `only` set to those paths. `ViewDef.only` is honoured by `runView` and never written to a note.
+- `plugin.openDrill` gives a source that had only names (its own types and filters, or a formula) a new view's usual columns for its type (`defaultView`). A saved view's columns are kept.
+- The tab's state (title, definition, paths) is kept with the workspace. Its table works like any other: edit cells, sort, filter, or ⋯ → **Save as…** to keep it as a view note (without `only`).
+
 **Grid** (`react-grid-layout`):
 - 12 columns, 48px rows. Components snap to cells and gaps close upwards.
 - Below 600px wide (the sidebar, phones) components stack in reading order (by row, then column) at full width.
@@ -2105,17 +2118,17 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
 **View and edit mode:**
 - A dashboard opens in **view mode**: components only, no handles.
 - **Edit** (in its header) switches to the editor:
-  - a **palette** on the left (Card, List, View, Text, Button) to drag onto the grid, or click to add at the end;
+  - a **palette** on the left (Summary card, Chart, List, View, Text, Button) to drag onto the grid, or click to add at the end;
   - the **grid** in the middle, where components move by dragging and resize from their corner. Clicking one selects it;
-  - the selected component's **settings** on the right: its title, source (view / types and filters / formula, with `FiltersPanel`), value or fields, format and action. Delete and Duplicate are there too.
+  - the selected component's **settings** on the right: its title, source (view / types and filters / formula, with `FiltersPanel`), value or fields, chart type and grouping (a "By <field>" title follows the field until it's changed by hand), measure, "done when" (`FiltersPanel`), format, colour rules and action. Delete and Duplicate are there too.
 - Edits are a **draft**, kept per note in `plugin.dashboardDrafts` for the session. **Save** writes the block; **Discard** drops the draft. Leaving with a draft keeps it, marked unsaved in the header.
 - An embedded dashboard is view mode only. Its Edit button opens the note's tab.
 
 **Creating:** the Entity Browser's **+** (Entities tab) → **New dashboard**. It asks for a name, creates the note in the views folder with no components, and opens it in edit mode.
 
 **Phases:**
-- **D1 (M8.1):** core. The kind, grid, view and edit modes, palette and settings, card, list, view, text and button components, sources (view, types and filters, formula), `notes()`, card formulas over cards.
-- **D2 (M8.2):** charts (bar, stacked bar, donut, line over time, progress; how they're drawn is decided then), card colour and icon rules (highlight styles), and click-through to the matching notes.
+- **D1 (M8.1) ✅:** core. The kind, grid, view and edit modes, palette and settings, card, list, view, text and button components, sources (view, types and filters, formula), `notes()`, card formulas over cards.
+- **D2 (M8.2) ✅:** charts (bar, horizontal bar, stacked bar, donut, line over time, progress; drawn as SVG), card colour and icon rules, and click-through to the matching notes in a table tab.
 - **D3 (M8.3):** dashboard filters (controls setting variables that sources use), `{this}` when embedded in a note, cross-filtering, and dashboards in packs (a TTRPG campaign dashboard).
 
 **Code (D1):**
@@ -2143,6 +2156,16 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
   - The palette drops through react-grid-layout's `dropConfig` (the dragged kind sets the drop size).
   - react-grid-layout's CSS is copied, themed, into `styles.css`.
   - `plugin.newDashboard()` (`NameModal`) writes an empty dashboard and marks it for `dashboardEditOnOpen`.
+
+**Code (D2):**
+- **The model:** `chartOf` in `model/dashboard.ts`.
+  - It runs the source once for the total, with `runSource(…, { group })` for grouped charts (the split alone too, for its order) and `runSource(…, { filters: done })` for progress.
+  - It builds `ChartBar`s (with `parts` for stacked bars), each with its measure, formatted text, colour and `Drill`.
+  - Lines bucket the date cells with `stepOf` / `nextStep`.
+- **Colours:** the status tone table moved from `EntityBits.tsx` to `model/colors.ts` (`statusTone`, `statusPaint`) so charts share it.
+- **Cards:** `evaluateDashboard` also returns `charts`. Cards carry `num`, `rule` and `drill`.
+- **Tests:** `tests/dashboard.test.ts` covers every chart, the error messages, rules, drills and round trips.
+- **Drill tabs:** `ui/views/DrillView.tsx` and `plugin.openDrill`.
 ---
 
 ## 9. Validation rules
@@ -2363,8 +2386,8 @@ Drive a real Obsidian instance via the Chrome DevTools Protocol (Obsidian starte
 | M7.1 ✅ | **Workflows: engine and basics** | §8.11 stage 1: the Workflows view and the type editor's Workflows tab; created / changed / manual triggers (form buttons, ⋯ menu, command, row menu and selection bar per note); Only if; set / clear / tag / link / notice steps; undo, chains, run log, master switch | Examples 1 (completed date), 5, 7 and simple 3 work |
 | M7.2 ✅ | **Workflows: other notes and forms** | Form workflows (their input form, started from commands, the ribbon, view toolbars, the Entity Browser and notes), linked-note steps, create note, named results, for each, run workflow, one run for a whole selection; loops inside loops, If / Otherwise, variables, Find notes, Add text to a note (built) | Examples 1 (milestone roll-up), 2, 3, 6, 8 work |
 | M7.3 ✅ | **Workflows: time** | Schedule and date triggers, ask, move / rename, test run, big-run confirmation, limits, workflows in type packs (views and templates came with M5's fuller packs) | Example 4 works |
-| M8.1 | **Dashboards: core** | §8.12 D1: `kind: dashboard` view notes, grid with view and edit modes (palette, settings, Save / Discard), card / list / view / text / button components, sources (saved view, types and filters, formula), `notes()` in formulas, card formulas over other cards, New dashboard | A dashboard of cards, lists and views can be built without editing YAML |
-| M8.2 | **Dashboards: charts** | Bar, stacked bar, donut, line, progress; card colour and icon rules; click-through to matching notes | Status breakdowns and totals over time shown as charts |
+| M8.1 ✅ | **Dashboards: core** | §8.12 D1: `kind: dashboard` view notes, grid with view and edit modes (palette, settings, Save / Discard), card / list / view / text / button components, sources (saved view, types and filters, formula), `notes()` in formulas, card formulas over other cards, New dashboard | A dashboard of cards, lists and views can be built without editing YAML |
+| M8.2 ✅ | **Dashboards: charts** | Bar, horizontal bar, stacked bar, donut, line, progress (SVG); card colour and icon rules; click-through to the matching notes in a table tab | Status breakdowns and totals over time shown as charts |
 | M8.3 | **Dashboards: interactive** | Dashboard filters and variables, `{this}` when embedded, cross-filtering, dashboards in packs | A campaign dashboard follows a chosen campaign |
 | M6+ | **Modules** | Graph, bulk edit, Bases generation, domain views (the overview dashboard became M8's dashboards) | Each behind a module toggle |
 

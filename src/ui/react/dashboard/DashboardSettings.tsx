@@ -1,7 +1,8 @@
 import { useMemo, type ReactNode } from "react";
-import { cardName, type DashComponent, type DashboardDef, type DashEnv, type DashSource } from "../../../model/dashboard";
+import { CHART_KINDS, CHART_LABELS, RULE_OPS, cardName, type CardRule, type ChartKind, type DashComponent, type DashboardDef, type DashEnv, type DashSource, type Measure, type TimeStep } from "../../../model/dashboard";
+import { PALETTE, PALETTE_LABELS, type PaletteColor } from "../../../model/colors";
 import { summaryOptions } from "../../../model/summary";
-import { availableColumns, cellOf, emptyView, NAME_COLUMN, resolveColumn, sourceTypes, type ColumnDef, type ResolvedColumn, type ViewDef } from "../../../model/views";
+import { availableColumns, cellOf, columnFromId, emptyView, HIGHLIGHT_ICONS, NAME_COLUMN, resolveColumn, sourceTypes, type ColumnDef, type ResolvedColumn, type ViewDef } from "../../../model/views";
 import { noteless, onNotes } from "../../../model/workflows";
 import { usePlugin } from "../context";
 import { Icon } from "../Icon";
@@ -17,7 +18,7 @@ type Props = {
 	onDuplicate: () => void;
 };
 
-const KIND_TITLE: Record<DashComponent["kind"], string> = { card: "Summary card", list: "List", view: "View", text: "Text", button: "Button" };
+const KIND_TITLE: Record<DashComponent["kind"], string> = { card: "Summary card", chart: "Chart", list: "List", view: "View", text: "Text", button: "Button" };
 
 /** The selected component's settings, on the right in edit mode. */
 export function DashboardSettings({ c, def, env, path, onChange, onDelete, onDuplicate }: Props) {
@@ -43,6 +44,7 @@ export function DashboardSettings({ c, def, env, path, onChange, onDelete, onDup
 				</Field>
 			)}
 			{c.kind === "card" && <CardSettings c={c} def={def} env={env} views={views.map((f) => f.basename)} onChange={onChange} />}
+			{c.kind === "chart" && <ChartSettings c={c} env={env} views={views.map((f) => f.basename)} onChange={onChange} />}
 			{c.kind === "list" && <ListSettings c={c} env={env} views={views.map((f) => f.basename)} onChange={onChange} />}
 			{c.kind === "view" && (
 				<Field label="View">
@@ -120,24 +122,28 @@ function ColumnPick({ value, choices, onChange, first }: { value: string; choice
 	);
 }
 
-function SourceSettings({ source, env, views, onChange }: { source: DashSource | undefined; env: DashEnv; views: string[]; onChange: (s: DashSource) => void }) {
+/** The values a column has among a definition's notes (for filter value pickers). */
+const valuesFor = (sdef: ViewDef, choices: ColumnChoice[], env: DashEnv) => (id: string) => {
 	const { ctx, rows } = env;
+	const col = choices.find((x) => x.col.id === id)?.col;
+	if (!col) return [];
+	const keys = new Set(sourceTypes(sdef, ctx.types).map((t) => t.key));
+	const set = new Set<string>();
+	for (const r of rows) {
+		if (!keys.has(r.type.key)) continue;
+		const v = cellOf(r, col, ctx).value;
+		for (const x of Array.isArray(v) ? v : v === null || v === undefined || v === "" ? [] : [v]) set.add(String(x));
+	}
+	return [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+};
+
+function SourceSettings({ source, env, views, onChange }: { source: DashSource | undefined; env: DashEnv; views: string[]; onChange: (s: DashSource) => void }) {
+	const { ctx } = env;
 	const lookup = { types: ctx.types, groups: ctx.groups };
 	const mode = source?.kind ?? "query";
 	const qdef = source?.kind === "query" ? source.def : emptyView();
 	const choices = useMemo(() => columnChoices(qdef, lookup), [qdef, ctx]);
-	const valuesOf = (id: string) => {
-		const col = choices.find((x) => x.col.id === id)?.col;
-		if (!col) return [];
-		const keys = new Set(sourceTypes(qdef, ctx.types).map((t) => t.key));
-		const set = new Set<string>();
-		for (const r of rows) {
-			if (!keys.has(r.type.key)) continue;
-			const v = cellOf(r, col, ctx).value;
-			for (const x of Array.isArray(v) ? v : v === null || v === undefined || v === "" ? [] : [v]) set.add(String(x));
-		}
-		return [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-	};
+	const valuesOf = valuesFor(qdef, choices, env);
 	const switchTo = (k: DashSource["kind"]) => onChange(k === "view" ? { kind: "view", view: views[0] ?? "" } : k === "formula" ? { kind: "formula", formula: 'notes("")' } : { kind: "query", def: emptyView() });
 	const types = qdef.types.filter((t) => t !== "*");
 	const label = (t: string) => (t.startsWith("@") ? `${ctx.groups.find((g) => `@${g.key}` === t)?.name ?? t} (group)` : (ctx.types.find((x) => x.key === t)?.plural ?? t));
@@ -276,6 +282,162 @@ function CardSettings({ c, def, env, views, onChange }: { c: Extract<DashCompone
 			<Field label="Format" hint="Optional: number, integer, decimal:1, currency, percent, compact, or a pattern like #,##0 h.">
 				<input type="text" value={c.format ?? ""} placeholder="Automatic" onChange={(e) => onChange({ ...c, format: e.target.value.trim() || undefined })} />
 			</Field>
+			<RulesSettings rules={c.rules ?? []} onChange={(rules) => onChange({ ...c, rules: rules.length ? rules : undefined })} />
+		</>
+	);
+}
+
+/** A card's colour rules: the first that its value meets colours the value or the card, with an optional icon. */
+function RulesSettings({ rules, onChange }: { rules: CardRule[]; onChange: (r: CardRule[]) => void }) {
+	const set = (i: number, patch: Partial<CardRule>) => onChange(rules.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+	return (
+		<Field label="Colour rules" hint="The first rule the value meets applies. Percentages compare as shown (50 for 50%).">
+			{rules.map((r, i) => (
+				<div key={i} className="oe-dash-rule">
+					<div className="oe-dash-row">
+						<span className="oe-dash-muted-label">When</span>
+						<select className="dropdown oe-dash-op" value={r.op} onChange={(e) => set(i, { op: e.target.value as CardRule["op"] })}>
+							{RULE_OPS.map((o) => (
+								<option key={o} value={o}>
+									{o}
+								</option>
+							))}
+						</select>
+						<input type="number" value={r.value} onChange={(e) => set(i, { value: Number(e.target.value) || 0 })} />
+						<button className="clickable-icon" aria-label="Remove rule" onClick={() => onChange(rules.filter((_, j) => j !== i))}>
+							<Icon name="x" />
+						</button>
+					</div>
+					<div className="oe-dash-row">
+						<select className="dropdown" value={r.color ?? ""} aria-label="Colour" onChange={(e) => set(i, { color: (e.target.value || undefined) as PaletteColor | undefined })}>
+							<option value="">No colour</option>
+							{PALETTE.map((p) => (
+								<option key={p} value={p}>
+									{PALETTE_LABELS[p]}
+								</option>
+							))}
+						</select>
+						<select className="dropdown" value={r.on} aria-label="What it colours" onChange={(e) => set(i, { on: e.target.value === "card" ? "card" : "value" })}>
+							<option value="value">the value</option>
+							<option value="card">the card</option>
+						</select>
+						<select className="dropdown" value={r.icon ?? ""} aria-label="Icon" onChange={(e) => set(i, { icon: e.target.value || undefined })}>
+							<option value="">No icon</option>
+							{HIGHLIGHT_ICONS.map((ic) => (
+								<option key={ic} value={ic}>
+									{ic.replace(/-/g, " ")}
+								</option>
+							))}
+						</select>
+					</div>
+				</div>
+			))}
+			<button onClick={() => onChange([...rules, { op: "<", value: 0, color: "red", on: "value" }])}>
+				<Icon name="plus" /> Add rule
+			</button>
+		</Field>
+	);
+}
+
+function ChartSettings({ c, env, views, onChange }: { c: Extract<DashComponent, { kind: "chart" }>; env: DashEnv; views: string[]; onChange: (c: DashComponent) => void }) {
+	const { ctx } = env;
+	const lookup = { types: ctx.types, groups: ctx.groups };
+	const sdef = sourceViewDef(c.source, env);
+	const choices = useMemo(() => columnChoices(sdef, lookup), [sdef, ctx]);
+	const dates = choices.filter((x) => x.col.kind === "date");
+	const numbers = choices.filter((x) => x.col.kind === "number");
+	const grouping = choices.filter((x) => x.col.kind !== "number" || x.col.field?.kind === "select");
+	const builtinStatus = resolveColumn(columnFromId("status"), sdef, lookup);
+	const groupChoices = grouping.some((x) => x.col.id === "status") ? grouping : [{ col: builtinStatus, group: "Built-in" }, ...grouping];
+	const progress = c.chart === "progress";
+	return (
+		<>
+			<Field label="Chart">
+				<select
+					className="dropdown"
+					value={c.chart}
+					onChange={(e) => {
+						const chart = e.target.value as ChartKind;
+						// A line needs a date to go along; the others group by a field (status unless one's chosen).
+						const by = chart === "line" ? (c.by && dates.some((d) => d.col.id === c.by!.id) ? c.by : dates[0]?.col.def) : chart === "progress" ? c.by : c.by && !dates.some((d) => d.col.id === c.by!.id) ? c.by : columnFromId("status");
+						onChange({ ...c, chart, by, done: chart === "progress" ? (c.done ?? { mode: "all", items: [] }) : c.done });
+					}}
+				>
+					{CHART_KINDS.map((k) => (
+						<option key={k} value={k}>
+							{CHART_LABELS[k]}
+						</option>
+					))}
+				</select>
+			</Field>
+			<SourceSettings source={c.source} env={env} views={views} onChange={(source) => onChange({ ...c, source })} />
+			{c.chart === "line" ? (
+				<>
+					<Field label="Date" hint={dates.length ? undefined : "These notes have no date fields."}>
+						<ColumnPick value={c.by?.id ?? ""} choices={dates} first="Choose a date…" onChange={(col) => onChange({ ...c, by: col?.def })} />
+					</Field>
+					<Field label="Every">
+						<select className="dropdown" value={c.every ?? "month"} onChange={(e) => onChange({ ...c, every: e.target.value as TimeStep })}>
+							<option value="week">Week</option>
+							<option value="month">Month</option>
+							<option value="year">Year</option>
+						</select>
+					</Field>
+				</>
+			) : (
+				!progress && (
+					<Field label={c.chart === "donut" ? "Slices by" : "Bars by"}>
+						<ColumnPick
+							value={c.by?.id ?? ""}
+							choices={groupChoices}
+							first="Choose a field…"
+							onChange={(col) => {
+								// A title still saying "By <the old field>" follows the new one.
+								const old = c.by ? (groupChoices.find((x) => x.col.id === c.by!.id)?.col.label ?? "") : "";
+								const auto = !c.title || c.title.toLowerCase() === `by ${old.toLowerCase()}`;
+								onChange({ ...c, by: col?.def, ...(auto && col ? { title: `By ${col.label.toLowerCase()}` } : {}) });
+							}}
+						/>
+					</Field>
+				)
+			)}
+			{c.chart === "stacked" && (
+				<Field label="Split each bar by">
+					<ColumnPick value={c.split?.id ?? ""} choices={groupChoices} first="Choose a field…" onChange={(col) => onChange({ ...c, split: col?.def })} />
+				</Field>
+			)}
+			{progress && (
+				<FiltersPanel
+					filters={c.done ?? { mode: "all", items: [] }}
+					onChange={(done) => onChange({ ...c, done })}
+					choices={choices}
+					ctx={ctx}
+					valuesOf={valuesFor(sdef, choices, env)}
+					heading="Done when a note matches"
+					emptyText="Add a condition, e.g. Status is done."
+				/>
+			)}
+			<Field label={progress ? "Measure" : "Value"}>
+				<select
+					className="dropdown"
+					value={c.measure.agg}
+					onChange={(e) => {
+						const agg = e.target.value as Measure["agg"];
+						onChange({ ...c, measure: agg === "count" ? { agg } : { agg, column: c.measure.column ?? numbers[0]?.col.def } });
+					}}
+				>
+					<option value="count">How many notes</option>
+					<option value="sum">Sum of a number</option>
+					<option value="avg">Average of a number</option>
+				</select>
+				{c.measure.agg !== "count" && (
+					<ColumnPick value={c.measure.column?.id ?? ""} choices={numbers} first="Choose a number field…" onChange={(col) => onChange({ ...c, measure: { agg: c.measure.agg, column: col?.def } })} />
+				)}
+			</Field>
+			<Field label="Format" hint="Optional, for the values: number, integer, currency, compact, or a pattern like #,##0 gp.">
+				<input type="text" value={c.format ?? ""} placeholder="Automatic" onChange={(e) => onChange({ ...c, format: e.target.value.trim() || undefined })} />
+			</Field>
+			<div className="oe-dash-hint">In view mode, click a bar, slice or point to open its notes as a table.</div>
 		</>
 	);
 }

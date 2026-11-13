@@ -74,8 +74,8 @@ describe("dashboards", () => {
 	});
 
 	it("report problems, fix sizes and give every component an id", () => {
-		const { def, errors } = parseDashboard({ kind: "dashboard", components: [{ kind: "chart" }, "x", { kind: "card", at: [11, 0, 5, 0] }, { kind: "card", id: "card3" }] });
-		expect(errors).toEqual(['Component 1: unknown kind "chart". Use card, list, view, text, button.', "Component 2 should be a set of keys like kind:, at:."]);
+		const { def, errors } = parseDashboard({ kind: "dashboard", components: [{ kind: "gauge" }, "x", { kind: "card", at: [11, 0, 5, 0] }, { kind: "card", id: "card3" }] });
+		expect(errors).toEqual(['Component 1: unknown kind "gauge". Use card, chart, list, view, text, button.', "Component 2 should be a set of keys like kind:, at:."]);
 		expect(def.components.map((c) => [c.id, c.at])).toEqual([
 			["card3", { x: 7, y: 0, w: 5, h: 1 }],
 			["card3_2", { x: 0, y: 0, w: 3, h: 2 }],
@@ -135,5 +135,124 @@ describe("dashboards", () => {
 		expect(c.id).toBe("card9");
 		expect(c.at).toEqual({ x: 0, y: 9, w: 3, h: 2 });
 		expect(readingOrder(def.components).map((x) => x.id)).toEqual(["all", "done", "share", "won", "soon", "v", "t", "b"]);
+	});
+});
+
+describe("dashboard charts", () => {
+	const DONE = { all: [{ field: "status", op: "any-of", value: ["done"] }] };
+	const charts = (components: Record<string, unknown>[]) => {
+		const { def, errors } = parseDashboard({ kind: "dashboard", components });
+		expect(errors).toEqual([]);
+		return evaluateDashboard(def, env).charts;
+	};
+	const bars = (out: ReturnType<typeof charts> extends Map<string, infer V> ? V : never) => out.bars.map((b) => [b.label, b.value, b.color]);
+
+	it("count notes per group, in the field's order, coloured like their status", () => {
+		const out = charts([{ id: "c", kind: "chart", chart: "bar", source: { types: ["project"] }, by: "status" }]).get("c")!;
+		expect(bars(out)).toEqual([
+			["idea", 1, null],
+			["active", 2, "blue"],
+			["done", 1, "green"],
+		]);
+		expect(out.total).toBe(4);
+		expect(out.bars[1].drill.paths).toEqual(["Apollo.md", "Gemini.md"]);
+		expect(out.bars[1].drill.title).toBe("Bar · active");
+	});
+
+	it("sum or average a number field per group", () => {
+		const sum = charts([{ id: "c", kind: "chart", chart: "hbar", title: "Deals", source: { types: ["deal"] }, by: "status", measure: { agg: "sum", column: "value" } }]).get("c")!;
+		expect(sum.bars.map((b) => [b.label, b.value])).toEqual([
+			["open", 100],
+			["won", 50],
+		]);
+		expect(sum.measureLabel).toBe("Sum of Value");
+		const avg = charts([{ id: "c", kind: "chart", chart: "donut", source: { types: ["deal"] }, by: "type", measure: { agg: "avg", column: "value" } }]).get("c")!;
+		expect(avg.bars.map((b) => b.value)).toEqual([75]);
+	});
+
+	it("split stacked bars by a second field, with the split values in their order", () => {
+		const out = charts([{ id: "c", kind: "chart", chart: "stacked", source: { types: ["project"] }, by: "type", split: "status" }]).get("c")!;
+		expect(out.series.map((s) => s.label)).toEqual(["idea", "active", "done"]);
+		expect(out.bars[0].parts.map((p) => [p.label, p.value, p.drill.paths.length])).toEqual([
+			["idea", 1, 1],
+			["active", 2, 2],
+			["done", 1, 1],
+		]);
+	});
+
+	it("put dates in steps over time, filling the gaps", () => {
+		const month = charts([{ id: "c", kind: "chart", chart: "line", source: { types: ["project"] }, by: "due" }]).get("c")!;
+		expect(bars(month).map((b) => [b[0], b[1]])).toEqual([
+			["Nov 2026", 1],
+			["Dec 2026", 1],
+			["Jan 2027", 0],
+			["Feb 2027", 1],
+		]);
+		const year = charts([{ id: "c", kind: "chart", chart: "line", source: { types: ["project"] }, by: "due", every: "year" }]).get("c")!;
+		expect(year.bars.map((b) => [b.label, b.value])).toEqual([
+			["2026", 2],
+			["2027", 1],
+		]);
+		const week = charts([{ id: "c", kind: "chart", chart: "line", source: { types: ["project"] }, by: "due", every: "week" }]).get("c")!;
+		expect(week.bars[0].label).toBe("16 Nov");
+		expect(week.bars.length).toBe(12);
+	});
+
+	it("show progress: the done notes against all of them", () => {
+		const out = charts([{ id: "c", kind: "chart", chart: "progress", source: { types: ["project"] }, done: DONE }]).get("c")!;
+		expect(out.progress).toMatchObject({ done: 1, share: 0.25 });
+		expect(out.progress!.drill.paths).toEqual(["Lander.md"]);
+		expect(out.total).toBe(4);
+	});
+
+	it("explain what's missing or wrong", () => {
+		const err = (c: Record<string, unknown>) => charts([{ id: "c", kind: "chart", source: { types: ["project"] }, ...c }]).get("c")!.error;
+		expect(err({ chart: "bar" })).toBe("Choose a field to group by.");
+		expect(err({ chart: "line", by: "status" })).toBe("A line chart needs a date field; Status isn't one.");
+		expect(err({ chart: "bar", by: "status", measure: { agg: "sum", column: "status" } })).toBe("Sum needs a number field; Status isn't one.");
+		expect(err({ chart: "progress" })).toBe("Set when a note counts as done.");
+		expect(err({ chart: "stacked", by: "status" })).toBe("Choose a field to split each bar by.");
+	});
+
+	it("round-trip charts and card rules", () => {
+		const raw = {
+			kind: "dashboard",
+			components: [
+				{ id: "c", kind: "chart", at: [0, 0, 6, 5], chart: "stacked", source: { types: ["project"] }, by: "type", split: "status", measure: { agg: "sum", column: "budget" }, format: "currency" },
+				{ id: "p", kind: "chart", at: [6, 0, 6, 5], chart: "progress", source: { types: ["project"] }, done: DONE },
+				{ id: "l", kind: "chart", at: [0, 5, 6, 5], chart: "line", source: { types: ["project"] }, by: "due", every: "week" },
+				{ id: "k", kind: "card", at: [6, 5, 3, 2], source: { types: ["project"] }, value: { agg: "count" }, rules: [{ op: "<", value: 3, color: "red", on: "card", icon: "flame" }, { op: ">=", value: 3, color: "green" }] },
+			],
+		};
+		const { def, errors } = parseDashboard(raw);
+		expect(errors).toEqual([]);
+		expect(serializeDashboard(def)).toEqual(raw);
+		expect(parseDashboard({ kind: "dashboard", components: [{ kind: "card", rules: [{ op: "~", value: 1 }] }] }).errors).toEqual(['Component 1: a colour rule needs op (< <= > >= = !=) and a number value: {"op":"~","value":1}.']);
+	});
+});
+
+describe("dashboard cards: colour rules and the notes behind them", () => {
+	it("pick the first matching rule, comparing percentages as shown", () => {
+		const { def } = parseDashboard({
+			kind: "dashboard",
+			components: [
+				{ id: "n", kind: "card", source: { types: ["project"] }, value: { agg: "count" }, rules: [{ op: "<", value: 3, color: "red" }, { op: ">=", value: 3, color: "green", on: "card" }] },
+				{ id: "pct", kind: "card", source: { types: ["project"] }, value: { agg: "percent:active", column: "status" }, rules: [{ op: ">=", value: 50, color: "blue" }] },
+				{ id: "f", kind: "card", value: { formula: "2 + 2" }, rules: [{ op: "=", value: 4, icon: "star", on: "value" }] },
+			],
+		});
+		const { cards } = evaluateDashboard(def, env);
+		expect(cards.get("n")!.rule).toMatchObject({ color: "green", on: "card" });
+		expect(cards.get("pct")!.num).toBe(50);
+		expect(cards.get("pct")!.rule).toMatchObject({ color: "blue" });
+		expect(cards.get("f")!.rule).toMatchObject({ icon: "star" });
+		expect(cards.get("n")!.drill!.paths).toEqual(["Apollo.md", "Gemini.md", "Lander.md", "Mercury.md"]);
+		expect(cards.get("f")!.drill).toBeUndefined();
+	});
+
+	it("open exactly the notes behind a formula source (only, in runView)", () => {
+		const r = runSource({ kind: "formula", formula: 'filter(notes("project"), prop(item, "status") = "active")' }, [], [], env);
+		expect("def" in r && r.def.only).toEqual(["Apollo.md", "Gemini.md"]);
+		expect("result" in r && r.result.rows.map((x) => x.row.name)).toEqual(["Apollo", "Gemini"]);
 	});
 });

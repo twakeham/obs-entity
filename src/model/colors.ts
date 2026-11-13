@@ -44,6 +44,37 @@ export function statusColorAmong(status: string, types: Pick<EntityTypeDef, "gro
 	return null;
 }
 
+const STATUS_TONES: Record<string, string> = {
+	done: "done",
+	complete: "done",
+	completed: "done",
+	won: "done",
+	active: "active",
+	open: "active",
+	"in-progress": "active",
+	customer: "active",
+	"on-hold": "hold",
+	blocked: "hold",
+	lead: "hold",
+	prospect: "hold",
+	archived: "closed",
+	abandoned: "closed",
+	lost: "closed",
+	inactive: "closed",
+	former: "closed",
+};
+
+/** Colour family for a status word (draft/idea and unknown words are neutral). */
+export function statusTone(status: string | null): string {
+	return (status && STATUS_TONES[status.toLowerCase()]) || "neutral";
+}
+
+const TONE_COLORS: Record<string, PaletteColor | null> = { done: "green", active: "blue", hold: "orange", closed: "grey", neutral: null };
+
+/** A status's colour where one is needed (charts): its set colour, else its tone's (null for neutral statuses). */
+export const statusPaint = (status: string, types: Pick<EntityTypeDef, "group" | "statusColors">[], groups: Pick<GroupDef, "key" | "statusColors">[]): PaletteColor | null =>
+	statusColorAmong(status, types, groups) ?? TONE_COLORS[statusTone(status)] ?? null;
+
 /** A map with a value's colour set (or cleared, with null); undefined when nothing is left. */
 export function withColor(map: ColorMap | undefined, value: string, color: PaletteColor | null): ColorMap | undefined {
 	const next: ColorMap = { ...(map ?? {}) };

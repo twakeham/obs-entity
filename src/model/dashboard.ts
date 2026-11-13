@@ -1,14 +1,19 @@
 import { compile, DateVal, FormulaError, isLink, toText, type FValue } from "./formula";
 import { formatNumber, formatDate, RELATIVE, type MomentLike } from "./formats";
 import { summarize } from "./summary";
+import { choiceColor, isPaletteColor, statusPaint, type PaletteColor } from "./colors";
 import {
+	columnFromId,
 	emptyView,
 	evaluateDetached,
+	GROUP_PATH_SEP,
 	NAME_COLUMN,
 	parseView,
 	runView,
 	serializeView,
 	type ColumnDef,
+	type FilterGroup,
+	type GroupBy,
 	type ResolvedColumn,
 	type ResultRow,
 	type SortLevel,
@@ -28,12 +33,33 @@ export const ROW_HEIGHT = 48;
 /** below this width (px) components stack in one column */
 export const STACK_BELOW = 600;
 
-export type ComponentKind = "card" | "list" | "view" | "text" | "button";
-export const COMPONENT_KINDS: ComponentKind[] = ["card", "list", "view", "text", "button"];
-export const COMPONENT_LABELS: Record<ComponentKind, string> = { card: "Summary card", list: "List", view: "View", text: "Text", button: "Button" };
-export const COMPONENT_ICONS: Record<ComponentKind, string> = { card: "hash", list: "list", view: "table", text: "type", button: "mouse-pointer-click" };
+export type ComponentKind = "card" | "chart" | "list" | "view" | "text" | "button";
+export const COMPONENT_KINDS: ComponentKind[] = ["card", "chart", "list", "view", "text", "button"];
+export const COMPONENT_LABELS: Record<ComponentKind, string> = { card: "Summary card", chart: "Chart", list: "List", view: "View", text: "Text", button: "Button" };
+export const COMPONENT_ICONS: Record<ComponentKind, string> = { card: "hash", chart: "bar-chart-3", list: "list", view: "table", text: "type", button: "mouse-pointer-click" };
 /** a new component's size (grid cells) */
-export const DEFAULT_SIZE: Record<ComponentKind, { w: number; h: number }> = { card: { w: 3, h: 2 }, list: { w: 4, h: 5 }, view: { w: 6, h: 8 }, text: { w: 4, h: 2 }, button: { w: 2, h: 1 } };
+export const DEFAULT_SIZE: Record<ComponentKind, { w: number; h: number }> = { card: { w: 3, h: 2 }, chart: { w: 6, h: 5 }, list: { w: 4, h: 5 }, view: { w: 6, h: 8 }, text: { w: 4, h: 2 }, button: { w: 2, h: 1 } };
+
+export type ChartKind = "bar" | "hbar" | "stacked" | "donut" | "line" | "progress";
+export const CHART_KINDS: ChartKind[] = ["bar", "hbar", "stacked", "donut", "line", "progress"];
+export const CHART_LABELS: Record<ChartKind, string> = { bar: "Bar", hbar: "Horizontal bar", stacked: "Stacked bar", donut: "Donut", line: "Line over time", progress: "Progress" };
+export const CHART_ICONS: Record<ChartKind, string> = { bar: "bar-chart-3", hbar: "bar-chart-horizontal", stacked: "bar-chart-big", donut: "pie-chart", line: "line-chart", progress: "gauge" };
+export type TimeStep = "week" | "month" | "year";
+/** What a chart measures per group: how many notes, or the sum or average of a number column. */
+export interface Measure {
+	agg: "count" | "sum" | "avg";
+	column?: ColumnDef;
+}
+
+/** A summary card's colour rule: when its value compares to `value`, colour the value or the card, and show an icon. */
+export interface CardRule {
+	op: "<" | "<=" | ">" | ">=" | "=" | "!=";
+	value: number;
+	color?: PaletteColor;
+	on: "value" | "card";
+	icon?: string;
+}
+export const RULE_OPS: CardRule["op"][] = ["<", "<=", ">", ">=", "=", "!="];
 
 export interface GridAt {
 	x: number;
@@ -62,7 +88,22 @@ interface Base {
 	title?: string;
 }
 export type DashComponent =
-	| (Base & { kind: "card"; source?: DashSource; value: CardValue; format?: string })
+	| (Base & { kind: "card"; source?: DashSource; value: CardValue; format?: string; rules?: CardRule[] })
+	| (Base & {
+			kind: "chart";
+			chart: ChartKind;
+			source?: DashSource;
+			/** the column notes are grouped by (bar, horizontal bar, stacked, donut), or the date column (line) */
+			by?: ColumnDef;
+			/** stacked bars: the column splitting each bar */
+			split?: ColumnDef;
+			/** line: the time step */
+			every?: TimeStep;
+			measure: Measure;
+			/** progress: the conditions a note meets when it's done */
+			done?: FilterGroup;
+			format?: string;
+	  })
 	| (Base & { kind: "list"; source?: DashSource; fields: ColumnDef[]; sort: SortLevel[]; limit: number })
 	| (Base & { kind: "view"; view: string })
 	| (Base & { kind: "text"; text: string })
@@ -129,6 +170,35 @@ function parseAction(raw: unknown): ButtonAction | undefined {
 	return undefined;
 }
 
+function parseRules(raw: unknown, errors: string[], where: string): CardRule[] {
+	const out: CardRule[] = [];
+	for (const r of Array.isArray(raw) ? raw : []) {
+		if (!isObj(r) || !RULE_OPS.includes(r.op as CardRule["op"]) || typeof r.value !== "number") {
+			errors.push(`${where}: a colour rule needs op (${RULE_OPS.join(" ")}) and a number value: ${JSON.stringify(r)}.`);
+			continue;
+		}
+		out.push({ op: r.op as CardRule["op"], value: r.value, ...(isPaletteColor(r.color) ? { color: r.color } : {}), on: r.on === "card" ? "card" : "value", ...(str(r.icon) ? { icon: str(r.icon) } : {}) });
+	}
+	return out;
+}
+
+function parseMeasure(raw: unknown, errors: string[], where: string): Measure {
+	if (!isObj(raw)) return { agg: "count" };
+	const agg = raw.agg === "sum" || raw.agg === "avg" ? raw.agg : "count";
+	const column = agg !== "count" ? parseOneColumn(raw.column, errors, where) : null;
+	if (agg !== "count" && !column) errors.push(`${where}: ${agg} needs a column.`);
+	return column ? { agg, column } : { agg: "count" };
+}
+
+function parseFilters(raw: unknown, errors: string[], where: string): FilterGroup | undefined {
+	if (!isObj(raw)) return undefined;
+	const { def, errors: e } = parseView({ filters: raw });
+	errors.push(...e.map((m) => `${where}: ${m}`));
+	return def && def.filters.items.length ? def.filters : undefined;
+}
+
+const filtersOut = (f: FilterGroup) => serializeView({ ...emptyView(), filters: f }).filters;
+
 /** Read a dashboard block (its parsed YAML). Problems that leave a component out, or part of one, are errors. */
 export function parseDashboard(raw: unknown): { def: DashboardDef; errors: string[] } {
 	const errors: string[] = [];
@@ -163,7 +233,29 @@ export function parseDashboard(raw: unknown): { def: DashboardDef; errors: strin
 				const v = isObj(c.value) ? c.value : {};
 				const value: CardValue = str(v.formula) ? { formula: str(v.formula) } : { agg: str(v.agg) || "count", ...(v.column !== undefined ? { column: parseOneColumn(v.column, errors, where) ?? undefined } : {}) };
 				if ("column" in value && !value.column) delete value.column;
-				def.components.push({ ...base, kind, ...(source ? { source } : {}), value, ...(str(c.format) ? { format: str(c.format) } : {}) });
+				const rules = parseRules(c.rules, errors, where);
+				def.components.push({ ...base, kind, ...(source ? { source } : {}), value, ...(str(c.format) ? { format: str(c.format) } : {}), ...(rules.length ? { rules } : {}) });
+				break;
+			}
+			case "chart": {
+				const chart = (CHART_KINDS as string[]).includes(str(c.chart)) ? (str(c.chart) as ChartKind) : "bar";
+				if (c.chart !== undefined && chart !== c.chart) errors.push(`${where}: unknown chart "${str(c.chart)}". Use ${CHART_KINDS.join(", ")}.`);
+				const by = parseOneColumn(c.by, errors, where);
+				const split = parseOneColumn(c.split, errors, where);
+				const every: TimeStep | undefined = c.every === "week" || c.every === "year" || c.every === "month" ? c.every : undefined;
+				const done = parseFilters(c.done, errors, where);
+				def.components.push({
+					...base,
+					kind,
+					chart,
+					...(source ? { source } : {}),
+					...(by ? { by } : {}),
+					...(split ? { split } : {}),
+					...(every ? { every } : {}),
+					measure: parseMeasure(c.measure, errors, where),
+					...(done ? { done } : {}),
+					...(str(c.format) ? { format: str(c.format) } : {}),
+				});
 				break;
 			}
 			case "list": {
@@ -197,6 +289,17 @@ export function serializeDashboard(def: DashboardDef): Record<string, unknown> {
 			case "card":
 				if (c.source) out.source = sourceOut(c.source);
 				out.value = "formula" in c.value ? { formula: c.value.formula } : { agg: c.value.agg, ...(c.value.column ? { column: columnOut(c.value.column) } : {}) };
+				if (c.format) out.format = c.format;
+				if (c.rules?.length) out.rules = c.rules.map((r) => ({ op: r.op, value: r.value, ...(r.color ? { color: r.color } : {}), ...(r.on === "card" ? { on: "card" } : {}), ...(r.icon ? { icon: r.icon } : {}) }));
+				break;
+			case "chart":
+				out.chart = c.chart;
+				if (c.source) out.source = sourceOut(c.source);
+				if (c.by) out.by = columnOut(c.by);
+				if (c.split) out.split = columnOut(c.split);
+				if (c.every) out.every = c.every;
+				if (c.measure.agg !== "count") out.measure = { agg: c.measure.agg, ...(c.measure.column ? { column: columnOut(c.measure.column) } : {}) };
+				if (c.done) out.done = filtersOut(c.done);
 				if (c.format) out.format = c.format;
 				break;
 			case "list":
@@ -236,6 +339,8 @@ export function newComponent(kind: ComponentKind, def: DashboardDef, at?: Partia
 	switch (kind) {
 		case "card":
 			return { ...base, kind, title: "Count", source: { kind: "query", def: emptyView() }, value: { agg: "count" } };
+		case "chart":
+			return { ...base, kind, title: "By status", chart: "bar", source: { kind: "query", def: emptyView() }, by: columnFromId("status"), measure: { agg: "count" } };
 		case "list":
 			return { ...base, kind, title: "List", source: { kind: "query", def: emptyView() }, fields: [], sort: [], limit: LIST_LIMIT };
 		case "view":
@@ -259,35 +364,56 @@ export interface DashEnv {
 	view: (name: string) => ViewDef | null;
 }
 
-export type SourceRun = { result: ViewResult } | { error: string };
+/** A source's run: its result, and the definition run (for opening the notes as a table). */
+export type SourceRun = { result: ViewResult; def: ViewDef } | { error: string };
 
 /**
  * Run a source: its notes, with `extra` columns worked out (a card's value column, a list's fields) and sorted by
- * `sort` (else the source's own sort).
+ * `sort` (else the source's own sort). `opts.group`: grouping levels (charts); `opts.filters`: more conditions the
+ * notes must also meet (a progress chart's "done").
  */
-export function runSource(source: DashSource | undefined, extra: ColumnDef[], sort: SortLevel[], env: DashEnv): SourceRun {
+export function runSource(source: DashSource | undefined, extra: ColumnDef[], sort: SortLevel[], env: DashEnv, opts: { group?: GroupBy[]; filters?: FilterGroup } = {}): SourceRun {
 	if (!source) return { error: "Choose where its notes come from." };
 	const withColumns = (base: ViewDef): ViewDef => {
 		const columns = [...base.columns];
 		for (const c of extra) if (!columns.some((x) => x.id === c.id)) columns.push(c);
-		return { ...base, kind: "table", group: [], columns, sort: sort.length ? sort : base.sort };
+		const filters = opts.filters ? { mode: "all" as const, items: [base.filters, opts.filters] } : base.filters;
+		return { ...base, kind: "table", group: opts.group ?? [], columns, sort: sort.length ? sort : base.sort, filters };
 	};
+	const go = (def: ViewDef, rows: ViewRow[] = env.rows): SourceRun => ({ result: runView(def, rows, env.ctx), def });
 	try {
 		if (source.kind === "view") {
 			if (!source.view) return { error: "Choose a view." };
 			const base = env.view(source.view);
 			if (!base) return { error: `There's no view called "${source.view}".` };
-			return { result: runView(withColumns(base), env.rows, env.ctx) };
+			return go(withColumns(base));
 		}
-		if (source.kind === "query") return { result: runView(withColumns(source.def), env.rows, env.ctx) };
+		if (source.kind === "query") return go(withColumns(source.def));
 		const { value } = evaluateDetached(source.formula, env.ctx);
 		const list = Array.isArray(value) ? value : value === null ? [] : [value];
 		if (!list.every(isLink)) return { error: 'The formula should give notes, e.g. filter(notes("quest"), prop(item, "Status") = "active").' };
-		const paths = new Set(list.map((l) => (isLink(l) ? l.path : null)).filter((p): p is string => !!p));
-		return { result: runView(withColumns(emptyView()), env.rows.filter((r) => paths.has(r.path)), env.ctx) };
+		const paths = [...new Set(list.map((l) => (isLink(l) ? l.path : null)).filter((p): p is string => !!p))];
+		return go({ ...withColumns(emptyView()), only: paths });
 	} catch (e) {
 		return { error: e instanceof Error ? e.message : String(e) };
 	}
+}
+
+/** Notes to open as a table: the definition they came from, and exactly which notes. */
+export interface Drill {
+	title: string;
+	def: ViewDef;
+	paths: string[];
+}
+
+const drillOf = (title: string, def: ViewDef, rows: ResultRow[]): Drill => ({ title, def, paths: rows.map((r) => r.row.path) });
+
+/** The first colour rule a number meets. */
+export function cardRule(n: number | null, rules: CardRule[] | undefined): CardRule | null {
+	if (n === null || !rules) return null;
+	return (
+		rules.find((r) => (r.op === "<" ? n < r.value : r.op === "<=" ? n <= r.value : r.op === ">" ? n > r.value : r.op === ">=" ? n >= r.value : r.op === "=" ? n === r.value : n !== r.value)) ?? null
+	);
 }
 
 export interface CardOut {
@@ -300,6 +426,12 @@ export interface CardOut {
 	count?: number;
 	/** the error is a circular reference (passed on as is, not as "[X] has a problem") */
 	cycle?: true;
+	/** the value as a number to compare (a percentage as shown, 0–100), for colour rules */
+	num?: number;
+	/** the colour rule it meets */
+	rule?: CardRule;
+	/** its notes, to open as a table (cards with a source) */
+	drill?: Drill;
 }
 
 class CycleError extends Error {}
@@ -322,13 +454,13 @@ const formatValue = (v: FValue, format: string | undefined, ctx: ViewContext): s
 	return toText(v, { dateText: (d) => ctx.dates.format(d, "short") });
 };
 
-/** Every card's value and every list's notes, in one pass (sources shared by several components run once). */
-export function evaluateDashboard(def: DashboardDef, env: DashEnv): { cards: Map<string, CardOut>; lists: Map<string, ListOut> } {
+/** Every card's value, every list's notes and every chart's bars, in one pass (sources shared by several components run once). */
+export function evaluateDashboard(def: DashboardDef, env: DashEnv): { cards: Map<string, CardOut>; lists: Map<string, ListOut>; charts: Map<string, ChartOut> } {
 	const runs = new Map<string, SourceRun>();
-	const run = (source: DashSource | undefined, extra: ColumnDef[], sort: SortLevel[]) => {
-		const key = JSON.stringify([source ?? null, extra, sort]);
+	const run = (source: DashSource | undefined, extra: ColumnDef[], sort: SortLevel[], opts: { group?: GroupBy[]; filters?: FilterGroup } = {}) => {
+		const key = JSON.stringify([source ?? null, extra, sort, opts]);
 		let r = runs.get(key);
-		if (!r) runs.set(key, (r = runSource(source, extra, sort, env)));
+		if (!r) runs.set(key, (r = runSource(source, extra, sort, env, opts)));
 		return r;
 	};
 
@@ -355,7 +487,7 @@ export function evaluateDashboard(def: DashboardDef, env: DashEnv): { cards: Map
 					return { name, value: v.value };
 				});
 				const value = evaluateDetached(c.value.formula, env.ctx, used).value;
-				out = { text: formatValue(value, c.format, env.ctx), value };
+				out = { text: formatValue(value, c.format, env.ctx), value, ...(typeof value === "number" && Number.isFinite(value) ? { num: value } : {}) };
 			} catch (e) {
 				out = { text: "", value: null, error: e instanceof Error ? e.message : String(e), ...(e instanceof CycleError ? { cycle: true as const } : {}) };
 			}
@@ -370,10 +502,14 @@ export function evaluateDashboard(def: DashboardDef, env: DashEnv): { cards: Map
 				if (!col || !s) out = { text: "", value: null, error: col?.invalid ?? `"${c.value.agg}" doesn't apply to ${col?.label ?? column.id}.` };
 				else {
 					const value = s.value === undefined ? s.text : s.date ? new DateVal(s.value) : s.value;
-					out = { text: s.text, value, label: `${s.label}${column.id === "name" ? " of notes" : ` of ${col.label}`}`, count: r.result.rows.length };
+					// Percentages compare as shown (50, not 0.5).
+					const num = s.value === undefined || s.date ? undefined : s.text.trim().endsWith("%") ? s.value * 100 : s.value;
+					out = { text: s.text, value, label: `${s.label}${column.id === "name" ? " of notes" : ` of ${col.label}`}`, count: r.result.rows.length, drill: drillOf(cardName(c), r.def, r.result.rows), ...(num !== undefined ? { num } : {}) };
 				}
 			}
 		}
+		const rule = cardRule(out.num ?? null, c.rules);
+		if (rule && !out.error) out.rule = rule;
 		cards.set(c.id, out);
 		return out;
 	};
@@ -389,5 +525,148 @@ export function evaluateDashboard(def: DashboardDef, env: DashEnv): { cards: Map
 			lists.set(c.id, { rows: r.result.rows.slice(0, c.limit), columns, total: r.result.rows.length });
 		}
 	}
-	return { cards, lists };
+
+	const charts = new Map<string, ChartOut>();
+	for (const c of def.components) if (c.kind === "chart") charts.set(c.id, chartOf(c, env, run));
+	return { cards, lists, charts };
+}
+
+// ---------------------------------------------------------------- charts
+
+export interface ChartPart {
+	key: string;
+	label: string;
+	value: number;
+	text: string;
+	color: PaletteColor | null;
+	drill: Drill;
+}
+
+/** One bar, slice or point: a group of notes and its measure; a stacked bar's parts are its split values. */
+export interface ChartBar extends ChartPart {
+	parts: ChartPart[];
+}
+
+export interface ChartOut {
+	bars: ChartBar[];
+	/** stacked bars: the split values, in their order */
+	series: { key: string; label: string; color: PaletteColor | null }[];
+	/** the measure over every note */
+	total: number;
+	totalText: string;
+	/** progress: the done notes' measure against every note's */
+	progress?: { done: number; doneText: string; share: number; drill: Drill };
+	/** what's measured, for the axis and tooltips ("Notes", "Sum of Reward gold") */
+	measureLabel: string;
+	error?: string;
+}
+
+const NO_CHART: Omit<ChartOut, "error"> = { bars: [], series: [], total: 0, totalText: "", measureLabel: "" };
+const MAX_STEPS = 400;
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** A time step's bucket for a date (days): its first day, and the next bucket's first day. */
+export function stepOf(days: number, every: TimeStep): number {
+	const d = new Date(days * 86_400_000);
+	if (every === "week") return days - ((d.getUTCDay() + 6) % 7);
+	if (every === "month") return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1) / 86_400_000);
+	return Math.floor(Date.UTC(d.getUTCFullYear(), 0, 1) / 86_400_000);
+}
+export function nextStep(start: number, every: TimeStep): number {
+	if (every === "week") return start + 7;
+	const d = new Date(start * 86_400_000);
+	return every === "month" ? Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1) / 86_400_000) : Math.floor(Date.UTC(d.getUTCFullYear() + 1, 0, 1) / 86_400_000);
+}
+function stepLabel(start: number, every: TimeStep): string {
+	const d = new Date(start * 86_400_000);
+	if (every === "year") return String(d.getUTCFullYear());
+	if (every === "month") return `${MONTH_SHORT[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+	return `${d.getUTCDate()} ${MONTH_SHORT[d.getUTCMonth()]}`;
+}
+
+function chartOf(c: Extract<DashComponent, { kind: "chart" }>, env: DashEnv, run: (s: DashSource | undefined, extra: ColumnDef[], sort: SortLevel[], opts?: { group?: GroupBy[]; filters?: FilterGroup }) => SourceRun): ChartOut {
+	const { ctx } = env;
+	const title = c.title || CHART_LABELS[c.chart];
+	const fail = (error: string): ChartOut => ({ ...NO_CHART, error });
+	const mcol = c.measure.agg === "count" ? null : (c.measure.column ?? null);
+	const extra = [...(c.by ? [c.by] : []), ...(c.split ? [c.split] : []), ...(mcol ? [mcol] : [])];
+	const fmt = (n: number) => formatNumber(n, c.format || "number", ctx.locale ?? "en", ctx.currency);
+	const base = run(c.source, extra, []);
+	if ("error" in base) return fail(base.error);
+	const resolved = (col: ColumnDef) => base.result.known.get(col.id) ?? base.result.columns.find((x) => x.id === col.id);
+	const measureCol = mcol ? resolved(mcol) : null;
+	if (mcol && (!measureCol || measureCol.kind !== "number")) return fail(`${c.measure.agg === "sum" ? "Sum" : "Average"} needs a number field${measureCol ? `; ${measureCol.label} isn't one` : ""}.`);
+	const measure = (rows: ResultRow[]): number => {
+		if (!measureCol) return rows.length;
+		const nums = rows.map((r) => r.cells[measureCol.id]?.value).filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+		const sum = nums.reduce((a, b) => a + b, 0);
+		return c.measure.agg === "avg" ? (nums.length ? sum / nums.length : 0) : sum;
+	};
+	const measureLabel = measureCol ? `${c.measure.agg === "sum" ? "Sum" : "Average"} of ${measureCol.label}` : "Notes";
+	const total = measure(base.result.rows);
+	const head = { series: [], total, totalText: fmt(total), measureLabel };
+	const drillDef = { ...base.def, group: [] };
+
+	if (c.chart === "progress") {
+		if (!c.done?.items.length) return { ...fail("Set when a note counts as done."), measureLabel };
+		const done = run(c.source, extra, [], { filters: c.done });
+		if ("error" in done) return fail(done.error);
+		const d = measure(done.result.rows);
+		return { ...head, bars: [], progress: { done: d, doneText: fmt(d), share: total ? d / total : 0, drill: drillOf(`${title} · done`, drillDef, done.result.rows) } };
+	}
+
+	if (!c.by) return fail(c.chart === "line" ? "Choose a date field." : "Choose a field to group by.");
+	const by = resolved(c.by);
+	if (!by || by.invalid) return fail(by?.invalid ?? `Unknown field ${c.by.id}.`);
+	const colorOf = (col: ResolvedColumn, key: string): PaletteColor | null =>
+		col.def.kind === "builtin" && col.def.key === "status" ? statusPaint(key, ctx.types, ctx.groups) : col.field ? choiceColor(col.field, key) : null;
+	const labelOf = (col: ResolvedColumn, label: string) => label || `No ${col.label.toLowerCase()}`;
+
+	if (c.chart === "line") {
+		if (by.kind !== "date") return fail(`A line chart needs a date field; ${by.label} isn't one.`);
+		const every = c.every ?? "month";
+		const buckets = new Map<number, ResultRow[]>();
+		for (const r of base.result.rows) {
+			const v = r.cells[by.id]?.value;
+			if (typeof v !== "number" || !Number.isFinite(v)) continue;
+			const k = stepOf(v, every);
+			buckets.set(k, [...(buckets.get(k) ?? []), r]);
+		}
+		if (!buckets.size) return { ...head, bars: [] };
+		const keys = [...buckets.keys()].sort((a, b) => a - b);
+		const bars: ChartBar[] = [];
+		for (let k = keys[0], n = 0; k <= keys[keys.length - 1] && n < MAX_STEPS; k = nextStep(k, every), n++) {
+			const rows = buckets.get(k) ?? [];
+			const value = measure(rows);
+			const label = stepLabel(k, every);
+			bars.push({ key: String(k), label, value, text: fmt(value), color: null, drill: drillOf(`${title} · ${label}`, drillDef, rows), parts: [] });
+		}
+		return { ...head, bars };
+	}
+
+	const grouped = run(c.source, extra, [], { group: [{ by: c.by.id }, ...(c.chart === "stacked" && c.split ? [{ by: c.split.id }] : [])] });
+	if ("error" in grouped) return fail(grouped.error);
+	const split = c.chart === "stacked" && c.split ? resolved(c.split) : null;
+	if (c.chart === "stacked" && !split) return fail("Choose a field to split each bar by.");
+	// The split values in their own order (statuses in status order, choices in choice order).
+	let series: ChartOut["series"] = [];
+	if (split) {
+		const order = run(c.source, extra, [], { group: [{ by: split.id }] });
+		if (!("error" in order)) series = (order.result.groups ?? []).map((g) => ({ key: g.key, label: labelOf(split, g.label), color: colorOf(split, g.key) }));
+	}
+	const lastKey = (k: string) => k.split(GROUP_PATH_SEP).pop() ?? k;
+	const bars: ChartBar[] = (grouped.result.groups ?? []).map((g) => {
+		const value = measure(g.rows);
+		const label = labelOf(by, g.label);
+		const parts: ChartPart[] = split
+			? series.map((s) => {
+					const child = g.children?.find((x) => lastKey(x.key) === s.key);
+					const rows = child?.rows ?? [];
+					const v = measure(rows);
+					return { key: s.key, label: s.label, value: v, text: fmt(v), color: s.color, drill: drillOf(`${title} · ${label} · ${s.label}`, drillDef, rows) };
+				})
+			: [];
+		return { key: g.key, label, value, text: fmt(value), color: colorOf(by, g.key), drill: drillOf(`${title} · ${label}`, drillDef, g.rows), parts };
+	});
+	return { ...head, bars, series };
 }
