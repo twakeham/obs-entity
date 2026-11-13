@@ -34,6 +34,7 @@ It is distilled from **Story Forge**, a worldbuilding / tabletop campaign plugin
    9. [Optional modules](#89-optional-modules)
    10. [Entity views](#810-entity-views)
    11. [Workflows](#811-workflows)
+   12. [Dashboards](#812-dashboards)
 9. [Validation rules](#9-validation-rules)
 10. [Settings schema and migrations](#10-settings-schema-and-migrations)
 11. [Implementation notes and lessons learned](#11-implementation-notes-and-lessons-learned)
@@ -1280,7 +1281,7 @@ These are proven in Story Forge and worth adding behind module toggles once the 
     - Leave out edges between two outermost-ring nodes at depth 2 or more, to avoid a hairball.
     - **Resolve theme colours through a hidden element and normalise them with a canvas.** Themes such as Minimal use `hsl(… calc(…))`, which canvas libraries can't parse, so dark-mode text turns black.
     - Redraw on `css-change`, and re-fit when a hidden tab becomes visible.
-- **Overview dashboard:**
+- **Overview dashboard:** now user-built dashboards (§8.12), with a starter one in packs. The ideas below are components or presets for them:
   - a launcher of screens, pinned entities, tiles per type with status bars, recently edited/created, and a needs-attention list (draft, empty subtitle fields, missing required fields, unlinked)
   - hubs and loners
   - customisable sections, plus an embeddable code block
@@ -2029,6 +2030,93 @@ Its own view (`WorkflowsView`, a main-area tab like Entity types), opened from t
 **The type editor's Workflows tab** lists the workflows whose scope includes the type (or its group), with their trigger in words ("When Status changes to done", "Button: Start next session") and on/off state, then those for any note; clicking one opens it in the Workflows view. **New workflow for this type** opens the Workflows view with a new workflow scoped to the type (once the type is saved). The tab's count is the type's own workflows.
 
 **Code:** `ui/views/WorkflowsView.tsx` (the ItemView; state `{ selected }` in the layout, unsaved new ones not restored) hosts `ui/react/workflows/WorkflowManager.tsx` (editor, step cards, formula box, run list). Edits are drafts in `plugin.workflowDrafts` for the session. `plugin.manualWorkflows(types)` and `plugin.addWorkflowItems(menu, entities)` give the button workflows that apply to every one of some notes, for the form strip and every menu.
+
+### 8.12 Dashboards
+
+User-built pages of components on a grid: summary cards, lists, embedded views, text and buttons (later charts and dashboard filters). They replace the fixed "Overview dashboard" planned in §8.9.
+
+**What a dashboard is.** A dashboard is a view note whose `entity-view` block has `kind: dashboard`, so it shares the view plumbing:
+- It lives in the views folder, opens as a tab and can be embedded.
+- It's listed in the Entity Browser with a **DASHBOARD** tag and the `layout-dashboard` icon. With no `types` it goes in Views, unless it has a `place:`.
+
+It doesn't take part in the Table / Board / Calendar toggle: its block is read by `parseDashboard` (`model/dashboard.ts`), not `parseView`. `ViewIndex.kind` reports `"dashboard"`.
+
+```yaml
+kind: dashboard
+components:
+  - id: active
+    kind: card
+    title: Active quests
+    at: [0, 0, 3, 2]            # x, y, width, height in grid cells
+    source: { types: [quest], filters: { all: [{ field: status, op: any-of, value: [active] }] } }
+    value: { agg: count }
+  - id: gold
+    kind: card
+    title: Reward gold
+    at: [3, 0, 3, 2]
+    source: { view: Quest board }
+    value: { column: reward_gold, agg: sum }
+  - id: share
+    kind: card
+    title: Done
+    at: [6, 0, 3, 2]
+    value: { formula: "[Done quests] / [All quests]" }
+    format: "0%"
+  - id: soon
+    kind: list
+    title: Due soon
+    at: [0, 2, 6, 5]
+    source: { formula: 'filter(notes("quest"), prop(item, "Deadline") <= today() + 7)' }
+    fields: [status, deadline]
+    sort: [{ by: deadline, dir: asc }]
+    limit: 8
+  - { id: board, kind: view, at: [6, 2, 6, 8], view: Quest board }
+  - { id: intro, kind: text, at: [0, 7, 6, 2], text: "## The Crimson Tide\nWhat's on this week." }
+  - { id: newq, kind: button, at: [9, 0, 3, 2], label: New quest, icon: scroll, action: { new: quest } }
+```
+
+**Sources.** Cards and lists get their notes from a source, one of three:
+- **A saved view:** `{ view: <view note name> }`. It uses that view's types, filters and sort, resolved like a link, and follows the view when it's edited.
+- **Its own types and filters:** `{ types, filters, sort? }`, using the same filter editor and engine (`runView`) as views.
+- **A formula that returns links:** `{ formula }`, usually built on `notes()` (below).
+
+Each source is turned into a `ViewDef` and run with `runView`. Results are cached per source, so components sharing one aren't recomputed, and refreshed when the index changes.
+
+**Components** (`kind`; every one has `id`, `at` and an optional `title`):
+- **card:** one value.
+  - From a source: `value: { agg, column? }`, using the table summary row's aggregations (`summarize`). Count, sum, average, median, min / max, earliest / latest, % filled, % of a choice, and so on. `column` is a field key, a built-in, or a roll-up or formula column object as in views; without it, `count` counts notes.
+  - Or `value: { formula }`, with no source: a formula over other cards, referred to by title (`[All quests]`), and `notes()`. Cards are evaluated in dependency order; a cycle is a problem shown on the card.
+  - `format` uses the display format patterns (§8.10 Formats).
+  - Later (D2): colour and icon rules, and clicking through to the matching notes.
+- **list:** the source's notes, top `limit` by `sort`. Each row shows its name and status dot plus up to three `fields`. Click opens the note.
+- **view:** an embedded view note, using its own toolbar and scrolling inside the cell.
+- **text:** Markdown, rendered with Obsidian's renderer (headings, links, embeds).
+- **button:** a label and icon with one `action`:
+  - `{ new: <type> }` opens the create dialog;
+  - `{ workflow: <id> }` runs a form workflow, or one on notes after picking them;
+  - `{ open: <note> }` opens a note or view.
+
+**`notes()` formula function** (everywhere formulas run: table columns, workflows, dashboards). `notes("quest")`, `notes("@table")` or `notes()` returns links to every note of that type, group, or all. It combines with `filter`, `map`, `prop`, `count`, `sum`, e.g. `count(filter(notes("quest"), prop(item, "Status") = "active"))`. Results are cached per evaluation pass, so a column using it doesn't rescan the vault for every row.
+
+**Grid** (`react-grid-layout`):
+- 12 columns, 48px rows. Components snap to cells and gaps close upwards.
+- Below 600px wide (the sidebar, phones) components stack in reading order (by row, then column) at full width.
+
+**View and edit mode:**
+- A dashboard opens in **view mode**: components only, no handles.
+- **Edit** (in its header) switches to the editor:
+  - a **palette** on the left (Card, List, View, Text, Button) to drag onto the grid, or click to add at the end;
+  - the **grid** in the middle, where components move by dragging and resize from their corner. Clicking one selects it;
+  - the selected component's **settings** on the right: its title, source (view / types and filters / formula, with `FiltersPanel`), value or fields, format and action. Delete and Duplicate are there too.
+- Edits are a **draft**, kept per note in `plugin.dashboardDrafts` for the session. **Save** writes the block; **Discard** drops the draft. Leaving with a draft keeps it, marked unsaved in the header.
+- An embedded dashboard is view mode only. Its Edit button opens the note's tab.
+
+**Creating:** the Entity Browser's **+** (Entities tab) → **New dashboard**. It asks for a name, creates the note in the views folder with no components, and opens it in edit mode.
+
+**Phases:**
+- **D1 (M8.1):** core. The kind, grid, view and edit modes, palette and settings, card, list, view, text and button components, sources (view, types and filters, formula), `notes()`, card formulas over cards.
+- **D2 (M8.2):** charts (bar, stacked bar, donut, line over time, progress; how they're drawn is decided then), card colour and icon rules (highlight styles), and click-through to the matching notes.
+- **D3 (M8.3):** dashboard filters (controls setting variables that sources use), `{this}` when embedded in a note, cross-filtering, and dashboards in packs (a TTRPG campaign dashboard).
 ---
 
 ## 9. Validation rules
@@ -2249,7 +2337,10 @@ Drive a real Obsidian instance via the Chrome DevTools Protocol (Obsidian starte
 | M7.1 ✅ | **Workflows: engine and basics** | §8.11 stage 1: the Workflows view and the type editor's Workflows tab; created / changed / manual triggers (form buttons, ⋯ menu, command, row menu and selection bar per note); Only if; set / clear / tag / link / notice steps; undo, chains, run log, master switch | Examples 1 (completed date), 5, 7 and simple 3 work |
 | M7.2 ✅ | **Workflows: other notes and forms** | Form workflows (their input form, started from commands, the ribbon, view toolbars, the Entity Browser and notes), linked-note steps, create note, named results, for each, run workflow, one run for a whole selection; loops inside loops, If / Otherwise, variables, Find notes, Add text to a note (built) | Examples 1 (milestone roll-up), 2, 3, 6, 8 work |
 | M7.3 ✅ | **Workflows: time** | Schedule and date triggers, ask, move / rename, test run, big-run confirmation, limits, workflows in type packs (views and templates came with M5's fuller packs) | Example 4 works |
-| M6+ | **Modules** | Graph, overview dashboard, bulk edit, Bases generation, domain views | Each behind a module toggle |
+| M8.1 | **Dashboards: core** | §8.12 D1: `kind: dashboard` view notes, grid with view and edit modes (palette, settings, Save / Discard), card / list / view / text / button components, sources (saved view, types and filters, formula), `notes()` in formulas, card formulas over other cards, New dashboard | A dashboard of cards, lists and views can be built without editing YAML |
+| M8.2 | **Dashboards: charts** | Bar, stacked bar, donut, line, progress; card colour and icon rules; click-through to matching notes | Status breakdowns and totals over time shown as charts |
+| M8.3 | **Dashboards: interactive** | Dashboard filters and variables, `{this}` when embedded, cross-filtering, dashboards in packs | A campaign dashboard follows a chosen campaign |
+| M6+ | **Modules** | Graph, bulk edit, Bases generation, domain views (the overview dashboard became M8's dashboards) | Each behind a module toggle |
 
 ---
 
