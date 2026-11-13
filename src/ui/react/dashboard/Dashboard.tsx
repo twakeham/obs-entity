@@ -238,6 +238,9 @@ export function Dashboard({ path, initial, errors, save, openEditor }: { path: s
 								def={def}
 								env={env}
 								path={path}
+								card={out.cards.get(chosen.id)}
+								chart={out.charts.get(chosen.id)}
+								list={out.lists.get(chosen.id)}
 								onChange={setComponent}
 								onDelete={() => {
 									edit((d) => ({ ...d, components: d.components.filter((x) => x.id !== chosen.id) }));
@@ -250,7 +253,7 @@ export function Dashboard({ path, initial, errors, save, openEditor }: { path: s
 								}}
 							/>
 						) : (
-							<div className="oe-dash-settings-empty">Select a component to change it.</div>
+							<div className="oe-dash-settings-empty">Select a component to change it. Drag a component to move it, and its bottom-right corner to resize it.</div>
 						)}
 					</div>
 				)}

@@ -8938,12 +8938,6 @@ button.oe-calv-more:hover {
 	color: var(--text-muted);
 }
 
-.oe-dash-form-actions {
-	display: inline-flex;
-	gap: 2px;
-	text-transform: none;
-}
-
 .oe-dash-palette-item {
 	display: flex;
 	align-items: center;
@@ -8966,24 +8960,6 @@ button.oe-calv-more:hover {
 	font-size: var(--font-ui-small);
 }
 
-.oe-dash-field {
-	margin-bottom: var(--size-4-3);
-}
-
-.oe-dash-field-label {
-	margin-bottom: var(--size-4-1);
-	font-size: var(--font-ui-small);
-	font-weight: var(--font-semibold);
-}
-
-.oe-dash-field input[type="text"],
-.oe-dash-field input[type="number"],
-.oe-dash-field textarea,
-.oe-dash-field select {
-	width: 100%;
-}
-
-.oe-dash-field select + select,
 .oe-dash-row + select {
 	margin-top: var(--size-4-1);
 }
@@ -8997,10 +8973,6 @@ button.oe-calv-more:hover {
 	margin-top: var(--size-4-1);
 	font-size: var(--font-ui-smaller);
 	color: var(--text-muted);
-}
-
-.oe-dash-id {
-	color: var(--text-faint);
 }
 
 .oe-dash-row {
@@ -9502,4 +9474,273 @@ circle.oe-chart-hit:focus-visible {
 .oe-drill-table > * {
 	flex: 1;
 	min-height: 0;
+}
+
+/* the dashboard component settings panel: header, Data / Style tabs, sections, rows */
+.oe-dash-form-head {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	margin-bottom: var(--size-4-2);
+}
+
+.oe-dash-form-icon {
+	display: inline-flex;
+	color: var(--text-muted);
+}
+
+.oe-dash-settings input.oe-dash-form-title {
+	flex: 1;
+	min-width: 0;
+	padding: 2px 6px;
+	border: 1px solid transparent;
+	background: transparent;
+	font-size: var(--font-ui-medium);
+	font-weight: var(--font-semibold);
+	box-shadow: none;
+}
+
+.oe-dash-settings input.oe-dash-form-title:hover {
+	border-color: var(--background-modifier-border);
+}
+
+.oe-dash-settings input.oe-dash-form-title:focus {
+	border-color: var(--interactive-accent);
+	background: var(--background-primary);
+}
+
+.oe-dash-form-title.is-static {
+	flex: 1;
+	font-weight: var(--font-semibold);
+}
+
+.oe-dash-tabs {
+	display: flex;
+	gap: 2px;
+	margin: 0 calc(-1 * var(--size-4-3)) var(--size-4-2);
+	padding: 0 var(--size-4-3);
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.oe-dash-tabs button.oe-dash-tab {
+	flex: 1;
+	height: auto;
+	padding: var(--size-4-1) var(--size-4-2);
+	border: none;
+	border-bottom: 2px solid transparent;
+	border-radius: var(--radius-s) var(--radius-s) 0 0;
+	margin-bottom: -1px;
+	background: none;
+	box-shadow: none;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+.oe-dash-tabs button.oe-dash-tab:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.oe-dash-tabs button.oe-dash-tab.is-active {
+	color: var(--text-normal);
+	font-weight: var(--font-semibold);
+	border-bottom-color: var(--interactive-accent);
+}
+
+.oe-dash-section + .oe-dash-section {
+	margin-top: var(--size-4-2);
+	border-top: 1px solid var(--background-modifier-border);
+	padding-top: var(--size-4-1);
+}
+
+.oe-dash-settings button.oe-dash-section-head {
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 4px;
+	width: 100%;
+	height: auto;
+	padding: var(--size-4-1) 0;
+	border: none;
+	background: none;
+	box-shadow: none;
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-bold);
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	color: var(--text-muted);
+	cursor: pointer;
+}
+
+.oe-dash-section-head svg {
+	width: 12px;
+	height: 12px;
+}
+
+.oe-dash-section-body {
+	padding: var(--size-4-1) 0 var(--size-4-2);
+}
+
+.oe-dash-prop {
+	display: grid;
+	grid-template-columns: 76px minmax(0, 1fr);
+	align-items: start;
+	column-gap: var(--size-4-2);
+	margin-bottom: var(--size-4-2);
+}
+
+.oe-dash-prop.is-wide {
+	grid-template-columns: minmax(0, 1fr);
+}
+
+.oe-dash-prop-label {
+	/* level with the first line of its control */
+	padding-top: 5px;
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+}
+
+.oe-dash-prop-control > select,
+.oe-dash-prop-control > input,
+.oe-dash-prop-control > textarea,
+.oe-dash-prop-control .oe-dash-row select,
+.oe-dash-prop-control .oe-dash-row input {
+	width: 100%;
+	min-width: 0;
+}
+
+.oe-dash-prop-control > select + select,
+.oe-dash-prop-control > .oe-dash-row + select {
+	margin-top: var(--size-4-1);
+}
+
+.oe-dash-prop > .oe-dash-hint {
+	grid-column: 2;
+}
+
+.oe-dash-prop.is-wide > .oe-dash-hint {
+	grid-column: 1;
+}
+
+.oe-dash-seg {
+	display: inline-flex;
+	flex-wrap: wrap;
+	max-width: 100%;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	overflow: hidden;
+}
+
+.oe-dash-settings .oe-dash-seg button {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	height: auto;
+	padding: 3px 9px;
+	border: none;
+	border-radius: 0;
+	background: var(--background-primary);
+	box-shadow: none;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+.oe-dash-settings .oe-dash-seg button + button {
+	border-left: 1px solid var(--background-modifier-border);
+}
+
+.oe-dash-settings .oe-dash-seg button:hover {
+	color: var(--text-normal);
+	background: var(--background-modifier-hover);
+}
+
+.oe-dash-settings .oe-dash-seg button.is-active {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+.oe-dash-seg.is-icons button {
+	padding: 5px 8px;
+}
+
+.oe-dash-seg-caption {
+	margin-top: var(--size-4-1);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.oe-dash-sentence {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--size-4-1) var(--size-4-2);
+	margin-bottom: var(--size-4-2);
+	font-size: var(--font-ui-small);
+}
+
+.oe-dash-sentence select {
+	max-width: 100%;
+}
+
+.oe-dash-sentence input[type="number"] {
+	width: 64px;
+}
+
+.oe-dash-summary {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	min-width: 0;
+}
+
+.oe-dash-summary-text {
+	flex: 1;
+	min-width: 0;
+	font-size: var(--font-ui-small);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.oe-dash-summary button {
+	flex-shrink: 0;
+	font-size: var(--font-ui-small);
+}
+
+.oe-dash-pop {
+	padding: var(--size-4-3);
+	width: 340px;
+	max-height: 70vh;
+	overflow-y: auto;
+}
+
+.oe-dash-pop.is-wide {
+	width: 480px;
+}
+
+.oe-dash-pop-title {
+	margin-bottom: var(--size-4-1);
+	font-size: var(--font-ui-small);
+	font-weight: var(--font-semibold);
+}
+
+.oe-dash-pop > select {
+	width: 100%;
+	margin-bottom: var(--size-4-3);
+}
+
+.oe-dash-result {
+	margin-top: var(--size-4-1);
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+	font-variant-numeric: tabular-nums;
+}
+
+.oe-dash-result.is-error {
+	color: var(--text-error);
+}
+
+.oe-dash-rule-icon {
+	display: inline-flex;
+	color: var(--oe-c, var(--text-muted));
 }

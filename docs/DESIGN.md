@@ -2120,7 +2120,27 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
 - **Edit** (in its header) switches to the editor:
   - a **palette** on the left (Summary card, Chart, List, View, Text, Button) to drag onto the grid, or click to add at the end;
   - the **grid** in the middle, where components move by dragging and resize from their corner. Clicking one selects it;
-  - the selected component's **settings** on the right: its title, source (view / types and filters / formula, with `FiltersPanel`), value or fields, chart type and grouping (a "By <field>" title follows the field until it's changed by hand), measure, "done when" (`FiltersPanel`), format, colour rules and action. Delete and Duplicate are there too.
+  - the selected component's **settings** on the right (`DashboardSettings`):
+    - **Header:** the component's icon and its title, edited in place. A **⋯** menu has Duplicate, Delete and its id.
+    - **Data** and **Style** tabs. The tab shown is kept while selecting other components, so styling several in a row stays on Style.
+    - Each tab has titled sections that fold (remembered for the session). Short settings are a label and a control on one line; text, formulas and lists take the full width.
+    - **Data:**
+      - **Value** (cards): from **Some notes | Other cards** (a formula).
+      - **Notes:** from **Types | View | Formula** (segmented buttons). Types and filters are a one-line summary, "Quests · 1 filter", with **Edit…** opening the type chips and `FiltersPanel` in a popover. A live count follows ("→ 13 notes", or the source's problem).
+      - **Chart:** the chart type as six icon buttons, with its name under them.
+      - **Show:**
+        - cards are a sentence, "Show the [count] of [notes]";
+        - charts have Measure (**Count | Sum | Average**, then "of" a number field), Bars or Slices by, Split by, By date and Every (**Week | Month | Year**), or Done when (a summary with **Edit…**, like the filters);
+        - lists are "Show up to [8] notes", Sorted by and With;
+        - views pick their view, text is its Markdown, and buttons have their Label and On click.
+        - Each ends with the live result: "= 5", "= 13 in 4 bars", "= 5 of 13", "5 of 5 shown", or the problem.
+    - **Style:**
+      - cards: **Number** (the format) and **Colour rules**;
+      - charts: **Values** (the format);
+      - buttons: their icon;
+      - the other kinds say there are no style options yet. Later styling options go here.
+      - **The format** is a preset (Automatic, Number, Whole number, One / Two decimal places, Currency, Percent, Compact) or **Custom pattern…**. "Looks like: 33,600 gp" shows the component's own value in it.
+    - A "By <field>" chart title follows the field until it's changed by hand.
 - Edits are a **draft**, kept per note in `plugin.dashboardDrafts` for the session. **Save** writes the block; **Discard** drops the draft. Leaving with a draft keeps it, marked unsaved in the header.
 - An embedded dashboard is view mode only. Its Edit button opens the note's tab.
 
