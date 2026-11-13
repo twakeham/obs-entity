@@ -2149,6 +2149,11 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
   - **Remembered on this device** per dashboard and per note it's shown on (localStorage `obs-entities-dashboard-filters`, keyed `<dashboard path>|<host note>`), not written to the note (`startingFilters`).
   - **Shown on a note** (an embed: `ViewBlock.hostPath`): a note filter whose types name that note's type starts on it, so one dashboard embedded in each campaign note follows its campaign. Cleared on purpose, it stays cleared there.
   - Its settings: the control (icon buttons), Notes of / From types, the Field (choice), Pick One / Several, and "Use it": how, and which components use it now.
+  - **Look** (`layout`, `FilterLayout`; Style tab → **Filter**; rules don't change it):
+    - `direction`: `auto` (side by side when it's one grid row high, stacked when taller), `horizontal` (title, control and × on one line; pills on one line, scrolling sideways if they must) or `vertical` (title and × above; the control fills the width and wraps, scrolling when there's more);
+    - `choices` (choice and yes / no filters): `auto` (pills while they fit: their one-line width, measured unseen, against the width, times the lines a stacked filter has room for; else a drop-down, `useFits` with a ResizeObserver), `pills`, `dropdown` (one: a select with All; several: a button opening a menu of ticked values) or `list` (a tick box or radio per value);
+    - `label` (the title), `size` (`s`, `m`, `l`: text and control height via `--input-height`), `summary` (what's picked under the control: "2 of 4: active, completed", "9 Nov – 15 Nov", "All notes") and `plain` (no box or border, like a toolbar; dashed while editing).
+    - The controls fill the space: the note picker's box, the search box and the from / to boxes stretch; in a narrow stacked filter (under 280px, a container query) from / to stack.
 
 **`notes()` formula function** (everywhere formulas run: table columns, workflows, dashboards). `notes("quest")`, `notes("@table")` or `notes()` returns links to every note of that type, group, or all. It combines with `filter`, `map`, `prop`, `count`, `sum`, e.g. `count(filter(notes("quest"), prop(item, "Status") = "active"))`. Results are cached per evaluation pass, so a column using it doesn't rescan the vault for every row.
 

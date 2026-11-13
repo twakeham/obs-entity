@@ -487,4 +487,11 @@ describe("dashboard filters", () => {
 		expect(startingFilters(def, null, { path: "Apollo.md", type: T("project") })).toEqual({});
 		expect(dashFilterList(def).map((f) => f.control)).toEqual(["note", "note", "choice"]);
 	});
+
+	it("keep a filter's layout, dropping what it doesn't know", () => {
+		const { def } = parseDashboard({ kind: "dashboard", components: [{ id: "f", kind: "filter", control: "choice", layout: { direction: "vertical", choices: "list", label: false, size: "xl", summary: true, plain: "yes" } }] });
+		expect(def.components[0]).toMatchObject({ layout: { direction: "vertical", choices: "list", label: false, summary: true } });
+		expect(def.components[0].kind === "filter" && def.components[0].layout).not.toHaveProperty("size");
+		expect(parseDashboard({ kind: "dashboard", components: serializeDashboard(def).components }).def).toEqual(def);
+	});
 });

@@ -519,6 +519,7 @@ A **dashboard** is a page you build from components on a grid: summary cards, ch
   - What you pick is remembered on this device, per dashboard.
   - **Embedded in a note,** a note filter whose types include that note's type starts on that note: embed one "Campaign dashboard" in each campaign note and each shows its own campaign.
   - Numbers gained an **is between** condition, and yes / no fields an **is Yes / No** condition (in views too).
+  - **Filter style** (Style tab → **Filter**): **Layout** Auto (side by side when one row high, stacked when taller), Side by side or Stacked; **Values as** (choice and yes / no filters) Auto (pills while they fit, else a drop-down), Pills, Drop-down or List (tick boxes); **Size** S / M / L; the **Title** on or off; a **Summary** of what's picked under it ("2 of 4: active, completed"); and **Plain** (no box, like a toolbar). The controls stretch to fill the filter as it's resized.
 
 Cross-filtering (clicking a bar to filter the rest) and dashboards in packs are coming next.
 

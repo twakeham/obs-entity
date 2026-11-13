@@ -11,6 +11,7 @@ import {
 	DEFAULT_BUTTON_LAYOUT,
 	DEFAULT_CARD_LAYOUT,
 	DEFAULT_LIST_LAYOUT,
+	DEFAULT_FILTER_LAYOUT,
 	VALUE_ID,
 	valueColumns,
 	cardName,
@@ -18,6 +19,7 @@ import {
 	runSource,
 	type ButtonLayout,
 	type ListLayout,
+	type FilterLayout,
 	type CardLayout,
 	type ChartLook,
 	type ChartSort,
@@ -835,6 +837,12 @@ function StyleTab(props: Props) {
 					<LayoutFields spec={LIST_SPEC} layout={(c.layout ?? {}) as Record<string, string | boolean>} onChange={(layout) => onChange({ ...c, layout: layout as ListLayout | undefined })} />
 				</Section>
 			)}
+			{c.kind === "filter" && (
+				<Section title="Filter">
+					<LayoutFields spec={filterSpec(c.control)} layout={(c.layout ?? {}) as Record<string, string | boolean>} onChange={(layout) => onChange({ ...c, layout: layout as FilterLayout | undefined })} />
+					<div className="oe-dash-hint">Auto: side by side when it's one row high, stacked when taller; choices as pills while they fit, else a drop-down.</div>
+				</Section>
+			)}
 			<Section title="Default style">
 				<StyleFields
 					style={c.style ?? {}}
@@ -1027,6 +1035,40 @@ function ChartLookFields({ c, onChange }: { c: ChartC; onChange: (l: ChartLook |
 			{bars && toggle("rounded", "Rounded")}
 		</>
 	);
+}
+
+/** A filter's look: "Values as" only for choice and yes / no filters. */
+function filterSpec(control: FilterControl): LayoutSpec {
+	return {
+		what: "Filter",
+		options: {
+			direction: [
+				{ value: "auto", label: "Auto" },
+				{ value: "horizontal", label: "Side by side" },
+				{ value: "vertical", label: "Stacked" },
+			],
+			...(control === "choice" || control === "toggle"
+				? {
+						choices: [
+							{ value: "auto", label: "Auto" },
+							{ value: "pills", label: "Pills" },
+							{ value: "dropdown", label: "Drop-down" },
+							{ value: "list", label: "List" },
+						],
+					}
+				: {}),
+			size: [
+				{ value: "s", label: "S" },
+				{ value: "m", label: "M" },
+				{ value: "l", label: "L" },
+			],
+			label: "toggle",
+			summary: "toggle",
+			plain: "toggle",
+		},
+		names: { direction: "Layout", choices: "Values as", size: "Size", label: "Title", summary: "Summary", plain: "Plain" },
+		defaults: DEFAULT_FILTER_LAYOUT,
+	};
 }
 
 const SIZE_LABELS: Record<CardSize, string> = { s: "S", m: "M", l: "L", xl: "XL", fit: "Fit" };

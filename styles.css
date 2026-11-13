@@ -10212,13 +10212,34 @@ circle.oe-chart-hit:focus-visible {
 
 /* dashboards, D3: filters (a control that sets what other components' conditions take) */
 .oe-dash-filter-body {
+	--oe-filter-gap: var(--size-4-2);
 	display: flex;
-	align-items: center;
-	gap: var(--size-4-2);
+	gap: var(--oe-filter-gap);
 	height: 100%;
 	min-width: 0;
-	padding: 0 var(--size-4-1) 0 var(--size-4-3);
+	min-height: 0;
+	padding: var(--size-4-1) var(--size-4-1) var(--size-4-1) var(--size-4-3);
 	font-size: var(--font-ui-small);
+	container-type: inline-size;
+}
+
+/* side by side: title, control, clear on one line */
+.oe-dash-filter-body.is-horizontal {
+	align-items: center;
+}
+
+/* stacked: a head (title and clear) above the control, which fills the rest */
+.oe-dash-filter-body.is-vertical {
+	flex-direction: column;
+	gap: 4px;
+	padding-top: var(--size-4-2);
+}
+
+.oe-dash-filter-head {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	min-height: 22px;
 }
 
 .oe-dash-filter-label {
@@ -10226,7 +10247,7 @@ circle.oe-chart-hit:focus-visible {
 	align-items: center;
 	gap: 4px;
 	flex-shrink: 0;
-	max-width: 40%;
+	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -10234,30 +10255,146 @@ circle.oe-chart-hit:focus-visible {
 	color: var(--text-muted);
 }
 
-.oe-dash-filter-control {
+.oe-dash-filter-body.is-horizontal .oe-dash-filter-label {
+	max-width: 40%;
+}
+
+.oe-dash-filter-main {
 	flex: 1;
 	min-width: 0;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	gap: 2px;
+}
+
+.oe-dash-filter-control {
+	position: relative;
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
 	display: flex;
 	align-items: center;
+}
+
+.oe-dash-filter-body.is-vertical .oe-dash-filter-control {
+	align-items: flex-start;
+	overflow-y: auto;
+}
+
+/* side by side: one line, scrolling sideways if it must; stacked: wrapping onto the lines there are */
+.oe-dash-filter-body.is-horizontal .oe-dash-filter-control {
 	overflow-x: auto;
 	overflow-y: hidden;
 	scrollbar-width: thin;
 }
 
+.oe-dash-filter-control > * {
+	max-width: 100%;
+}
+
 .oe-dash-filter-control .oe-pop-pills,
 .oe-dash-filter-control .oe-pop-links {
-	flex-wrap: nowrap;
 	max-width: none;
+	flex-wrap: wrap;
+}
+
+.oe-dash-filter-body.is-horizontal .oe-dash-filter-control .oe-pop-pills,
+.oe-dash-filter-body.is-horizontal .oe-dash-filter-control .oe-pop-links {
+	flex-wrap: nowrap;
 }
 
 .oe-dash-filter-control .oe-option,
-.oe-dash-filter-control .oe-pill {
+.oe-dash-filter-control .oe-pill,
+.oe-dash-filter-control .oe-prop-chip {
 	flex-shrink: 0;
+}
+
+/* the note picker's box takes the room left */
+.oe-dash-filter-control .oe-pop-links {
+	flex: 1;
+	min-width: 0;
+}
+
+.oe-dash-filter-control .oe-pop-links > input {
+	flex: 1;
+	min-width: 6em;
+}
+
+.oe-dash-filter-choices {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+}
+
+.oe-dash-filter-choices > select,
+.oe-dash-filter-multi {
+	flex: 1;
+	min-width: 0;
+	max-width: 22em;
+}
+
+.oe-dash-filter-multi {
+	justify-content: flex-start;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* the pills as they'd be on one line, unseen (to tell whether they fit), in a box that doesn't add to the scrolling */
+.oe-dash-filter-measure-box {
+	position: absolute;
+	inset: 0;
+	overflow: hidden;
+	visibility: hidden;
+	pointer-events: none;
+}
+
+.oe-dash-filter-measure {
+	position: absolute;
+	flex-wrap: nowrap !important;
+	width: max-content;
+	left: 0;
+	top: 0;
+}
+
+.oe-dash-filter-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	width: 100%;
+}
+
+.oe-dash-filter-body.is-horizontal .oe-dash-filter-list {
+	flex-direction: row;
+	flex-wrap: nowrap;
+	gap: var(--size-4-3);
+}
+
+.oe-dash-filter-list label {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.oe-dash-filter-listname.has-color {
+	color: var(--oe-c);
 }
 
 .oe-dash-filter-clear:disabled {
 	opacity: 0.25;
 	cursor: default;
+}
+
+.oe-dash-filter-summary {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 .oe-dash-filter-search {
@@ -10274,16 +10411,99 @@ circle.oe-chart-hit:focus-visible {
 	min-width: 0;
 }
 
-.oe-dash-filter-range,
 .oe-dash-filter-dates {
 	display: flex;
 	align-items: center;
 	gap: 4px;
-	flex-shrink: 0;
+	flex: 1;
+	min-width: 0;
+	flex-wrap: wrap;
+}
+
+.oe-dash-filter-dates > select {
+	flex: 0 1 12em;
+	min-width: 0;
+}
+
+.oe-dash-filter-range {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	flex: 1;
+	min-width: 0;
 }
 
 .oe-dash-filter-num {
-	width: 6em;
+	flex: 1 1 5em;
+	min-width: 3.5em;
+	max-width: 10em;
+}
+
+.oe-dash-filter-range .oe-datebox {
+	flex: 1 1 8em;
+	min-width: 0;
+}
+
+.oe-dash-filter-range .oe-datebox input {
+	width: 100%;
+	min-width: 0;
+}
+
+/* narrow: ranges and custom dates stack */
+@container (max-width: 280px) {
+	.oe-dash-filter-body.is-vertical .oe-dash-filter-range {
+		flex-direction: column;
+		align-items: stretch;
+	}
+
+	.oe-dash-filter-body.is-vertical .oe-dash-filter-to {
+		display: none;
+	}
+
+	.oe-dash-filter-num {
+		max-width: none;
+	}
+}
+
+/* sizes: text and the controls' height */
+.oe-dash-filter-body.is-size-s {
+	--input-height: 24px;
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-dash-filter-body.is-size-l {
+	--input-height: 36px;
+	font-size: var(--font-ui-medium);
+}
+
+.oe-dash-filter-body :is(input, select, button.dropdown, .oe-option) {
+	font-size: inherit;
+}
+
+.oe-dash-filter-body.is-size-s .oe-option { padding: 0 8px; }
+.oe-dash-filter-body.is-size-l .oe-option { padding: 3px 12px; }
+
+/* plain: no box, like a toolbar */
+.oe-dash-item:has(> .oe-dash-filter-body.is-plain):not(.oe-hl-fill) {
+	border-color: transparent;
+	background-color: transparent;
+}
+
+.oe-dash.is-editing .oe-dash-item:has(> .oe-dash-filter-body.is-plain) {
+	border-style: dashed;
+	border-color: var(--background-modifier-border);
+}
+/* stacked: the control takes the room it needs (scrolling when there's more), the summary right under it */
+.oe-dash-filter-body.is-vertical .oe-dash-filter-main {
+	justify-content: flex-start;
+}
+
+.oe-dash-filter-body.is-vertical .oe-dash-filter-control {
+	flex: 0 1 auto;
+}
+
+.oe-dash-filter-body.is-vertical .oe-dash-filter-num {
+	max-width: none;
 }
 
 /* a condition whose value is a dashboard filter */

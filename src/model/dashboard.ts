@@ -140,6 +140,38 @@ export interface ListLayout {
 }
 export const DEFAULT_LIST_LAYOUT: Required<ListLayout> = { density: "compact", display: "rows", dividers: false, stripes: false, marker: "status", fieldNames: false, fields: "right", header: true, count: true, more: "text" };
 
+const FILTER_DIRECTIONS = ["auto", "horizontal", "vertical"] as const;
+const FILTER_CHOICES_AS = ["auto", "pills", "dropdown", "list"] as const;
+const FILTER_SIZES = ["s", "m", "l"] as const;
+
+/**
+ * How a filter looks: its title beside the control or above it (`auto`: beside when it's one grid row high), how
+ * choice and yes / no values show (`auto`: pills when they fit, else a drop-down), its title, size, a summary of
+ * what's picked under the control, and `plain` (no box, like a toolbar).
+ */
+export interface FilterLayout {
+	direction?: (typeof FILTER_DIRECTIONS)[number];
+	choices?: (typeof FILTER_CHOICES_AS)[number];
+	label?: boolean;
+	size?: (typeof FILTER_SIZES)[number];
+	summary?: boolean;
+	plain?: boolean;
+}
+export const DEFAULT_FILTER_LAYOUT: Required<FilterLayout> = { direction: "auto", choices: "auto", label: true, size: "m", summary: false, plain: false };
+
+function parseFilterLayout(raw: unknown): FilterLayout | undefined {
+	if (!isObj(raw)) return undefined;
+	const l: Record<string, unknown> = {};
+	const enums: [keyof FilterLayout, readonly string[]][] = [
+		["direction", FILTER_DIRECTIONS],
+		["choices", FILTER_CHOICES_AS],
+		["size", FILTER_SIZES],
+	];
+	for (const [k, of] of enums) if (of.includes(raw[k] as string)) l[k] = raw[k];
+	for (const k of ["label", "summary", "plain"] as const) if (typeof raw[k] === "boolean") l[k] = raw[k];
+	return Object.keys(l).length ? (l as FilterLayout) : undefined;
+}
+
 const CHART_COLORINGS = ["field", "one", "palette", "shades"] as const;
 const LEGEND_AT = ["right", "below"] as const;
 const HOLES = ["pie", "thick", "normal", "thin"] as const;
@@ -261,6 +293,7 @@ export type DashComponent =
 			field?: ColumnDef;
 			/** note and choice filters: pick several (else one) */
 			multiple?: boolean;
+			layout?: FilterLayout;
 	  });
 
 export interface DashboardDef {
@@ -541,7 +574,16 @@ export function parseDashboard(raw: unknown): { def: DashboardDef; errors: strin
 				if (id === "this") errors.push(`${where}: a filter can't have the id "this" (it means the note a view is on).`);
 				const types = Array.isArray(c.types) ? c.types.map(str).filter(Boolean) : [];
 				const field = control === "choice" ? parseOneColumn(c.field, errors, where) : null;
-				def.components.push({ ...base, kind, control, ...(types.length && (control === "note" || control === "choice") ? { types } : {}), ...(field ? { field } : {}), ...(c.multiple === true && (control === "note" || control === "choice") ? { multiple: true } : {}) });
+				const layout = parseFilterLayout(c.layout);
+				def.components.push({
+					...base,
+					kind,
+					control,
+					...(types.length && (control === "note" || control === "choice") ? { types } : {}),
+					...(field ? { field } : {}),
+					...(c.multiple === true && (control === "note" || control === "choice") ? { multiple: true } : {}),
+					...(layout ? { layout } : {}),
+				});
 				break;
 			}
 		}
@@ -603,6 +645,7 @@ export function serializeDashboard(def: DashboardDef): Record<string, unknown> {
 				if (c.types?.length) out.types = c.types;
 				if (c.field) out.field = columnOut(c.field);
 				if (c.multiple) out.multiple = true;
+				if (c.layout && Object.keys(c.layout).length) out.layout = c.layout;
 				break;
 		}
 		return out;
