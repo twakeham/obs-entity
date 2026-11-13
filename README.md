@@ -245,16 +245,17 @@ On a note that isn't an entity but has properties, the ⋯ menu (and the file me
 ## Entity browser
 
 A left sidebar with two tabs:
-- **Entities**: a tree of all your entity notes.
-- **Configure**: your setup. It holds your entity types (**Entities**: groups and types, opened in the Entity types view), then views and workflows.
+- **Entities**: your views, then a tree of all your entity notes.
+- **Configure**: your setup. It holds your entity types (**Entities**: groups and types, opened in the Entity types view), then your workflows.
 
 Each tab has its own search, filters, View options, **+** menu, and Collapse/Expand all. The browser follows what you open:
-- Opening an entity note shows **Entities**.
-- Opening a view note, the Entity types view or the Workflows view shows **Configure**.
+- Opening an entity note or a view note shows **Entities**.
+- Opening the Entity types view or the Workflows view shows **Configure**.
 
 Clicking a tab yourself sticks until you open something else. Open the browser with the **library** ribbon icon or **Open entity browser**.
 
 **Layout (Entities tab):**
+- **Views** at the top: your view notes, with each one's layout icon.
 - One section per group, with a heading per type.
 - Entities nest under their parent, using the type's parent fields, e.g. Lander and Design review under Apollo Moonshot.
 - Notes are listed under the heading of the type at the top of their branch: a campaign's sessions are under **Campaigns**. Their own type's heading still shows, with how many there are (faint) and a line such as **All 17 under Campaigns · show them**, which filters the browser to that type (each with what it's under). A type with some notes of its own and some under other headings shows **+3 more under Projects · show them** after its own.
@@ -264,7 +265,8 @@ Clicking a tab yourself sticks until you open something else. Open the browser w
   - **Children of other types:** nest under their parent (a campaign's sessions inside the campaign), or are **listed under their own type** (all sessions under Sessions, in a flat list; hover a note to see what it's in). With the second, **Nest under parents of the same type** keeps a city inside its region (switch it off for flat lists everywhere).
   - **Children in other groups:** stay in their own group, or nest under their parent.
   - **Show empty types.**
-  - On the **Configure** tab, View options has **Show entity types**, **Show views** and **Show workflows** instead.
+  - **Show views.**
+  - On the **Configure** tab, View options has **Show entity types** and **Show workflows** instead.
 
 **Rows:**
 - Each row shows the type icon, the name, a child count and a status dot. The subtitle shows as a tooltip.
@@ -275,14 +277,14 @@ Clicking a tab yourself sticks until you open something else. Open the browser w
 - **+** on a type heading creates that type. On a group heading it offers the group's types.
 - **Right-click** a type heading for "Configure the *type* type" and "New workflow for *types*", or a group heading for "Configure group" and "New workflow for *group*".
 
-**Workflows** (on the Configure tab, under Views): a heading for each kind of workflow (**When created**, **When changed**, **Run on notes**, **Scheduled**, with "None yet" when empty, and "not here" on Scheduled when this device doesn't run them), with the workflows under it: the trigger's icon, a green dot when it's on, faint when it's disabled, ⚠ when it has problems, **new** for one that isn't saved yet and a dot for unsaved changes; hover for what starts it and the types it applies to.
+**Workflows** (on the Configure tab, under the entity types): a heading for each kind of workflow (**When created**, **When changed**, **Run on notes**, **Scheduled**, with "None yet" when empty, and "not here" on Scheduled when this device doesn't run them), with the workflows under it: the trigger's icon, a green dot when it's on, faint when it's disabled, ⚠ when it has problems, **new** for one that isn't saved yet and a dot for unsaved changes; hover for what starts it and the types it applies to.
 - **Click** opens it in the Workflows view (and marks it here). **Right-click:** Open, Recent runs, Try on a note…, **Disable** / **Enable**, Duplicate, **Delete…** (asks first). An unsaved one: Open, Discard.
 - **+** starts a new workflow that isn't tied to any type yet (choose its types later, under Applies to). Right-click the heading for New workflow, **Recent runs** (every workflow's recent runs), and **Disable all workflows** / **Enable all workflows** (a master switch: each workflow keeps its own on or off, and Enable all brings them back as they were). Right-click a category (When created, When changed, Run on notes, Forms, Scheduled) to start a new workflow of that kind straight away (Scheduled offers On a schedule and On a date). Right-click a workflow to run it: **Fill in the form…** for a form that starts on its own, **Run on a note…** (pick the note) for buttons and forms on notes.
 
 **Toolbar and filters:**
-- **Toolbar:** search, View options, Collapse all, Expand all (each for the tab you're on) and **+**. On Entities, **+** offers New entity…. On Configure it offers New entity type, New group, New view and New workflow.
-- **Search** on Entities finds entity names and aliases. On Configure it finds entity types, views and workflows (names and button labels).
-- **Filters:** Entities has Type, Status and Tag dropdowns. Configure has Type only: it keeps that entity type, the views that show it (including views of its group, or of every type), and the workflows that apply to it (including ones for any note).
+- **Toolbar:** search, View options, Collapse all, Expand all (each for the tab you're on) and **+**. On Entities, **+** offers New entity… and New view. On Configure it offers New entity type, New group and New workflow.
+- **Search** on Entities finds entities (names and aliases) and views. On Configure it finds entity types and workflows (names and button labels).
+- **Filters:** Entities has Type, Status and Tag dropdowns. **Type** also keeps the views that show that type (including views of its group, or of every type). Only entities have a status and tags, so **Status** or **Tag** leaves views out. Configure has Type only: it keeps that entity type and the workflows that apply to it (including ones for any note).
 - **While filtering**, matches stay inside their hierarchy: parents that don't match are dimmed, and sections with no matches hide. A bar shows the tab's match count and **Clear**; nothing at all is "Nothing matches."
 - **Collapsing while filtering** is temporary, so clearing the filter brings back your normal layout.
 
@@ -304,7 +306,7 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
 
 **Creating and opening views:**
 - **New entity view** (command, the + on the browser's **Views** section, or "New table view of …" / "New board of …" / "New calendar of …" on a type or group heading): pick what it shows, Table, Board or Calendar, name it, and the note is created.
-- **Open entity view…** lists the view notes. The browser's **Configure** tab lists them too.
+- **Open entity view…** lists the view notes. The browser's **Entities** tab lists them at the top.
 - **Embed** a view in any note with `![[Active projects]]`, or paste the block anywhere.
 
 **Toolbar:**

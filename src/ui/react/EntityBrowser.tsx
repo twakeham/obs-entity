@@ -34,7 +34,7 @@ import { openTryRun } from "./workflows/TryRun";
 import { ConfirmModal, copyAllTypesAsPack, type TypesRequest } from "./types/TypeManager";
 
 export interface BrowserState extends BrowserOptions {
-	/** which tab is shown: the entity notes, or the setup (entity types, views, workflows) */
+	/** which tab is shown: the entity notes and views, or the setup (entity types, workflows) */
 	tab: "entities" | "configure";
 	search: string;
 	type: string;
@@ -113,7 +113,8 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 			(!state.tag || e.tags.some((t) => t === state.tag || t.startsWith(`${state.tag}/`)));
 		return filterBrowser(sections, match);
 	}, [sections, entFiltering, query, state.type, state.status, state.tag]);
-	const shownViews = !state.showViews ? [] : cfgFiltering ? views.filter((f) => viewMatches(f.basename, plugin.views.types(f.path), cfgFilter, types)) : views;
+	const entFilter: BrowserFilter = { query, type: state.type, status: state.status, tag: state.tag };
+	const shownViews = !state.showViews ? [] : entFiltering ? views.filter((f) => viewMatches(f.basename, plugin.views.types(f.path), entFilter, types)) : views;
 	// What matches, for the count above the list.
 	const matchedTypes = state.showTypes && cfgFiltering ? listedTypes(plugin).filter((x) => typeMatches(x.t, cfgFilter)).length : 0;
 	const matchedWorkflows = state.showWorkflows && cfgFiltering ? [...plugin.settings.workflows.map((w) => plugin.workflowDrafts.get(w.id) ?? w), ...[...plugin.workflowDrafts.entries()].filter(([id]) => id.startsWith("new:")).map(([, w]) => w)].filter((w) => workflowMatches(w, cfgFilter, types)).length : 0;
@@ -145,13 +146,13 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 		setFilterClosed({ key: filterKey, items: next });
 	};
 	const headingKeys = (list: BrowserSection[]) => list.flatMap((s) => [sKey(s), ...s.blocks.map(bKey)]);
-	const extraKeys = ["t:types", ...groups.map((g) => `t:group:${g.key}`), "v:views", "w:workflows", ...WORKFLOW_CATEGORIES.map((c) => `w:${c.key}`)];
+	const extraKeys = ["t:types", ...groups.map((g) => `t:group:${g.key}`), "w:workflows", ...WORKFLOW_CATEGORIES.map((c) => `w:${c.key}`)];
 	const isExtra = (k: string) => extraKeys.includes(k);
 	// Collapse and expand all: the shown tab's headings only (and on Entities, the notes' branches).
 	const collapseAll = () => {
-		if (filtering) setFilterClosed({ key: filterKey, items: new Set(onConfig ? extraKeys : headingKeys(shown)) });
+		if (filtering) setFilterClosed({ key: filterKey, items: new Set(onConfig ? extraKeys : ["v:views", ...headingKeys(shown)]) });
 		else if (onConfig) setState({ collapsed: [...new Set([...state.collapsed, ...extraKeys])] });
-		else setState({ expanded: [], collapsed: [...state.collapsed.filter(isExtra), ...headingKeys(sections)] });
+		else setState({ expanded: [], collapsed: [...state.collapsed.filter(isExtra), "v:views", ...headingKeys(sections)] });
 	};
 	const expandAll = () => {
 		if (filtering) setFilterClosed({ key: filterKey, items: new Set() });
@@ -206,7 +207,6 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 			});
 		if (onConfig) {
 			opt("show", "Show entity types", state.showTypes, { showTypes: !state.showTypes });
-			opt("show", "Show views", state.showViews, { showViews: !state.showViews });
 			opt("show", "Show workflows", state.showWorkflows, { showWorkflows: !state.showWorkflows });
 			m.showAtMouseEvent(evt.nativeEvent);
 			return;
@@ -220,6 +220,7 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 		opt("cross", "Children in other groups stay in their own group", state.crossGroup === "own", { crossGroup: "own" }, state.sections === "none" || state.children === "type");
 		opt("cross", "Children in other groups nest under their parent", state.crossGroup === "parent", { crossGroup: "parent" }, state.sections === "none" || state.children === "type");
 		opt("empty", "Show empty types", state.showEmpty, { showEmpty: !state.showEmpty });
+		opt("show", "Show views", state.showViews, { showViews: !state.showViews });
 		m.showAtMouseEvent(evt.nativeEvent);
 	};
 	const newMenu = (evt: MouseEvent) => {
@@ -227,19 +228,19 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 		if (onConfig) {
 			m.addItem((i) => i.setTitle("New entity type").setIcon("file-plus").onClick(() => void plugin.activateTypes(null, { newType: true })));
 			m.addItem((i) => i.setTitle("New group").setIcon("folder-plus").onClick(() => void plugin.activateTypes(null, { newGroup: true })));
-			m.addItem((i) => i.setTitle("New view").setIcon("table").onClick(() => plugin.newView()));
 			m.addItem((i) => i.setTitle("New workflow").setIcon("zap").onClick(() => void plugin.activateWorkflows({ blank: true })));
 		} else {
 			m.addItem((i) => i.setTitle("New entity…").setIcon("book-plus").onClick(() => plugin.openCreateModal(null)));
+			m.addItem((i) => i.setTitle("New view").setIcon("table").onClick(() => plugin.newView()));
 		}
 		m.showAtMouseEvent(evt.nativeEvent);
 	};
 
 	const groupSections = state.sections === "groups";
 	const base = (groupSections ? 1 : 0) + (state.typeHeadings ? 1 : 0);
-	const matches = onConfig ? shownViews.length + matchedWorkflows + matchedTypes : shown.reduce((n, s) => n + s.count, 0);
+	const matches = onConfig ? matchedWorkflows + matchedTypes : shown.reduce((n, s) => n + s.count, 0) + shownViews.length;
 	const viewsOpen = !isCollapsed("v:views");
-	const configEmpty = cfgFiltering ? matches === 0 : !state.showTypes && !state.showViews && !state.showWorkflows;
+	const configEmpty = cfgFiltering ? matches === 0 : !state.showTypes && !state.showWorkflows;
 	const tab = (key: BrowserState["tab"], icon: string, label: string) => (
 		<button type="button" role="tab" aria-selected={state.tab === key} className={`oe-browser-tab${state.tab === key ? " is-active" : ""}`} onClick={() => state.tab !== key && setState({ tab: key })}>
 			<Icon name={icon} />
@@ -255,9 +256,9 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 			</div>
 			<div className="oe-browser-toolbar">
 				{onConfig ? (
-					<input type="search" className="oe-browser-search" placeholder="Search…" value={state.configSearch} onChange={(e) => setState({ configSearch: e.target.value })} aria-label="Search entity types, views and workflows" />
+					<input type="search" className="oe-browser-search" placeholder="Search…" value={state.configSearch} onChange={(e) => setState({ configSearch: e.target.value })} aria-label="Search entity types and workflows" />
 				) : (
-					<input type="search" className="oe-browser-search" placeholder="Search…" value={state.search} onChange={(e) => setState({ search: e.target.value })} aria-label="Search entities" />
+					<input type="search" className="oe-browser-search" placeholder="Search…" value={state.search} onChange={(e) => setState({ search: e.target.value })} aria-label="Search entities and views" />
 				)}
 				<ToolButton icon="sliders-horizontal" label="View options" onClick={viewMenu} />
 				<ToolButton icon="chevrons-down-up" label="Collapse all" onClick={collapseAll} />
@@ -307,7 +308,7 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 
 			<div className="oe-browser-list" ref={listRef} role="tabpanel">
 				{onConfig && state.showTypes && <TypesSection isCollapsed={isCollapsed} toggleHeading={toggleHeading} filter={cfgFilter} filtering={cfgFiltering} />}
-				{onConfig && shownViews.length > 0 && (
+				{!onConfig && shownViews.length > 0 && (
 					<section className={`oe-bsection oe-bviews${viewsOpen ? "" : " is-collapsed"}`} data-section="views">
 						<Heading
 							depth={0}
@@ -344,8 +345,8 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 					</section>
 				)}
 				{onConfig && state.showWorkflows && <WorkflowsSection isCollapsed={isCollapsed} toggleHeading={toggleHeading} filter={cfgFilter} filtering={cfgFiltering} />}
-				{onConfig && configEmpty && <div className="oe-panel-empty">{cfgFiltering ? "Nothing matches." : "Nothing shown. Turn on entity types, views or workflows in View options."}</div>}
-				{!onConfig && shown.length === 0 && <div className="oe-panel-empty">{entFiltering ? "Nothing matches." : "No entities yet. Use + to create one."}</div>}
+				{onConfig && configEmpty && <div className="oe-panel-empty">{cfgFiltering ? "Nothing matches." : "Nothing shown. Turn on entity types or workflows in View options."}</div>}
+				{!onConfig && shown.length === 0 && (!entFiltering || shownViews.length === 0) && <div className="oe-panel-empty">{entFiltering ? "Nothing matches." : "No entities yet. Use + to create one."}</div>}
 				{!onConfig && shown.map((s) => {
 					const sid = sKey(s);
 					const sClosed = groupSections && isCollapsed(sid);

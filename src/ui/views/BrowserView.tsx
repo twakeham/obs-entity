@@ -37,13 +37,13 @@ export class BrowserView extends ItemView {
 		this.contentEl.addClass("oe-browser-view");
 		this.root = createRoot(this.contentEl);
 		this.activePath = this.app.workspace.getActiveFile()?.path ?? null;
-		// Follow what's open: an entity note shows the Entities tab; a view note, the entity types
+		// Follow what's open: an entity note or a view note shows the Entities tab; the entity types
 		// editor or the workflows editor shows Configure. Only on change, so a tab clicked by hand stays.
 		this.registerEvent(
 			this.app.workspace.on("file-open", (file) => {
 				if (!file) return;
 				this.activePath = file.path;
-				const tab = this.plugin.index.get(file.path) ? "entities" : this.plugin.views.has(file.path) ? "configure" : null;
+				const tab = this.plugin.index.get(file.path) || this.plugin.views.has(file.path) ? "entities" : null;
 				if (tab && tab !== this.state.tab) this.update({ tab });
 				else this.render();
 			}),
