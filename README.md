@@ -19,7 +19,7 @@ Derived from the Story Forge worldbuilding plugin, made domain-neutral. The full
 | M7.3 Workflows, stage 3 | Test runs, big-run confirmation, ask, move / rename, schedules and date triggers, workflows in type packs | ✅ Done |
 | M8.1 Dashboards: core | Dashboards built on a grid: summary cards, lists, embedded views, text and buttons, with view and edit modes; `notes()` in formulas | ✅ Done |
 | M8.2 Dashboards: charts | Bar, horizontal bar, stacked bar, donut, line and progress charts; card colour rules; click a card, bar or slice to see its notes | ✅ Done |
-| M8.3 Dashboards: interactive | Dashboard filters ✅, `{this}` when embedded ✅, cross-filtering, dashboards in packs | In progress |
+| M8.3 Dashboards: interactive | Dashboard filters ✅, `{this}` when embedded ✅, dashboards in packs ✅, cross-filtering (later) | In progress |
 | M5 Packs & polish | Fuller packs (views and templates, Copy group as a pack) ✅; apps (export / import the whole configuration) ✅; ribbon options ✅; pack gallery and first-run picker ✅, with the TTRPG campaign showcase pack ✅. Waiting until closer to release: accessibility pass, user docs, release readiness | Paused (rest before release) |
 
 ## How notes are stored
@@ -112,7 +112,7 @@ In a new vault, a **Start from a pack** picker opens: choose a pack to start wit
 | Research | Paper, Author, Topic, Research note | Reading queue, Papers by topic, Research notes | Record when a paper is read, Add a note |
 | Personal knowledge | Idea, Source, Topic, Person | Idea garden (board), Sources, Evergreen ideas | Date new ideas, Make evergreen |
 | Home & assets | Item, Room, Warranty, Supplier | Inventory (by room, with totals), Warranties, Warranty calendar | Warranty about to expire (30 days before), Warranty expired |
-| TTRPG campaign (the showcase) | Campaign, Session, Player character, NPC, Faction, Location, Quest, Item, Creature, Encounter, Lore | Party, Session log, Campaign calendar, Quest board, NPC directory, Factions, World atlas, Treasury, Bestiary, Encounter planner, Lore and secrets | 16: Log a session (form), Session wrap-up, Quest completed, Lay the fallen to rest, Date new NPCs and lore, Award XP, Level up, Long rest, Give a quest, Schedule for the next session, Drop it, Number the title, Prep reminder, Game day, Quest deadline near |
+| TTRPG campaign (the showcase) | Campaign, Session, Player character, NPC, Faction, Location, Quest, Item, Creature, Encounter, Lore | Party, Session log, Campaign calendar, Quest board, NPC directory, Factions, World atlas, Treasury, Bestiary, Encounter planner, Lore and secrets, and a **Campaign dashboard** (pick a campaign, or embed it in a campaign note) | 16: Log a session (form), Session wrap-up, Quest completed, Lay the fallen to rest, Date new NPCs and lore, Award XP, Level up, Long rest, Give a quest, Schedule for the next session, Drop it, Number the title, Prep reminder, Game day, Quest deadline near |
 
 **The TTRPG campaign pack** is the flagship example: a system-neutral fantasy campaign that uses most of what the plugin does.
 - **Fields:** every kind, including roll-ups (party size, sessions played, hours, the next session, inventory value, total challenge of an encounter's creatures) and formulas (health %, reputation from standing, an encounter's risk from a valued choice). Coloured choices, choices with values (attitude −2 to 2, rarity, danger), labelled links (bonds, creatures ×3), two-way links (allied and rival factions), and validation (levels 1–20, a short-name pattern, an end date after the start, a summary required once a session is played).
@@ -521,7 +521,7 @@ A **dashboard** is a page you build from components on a grid: summary cards, ch
   - Numbers gained an **is between** condition, and yes / no fields an **is Yes / No** condition (in views too).
   - **Filter style** (Style tab → **Filter**): **Layout** Auto (side by side when one row high, stacked when taller), Side by side or Stacked; **Values as** (choice and yes / no filters) Auto (pills while they fit, else a drop-down), Pills, Drop-down or List (tick boxes); **Size** S / M / L; the **Title** on or off; a **Summary** of what's picked under it ("2 of 4: active, completed"); and **Plain** (no box, like a toolbar). The controls stretch to fill the filter as it's resized.
 
-Cross-filtering (clicking a bar to filter the rest) and dashboards in packs are coming next.
+Dashboards travel in packs and apps like views (Copy group as a pack, Export app), following renamed types and workflows. The TTRPG pack has a **Campaign dashboard**. Cross-filtering (clicking a bar to filter the rest) is planned for later.
 
 ## Workflows
 

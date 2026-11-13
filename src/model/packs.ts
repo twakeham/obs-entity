@@ -1,6 +1,7 @@
 import { FIELD_KINDS, cloneGroup, cloneType, isValidKey, type EntityTypeDef, type GroupDef } from "./types";
 import { rewriteRefs } from "./formula";
-import { isGroup, parseView, type ColumnDef, type FilterGroup, type GroupBy, type ViewDef } from "./views";
+import { emptyView, isGroup, NAME_COLUMN, parseView, type ColumnDef, type FilterGroup, type GroupBy, type ViewDef } from "./views";
+import { isDashboardRaw, parseDashboard, type DashboardDef, type DashComponent, type DashRule, type DashSource } from "./dashboard";
 import { cloneWorkflow, flatSteps, mapStepTexts, mapTemplate, newWorkflowId, readWorkflows, scopeTypes, type WorkflowDef, type WorkflowStep } from "./workflows";
 import { normaliseLayout, renameLayoutKey, workflowItem } from "./formLayout";
 import { readComponents, type SavedComponent } from "./layoutClipboard";
@@ -284,6 +285,8 @@ export function parsePack(text: string): PackParse {
 		const where = typeof v?.name === "string" && v.name.trim() ? `“${v.name}”` : `#${i + 1}`;
 		if (!v || typeof v !== "object" || typeof v.name !== "string" || !v.name.trim()) return { ok: false, error: `View ${where} has no name.` };
 		if (!v.view || typeof v.view !== "object" || Array.isArray(v.view)) return { ok: false, error: `View ${where} has no definition.` };
+		// A dashboard reads as one (its problems are shown on it, as in a note).
+		if (isDashboardRaw(v.view)) continue;
 		const read = parseView(v.view);
 		if (!read.def) return { ok: false, error: `View ${where}: ${read.errors[0] ?? "its definition can't be read."}` };
 	}
@@ -338,6 +341,8 @@ export interface InstallResult {
 	workflows: WorkflowDef[];
 	/** the pack's views, with the renamed keys, to write as view notes (`path`: where they came from) */
 	views: { name: string; path?: string; def: ViewDef }[];
+	/** the pack's dashboards, with the renamed keys and workflow ids (written after the views: they can name them) */
+	dashboards: { name: string; path?: string; def: DashboardDef }[];
 	/** the added types' templates, by their key here */
 	templates: Record<string, string>;
 }
@@ -427,15 +432,17 @@ export function installPack(pack: TypePack, groups: GroupDef[], types: EntityTyp
 			t.form = { ...t.form, layout };
 		}
 	const outViews = (pack.views ?? []).flatMap((v) => {
+		if (isDashboardRaw(v.view)) return [];
 		const def = parseView(v.view).def;
 		return def ? [{ name: v.name.trim(), ...(v.path ? { path: v.path } : {}), def: renameViewKeys(def, keyMap) }] : [];
 	});
+	const outDashboards = (pack.views ?? []).flatMap((v) => (isDashboardRaw(v.view) ? [{ name: v.name.trim(), ...(v.path ? { path: v.path } : {}), def: renameDashboardKeys(parseDashboard(v.view).def, keyMap, idMap) }] : []));
 	const templates: Record<string, string> = {};
 	for (const [k, text] of Object.entries(pack.templates ?? {})) {
 		const key = keyMap.get(k) ?? k;
 		if (added.includes(key)) templates[key] = text;
 	}
-	return { groups: outGroups, types: outTypes, added, renamed, addedGroups, workflows: outWorkflows, views: outViews, templates };
+	return { groups: outGroups, types: outTypes, added, renamed, addedGroups, workflows: outWorkflows, views: outViews, dashboards: outDashboards, templates };
 }
 
 // ---------------------------------------------------------------- renamed keys
@@ -446,13 +453,14 @@ export function renameColumnId(id: string, keys: Map<string, string>): string {
 	return m && keys.has(m[1]) ? `in:${keys.get(m[1])}.${m[2]}` : id;
 }
 
-/** A formula's references to renamed types' columns, renamed (the rest as written). */
+/** A formula's references to renamed types' columns, renamed, and renamed types in notes("…") (the rest as written). */
 export function renameFormula(src: string, keys: Map<string, string>): string {
 	if (!keys.size || !src) return src;
-	return rewriteRefs(src, (n) => {
+	const refs = rewriteRefs(src, (n) => {
 		const to = renameColumnId(n, keys);
 		return to === n ? undefined : to;
 	});
+	return refs.replace(/\bnotes\(\s*(["'])([^"']*)\1\s*\)/g, (all, q: string, key: string) => (keys.has(key) ? `notes(${q}${keys.get(key)}${q})` : all));
 }
 
 /** A template's {formula} parts with their references renamed (unchanged when none are). */
@@ -547,6 +555,78 @@ export function renameViewKeys(def: ViewDef, keys: Map<string, string>): ViewDef
 			...(def.calendar.cardFields ? { cardFields: ids(def.calendar.cardFields) } : {}),
 		};
 	return out;
+}
+
+/**
+ * References to renamed types and workflows in a dashboard: its place, each source (types, filters, a formula's
+ * columns and notes("…")), the columns cards, charts and lists use, filters' types and fields, conditions in rules
+ * and Done when, buttons' new-note types and workflows.
+ */
+export function renameDashboardKeys(def: DashboardDef, keys: Map<string, string>, ids: Map<string, string> = new Map()): DashboardDef {
+	if (!keys.size && !ids.size) return def;
+	const id = (x: string) => renameColumnId(x, keys);
+	const col = (c: ColumnDef): ColumnDef => renameViewKeys({ ...emptyView(), columns: [NAME_COLUMN, c] }, keys).columns[1];
+	const src = (s: DashSource | undefined): DashSource | undefined =>
+		!s ? s : s.kind === "query" ? { kind: "query", def: renameViewKeys(s.def, keys) } : s.kind === "formula" ? { kind: "formula", formula: renameFormula(s.formula, keys) } : s;
+	const rules = (rs: DashRule[] | undefined) => rs?.map((r) => ({ ...r, target: id(r.target), when: renameFilter(r.when, keys) }));
+	const components = def.components.map((c): DashComponent => {
+		const base = { ...c, ...(c.highlight ? { highlight: rules(c.highlight) } : {}) };
+		switch (c.kind) {
+			case "card":
+				return { ...base, kind: "card", source: src(c.source), value: "formula" in c.value ? { formula: renameFormula(c.value.formula, keys) } : { ...c.value, ...(c.value.column ? { column: col(c.value.column) } : {}) } } as DashComponent;
+			case "chart":
+				return {
+					...base,
+					kind: "chart",
+					source: src(c.source),
+					...(c.by ? { by: col(c.by) } : {}),
+					...(c.split ? { split: col(c.split) } : {}),
+					measure: c.measure.column ? { ...c.measure, column: col(c.measure.column) } : c.measure,
+					...(c.done ? { done: renameFilter(c.done, keys) } : {}),
+				} as DashComponent;
+			case "list":
+				return { ...base, kind: "list", source: src(c.source), fields: c.fields.map(col), sort: c.sort.map((s) => ({ ...s, by: id(s.by) })), ...(c.boxHighlight ? { boxHighlight: rules(c.boxHighlight) } : {}) } as DashComponent;
+			case "filter":
+				return { ...base, kind: "filter", ...(c.types ? { types: c.types.map((t) => renameTarget(t, keys)) } : {}), ...(c.field ? { field: col(c.field) } : {}) } as DashComponent;
+			case "button": {
+				const a = c.action;
+				const action = !a ? a : "new" in a ? { new: renameTarget(a.new, keys) } : "workflow" in a ? { workflow: ids.get(a.workflow) ?? a.workflow } : a;
+				return { ...base, kind: "button", ...(action ? { action } : {}) } as DashComponent;
+			}
+			default:
+				return base as DashComponent;
+		}
+	});
+	return { ...def, components, ...(def.place ? { place: renameTarget(def.place, keys) } : {}) };
+}
+
+/** A dashboard's view sources and view components following view notes written under other names (`names`: old → new). */
+export function renameDashboardViews(def: DashboardDef, names: Map<string, string>): DashboardDef {
+	if (!names.size) return def;
+	const to = (n: string) => names.get(n) ?? n;
+	return {
+		...def,
+		components: def.components.map((c) => {
+			if (c.kind === "view") return { ...c, view: to(c.view) };
+			if ("source" in c && c.source?.kind === "view") return { ...c, source: { kind: "view", view: to(c.source.view) } } as DashComponent;
+			return c;
+		}),
+	};
+}
+
+/** The types a dashboard's components show (their Types sources and filters), for choosing what to export; empty: any. */
+export function dashboardTypes(def: DashboardDef): string[] {
+	const out = new Set<string>();
+	let any = false;
+	for (const c of def.components) {
+		if ("source" in c && c.source) {
+			if (c.source.kind === "query") for (const t of c.source.def.types) (t === "*" ? (any = true) : out.add(t));
+			else any = true;
+		}
+		if (c.kind === "filter") for (const t of c.types ?? []) out.add(t);
+		if (c.kind === "view") any = true;
+	}
+	return any || out.size === 0 ? ["*"] : [...out];
 }
 
 /**

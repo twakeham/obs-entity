@@ -425,6 +425,72 @@ const TEMPLATES: Record<string, string> = {
 
 // ---------------------------------------------------------------- views
 
+/** Notes of the campaign picked in the dashboard's Campaign filter (all campaigns while none is). */
+const inCampaign = { field: "campaign", op: "links-any", value: ["{camp}"] };
+const query = (type: string, ...more: Record<string, unknown>[]) => ({ types: [type], filters: { all: [inCampaign, ...more] } });
+const statusIs = (...value: string[]) => ({ field: "status", op: "any-of", value });
+
+/**
+ * A campaign at a glance: pick a campaign (or embed it in a campaign note, where it starts on that campaign) and
+ * every part follows it.
+ */
+const CAMPAIGN_DASHBOARD: PackView = view("Campaign dashboard", {
+	kind: "dashboard",
+	place: "campaign",
+	components: [
+		{ id: "camp", kind: "filter", title: "Campaign", at: [0, 0, 9, 1], control: "note", types: ["campaign"], layout: { summary: false } },
+		{ id: "log", kind: "button", label: "Log a session", icon: "dices", at: [9, 0, 3, 1], action: { workflow: "wf-tt-log-session" } },
+		{
+			id: "open",
+			kind: "card",
+			title: "Open quests",
+			at: [0, 1, 3, 2],
+			source: query("quest", statusIs("active")),
+			value: { agg: "count" },
+			layout: { icon: "side", caption: "in [Campaign]" },
+			style: { icon: "scroll" },
+			highlight: [{ name: "None left", target: "row", when: { all: [{ field: "value", op: "=", value: 0 }] }, style: { fill: "green", icon: "check-circle" } }],
+		},
+		{ id: "played", kind: "card", title: "Sessions played", at: [3, 1, 3, 2], source: query("session", statusIs("played")), value: { agg: "count" }, layout: { icon: "side", caption: "[Hours played] at the table" }, style: { icon: "dices" } },
+		{ id: "hours", kind: "card", title: "Hours played", at: [6, 1, 3, 2], source: query("session", statusIs("played")), value: { agg: "sum", column: "duration" }, format: "#,##0.# h", layout: { icon: "side" }, style: { icon: "clock" } },
+		{
+			id: "next",
+			kind: "card",
+			title: "Next session",
+			at: [9, 1, 3, 2],
+			source: query("session", statusIs("planned")),
+			value: { agg: "earliest", column: "date" },
+			format: "relative",
+			layout: { icon: "side", accent: "left" },
+			style: { icon: "calendar-clock" },
+		},
+		{ id: "bystatus", kind: "chart", title: "Quests", at: [0, 3, 4, 5], chart: "donut", source: query("quest"), by: "status", hideEmpty: true },
+		{ id: "sessions", kind: "chart", title: "Sessions over time", at: [4, 3, 8, 5], chart: "line", source: query("session", statusIs("played")), by: "date", every: "month", look: { smooth: true } },
+		{
+			id: "quests",
+			kind: "list",
+			title: "Active quests",
+			at: [0, 8, 6, 6],
+			source: query("quest", statusIs("active")),
+			fields: ["priority", "deadline"],
+			sort: [{ by: "deadline", dir: "asc" }],
+			limit: 8,
+			layout: { more: "link" },
+			highlight: [{ name: "Due soon", target: "deadline", when: { all: [{ field: "days_left", op: "<", value: 7 }] }, style: { fill: "orange", icon: "hourglass" } }],
+		},
+		{
+			id: "party",
+			kind: "list",
+			title: "The party",
+			at: [6, 8, 6, 6],
+			source: query("pc", statusIs("active")),
+			fields: ["class", "level", "hp_percent"],
+			sort: [{ by: "level", dir: "desc" }],
+			layout: { marker: "icon", fieldNames: true },
+			highlight: [{ name: "Wounded", target: "row", when: { all: [{ field: "hp_percent", op: "<", value: 25 }] }, style: { text: "red", bold: true, icon: "heart-pulse" } }],
+		},
+	],
+});
 const VIEWS: PackView[] = [
 	view("Party", {
 		kind: "table",
@@ -525,6 +591,7 @@ const VIEWS: PackView[] = [
 		group: [{ by: "status" }],
 		sort: [{ by: "recorded", dir: "desc" }],
 	}),
+	CAMPAIGN_DASHBOARD,
 ];
 
 // ---------------------------------------------------------------- workflows

@@ -699,6 +699,16 @@ export default class EntitiesPlugin extends Plugin {
 		return normalizePath(`${folder ? `${folder}/` : ""}${base}.md`);
 	}
 
+	/** A dashboard note's text: its block. */
+	dashboardNoteText(def: DashboardDef): string {
+		return `\`\`\`${VIEW_BLOCK}\n${stringifyYaml(serializeDashboard(def))}\`\`\`\n`;
+	}
+
+	/** Write a dashboard note in the views folder (numbered when the name's taken). */
+	async writeDashboardNote(name: string, def: DashboardDef): Promise<TFile> {
+		return this.writeViewNoteText(name, this.dashboardNoteText(def), "dashboard");
+	}
+
 	/** A view note's text: the view's block. */
 	viewNoteText(def: ViewDef): string {
 		return `\`\`\`${VIEW_BLOCK}\n${stringifyYaml(serializeView(def))}\`\`\`\n`;

@@ -357,7 +357,7 @@ export function importAsDrafts(
 	groups: GroupDef[],
 	types: EntityTypeDef[],
 	workflows: WorkflowDef[] = [],
-): { error: string } | ({ types: EntityTypeDef[]; newGroups: GroupDef[]; renamed: Record<string, string> } & Pick<InstallResult, "workflows" | "views" | "templates">) {
+): { error: string } | ({ types: EntityTypeDef[]; newGroups: GroupDef[]; renamed: Record<string, string> } & Pick<InstallResult, "workflows" | "views" | "dashboards" | "templates">) {
 	const parsed = parsePack(text);
 	if (!parsed.ok) return { error: parsed.error };
 	const res = installPack({ ...parsed.pack, id: undefined }, groups, types, workflows);
@@ -368,6 +368,7 @@ export function importAsDrafts(
 		renamed: res.renamed,
 		workflows: res.workflows,
 		views: res.views,
+		dashboards: res.dashboards,
 		templates: res.templates,
 	};
 }

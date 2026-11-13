@@ -1,6 +1,7 @@
 import { TFile, normalizePath, parseYaml } from "obsidian";
 import { asArray } from "../model/links";
-import { installPack, numberedFile, remapWorkflowViews, STARTER_PACK, viewOnlyOver, type InstallResult, type PackView, type TypePack } from "../model/packs";
+import { dashboardTypes, installPack, numberedFile, remapWorkflowViews, renameDashboardViews, STARTER_PACK, viewOnlyOver, type InstallResult, type PackView, type TypePack } from "../model/packs";
+import { isDashboardRaw, parseDashboard } from "../model/dashboard";
 import { isPristine } from "../model/settings";
 import type { EntityTypeDef } from "../model/types";
 import { findViewBlocks } from "../model/viewBlock";
@@ -53,7 +54,12 @@ export async function collectPackFiles(plugin: EntitiesPlugin, types: EntityType
 				continue;
 			}
 			if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
-			const shows = (raw as { types?: unknown }).types === undefined ? ["*"] : asArray((raw as { types?: unknown }).types).map(String);
+			// A dashboard shows the types its components do.
+			const shows = isDashboardRaw(raw)
+				? dashboardTypes(parseDashboard(raw).def)
+				: (raw as { types?: unknown }).types === undefined
+					? ["*"]
+					: asArray((raw as { types?: unknown }).types).map(String);
 			if (pick !== "all" && !viewOnlyOver(shows, pick.types, pick.groups)) continue;
 			views.push({ name: file.basename, path: file.path, view: raw as Record<string, unknown> });
 		}
@@ -76,7 +82,7 @@ export interface PackFilesWritten {
  * template already at the same name with other text is overwritten in place, a copy of it going to the trash first
  * (overwriting rather than deleting keeps links to it, and workflows' view lists, pointing at it).
  */
-export async function writePackFiles(plugin: EntitiesPlugin, res: Pick<InstallResult, "views" | "templates">, types: EntityTypeDef[], workflows: WorkflowDef[], replace = false): Promise<PackFilesWritten> {
+export async function writePackFiles(plugin: EntitiesPlugin, res: Pick<InstallResult, "views" | "templates"> & Partial<Pick<InstallResult, "dashboards">>, types: EntityTypeDef[], workflows: WorkflowDef[], replace = false): Promise<PackFilesWritten> {
 	const { vault } = plugin.app;
 	const out: PackFilesWritten = { templates: [], views: [], replaced: [] };
 	const norm = (s: string) => s.replace(/\r\n/g, "\n").trim();
@@ -108,6 +114,8 @@ export async function writePackFiles(plugin: EntitiesPlugin, res: Pick<InstallRe
 		out.templates.push(path);
 	}
 	const moved = new Map<string, string>();
+	/** view names in the pack → the names their notes were written as (another when the name was taken) */
+	const names = new Map<string, string>();
 	for (const v of res.views) {
 		const there = replace ? vault.getAbstractFileByPath(await plugin.viewNotePath(v.name)) : null;
 		let file: TFile;
@@ -119,6 +127,21 @@ export async function writePackFiles(plugin: EntitiesPlugin, res: Pick<InstallRe
 			out.views.push(file.path);
 		}
 		if (v.path) moved.set(normalizePath(v.path), file.path);
+		if (file.basename !== v.name) names.set(v.name, file.basename);
+	}
+	// Dashboards after the views: their view sources and view components follow views written under other names.
+	for (const d of res.dashboards ?? []) {
+		const def = renameDashboardViews(d.def, names);
+		const there = replace ? vault.getAbstractFileByPath(await plugin.viewNotePath(d.name)) : null;
+		let file: TFile;
+		if (there instanceof TFile) {
+			file = there;
+			if (await overwrite(there, plugin.dashboardNoteText(def))) out.views.push(file.path);
+		} else {
+			file = await plugin.writeDashboardNote(d.name, def);
+			out.views.push(file.path);
+		}
+		if (d.path) moved.set(normalizePath(d.path), file.path);
 	}
 	remapWorkflowViews(workflows, moved, (p) => plugin.views.has(p));
 	return out;
