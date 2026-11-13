@@ -42,7 +42,7 @@ export interface BrowserState extends BrowserOptions {
 	type: string;
 	status: string;
 	tag: string;
-	/** the Configure tab's own search and type filter */
+	/** the Types tab's own search and type filter */
 	configSearch: string;
 	configType: string;
 	/** expanded entity paths */
@@ -99,7 +99,7 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 		return Array.from(new Set(all.length ? all : DEFAULT_STATUSES));
 	}, [groups, types]);
 
-	// Each tab has its own search and filters: Entities (search, type, status, tag), Configure (search, type).
+	// Each tab has its own search and filters: Entities (search, type, status, tag), Types (search, type).
 	const onConfig = state.tab === "configure";
 	const query = state.search.trim().toLowerCase();
 	const entFiltering = !!(query || state.type || state.status || state.tag);
@@ -276,7 +276,7 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 		<div className="oe-browser">
 			<div className="oe-browser-tabs" role="tablist" aria-label="Entity browser">
 				{tab("entities", "library", "Entities")}
-				{tab("configure", "settings-2", "Configure")}
+				{tab("configure", "settings-2", "Types")}
 			</div>
 			<div className="oe-browser-toolbar">
 				{onConfig ? (

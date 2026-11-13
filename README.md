@@ -154,7 +154,7 @@ Opened from:
 - the settings tab
 - the file menu: **Configure the Person type**
 
-**Choosing a type or group:** in the **Entities** section on the Entity browser's **Configure** tab (the view itself has no list). It lists your groups and, under each, its entity types with their note counts; new types and groups show **new**, and ones with unsaved changes a dot. The one open in the editor is highlighted.
+**Choosing a type or group:** in the **Entities** section on the Entity browser's **Types** tab (the view itself has no list). It lists your groups and, under each, its entity types with their note counts; new types and groups show **new**, and ones with unsaved changes a dot. The one open in the editor is highlighted.
 - **Click a group** to edit the group, its chevron to fold it. **Drag a group** onto another to reorder groups.
 - **Click a type** to edit it. Right-click it for New *note*, New table view, New workflow, or **Duplicate type**.
 - **+** on the Entities heading starts a new type. **Right-click the heading** for New entity type, New group, **Browse packs…** (the gallery), **Import pack…**, **Copy all types as a pack** (with every workflow, view note and template), **Import app…** and **Export as an app…** (see [Apps](#apps)). Right-click a group for **New entity type in this group**.
@@ -246,11 +246,11 @@ On a note that isn't an entity but has properties, the ⋯ menu (and the file me
 
 A left sidebar with two tabs:
 - **Entities**: your views, then a tree of all your entity notes.
-- **Configure**: your setup. It holds your entity types (**Entities**: groups and types, opened in the Entity types view), then your workflows.
+- **Types**: your setup. It holds your entity types (**Entities**: groups and types, opened in the Entity types view), then your workflows.
 
 Each tab has its own search, filters, View options, **+** menu, and Collapse/Expand all. The browser follows what you open:
 - Opening an entity note or a view note shows **Entities**.
-- Opening the Entity types view or the Workflows view shows **Configure**.
+- Opening the Entity types view or the Workflows view shows **Types**.
 
 Clicking a tab yourself sticks until you open something else. Open the browser with the **library** ribbon icon or **Open entity browser**.
 
@@ -270,7 +270,7 @@ Clicking a tab yourself sticks until you open something else. Open the browser w
   - **Children in other groups:** stay in their own group, or nest under their parent.
   - **Show empty types.**
   - **Show views.**
-  - On the **Configure** tab, View options has **Show entity types** and **Show workflows** instead.
+  - On the **Types** tab, View options has **Show entity types** and **Show workflows** instead.
 
 **Rows:**
 - Each row shows the type icon, the name, a child count and a status dot. The subtitle shows as a tooltip.
@@ -281,14 +281,14 @@ Clicking a tab yourself sticks until you open something else. Open the browser w
 - **+** on a type heading creates that type. On a group heading it offers the group's types.
 - **Right-click** a type heading for "Configure the *type* type" and "New workflow for *types*", or a group heading for "Configure group" and "New workflow for *group*".
 
-**Workflows** (on the Configure tab, under the entity types): a heading for each kind of workflow (**When created**, **When changed**, **Run on notes**, **Scheduled**, with "None yet" when empty, and "not here" on Scheduled when this device doesn't run them), with the workflows under it: the trigger's icon, a green dot when it's on, faint when it's disabled, ⚠ when it has problems, **new** for one that isn't saved yet and a dot for unsaved changes; hover for what starts it and the types it applies to.
+**Workflows** (on the Types tab, under the entity types): a heading for each kind of workflow (**When created**, **When changed**, **Run on notes**, **Scheduled**, with "None yet" when empty, and "not here" on Scheduled when this device doesn't run them), with the workflows under it: the trigger's icon, a green dot when it's on, faint when it's disabled, ⚠ when it has problems, **new** for one that isn't saved yet and a dot for unsaved changes; hover for what starts it and the types it applies to.
 - **Click** opens it in the Workflows view (and marks it here). **Right-click:** Open, Recent runs, Try on a note…, **Disable** / **Enable**, Duplicate, **Delete…** (asks first). An unsaved one: Open, Discard.
 - **+** starts a new workflow that isn't tied to any type yet (choose its types later, under Applies to). Right-click the heading for New workflow, **Recent runs** (every workflow's recent runs), and **Disable all workflows** / **Enable all workflows** (a master switch: each workflow keeps its own on or off, and Enable all brings them back as they were). Right-click a category (When created, When changed, Run on notes, Forms, Scheduled) to start a new workflow of that kind straight away (Scheduled offers On a schedule and On a date). Right-click a workflow to run it: **Fill in the form…** for a form that starts on its own, **Run on a note…** (pick the note) for buttons and forms on notes.
 
 **Toolbar and filters:**
-- **Toolbar:** search, View options, Collapse all, Expand all (each for the tab you're on) and **+**. On Entities, **+** offers New entity… and New view. On Configure it offers New entity type, New group and New workflow.
-- **Search** on Entities finds entities (names and aliases) and views. On Configure it finds entity types and workflows (names and button labels).
-- **Filters:** Entities has Type, Status and Tag dropdowns. **Type** also keeps the views that show that type (including views of its group, or of every type). Only entities have a status and tags, so **Status** or **Tag** leaves views out. Configure has Type only: it keeps that entity type and the workflows that apply to it (including ones for any note).
+- **Toolbar:** search, View options, Collapse all, Expand all (each for the tab you're on) and **+**. On Entities, **+** offers New entity… and New view. On Types it offers New entity type, New group and New workflow.
+- **Search** on Entities finds entities (names and aliases) and views. On Types it finds entity types and workflows (names and button labels).
+- **Filters:** Entities has Type, Status and Tag dropdowns. **Type** also keeps the views that show that type (including views of its group, or of every type). Only entities have a status and tags, so **Status** or **Tag** leaves views out. Types has Type only: it keeps that entity type and the workflows that apply to it (including ones for any note).
 - **While filtering**, matches stay inside their hierarchy: parents that don't match are dimmed, and sections with no matches hide. A bar shows the tab's match count and **Clear**; nothing at all is "Nothing matches."
 - **Collapsing while filtering** is temporary, so clearing the filter brings back your normal layout.
 
@@ -456,7 +456,7 @@ Any view can also be shown as a **calendar** of its notes by date: use the **Tab
 
 Workflows do things for you: when a note is **created**, when a **field changes** (e.g. Status becomes done), on a **schedule** (e.g. every Monday at 9:00), when a **date** is reached (e.g. 3 days before Due), or when you press a **button**, they run a list of steps on the note. Open the **Workflows** view from the ribbon (lightning bolt), the "Open workflows" command, the settings tab, or a type's **Workflows** tab in the Entity types view.
 
-- **Your workflows are listed in the Entity Browser**, on its **Configure** tab under **Workflows**, by what starts them; right-click that heading for **Recent runs** and **Disable all workflows** (see Entity browser). Click one to open it here. With nothing open, the view offers **New workflow**.
+- **Your workflows are listed in the Entity Browser**, on its **Types** tab under **Workflows**, by what starts them; right-click that heading for **Recent runs** and **Disable all workflows** (see Entity browser). Click one to open it here. With nothing open, the view offers **New workflow**.
 - **The editor's sections** are panels in their own colours: **Workflow** (purple: its name, the types it applies to, and whether it sets off others), then **When**, **Only if** and **Do** (blue, orange, green), which are joined by a line, so it's easy to see what starts the workflow, what it checks, and what it does.
 - **Two tabs** under a workflow's name: **Editor** (Workflow, When, Only if and Do; a red mark when it has a problem) and **Recent runs** (that workflow's runs, with Undo); a form workflow also has **Form fields** and **Form layout**. A new workflow has no Recent runs until it's saved; Save with problems goes back to the Editor.
 - **Folding:** click the heading of When, Only if or Do to fold it to one line: the trigger in words, "2 conditions, all must match", "3 steps: Set a field → Move the note → Show a notice"… A folded section with a problem in it shows a red mark, and pressing Save opens it. Folded sections stay folded for every workflow, on this device.
