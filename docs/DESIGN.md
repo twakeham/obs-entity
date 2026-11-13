@@ -2141,6 +2141,14 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
     - `icon`: `before`, `above`, `after`, or `only` (the label as a tooltip and aria-label);
     - `description`: a small second line under the label; cards' `[Title]`s become their values (`fillCaption`).
     - A whole-button rule can carry a `layout` too, and only a rule can set `state: disabled`: the button greys out, doesn't run, and its tooltip says why ("Disabled: <rule name>"). A rule's icon replaces the button's.
+- **filter** (D3): something to pick, which other components use (`model/dashboardFilters.ts`):
+  - `control`: `note` (notes of `types`), `choice` (the values of `field`, a choice, status or multiple-choice field of `types`), `search` (text), `dates` (Today, This week, This month, This year, Last / Next 7 or 30 days, or Custom from / to), `number` (from / to) or `toggle` (Yes / No). Note and choice filters pick one, or several with `multiple`.
+  - Shown as its title, the control and a clear button (`FilterBox`). Nothing picked means everything shows.
+  - **Used explicitly.** A condition's value can be a filter: `{<filter id>}` (`tokenOf`, `filterToken`), offered by the condition editor's filter button where the control fits the value (`CONTROL_FOR_VALUE`: links ← note, choices ← choice, text ← search, date "is between" ← dates, number "is between" ← number, yes / no "is" ← toggle). Before a source runs, `withFilters` / `groupWithFilters` put in what's picked (dates as days from today, `-6d`), and leave out a condition whose filter has nothing picked. That's sources' Types filters, a progress chart's Done when, lists' row rules and every component's conditional styling. Card formulas, captions, button descriptions and formula sources name it by title, `[Campaign]` (`filterFValue`: the note or notes, the choice or choices, the text, [from, to], [min, max] or true / false; `filterText` in captions: what's picked, or "All").
+  - Two condition operators came with it, for views too: numbers' **is between** (`numrange`, either end open) and yes / no fields' **is** (Yes / No).
+  - **Remembered on this device** per dashboard and per note it's shown on (localStorage `obs-entities-dashboard-filters`, keyed `<dashboard path>|<host note>`), not written to the note (`startingFilters`).
+  - **Shown on a note** (an embed: `ViewBlock.hostPath`): a note filter whose types name that note's type starts on it, so one dashboard embedded in each campaign note follows its campaign. Cleared on purpose, it stays cleared there.
+  - Its settings: the control (icon buttons), Notes of / From types, the Field (choice), Pick One / Several, and "Use it": how, and which components use it now.
 
 **`notes()` formula function** (everywhere formulas run: table columns, workflows, dashboards). `notes("quest")`, `notes("@table")` or `notes()` returns links to every note of that type, group, or all. It combines with `filter`, `map`, `prop`, `count`, `sum`, e.g. `count(filter(notes("quest"), prop(item, "Status") = "active"))`. Results are cached per evaluation pass, so a column using it doesn't rescan the vault for every row.
 
@@ -2205,7 +2213,7 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
 **Phases:**
 - **D1 (M8.1) ✅:** core. The kind, grid, view and edit modes, palette and settings, card, list, view, text and button components, sources (view, types and filters, formula), `notes()`, card formulas over cards.
 - **D2 (M8.2) ✅:** charts (bar, horizontal bar, stacked bar, donut, line over time, progress; drawn as SVG), card colour and icon rules, and click-through to the matching notes in a table tab.
-- **D3 (M8.3):** dashboard filters (controls setting variables that sources use), `{this}` when embedded in a note, cross-filtering, and dashboards in packs (a TTRPG campaign dashboard).
+- **D3 (M8.3):** dashboard filters ✅ (a filter component; conditions, formulas and captions use it explicitly; remembered per device; `{this}` when embedded: a note filter starts on the note it's shown on), cross-filtering, and dashboards in packs (a TTRPG campaign dashboard).
 
 **Code (D1):**
 - **The model:** `model/dashboard.ts`.
@@ -2464,7 +2472,7 @@ Drive a real Obsidian instance via the Chrome DevTools Protocol (Obsidian starte
 | M7.3 ✅ | **Workflows: time** | Schedule and date triggers, ask, move / rename, test run, big-run confirmation, limits, workflows in type packs (views and templates came with M5's fuller packs) | Example 4 works |
 | M8.1 ✅ | **Dashboards: core** | §8.12 D1: `kind: dashboard` view notes, grid with view and edit modes (palette, settings, Save / Discard), card / list / view / text / button components, sources (saved view, types and filters, formula), `notes()` in formulas, card formulas over other cards, New dashboard | A dashboard of cards, lists and views can be built without editing YAML |
 | M8.2 ✅ | **Dashboards: charts** | Bar, horizontal bar, stacked bar, donut, line, progress (SVG); card colour and icon rules; click-through to the matching notes in a table tab | Status breakdowns and totals over time shown as charts |
-| M8.3 | **Dashboards: interactive** | Dashboard filters and variables, `{this}` when embedded, cross-filtering, dashboards in packs | A campaign dashboard follows a chosen campaign |
+| M8.3 | **Dashboards: interactive** | Dashboard filters and variables ✅, `{this}` when embedded ✅, cross-filtering, dashboards in packs | A campaign dashboard follows a chosen campaign |
 | M6+ | **Modules** | Graph, bulk edit, Bases generation, domain views (the overview dashboard became M8's dashboards) | Each behind a module toggle |
 
 ---

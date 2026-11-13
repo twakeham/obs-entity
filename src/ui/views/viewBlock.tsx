@@ -8,7 +8,7 @@ import { parseView, serializeView, unknownSources, type ViewDef } from "../../mo
 import { PluginContext } from "../react/context";
 import { EntityTable } from "../react/table/EntityTable";
 import { Dashboard } from "../react/dashboard/Dashboard";
-import { isDashboardRaw, parseDashboard } from "../../model/dashboard";
+import { isDashboardRaw, parseDashboard, type DashboardDef } from "../../model/dashboard";
 
 /**
  * One rendered `entity-view` block. The table edits a copy of the definition and saves it back into the
@@ -38,15 +38,13 @@ export class ViewBlock extends MarkdownRenderChild {
 		}
 		if (isDashboardRaw(raw)) {
 			const { def, errors } = parseDashboard(raw);
-			const path = this.ctx.sourcePath;
 			this.root = createRoot(el);
 			el.addClass("oe-dash-host");
+			this.dash = { def, errors };
+			// A first guess at the note it's shown on; checked once it's on the page (an embed's is the note embedding it).
+			this.thisPath = this.ctx.sourcePath;
 			this.watchFit();
-			this.root.render(
-				<PluginContext.Provider value={this.plugin}>
-					<Dashboard path={path} initial={def} errors={errors} openEditor={() => void this.plugin.openAsEntityView(this.plugin.app.workspace.getLeaf("tab"), path)} />
-				</PluginContext.Provider>,
-			);
+			this.renderDashboard();
 			return;
 		}
 		const { def, errors } = parseView(raw);
@@ -66,8 +64,25 @@ export class ViewBlock extends MarkdownRenderChild {
 
 	private def: ViewDef | null = null;
 	private errors: string[] = [];
+	/** a dashboard block's definition (instead of a view's) */
+	private dash: { def: DashboardDef; errors: string[] } | null = null;
 	/** the note the view is shown on ("this note" in its filters), or null when there's none */
 	private thisPath: string | null = null;
+
+	/**
+	 * A dashboard, keyed by the note it's shown on: its filters start on (and remember what's picked for) that note.
+	 * Its own note (open on its own) has no host.
+	 */
+	private renderDashboard(): void {
+		if (!this.root || !this.dash) return;
+		const path = this.ctx.sourcePath;
+		const host = this.thisPath && this.thisPath !== path ? this.thisPath : null;
+		this.root.render(
+			<PluginContext.Provider value={this.plugin}>
+				<Dashboard key={host ?? ""} path={path} host={host} initial={this.dash.def} errors={this.dash.errors} openEditor={() => void this.plugin.openAsEntityView(this.plugin.app.workspace.getLeaf("tab"), path)} />
+			</PluginContext.Provider>,
+		);
+	}
 
 	private renderTable(): void {
 		if (!this.root || !this.def) return;
@@ -132,7 +147,8 @@ export class ViewBlock extends MarkdownRenderChild {
 		const host = this.hostPath();
 		if (host !== this.thisPath) {
 			this.thisPath = host;
-			this.renderTable();
+			if (this.dash) this.renderDashboard();
+			else this.renderTable();
 		}
 		const embed = el.closest<HTMLElement>(".markdown-embed");
 		if (embed) return this.fitEmbed(embed);

@@ -14,6 +14,7 @@ import {
 	VALUE_ID,
 	valueColumns,
 	cardName,
+	dashFilterList,
 	runSource,
 	type ButtonLayout,
 	type ListLayout,
@@ -46,6 +47,7 @@ import {
 	ROW_TARGET,
 	sourceTypes,
 	type ColumnDef,
+	type FilterGroup,
 	type HighlightStyle,
 	type ResolvedColumn,
 	type ViewDef,
@@ -55,6 +57,7 @@ import { usePlugin } from "../context";
 import { Icon } from "../Icon";
 import { FiltersPanel, HighlightPanel, StyleFields, Swatches, type ColumnChoice } from "../table/popovers";
 import { IconPicker, Toggle } from "../types/controls";
+import { FILTER_CONTROL_ICONS, FILTER_CONTROL_LABELS, FILTER_CONTROLS, tokenOf, type FilterControl } from "../../../model/dashboardFilters";
 
 type Props = {
 	c: DashComponent;
@@ -72,6 +75,8 @@ type Props = {
 	onDelete: () => void;
 	onDuplicate: () => void;
 };
+
+type DashFilterRef = ReturnType<typeof dashFilterList>[number];
 
 type Tab = "data" | "style";
 /** The tab last shown, kept while selecting other components. */
@@ -285,12 +290,137 @@ function DataTab(props: Props) {
 			);
 		case "button":
 			return <ButtonData c={c} onChange={onChange} />;
+		case "filter":
+			return <FilterData {...props} c={c} />;
 	}
 	void env;
 }
 
+/** A filter's settings: its control, and for note and choice filters which notes or values it offers. */
+function FilterData({ c, def, env, onChange }: Props & { c: Extract<DashComponent, { kind: "filter" }> }) {
+	const { ctx } = env;
+	const lookup = { types: ctx.types, groups: ctx.groups };
+	const types = c.types ?? [];
+	const sdef = useMemo(() => ({ ...emptyView(), types: types.length ? types : ["*"] }), [types.join("|")]);
+	const fieldChoices = useMemo(() => {
+		const all = columnChoices(sdef, lookup).filter((x) => x.col.kind === "choice" || x.col.kind === "multi");
+		return all.some((x) => x.col.id === "status") ? all : [{ col: resolveColumn(columnFromId("status"), sdef, lookup), group: "Built-in" }, ...all];
+	}, [sdef, ctx]);
+	const setControl = (control: FilterControl) => {
+		if (control === c.control) return;
+		const { types: _t, field: _f, multiple: _m, ...rest } = c;
+		onChange({ ...rest, control, ...(control === "note" || control === "choice" ? { types: c.types } : {}), ...(control === "choice" ? { field: columnFromId("status") } : {}) });
+	};
+	const uses = usesOf(def, c.id);
+	const name = cardName(c);
+	const where: Record<FilterControl, string> = {
+		note: "a link condition (e.g. Campaign links to any of)",
+		choice: "a choice condition (e.g. Status is any of)",
+		search: "a text condition (e.g. Name contains)",
+		dates: "a date condition (is between)",
+		number: "a number condition (is between)",
+		toggle: "a yes / no condition (is)",
+	};
+	return (
+		<>
+			<Section title="Filter">
+				<Segmented label="Control" iconsOnly value={c.control} onChange={setControl} options={FILTER_CONTROLS.map((k) => ({ value: k, label: FILTER_CONTROL_LABELS[k], icon: FILTER_CONTROL_ICONS[k] }))} />
+				<div className="oe-dash-seg-caption">{FILTER_CONTROL_LABELS[c.control]}</div>
+				{(c.control === "note" || c.control === "choice") && (
+					<Row label={c.control === "note" ? "Notes of" : "From"}>
+						<TypesField types={types} ctx={ctx} every="Every type" onChange={(next) => onChange({ ...c, types: next.length ? next : undefined })} />
+					</Row>
+				)}
+				{c.control === "choice" && (
+					<Row label="Field">
+						<ColumnPick label="Field" value={c.field?.id ?? ""} choices={fieldChoices} first="Choose a field…" onChange={(col) => onChange({ ...c, field: col?.def })} />
+					</Row>
+				)}
+				{(c.control === "note" || c.control === "choice") && (
+					<Row label="Pick">
+						<Segmented
+							label="Pick"
+							value={c.multiple ? "several" : "one"}
+							onChange={(v: string) => onChange({ ...c, multiple: v === "several" || undefined })}
+							options={[
+								{ value: "one", label: "One" },
+								{ value: "several", label: "Several" },
+							]}
+						/>
+					</Row>
+				)}
+			</Section>
+			<Section title="Use it">
+				<div className="oe-dash-hint">
+					In another component's conditions, choose <Icon name="filter" /> next to the value of {where[c.control]}: it then takes what's picked here, and is left out while nothing is. Card formulas and captions can use <code>[{name}]</code>.
+				</div>
+				<div className="oe-dash-result">{uses.length ? `Used by ${uses.join(", ")}` : "Not used by any component yet."}</div>
+			</Section>
+		</>
+	);
+}
+
+/** The components whose conditions, formulas or captions use a filter (by title, in their settings' words). */
+function usesOf(def: DashboardDef, id: string): string[] {
+	const f = def.components.find((x) => x.id === id);
+	const name = f ? cardName(f).toLowerCase() : id;
+	const token = (g: FilterGroup | undefined): boolean => !!g && g.items.some((i) => ("items" in i ? token(i) : tokenOf(i.value) === id));
+	const named = (s: string | undefined) => !!s && s.toLowerCase().includes(`[${name}]`);
+	return def.components
+		.filter((c) => {
+			if (c.id === id) return false;
+			const src = "source" in c ? c.source : undefined;
+			const rules = [...(c.highlight ?? []), ...(c.kind === "list" ? (c.boxHighlight ?? []) : [])];
+			return (
+				(src?.kind === "query" && token(src.def.filters)) ||
+				(src?.kind === "formula" && named(src.formula)) ||
+				rules.some((r) => token(r.when)) ||
+				(c.kind === "chart" && token(c.done)) ||
+				(c.kind === "card" && "formula" in c.value && named(c.value.formula)) ||
+				(c.kind === "card" && named(c.layout?.caption)) ||
+				(c.kind === "button" && named(c.layout?.description))
+			);
+		})
+		.map((c) => cardName(c));
+}
+
+/** Types and groups as chips, with "Add a type or group…" (none: every type). */
+function TypesField({ types, ctx, onChange, every = "Every type" }: { types: string[]; ctx: DashEnv["ctx"]; onChange: (t: string[]) => void; every?: string }) {
+	const label = (t: string) => (t.startsWith("@") ? `${ctx.groups.find((g) => `@${g.key}` === t)?.name ?? t} (group)` : (ctx.types.find((x) => x.key === t)?.plural ?? t));
+	return (
+		<>
+			<div className="oe-dash-chips">
+				{types.length === 0 && <span className="oe-dash-chip is-all">{every}</span>}
+				{types.map((t) => (
+					<span key={t} className="oe-dash-chip">
+						{label(t)}
+						<button className="clickable-icon" aria-label={`Remove ${label(t)}`} onClick={() => onChange(types.filter((x) => x !== t))}>
+							<Icon name="x" />
+						</button>
+					</span>
+				))}
+			</div>
+			<select className="dropdown" value="" aria-label="Add a type or group" onChange={(e) => e.target.value && onChange([...types, e.target.value])}>
+				<option value="">Add a type or group…</option>
+				{ctx.groups.map((g) => (
+					<optgroup key={g.key} label={g.name}>
+						{!types.includes(`@${g.key}`) && <option value={`@${g.key}`}>All of {g.name}</option>}
+						{ctx.types
+							.filter((t) => t.group === g.key && !types.includes(t.key))
+							.map((t) => (
+								<option key={t.key} value={t.key}>
+									{t.plural || t.name}
+								</option>
+							))}
+					</optgroup>
+				))}
+			</select>
+		</>
+	);
+}
+
 /** Where a card's, chart's or list's notes come from: types and filters, a saved view, or a formula. */
-function NotesSection({ source, env, views, onChange }: { source: DashSource | undefined; env: DashEnv; views: string[]; onChange: (s: DashSource) => void }) {
+function NotesSection({ source, env, views, dashFilters, onChange }: { source: DashSource | undefined; env: DashEnv; views: string[]; dashFilters: DashFilterRef[]; onChange: (s: DashSource) => void }) {
 	const { ctx } = env;
 	const lookup = { types: ctx.types, groups: ctx.groups };
 	const mode = source?.kind ?? "query";
@@ -302,7 +432,6 @@ function NotesSection({ source, env, views, onChange }: { source: DashSource | u
 		onChange(k === "view" ? { kind: "view", view: views[0] ?? "" } : k === "formula" ? { kind: "formula", formula: 'notes("")' } : { kind: "query", def: emptyView() });
 	};
 	const types = qdef.types.filter((t) => t !== "*");
-	const label = (t: string) => (t.startsWith("@") ? `${ctx.groups.find((g) => `@${g.key}` === t)?.name ?? t} (group)` : (ctx.types.find((x) => x.key === t)?.plural ?? t));
 	const setTypes = (next: string[]) => onChange({ kind: "query", def: { ...qdef, types: next.length ? next : ["*"] } });
 	return (
 		<Section title="Notes">
@@ -321,35 +450,10 @@ function NotesSection({ source, env, views, onChange }: { source: DashSource | u
 			{mode === "query" && (
 				<>
 					<Row label="Types">
-						<div className="oe-dash-chips">
-							{types.length === 0 && <span className="oe-dash-chip is-all">Every type</span>}
-							{types.map((t) => (
-								<span key={t} className="oe-dash-chip">
-									{label(t)}
-									<button className="clickable-icon" aria-label={`Remove ${label(t)}`} onClick={() => setTypes(types.filter((x) => x !== t))}>
-										<Icon name="x" />
-									</button>
-								</span>
-							))}
-						</div>
-						<select className="dropdown" value="" aria-label="Add a type or group" onChange={(e) => e.target.value && setTypes([...types, e.target.value])}>
-							<option value="">Add a type or group…</option>
-							{ctx.groups.map((g) => (
-								<optgroup key={g.key} label={g.name}>
-									{!types.includes(`@${g.key}`) && <option value={`@${g.key}`}>All of {g.name}</option>}
-									{ctx.types
-										.filter((t) => t.group === g.key && !types.includes(t.key))
-										.map((t) => (
-											<option key={t.key} value={t.key}>
-												{t.plural || t.name}
-											</option>
-										))}
-								</optgroup>
-							))}
-						</select>
+						<TypesField types={types} ctx={ctx} onChange={setTypes} />
 					</Row>
 					<div className="oe-dash-filters">
-						<FiltersPanel filters={qdef.filters} onChange={(filters) => onChange({ kind: "query", def: { ...qdef, filters } })} choices={choices} ctx={ctx} valuesOf={valuesFor(qdef, choices, env)} heading="Only notes matching" />
+						<FiltersPanel filters={qdef.filters} onChange={(filters) => onChange({ kind: "query", def: { ...qdef, filters } })} choices={choices} ctx={ctx} valuesOf={valuesFor(qdef, choices, env)} heading="Only notes matching" dashFilters={dashFilters} />
 					</div>
 				</>
 			)}
@@ -405,7 +509,7 @@ function CardData({ c, def, env, views, card, onChange }: Props & { c: Extract<D
 					/>
 				</Row>
 			</Section>
-			{!isFormula && <NotesSection source={c.source} env={env} views={views} onChange={(source) => onChange({ ...c, source })} />}
+			{!isFormula && <NotesSection source={c.source} env={env} views={views} dashFilters={dashFilterList(def)} onChange={(source) => onChange({ ...c, source })} />}
 			<Section title="Show">
 				{isFormula ? (
 					<Row
@@ -464,7 +568,7 @@ function CardData({ c, def, env, views, card, onChange }: Props & { c: Extract<D
 	);
 }
 
-function ChartData({ c, env, views, chart, onChange }: Props & { c: Extract<DashComponent, { kind: "chart" }>; views: string[] }) {
+function ChartData({ c, def, env, views, chart, onChange }: Props & { c: Extract<DashComponent, { kind: "chart" }>; views: string[] }) {
 	const { ctx } = env;
 	const lookup = { types: ctx.types, groups: ctx.groups };
 	const sdef = sourceViewDef(c.source, env);
@@ -492,7 +596,7 @@ function ChartData({ c, env, views, chart, onChange }: Props & { c: Extract<Dash
 				<Segmented label="Chart" iconsOnly value={c.chart} onChange={setChart} options={CHART_KINDS.map((k) => ({ value: k, label: CHART_LABELS[k], icon: CHART_ICONS[k] }))} />
 				<div className="oe-dash-seg-caption">{CHART_LABELS[c.chart]}</div>
 			</Section>
-			<NotesSection source={c.source} env={env} views={views} onChange={(source) => onChange({ ...c, source })} />
+			<NotesSection source={c.source} env={env} views={views} dashFilters={dashFilterList(def)} onChange={(source) => onChange({ ...c, source })} />
 			<Section title="Show">
 				<Row label="Measure">
 					<Segmented
@@ -575,6 +679,7 @@ function ChartData({ c, env, views, chart, onChange }: Props & { c: Extract<Dash
 				{progress && (
 					<div className="oe-dash-filters">
 						<FiltersPanel
+							dashFilters={dashFilterList(def)}
 							filters={c.done ?? { mode: "all", items: [] }}
 							onChange={(done) => onChange({ ...c, done })}
 							choices={choices}
@@ -595,7 +700,7 @@ function ChartData({ c, env, views, chart, onChange }: Props & { c: Extract<Dash
 	);
 }
 
-function ListData({ c, env, views, list, onChange }: Props & { c: Extract<DashComponent, { kind: "list" }>; views: string[] }) {
+function ListData({ c, def, env, views, list, onChange }: Props & { c: Extract<DashComponent, { kind: "list" }>; views: string[] }) {
 	const { ctx } = env;
 	const lookup = { types: ctx.types, groups: ctx.groups };
 	const sdef = sourceViewDef(c.source, env);
@@ -603,7 +708,7 @@ function ListData({ c, env, views, list, onChange }: Props & { c: Extract<DashCo
 	const sort = c.sort[0];
 	return (
 		<>
-			<NotesSection source={c.source} env={env} views={views} onChange={(source) => onChange({ ...c, source })} />
+			<NotesSection source={c.source} env={env} views={views} dashFilters={dashFilterList(def)} onChange={(source) => onChange({ ...c, source })} />
 			<Section title="Show">
 				<div className="oe-dash-sentence">
 					<span>Show up to</span>
@@ -765,6 +870,7 @@ function ValueRules({ c, def, env, cards, look, onChange }: Props) {
 	const rules = (c.kind === "list" ? c.boxHighlight : c.highlight) ?? [];
 	return (
 		<HighlightPanel
+			dashFilters={dashFilterList(def)}
 			rules={rules}
 			counts={(c.kind === "list" ? look?.boxMatched : look?.matched) ?? []}
 			columns={isCard ? columns.filter((x) => x.id === VALUE_ID) : []}
@@ -1121,13 +1227,14 @@ function LayoutFields({ spec, layout, onChange, rule }: { spec: LayoutSpec; layo
 }
 
 /** A list's rules: on its notes' fields, styling each row or one of its fields, as in a view. */
-function ListRules({ c, env, list, onChange }: Props & { c: Extract<DashComponent, { kind: "list" }> }) {
+function ListRules({ c, def, env, list, onChange }: Props & { c: Extract<DashComponent, { kind: "list" }> }) {
 	const { ctx } = env;
 	const lookup = { types: ctx.types, groups: ctx.groups };
 	const sdef = sourceViewDef(c.source, env);
 	const choices = useMemo(() => [{ col: resolveColumn(NAME_COLUMN, sdef, lookup), group: "Built-in" }, ...columnChoices(sdef, lookup)], [sdef, ctx]);
 	return (
 		<HighlightPanel
+			dashFilters={dashFilterList(def)}
 			rules={c.highlight ?? []}
 			counts={list?.highlightCounts ?? []}
 			columns={list?.columns ?? []}

@@ -12,6 +12,8 @@ import {
 	DEFAULT_LIST_LAYOUT,
 	chartLook,
 	evaluateDashboard,
+	startingFilters,
+	withFilterNames,
 	GRID_COLS,
 	newComponent,
 	readingOrder,
@@ -37,6 +39,11 @@ import { EntityTable } from "../table/EntityTable";
 import { cssColor, hlClasses } from "../table/popovers";
 import { DashboardSettings } from "./DashboardSettings";
 import { Chart } from "./Chart";
+import { FilterBox } from "./FilterBox";
+import type { FilterValue, FilterValues } from "../../../model/dashboardFilters";
+
+/** localStorage: what was last picked in each dashboard's filters, by "<dashboard path>|<note it's shown on>". */
+const FILTERS_STORAGE = "obs-entities-dashboard-filters";
 
 const MARGIN = 10;
 /** what's being dragged from the palette */
@@ -46,7 +53,7 @@ let paletteKind: ComponentKind | null = null;
  * A dashboard (DESIGN §8.12): components on a grid. View mode shows them; edit mode (tab only) adds a palette, drag
  * and resize, and the selected component's settings. Edits are a draft (kept in `plugin.dashboardDrafts`) until Save.
  */
-export function Dashboard({ path, initial, errors, save, openEditor }: { path: string; initial: DashboardDef; errors: string[]; save?: (def: DashboardDef) => Promise<boolean>; openEditor?: () => void }) {
+export function Dashboard({ path, host = null, initial, errors, save, openEditor }: { path: string; host?: string | null; initial: DashboardDef; errors: string[]; save?: (def: DashboardDef) => Promise<boolean>; openEditor?: () => void }) {
 	const plugin = usePlugin();
 	const canEdit = !!save;
 	// What's saved: the definition it opened with, then whatever it saves (the host doesn't re-render for its own save).
@@ -83,7 +90,23 @@ export function Dashboard({ path, initial, errors, save, openEditor }: { path: s
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [plugin, version, viewsVersion, path]);
-	const out = useMemo(() => evaluateDashboard(def, env), [def, env]);
+	// What's picked in each filter: remembered on this device per dashboard (and per note it's shown on).
+	const filterKey = `${path}|${host ?? ""}`;
+	const [filters, setFilters] = useState<FilterValues>(() => {
+		const all = plugin.app.loadLocalStorage(FILTERS_STORAGE) as unknown;
+		const stored = all && typeof all === "object" ? (all as Record<string, unknown>)[filterKey] : null;
+		const hostEntity = host && host !== path ? plugin.index.get(host) : undefined;
+		return startingFilters(def, stored, hostEntity ? { path: hostEntity.path, type: hostEntity.type } : null);
+	});
+	const setFilter = (id: string, v: FilterValue | undefined) => {
+		const next = { ...filters, [id]: v };
+		if (v === undefined) delete next[id];
+		setFilters(next);
+		const all = plugin.app.loadLocalStorage(FILTERS_STORAGE) as unknown;
+		plugin.app.saveLocalStorage(FILTERS_STORAGE, { ...(all && typeof all === "object" ? all : {}), [filterKey]: next });
+	};
+	const fenv: DashEnv = useMemo(() => withFilterNames(def, { ...env, filters }), [def, env, filters]);
+	const out = useMemo(() => evaluateDashboard(def, fenv), [def, fenv]);
 
 	const doSave = async () => {
 		if (!save || !draft) return;
@@ -137,7 +160,7 @@ export function Dashboard({ path, initial, errors, save, openEditor }: { path: s
 				onClick={editing ? () => setSelected(c.id) : undefined}
 				style={stacked ? { height: `${c.at.h * ROW_HEIGHT + (c.at.h - 1) * MARGIN}px` } : undefined}
 			>
-				<ComponentBody c={c} card={out.cards.get(c.id)} list={out.lists.get(c.id)} chart={out.charts.get(c.id)} look={look} path={path} editing={editing} />
+				<ComponentBody c={c} card={out.cards.get(c.id)} list={out.lists.get(c.id)} chart={out.charts.get(c.id)} look={look} path={path} editing={editing} filter={filters[c.id]} setFilter={(v) => setFilter(c.id, v)} env={fenv} />
 			</div>
 		);
 	};
@@ -245,7 +268,7 @@ export function Dashboard({ path, initial, errors, save, openEditor }: { path: s
 								key={chosen.id}
 								c={chosen}
 								def={def}
-								env={env}
+								env={fenv}
 								path={path}
 								card={out.cards.get(chosen.id)}
 								cards={out.cards}
@@ -274,7 +297,29 @@ export function Dashboard({ path, initial, errors, save, openEditor }: { path: s
 }
 
 /** A component's contents (the same in view and edit mode; in edit mode they don't take clicks). */
-function ComponentBody({ c, card, list, chart, look, path, editing }: { c: DashComponent; card?: CardOut; list?: ListOut; chart?: ChartOut; look?: ComponentLook; path: string; editing: boolean }) {
+function ComponentBody({
+	c,
+	card,
+	list,
+	chart,
+	look,
+	path,
+	editing,
+	filter,
+	setFilter,
+	env,
+}: {
+	c: DashComponent;
+	card?: CardOut;
+	list?: ListOut;
+	chart?: ChartOut;
+	look?: ComponentLook;
+	path: string;
+	editing: boolean;
+	filter?: FilterValue;
+	setFilter: (v: FilterValue | undefined) => void;
+	env: DashEnv;
+}) {
 	const plugin = usePlugin();
 	switch (c.kind) {
 		case "card":
@@ -289,6 +334,8 @@ function ComponentBody({ c, card, list, chart, look, path, editing }: { c: DashC
 			return <TextBox text={c.text} path={path} />;
 		case "button":
 			return <ButtonBox c={c} look={look} />;
+		case "filter":
+			return <FilterBox c={c} value={filter} env={env} onChange={setFilter} icon={look?.box.icon} />;
 	}
 }
 

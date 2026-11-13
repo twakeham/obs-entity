@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { isoDateAdapter } from "../src/model/dates";
 import { CRM_PACK, STARTER_PACK } from "../src/model/packs";
 import { extractEdges } from "../src/model/relations";
-import { chartLook, DEFAULT_BUTTON_LAYOUT, DEFAULT_CARD_LAYOUT, DEFAULT_LIST_LAYOUT, evaluateDashboard, newComponent, parseDashboard, readingOrder, runSource, serializeDashboard, type DashEnv } from "../src/model/dashboard";
-import { parseView, type ViewContext, type ViewRow } from "../src/model/views";
+import { chartLook, dashFilterList, startingFilters, DEFAULT_BUTTON_LAYOUT, DEFAULT_CARD_LAYOUT, DEFAULT_LIST_LAYOUT, evaluateDashboard, newComponent, parseDashboard, readingOrder, runSource, serializeDashboard, type DashEnv } from "../src/model/dashboard";
+import { matches, parseView, type ViewContext, type ViewRow } from "../src/model/views";
+import { groupWithFilters, parseFilterValue, presetRange, tokenOf, type FilterValues } from "../src/model/dashboardFilters";
 
 const TYPES = [...STARTER_PACK.types, ...CRM_PACK.types];
 const GROUPS = [...STARTER_PACK.groups!, ...CRM_PACK.groups!];
@@ -75,7 +76,7 @@ describe("dashboards", () => {
 
 	it("report problems, fix sizes and give every component an id", () => {
 		const { def, errors } = parseDashboard({ kind: "dashboard", components: [{ kind: "gauge" }, "x", { kind: "card", at: [11, 0, 5, 0] }, { kind: "card", id: "card3" }] });
-		expect(errors).toEqual(['Component 1: unknown kind "gauge". Use card, chart, list, view, text, button.', "Component 2 should be a set of keys like kind:, at:."]);
+		expect(errors).toEqual(['Component 1: unknown kind "gauge". Use card, chart, list, view, text, button, filter.', "Component 2 should be a set of keys like kind:, at:."]);
 		expect(def.components.map((c) => [c.id, c.at])).toEqual([
 			["card3", { x: 7, y: 0, w: 5, h: 1 }],
 			["card3_2", { x: 0, y: 0, w: 3, h: 2 }],
@@ -404,5 +405,86 @@ describe("dashboard styles: default styles, highlight rules and the notes behind
 		expect(b.highlight![0]).toMatchObject({ layout: { state: "disabled", variant: "plain" } });
 		expect(evaluateDashboard(def, env).looks.get("b")!.button).toEqual({ ...DEFAULT_BUTTON_LAYOUT, variant: "plain", size: "l", width: "fit", icon: "only", description: "4 to do", state: "disabled", why: "Too many" });
 		expect(parseDashboard({ kind: "dashboard", components: serializeDashboard(def).components }).def).toEqual(def);
+	});
+});
+
+describe("dashboard filters", () => {
+	const ACTIVE = { kind: "choice" as const, values: ["active"] };
+	const evalWith = (components: Record<string, unknown>[], filters: FilterValues = {}) => {
+		const { def, errors } = parseDashboard({ kind: "dashboard", components });
+		expect(errors).toEqual([]);
+		return { def, out: evaluateDashboard(def, { ...env, filters }) };
+	};
+	const projects = { id: "n", kind: "card", title: "Projects", source: { types: ["project"], filters: { all: [{ field: "status", op: "any-of", value: ["{st}"] }] } }, value: { agg: "count" }, layout: { caption: "[Status] ones" } };
+	const status = { id: "st", kind: "filter", title: "Status", control: "choice", types: ["project"], field: "status" };
+
+	it("fill a condition from a filter, and leave it out while nothing is picked", () => {
+		expect(evalWith([status, projects]).out.cards.get("n")!.value).toBe(4);
+		const picked = evalWith([status, projects], { st: ACTIVE }).out;
+		expect(picked.cards.get("n")!.value).toBe(2);
+		// The notes behind the card are the filtered ones.
+		expect(picked.cards.get("n")!.drill!.paths).toEqual(["Apollo.md", "Gemini.md"]);
+		expect(evalWith([status, projects], { st: { kind: "choice", values: [] } }).out.cards.get("n")!.value).toBe(4);
+	});
+
+	it("give a filter to card formulas and captions by its title", () => {
+		const who = { id: "who", kind: "filter", title: "Who", control: "note", types: ["organisation"] };
+		const f = { id: "f", kind: "card", title: "Their status", value: { formula: 'prop([Who], "status")' } };
+		const { out } = evalWith([status, projects, who, f], { st: ACTIVE, who: { kind: "note", paths: ["Acme.md"] } });
+		expect(out.cards.get("f")!.value).toBe("active");
+		expect(out.looks.get("n")!.card!.caption).toBe("active ones");
+		expect(evalWith([status, projects]).out.looks.get("n")!.card!.caption).toBe("All ones");
+		// A formula source can use it too.
+		const src = { id: "s", kind: "card", title: "Matching", source: { formula: 'filter(notes("project"), prop(item, "status") = [Status])' }, value: { agg: "count" } };
+		expect(evalWith([status, src], { st: ACTIVE }).out.cards.get("s")!.value).toBe(2);
+	});
+
+	it("fill numbers, dates, yes / no and text, with the new between and is operators", () => {
+		const g = { mode: "all" as const, items: [{ field: "a", op: "between", value: "{n}" }, { field: "b", op: "between", value: "{d}" }, { field: "c", op: "is", value: "{t}" }, { field: "e", op: "contains", value: "{s}" }, { field: "x", op: "links-any", value: ["{this}"] }] };
+		const filled = groupWithFilters(g, { n: { kind: "number", min: 2 }, d: { kind: "dates", preset: "this-week" }, t: { kind: "toggle", on: false }, s: { kind: "search", text: " Apo " } }, ctx.today);
+		expect(filled.items).toEqual([
+			{ field: "a", op: "between", value: [2, ""] },
+			// 2026-11-13 is a Friday: this week is Monday the 9th to Sunday the 15th.
+			{ field: "b", op: "between", value: ["-4d", "2d"] },
+			{ field: "c", op: "is", value: false },
+			{ field: "e", op: "contains", value: "Apo" },
+			{ field: "x", op: "links-any", value: ["{this}"] },
+		]);
+		expect(groupWithFilters(g, {}, ctx.today).items).toEqual([g.items[4]]);
+		const num = (v: number | null, value: unknown) => matches({ value: v, text: String(v), sort: v }, "number", { field: "a", op: "between", value }, ctx);
+		expect([num(1, [2, ""]), num(2, [2, ""]), num(9, ["", 5]), num(null, [1, 2])]).toEqual([false, true, false, false]);
+		const yes = (v: boolean | null, value: unknown) => matches({ value: v, text: "", sort: null }, "bool", { field: "c", op: "is", value }, ctx);
+		expect([yes(true, true), yes(null, false), yes(true, "false")]).toEqual([true, true, false]);
+		expect(presetRange("this-month", ctx.today).map((d) => isoDateAdapter.format(d, "short"))).toEqual(["2026-11-01", "2026-11-30"]);
+	});
+
+	it("read and write filter components, and remembered values", () => {
+		const raw = { kind: "dashboard", components: [{ id: "c", kind: "filter", title: "Campaign", control: "note", types: ["campaign"], multiple: true, field: "status" }, { id: "x", kind: "filter", control: "slider" }] };
+		const { def, errors } = parseDashboard(raw);
+		expect(errors).toEqual(['Component 2: unknown filter control "slider". Use note, choice, search, dates, number, toggle.']);
+		expect(def.components[0]).toEqual({ id: "c", kind: "filter", title: "Campaign", at: expect.anything(), control: "note", types: ["campaign"], multiple: true });
+		expect(parseDashboard({ kind: "dashboard", components: serializeDashboard(def).components }).def).toEqual(def);
+		expect(parseFilterValue({ kind: "note", paths: ["a.md", 3] }, "note")).toEqual({ kind: "note", paths: ["a.md"] });
+		expect(parseFilterValue({ kind: "note", paths: [] }, "choice")).toBeUndefined();
+		expect(parseFilterValue({ kind: "dates", preset: "soon" }, "dates")).toBeUndefined();
+		expect(tokenOf(["{st}"])).toBe("st");
+		expect(tokenOf("{this}")).toBeNull();
+	});
+
+	it("start each filter on what was last picked, else (shown on a note) a note filter on that note", () => {
+		const { def } = parseDashboard({
+			kind: "dashboard",
+			components: [
+				{ id: "org", kind: "filter", control: "note", types: ["organisation"] },
+				{ id: "any", kind: "filter", control: "note" },
+				{ id: "st", kind: "filter", control: "choice" },
+			],
+		});
+		const host = { path: "Acme.md", type: T("organisation") };
+		expect(startingFilters(def, null, host)).toEqual({ org: { kind: "note", paths: ["Acme.md"] } });
+		// Cleared on purpose stays cleared; a remembered value of the wrong kind is dropped.
+		expect(startingFilters(def, { org: { kind: "note", paths: [] }, st: { kind: "choice", values: ["done"] }, any: { kind: "toggle", on: true } }, host)).toEqual({ org: { kind: "note", paths: [] }, st: { kind: "choice", values: ["done"] } });
+		expect(startingFilters(def, null, { path: "Apollo.md", type: T("project") })).toEqual({});
+		expect(dashFilterList(def).map((f) => f.control)).toEqual(["note", "note", "choice"]);
 	});
 });

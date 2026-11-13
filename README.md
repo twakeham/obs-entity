@@ -19,7 +19,7 @@ Derived from the Story Forge worldbuilding plugin, made domain-neutral. The full
 | M7.3 Workflows, stage 3 | Test runs, big-run confirmation, ask, move / rename, schedules and date triggers, workflows in type packs | ✅ Done |
 | M8.1 Dashboards: core | Dashboards built on a grid: summary cards, lists, embedded views, text and buttons, with view and edit modes; `notes()` in formulas | ✅ Done |
 | M8.2 Dashboards: charts | Bar, horizontal bar, stacked bar, donut, line and progress charts; card colour rules; click a card, bar or slice to see its notes | ✅ Done |
-| M8.3 Dashboards: interactive | Dashboard filters, `{this}` when embedded, cross-filtering, dashboards in packs | Planned |
+| M8.3 Dashboards: interactive | Dashboard filters ✅, `{this}` when embedded ✅, cross-filtering, dashboards in packs | In progress |
 | M5 Packs & polish | Fuller packs (views and templates, Copy group as a pack) ✅; apps (export / import the whole configuration) ✅; ribbon options ✅; pack gallery and first-run picker ✅, with the TTRPG campaign showcase pack ✅. Waiting until closer to release: accessibility pass, user docs, release readiness | Paused (rest before release) |
 
 ## How notes are stored
@@ -513,8 +513,14 @@ A **dashboard** is a page you build from components on a grid: summary cards, ch
   - **Button style** (Style tab → **Button**): its icon; Solid, Soft (tinted), Outline or Plain; size S / M / L; filling its cell or fitting its label (left, centre or right); the icon before, above or after the label, or the icon only; and a description under the label (cards' `[Title]`s show their values, e.g. "[Active quests] on the go"). Its colour is the Default style's fill.
   - A rule can change any of these, or **disable** the button, e.g. when [Active quests] > 8. A disabled button greys out and its tooltip gives the rule's name.
 - **Narrow widths:** in a sidebar or on a phone, the components stack in reading order at full width.
+- **Filter:** something to pick that other components follow: a **Note** (e.g. a Campaign), a **Choice** (e.g. Status), a **Search** box, **Dates** (This week, Last 30 days, Custom…), a **Number** range or **Yes / no**. Pick one or several notes or choices; the × clears it, and with nothing picked everything shows.
+  - **Use it in a component:** in its conditions (Types and filters, Done when, row highlighting, conditional styling), choose the filter button next to a value, e.g. Campaign links to any of **[Campaign]**. That condition then takes what's picked, and is left out while nothing is.
+  - Card formulas, captions and button descriptions can name it, like cards: `[Campaign]` (a caption shows what's picked, or "All").
+  - What you pick is remembered on this device, per dashboard.
+  - **Embedded in a note,** a note filter whose types include that note's type starts on that note: embed one "Campaign dashboard" in each campaign note and each shows its own campaign.
+  - Numbers gained an **is between** condition, and yes / no fields an **is Yes / No** condition (in views too).
 
-Dashboard-wide filters (e.g. pick a campaign and everything follows) and dashboards that follow the note they're embedded in are coming next.
+Cross-filtering (clicking a bar to filter the rest) and dashboards in packs are coming next.
 
 ## Workflows
 
@@ -673,6 +679,7 @@ src/
     viewBlock.ts             find / rewrite an entity-view block inside a note (and its place: line)
     viewPlace.ts             where the Entity Browser lists a view note: place:, or worked out from its types
     dashboard.ts             dashboards: parse / serialize, components, sources (view, types and filters, formula), card values and card formulas, styles (default style and highlight rules), charts, lists, drill-downs
+    dashboardFilters.ts      dashboard filters: what's picked, put into conditions ({id}), formulas and captions ([Title]); date presets
   services/
     entityIndex.ts           entities from the metadata cache
     relationIndex.ts         forward + inverse edges, groupsFor, mentions

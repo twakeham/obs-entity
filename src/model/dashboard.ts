@@ -1,4 +1,6 @@
 import { compile, DateVal, FormulaError, isLink, toText, type FValue } from "./formula";
+import { FILTER_CONTROLS, filterFValue, filterText, groupWithFilters, parseFilterValue, withFilters, type FilterControl, type FilterValues } from "./dashboardFilters";
+import { typeExplicitlyTargeted, type EntityTypeDef } from "./types";
 import { formatNumber, formatDate, RELATIVE, type MomentLike } from "./formats";
 import { summarize } from "./summary";
 import { choiceColor, isPaletteColor, statusPaint, type PaletteColor } from "./colors";
@@ -40,12 +42,12 @@ export const ROW_HEIGHT = 48;
 /** below this width (px) components stack in one column */
 export const STACK_BELOW = 600;
 
-export type ComponentKind = "card" | "chart" | "list" | "view" | "text" | "button";
-export const COMPONENT_KINDS: ComponentKind[] = ["card", "chart", "list", "view", "text", "button"];
-export const COMPONENT_LABELS: Record<ComponentKind, string> = { card: "Summary card", chart: "Chart", list: "List", view: "View", text: "Text", button: "Button" };
-export const COMPONENT_ICONS: Record<ComponentKind, string> = { card: "hash", chart: "bar-chart-3", list: "list", view: "table", text: "type", button: "mouse-pointer-click" };
+export type ComponentKind = "card" | "chart" | "list" | "view" | "text" | "button" | "filter";
+export const COMPONENT_KINDS: ComponentKind[] = ["card", "chart", "list", "view", "text", "button", "filter"];
+export const COMPONENT_LABELS: Record<ComponentKind, string> = { card: "Summary card", chart: "Chart", list: "List", view: "View", text: "Text", button: "Button", filter: "Filter" };
+export const COMPONENT_ICONS: Record<ComponentKind, string> = { card: "hash", chart: "bar-chart-3", list: "list", view: "table", text: "type", button: "mouse-pointer-click", filter: "filter" };
 /** a new component's size (grid cells) */
-export const DEFAULT_SIZE: Record<ComponentKind, { w: number; h: number }> = { card: { w: 3, h: 2 }, chart: { w: 6, h: 5 }, list: { w: 4, h: 5 }, view: { w: 6, h: 8 }, text: { w: 4, h: 2 }, button: { w: 2, h: 1 } };
+export const DEFAULT_SIZE: Record<ComponentKind, { w: number; h: number }> = { card: { w: 3, h: 2 }, chart: { w: 6, h: 5 }, list: { w: 4, h: 5 }, view: { w: 6, h: 8 }, text: { w: 4, h: 2 }, button: { w: 2, h: 1 }, filter: { w: 4, h: 1 } };
 
 export type ChartKind = "bar" | "hbar" | "stacked" | "donut" | "line" | "progress";
 export const CHART_KINDS: ChartKind[] = ["bar", "hbar", "stacked", "donut", "line", "progress"];
@@ -249,7 +251,17 @@ export type DashComponent =
 	  })
 	| (Base & { kind: "view"; view: string })
 	| (Base & { kind: "text"; text: string })
-	| (Base & { kind: "button"; label: string; icon?: string; action?: ButtonAction; layout?: ButtonLayout });
+	| (Base & { kind: "button"; label: string; icon?: string; action?: ButtonAction; layout?: ButtonLayout })
+	| (Base & {
+			kind: "filter";
+			control: FilterControl;
+			/** note and choice filters: the types whose notes (or field values) it offers */
+			types?: string[];
+			/** a choice filter: the choice, status or multiple-choice field it offers the values of */
+			field?: ColumnDef;
+			/** note and choice filters: pick several (else one) */
+			multiple?: boolean;
+	  });
 
 export interface DashboardDef {
 	kind: "dashboard";
@@ -523,6 +535,15 @@ export function parseDashboard(raw: unknown): { def: DashboardDef; errors: strin
 				def.components.push({ ...base, kind, label: str(c.label) || "Button", ...(str(c.icon) ? { icon: str(c.icon) } : {}), ...(action ? { action } : {}), ...(layout ? { layout } : {}) });
 				break;
 			}
+			case "filter": {
+				const control = (FILTER_CONTROLS as readonly string[]).includes(str(c.control)) ? (c.control as FilterControl) : "note";
+				if (c.control !== undefined && control !== c.control) errors.push(`${where}: unknown filter control "${str(c.control)}". Use ${FILTER_CONTROLS.join(", ")}.`);
+				if (id === "this") errors.push(`${where}: a filter can't have the id "this" (it means the note a view is on).`);
+				const types = Array.isArray(c.types) ? c.types.map(str).filter(Boolean) : [];
+				const field = control === "choice" ? parseOneColumn(c.field, errors, where) : null;
+				def.components.push({ ...base, kind, control, ...(types.length && (control === "note" || control === "choice") ? { types } : {}), ...(field ? { field } : {}), ...(c.multiple === true && (control === "note" || control === "choice") ? { multiple: true } : {}) });
+				break;
+			}
 		}
 	});
 	return { def, errors };
@@ -577,6 +598,12 @@ export function serializeDashboard(def: DashboardDef): Record<string, unknown> {
 				if (c.action) out.action = c.action;
 				if (c.layout && Object.keys(c.layout).length) out.layout = c.layout;
 				break;
+			case "filter":
+				out.control = c.control;
+				if (c.types?.length) out.types = c.types;
+				if (c.field) out.field = columnOut(c.field);
+				if (c.multiple) out.multiple = true;
+				break;
 		}
 		return out;
 	});
@@ -607,6 +634,8 @@ export function newComponent(kind: ComponentKind, def: DashboardDef, at?: Partia
 			return { ...base, kind, text: "## Heading\nSome text." };
 		case "button":
 			return { ...base, kind, label: "New note" };
+		case "filter":
+			return { ...base, kind, title: "Filter", control: "note" };
 	}
 }
 
@@ -620,6 +649,36 @@ export interface DashEnv {
 	rows: ViewRow[];
 	/** a view note's definition by name (resolved like a link), or null when there's no such view */
 	view: (name: string) => ViewDef | null;
+	/** what's picked in each filter, by its id (conditions using a filter with nothing picked are left out) */
+	filters?: FilterValues;
+	/** the filters' values in formulas, by title (`[Campaign]`); `withFilterNames` fills it in */
+	filterNames?: { name: string; value: FValue }[];
+}
+
+/** The env with the dashboard's filters' formula values (`[Campaign]`), for formula sources and card formulas. */
+export function withFilterNames(def: DashboardDef, env: DashEnv): DashEnv {
+	const filterNames = def.components.filter((c) => c.kind === "filter").map((c) => ({ name: cardName(c), value: filterFValue(env.filters?.[c.id], env.ctx) }));
+	return { ...env, filterNames };
+}
+
+/** The dashboard's filters, for condition editors (a condition's value can be one). */
+export const dashFilterList = (def: DashboardDef) =>
+	def.components.flatMap((c) => (c.kind === "filter" ? [{ id: c.id, label: cardName(c), control: c.control }] : []));
+
+/**
+ * What each filter starts on: what was last picked (remembered on this device, `stored` by filter id), else, for a
+ * dashboard shown on a note (`host`), a note filter whose types name that note's type starts on that note.
+ */
+export function startingFilters(def: DashboardDef, stored: unknown, host: { path: string; type: EntityTypeDef } | null): FilterValues {
+	const out: FilterValues = {};
+	const saved = stored && typeof stored === "object" ? (stored as Record<string, unknown>) : {};
+	for (const c of def.components) {
+		if (c.kind !== "filter") continue;
+		const v = parseFilterValue(saved[c.id], c.control);
+		if (v) out[c.id] = v;
+		else if (c.control === "note" && host && typeExplicitlyTargeted(host.type, c.types)) out[c.id] = { kind: "note", paths: [host.path] };
+	}
+	return out;
 }
 
 /** A source's run: its result, and the definition run (for opening the notes as a table). */
@@ -639,7 +698,11 @@ export function runSource(source: DashSource | undefined, extra: ColumnDef[], so
 		// The component's own highlight rules (a list's), not a saved view's.
 		return { ...base, kind: "table", group: opts.group ?? [], columns, sort: sort.length ? sort : base.sort, filters, highlight: opts.highlight ?? [] };
 	};
-	const go = (def: ViewDef, rows: ViewRow[] = env.rows): SourceRun => ({ result: runView(def, rows, env.ctx), def });
+	const go = (def: ViewDef, rows: ViewRow[] = env.rows): SourceRun => {
+		// The dashboard's filters filled in (a condition on a filter with nothing picked is left out).
+		const run = env.filters ? withFilters(def, env.filters, env.ctx.today) : def;
+		return { result: runView(run, rows, env.ctx), def: run };
+	};
 	try {
 		if (source.kind === "view") {
 			if (!source.view) return { error: "Choose a view." };
@@ -648,7 +711,7 @@ export function runSource(source: DashSource | undefined, extra: ColumnDef[], so
 			return go(withColumns(base));
 		}
 		if (source.kind === "query") return go(withColumns(source.def));
-		const { value } = evaluateDetached(source.formula, env.ctx);
+		const { value } = evaluateDetached(source.formula, env.ctx, env.filterNames ?? []);
 		const list = Array.isArray(value) ? value : value === null ? [] : [value];
 		if (!list.every(isLink)) return { error: 'The formula should give notes, e.g. filter(notes("quest"), prop(item, "Status") = "active").' };
 		const paths = [...new Set(list.map((l) => (isLink(l) ? l.path : null)).filter((p): p is string => !!p))];
@@ -708,7 +771,9 @@ const formatValue = (v: FValue, format: string | undefined, ctx: ViewContext): s
 };
 
 /** Every card's value, every list's notes, every chart's bars and every component's look, in one pass (sources shared by several components run once). */
-export function evaluateDashboard(def: DashboardDef, env: DashEnv): { cards: Map<string, CardOut>; lists: Map<string, ListOut>; charts: Map<string, ChartOut>; looks: Map<string, ComponentLook> } {
+export function evaluateDashboard(def: DashboardDef, env0: DashEnv): { cards: Map<string, CardOut>; lists: Map<string, ListOut>; charts: Map<string, ChartOut>; looks: Map<string, ComponentLook> } {
+	const env = withFilterNames(def, env0);
+	const filterNames = env.filterNames ?? [];
 	const runs = new Map<string, SourceRun>();
 	const run = (source: DashSource | undefined, extra: ColumnDef[], sort: SortLevel[], opts: { group?: GroupBy[]; filters?: FilterGroup; highlight?: HighlightRule[] } = {}) => {
 		const key = JSON.stringify([source ?? null, extra, sort, opts]);
@@ -731,9 +796,12 @@ export function evaluateDashboard(def: DashboardDef, env: DashEnv): { cards: Map
 			if (stack.includes(c.id)) return { text: "", value: null, error: `Circular reference: ${[...stack.slice(stack.indexOf(c.id)), c.id].map(nameOf).join(" → ")}.`, cycle: true };
 			stack.push(c.id);
 			try {
-				const refs = compile(c.value.formula, names.map((n) => ({ id: `name:${n.name}`, label: n.name, type: "any" }))).refs.filter((r) => r.startsWith("name:")).map((r) => r.slice(5));
+				// Other cards by title, and the dashboard's filters (`[Campaign]`); a card wins over a filter of the same name.
+				const known = [...names.map((n) => n.name), ...filterNames.map((f) => f.name).filter((f) => !names.some((n) => n.name === f))];
+				const refs = compile(c.value.formula, known.map((n) => ({ id: `name:${n}`, label: n, type: "any" }))).refs.filter((r) => r.startsWith("name:")).map((r) => r.slice(5));
 				const used = refs.map((name) => {
-					const other = cardList.find((x) => cardName(x) === name)!;
+					const other = cardList.find((x) => cardName(x) === name);
+					if (!other) return { name, value: filterNames.find((f) => f.name === name)?.value ?? null };
 					const v = card(other);
 					if (v.cycle) throw new CycleError(v.error!);
 					if (v.error) throw new FormulaError(`[${name}] has a problem: ${v.error}`);
@@ -786,7 +854,7 @@ export function evaluateDashboard(def: DashboardDef, env: DashEnv): { cards: Map
 	for (const c of def.components) {
 		const { columns, cells } = valueColumns(def, cards, c);
 		const rules = (c.kind === "list" ? c.boxHighlight : c.highlight) ?? [];
-		const matched = rules.map((r) => (matchesValues(r.when, columns, cells, env.ctx) ? 1 : 0));
+		const matched = rules.map((r) => (matchesValues(env.filters ? groupWithFilters(r.when, env.filters, env.ctx.today) : r.when, columns, cells, env.ctx) ? 1 : 0));
 		const first = (target: string) => rules.find((r, i) => matched[i] && !r.off && r.target === target);
 		const valueRule = c.kind === "card" ? first(VALUE_ID) : undefined;
 		const boxRule = first(ROW_TARGET);
@@ -804,7 +872,7 @@ export function evaluateDashboard(def: DashboardDef, env: DashEnv): { cards: Map
 			c.kind === "card"
 				? (() => {
 						const l = { ...DEFAULT_CARD_LAYOUT, ...set(c.layout), ...set(boxRule?.layout as CardLayout | undefined) };
-						return { ...l, caption: l.caption ? fillCaption(l.caption, def, cards, c) : "" };
+						return { ...l, caption: l.caption ? fillCaption(l.caption, def, cards, c, env) : "" };
 					})()
 				: undefined;
 		const button =
@@ -812,7 +880,7 @@ export function evaluateDashboard(def: DashboardDef, env: DashEnv): { cards: Map
 				? (() => {
 						const l = { ...DEFAULT_BUTTON_LAYOUT, ...set(c.layout), ...set(boxRule?.layout as ButtonLayout | undefined) };
 						const off = l.state === "disabled";
-						return { ...l, description: l.description ? fillCaption(l.description, def, cards, c) : "", ...(off && boxRule?.name ? { why: boxRule.name } : {}) };
+						return { ...l, description: l.description ? fillCaption(l.description, def, cards, c, env) : "", ...(off && boxRule?.name ? { why: boxRule.name } : {}) };
 					})()
 				: undefined;
 		looks.set(c.id, { box: { ...c.style, ...boxRule?.style }, ...(valueRule ? { value: valueRule.style } : {}), ...(card ? { card } : {}), ...(button ? { button } : {}), matched });
@@ -820,12 +888,18 @@ export function evaluateDashboard(def: DashboardDef, env: DashEnv): { cards: Map
 	return { cards, lists, charts, looks };
 }
 
-/** A card's caption with `[Value]` (its own value) and other cards' `[Title]`s replaced by their values as shown. */
-export function fillCaption(caption: string, def: DashboardDef, cards: Map<string, CardOut>, self: DashComponent): string {
+/**
+ * A caption with `[Value]` (a card's own value), other cards' `[Title]`s replaced by their values as shown, and (with
+ * `env`) filters' `[Title]`s by what's picked ("All" when nothing is).
+ */
+export function fillCaption(caption: string, def: DashboardDef, cards: Map<string, CardOut>, self: DashComponent, env?: DashEnv): string {
 	return caption.replace(/\[([^\]]+)\]/g, (all, name: string) => {
 		const key = name.trim().toLowerCase();
 		const other = key === VALUE_ID ? self : def.components.find((x) => x.kind === "card" && cardName(x).toLowerCase() === key);
-		if (!other) return all;
+		if (!other) {
+			const f = env && def.components.find((x) => x.kind === "filter" && cardName(x).toLowerCase() === key);
+			return f ? filterText(env.filters?.[f.id], env.ctx) : all;
+		}
 		const out = cards.get(other.id);
 		return out && !out.error && out.text ? out.text : "–";
 	});

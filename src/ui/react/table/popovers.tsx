@@ -1,3 +1,4 @@
+import { Menu } from "obsidian";
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -30,6 +31,7 @@ import {
 import type { EntityRecord } from "../../../services/entityIndex";
 import { DATE_PRESETS, formatDate, formatIssue, formatNumber, NUMBER_PRESETS, type MomentLike } from "../../../model/formats";
 import { EntitySuggest } from "../../components/entityPicker";
+import { CONTROL_FOR_VALUE, filterToken, tokenOf, type FilterControl } from "../../../model/dashboardFilters";
 import { choiceColor, statusColorAmong } from "../../../model/colors";
 import { colorClass } from "../EntityBits";
 import { usePlugin } from "../context";
@@ -135,6 +137,11 @@ interface FilterProps {
 	thisNote?: string | null;
 	/** what "this note" is where it's always there (a workflow's note): it's never ignored, and is described so */
 	thisIs?: string;
+	/**
+	 * A dashboard's filters: a condition's value can be one (stored as `{id}`), taking what's picked in it. Offered
+	 * where the filter's control fits the value (a note filter for links, a choice filter for choices…).
+	 */
+	dashFilters?: { id: string; label: string; control: FilterControl }[];
 }
 
 export function FiltersPanel({ filters, onChange, ...rest }: FilterProps & { filters: FilterGroup; onChange: (g: FilterGroup) => void }) {
@@ -193,13 +200,24 @@ function GroupEditor({ group, depth, onChange, onRemove, ...rest }: FilterProps 
 	);
 }
 
-function ConditionEditor({ cond, onChange, onRemove, choices, ctx, valuesOf, thisNote, thisIs }: FilterProps & { cond: Condition; onChange: (c: Condition) => void; onRemove: () => void }) {
+function ConditionEditor({ cond, onChange, onRemove, choices, ctx, valuesOf, thisNote, thisIs, dashFilters: filters }: FilterProps & { cond: Condition; onChange: (c: Condition) => void; onRemove: () => void }) {
 	const col = choices.find((c) => c.col.id === cond.field)?.col;
 	const ops = col ? OPERATORS[col.kind] : [];
 	const op = ops.find((o) => o.op === cond.op);
+	// A dashboard filter as the value: the filters whose control fits this kind of value, and the one chosen.
+	const control = op ? CONTROL_FOR_VALUE[op.value] : undefined;
+	const fitting = (filters ?? []).filter((f) => f.control === control);
+	const token = tokenOf(cond.value);
+	const tokenFilter = token === null ? undefined : filters?.find((f) => f.id === token);
 	// Checked as it runs: "this note" is the note the view is on (always there in a workflow: any stand-in will do).
-	const issue = conditionIssue(thisNote === undefined ? cond : thisNoteCondition(cond, thisIs ? "this-note" : thisNote), new Map(choices.map((c) => [c.col.id, c.col])), ctx);
+	const issue =
+		token !== null && filters
+			? tokenFilter
+				? null
+				: `There's no filter “${token}” on this dashboard.`
+			: conditionIssue(thisNote === undefined ? cond : thisNoteCondition(cond, thisIs ? "this-note" : thisNote), new Map(choices.map((c) => [c.col.id, c.col])), ctx);
 	const incomplete = issue === NEEDS_VALUE;
+	const useFilter = (id: string) => onChange({ ...cond, value: control === "note" || control === "choice" ? [filterToken(id)] : filterToken(id) });
 	return (
 		<div className={`oe-condition${issue ? (incomplete ? " is-incomplete" : " is-invalid") : ""}`}>
 			<ColumnSelect
@@ -227,7 +245,32 @@ function ConditionEditor({ cond, onChange, onRemove, choices, ctx, valuesOf, thi
 					</option>
 				))}
 			</select>
-			{col && op && <ValueEditor kind={op.value} col={col} value={cond.value} ctx={ctx} valuesOf={valuesOf} thisNote={thisNote} thisIs={thisIs} onChange={(v) => onChange({ ...cond, value: v })} />}
+			{col && op && token !== null && filters ? (
+				<span className="oe-pill oe-cond-filter is-removable" title="Takes what's picked in this filter on the dashboard. Nothing picked: the condition is left out.">
+					<Icon name="filter" />
+					<span>{tokenFilter?.label ?? token}</span>
+					<span className="oe-pill-x" role="button" aria-label="Stop using the filter" onClick={() => onChange({ field: cond.field, op: cond.op })}>
+						<Icon name="x" />
+					</span>
+				</span>
+			) : (
+				col && op && <ValueEditor kind={op.value} col={col} value={cond.value} ctx={ctx} valuesOf={valuesOf} thisNote={thisNote} thisIs={thisIs} onChange={(v) => onChange({ ...cond, value: v })} />
+			)}
+			{token === null && fitting.length > 0 && (
+				<button
+					className="clickable-icon oe-cond-usefilter"
+					aria-label={fitting.length === 1 ? `Use the filter “${fitting[0].label}”` : "Use a filter"}
+					title={fitting.length === 1 ? `Use the filter “${fitting[0].label}”` : "Use a filter"}
+					onClick={(e) => {
+						if (fitting.length === 1) return useFilter(fitting[0].id);
+						const menu = new Menu();
+						for (const f of fitting) menu.addItem((i) => i.setTitle(f.label).setIcon("filter").onClick(() => useFilter(f.id)));
+						menu.showAtMouseEvent(e.nativeEvent);
+					}}
+				>
+					<Icon name="filter" />
+				</button>
+			)}
 			<span className="oe-spacer" />
 			<button className="clickable-icon" aria-label="Remove condition" onClick={onRemove}>
 				<Icon name="x" />
@@ -329,6 +372,38 @@ function ValueEditor({ kind, col, value, ctx, valuesOf, thisNote, thisIs, onChan
 			);
 		case "date":
 			return <DateBox value={value} ctx={ctx} label="Date" onChange={onChange} />;
+		case "numrange": {
+			const [a, b] = Array.isArray(value) ? value : [value, undefined];
+			const box = (v: unknown, label: string, set: (x: unknown) => void) => (
+				<input
+					type="text"
+					inputMode="decimal"
+					className="oe-pop-input is-number"
+					value={v === undefined || v === null ? "" : String(v)}
+					placeholder="any"
+					aria-label={label}
+					onChange={(e) => {
+						const n = Number(e.target.value);
+						set(e.target.value.trim() !== "" && Number.isFinite(n) ? n : e.target.value);
+					}}
+				/>
+			);
+			return (
+				<span className="oe-range">
+					{box(a, "From", (x) => onChange([x, b ?? ""]))}
+					<span>and</span>
+					{box(b, "To", (x) => onChange([a ?? "", x]))}
+				</span>
+			);
+		}
+		case "bool":
+			return (
+				<select className="dropdown oe-pop-select" aria-label="Value" value={value === true || value === "true" ? "true" : value === false || value === "false" ? "false" : ""} onChange={(e) => onChange(e.target.value === "" ? undefined : e.target.value === "true")}>
+					<option value="">Choose…</option>
+					<option value="true">Yes</option>
+					<option value="false">No</option>
+				</select>
+			);
 		case "range": {
 			const [a, b] = Array.isArray(value) ? value : [value, undefined];
 			return (
@@ -766,7 +841,7 @@ export function newVizRule(kind: "bar" | "scale", target: string): HighlightRule
 }
 
 /** "Status is any of done, review" (+ how many more conditions) for a rule without a name. */
-function ruleSummary(r: HighlightRule, choices: ColumnChoice[]): string {
+function ruleSummary(r: HighlightRule, choices: ColumnChoice[], filters?: FilterProps["dashFilters"]): string {
 	if (r.kind === "bar" || r.kind === "scale") {
 		const col = choices.find((x) => x.col.id === r.target)?.col.label ?? r.target;
 		return `${r.kind === "bar" ? "Data bar" : "Colour scale"} on ${col}`;
@@ -778,7 +853,15 @@ function ruleSummary(r: HighlightRule, choices: ColumnChoice[]): string {
 	const c = all[0];
 	const col = choices.find((x) => x.col.id === c.field)?.col;
 	const op = col ? OPERATORS[col.kind].find((o) => o.op === c.op) : undefined;
-	const value = Array.isArray(c.value) ? c.value.map((v) => String(v).replace(/^.*\//, "").replace(/\.md$/, "")).join(", ") : c.value === undefined ? "" : String(c.value);
+	const token = tokenOf(c.value);
+	const value =
+		token !== null
+			? `[${filters?.find((f) => f.id === token)?.label ?? token}]`
+			: Array.isArray(c.value)
+				? c.value.map((v) => String(v).replace(/^.*\//, "").replace(/\.md$/, "")).join(", ")
+				: c.value === undefined
+					? ""
+					: String(c.value);
 	const first = [col?.label ?? c.field, op?.label ?? c.op, value].filter(Boolean).join(" ");
 	return all.length > 1 ? `${first} +${all.length - 1}` : first;
 }
@@ -1092,7 +1175,7 @@ export function HighlightPanel({
 								</span>
 							)}
 							<button className="oe-hl-title" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : i)}>
-								<span className="oe-hl-name">{r.name || ruleSummary(r, choices)}</span>
+								<span className="oe-hl-name">{r.name || ruleSummary(r, choices, rest.dashFilters)}</span>
 								<span className="oe-hl-meta">
 									{targetLabel(r.target)} · {r.off ? "off" : w.unit(n)}
 								</span>

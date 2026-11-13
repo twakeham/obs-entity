@@ -557,14 +557,16 @@ select.oe-status.has-color {
 .oe-form .oe-option.has-color,
 .oe-popover .oe-option.has-color,
 .oe-filters .oe-option.has-color,
-.oe-wf .oe-option.has-color {
+.oe-wf .oe-option.has-color,
+.oe-dash-filter-control .oe-option.has-color {
 	color: var(--oe-c);
 }
 
 .oe-form .oe-option.has-color.is-active,
 .oe-popover .oe-option.has-color.is-active,
 .oe-filters .oe-option.has-color.is-active,
-.oe-wf .oe-option.has-color.is-active {
+.oe-wf .oe-option.has-color.is-active,
+.oe-dash-filter-control .oe-option.has-color.is-active {
 	border-color: var(--oe-c);
 	background-color: color-mix(in srgb, var(--oe-c) 16%, var(--background-primary));
 }
@@ -1003,7 +1005,8 @@ select.oe-status.has-color {
 .oe-form .oe-option,
 .oe-popover .oe-option,
 .oe-filters .oe-option,
-.oe-wf .oe-option {
+.oe-wf .oe-option,
+.oe-dash-filter-control .oe-option {
 	height: auto;
 	padding: 1px 10px;
 	border: 1px solid var(--background-modifier-border);
@@ -1017,7 +1020,8 @@ select.oe-status.has-color {
 .oe-form .oe-option.is-active,
 .oe-popover .oe-option.is-active,
 .oe-filters .oe-option.is-active,
-.oe-wf .oe-option.is-active {
+.oe-wf .oe-option.is-active,
+.oe-dash-filter-control .oe-option.is-active {
 	border-color: var(--interactive-accent);
 	background-color: color-mix(in srgb, var(--interactive-accent) 15%, var(--background-primary));
 	color: var(--text-normal);
@@ -10204,4 +10208,105 @@ circle.oe-chart-hit:focus-visible {
 	height: auto;
 	padding: 2px 8px;
 	font-size: var(--font-ui-small);
+}
+
+/* dashboards, D3: filters (a control that sets what other components' conditions take) */
+.oe-dash-filter-body {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	height: 100%;
+	min-width: 0;
+	padding: 0 var(--size-4-1) 0 var(--size-4-3);
+	font-size: var(--font-ui-small);
+}
+
+.oe-dash-filter-label {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	flex-shrink: 0;
+	max-width: 40%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-weight: var(--font-semibold);
+	color: var(--text-muted);
+}
+
+.oe-dash-filter-control {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	overflow-x: auto;
+	overflow-y: hidden;
+	scrollbar-width: thin;
+}
+
+.oe-dash-filter-control .oe-pop-pills,
+.oe-dash-filter-control .oe-pop-links {
+	flex-wrap: nowrap;
+	max-width: none;
+}
+
+.oe-dash-filter-control .oe-option,
+.oe-dash-filter-control .oe-pill {
+	flex-shrink: 0;
+}
+
+.oe-dash-filter-clear:disabled {
+	opacity: 0.25;
+	cursor: default;
+}
+
+.oe-dash-filter-search {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	flex: 1;
+	min-width: 0;
+	color: var(--text-muted);
+}
+
+.oe-dash-filter-search input {
+	flex: 1;
+	min-width: 0;
+}
+
+.oe-dash-filter-range,
+.oe-dash-filter-dates {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	flex-shrink: 0;
+}
+
+.oe-dash-filter-num {
+	width: 6em;
+}
+
+/* a condition whose value is a dashboard filter */
+.oe-pill.oe-cond-filter {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	color: var(--text-accent);
+	background-color: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+	font-weight: var(--font-medium);
+}
+
+.oe-pill.oe-cond-filter > .svg-icon,
+.oe-pill.oe-cond-filter > .oe-icon svg {
+	width: 12px;
+	height: 12px;
+}
+
+.oe-cond-usefilter {
+	flex: none;
+	color: var(--text-faint);
+}
+
+.oe-cond-usefilter:hover {
+	color: var(--text-accent);
 }

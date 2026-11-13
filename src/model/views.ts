@@ -1807,7 +1807,7 @@ export function evaluateDetached(src: string, ctx: ViewContext, names: { name: s
 
 // ---------------------------------------------------------------- filters
 
-export const OPERATORS: Record<ValueKind, { op: string; label: string; value: "none" | "text" | "number" | "date" | "range" | "choices" | "links" }[]> = {
+export const OPERATORS: Record<ValueKind, { op: string; label: string; value: "none" | "text" | "number" | "date" | "range" | "numrange" | "bool" | "choices" | "links" }[]> = {
 	text: [
 		{ op: "contains", label: "contains", value: "text" },
 		{ op: "not-contains", label: "does not contain", value: "text" },
@@ -1831,6 +1831,7 @@ export const OPERATORS: Record<ValueKind, { op: string; label: string; value: "n
 		{ op: "<=", label: "≤", value: "number" },
 		{ op: ">", label: ">", value: "number" },
 		{ op: ">=", label: "≥", value: "number" },
+		{ op: "between", label: "is between", value: "numrange" },
 		{ op: "empty", label: "is empty", value: "none" },
 		{ op: "not-empty", label: "is not empty", value: "none" },
 	],
@@ -1860,6 +1861,7 @@ export const OPERATORS: Record<ValueKind, { op: string; label: string; value: "n
 	bool: [
 		{ op: "checked", label: "is checked", value: "none" },
 		{ op: "unchecked", label: "is not checked", value: "none" },
+		{ op: "is", label: "is", value: "bool" },
 	],
 	links: [
 		{ op: "links-any", label: "links to any of", value: "links" },
@@ -1913,6 +1915,8 @@ export function matches(cell: Cell, kind: ValueKind, cond: Condition, ctx: Pick<
 		case "unchecked":
 			return v !== true;
 	}
+	// A yes / no field "is" yes or no (a dashboard's yes / no filter).
+	if (kind === "bool" && cond.op === "is") return (v === true) === (cond.value === true || cond.value === "true");
 	switch (kind) {
 		case "text":
 		case "folder": {
@@ -1938,6 +1942,12 @@ export function matches(cell: Cell, kind: ValueKind, cond: Condition, ctx: Pick<
 		}
 		case "number": {
 			const n = typeof v === "number" ? v : null;
+			if (cond.op === "between") {
+				// Either end can be left open.
+				const [a, b] = asArray(cond.value).map((x) => (x === "" || x === null || x === undefined ? null : toNumber(x)));
+				if (n === null) return false;
+				return (a === null || a === undefined || n >= a) && (b === null || b === undefined || n <= b);
+			}
 			const q = toNumber(cond.value);
 			if (n === null || q === null) return false;
 			switch (cond.op) {
@@ -2080,8 +2090,13 @@ export function conditionIssue(cond: Condition, columns: Map<string, ResolvedCol
 	if (!op) return `“${cond.op}” doesn't apply to ${col.label}.`;
 	if (op.value === "none") return null;
 	if (op.value === "links" && listOf(cond.value).includes(THIS_NOTE)) return NO_THIS_NOTE;
+	if (op.value === "bool") return cond.value === true || cond.value === false || cond.value === "true" || cond.value === "false" ? null : NEEDS_VALUE;
 	if (blank(cond.value)) return NEEDS_VALUE;
 	if (op.value === "number" && toNumber(cond.value) === null) return `“${String(cond.value)}” isn't a number.`;
+	if (op.value === "numrange") {
+		const bad = asArray(cond.value).find((x) => !blank(x) && toNumber(x) === null);
+		if (bad !== undefined) return `“${String(bad)}” isn't a number.`;
+	}
 	if (ctx && op.value === "date" && dateValue(cond.value, ctx) === null) return `“${String(cond.value)}” isn't a date.`;
 	if (ctx && op.value === "range") {
 		const bad = asArray(cond.value).find((x) => !blank(x) && dateValue(x, ctx) === null);
