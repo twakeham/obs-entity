@@ -332,29 +332,6 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 
 			<div className="oe-browser-list" ref={listRef} role="tabpanel">
 				{onConfig && state.showTypes && <TypesSection isCollapsed={isCollapsed} toggleHeading={toggleHeading} filter={cfgFilter} filtering={cfgFiltering} />}
-				{/* Kept while every view is listed elsewhere (not filtering), so there's always somewhere to drop one back. */}
-				{!onConfig && (placed.top.length > 0 || (shownViews.length > 0 && !entFiltering)) && (
-					<section className={`oe-bsection oe-bviews${viewsOpen ? "" : " is-collapsed"}`} data-section="views">
-						<Heading
-							depth={0}
-							open={viewsOpen}
-							icon="table"
-							title="Views"
-							count={placed.top.length}
-							className="oe-bsection-header"
-							onToggle={() => toggleHeading("v:views")}
-							onAdd={() => plugin.newView()}
-							addLabel="New entity view"
-							onDropView={(path) => moveView(path, { kind: "views" }, ["v:views"])}
-						/>
-						{viewsOpen && viewRows(placed.top, 1)}
-						{viewsOpen && placed.top.length === 0 && (
-							<div className="oe-tree-empty" style={{ paddingLeft: `${INDENT + 22}px` }}>
-								Drag a view here to list it at the top
-							</div>
-						)}
-					</section>
-				)}
 				{onConfig && state.showWorkflows && <WorkflowsSection isCollapsed={isCollapsed} toggleHeading={toggleHeading} filter={cfgFilter} filtering={cfgFiltering} />}
 				{onConfig && configEmpty && <div className="oe-panel-empty">{cfgFiltering ? "Nothing matches." : "Nothing shown. Turn on entity types or workflows in View options."}</div>}
 				{!onConfig && shown.length === 0 && (!entFiltering || shownViews.length === 0) && <div className="oe-panel-empty">{entFiltering ? "Nothing matches." : "No entities yet. Use + to create one."}</div>}
@@ -458,6 +435,30 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 						</section>
 					);
 				})}
+				{/* Views not listed under a group or type, last. Kept while every view is listed elsewhere (not
+				    filtering), so there's always somewhere to drop one back. */}
+				{!onConfig && (placed.top.length > 0 || (shownViews.length > 0 && !entFiltering)) && (
+					<section className={`oe-bsection oe-bviews${viewsOpen ? "" : " is-collapsed"}`} data-section="views">
+						<Heading
+							depth={0}
+							open={viewsOpen}
+							icon="table"
+							title="Views"
+							count={placed.top.length}
+							className="oe-bsection-header"
+							onToggle={() => toggleHeading("v:views")}
+							onAdd={() => plugin.newView()}
+							addLabel="New entity view"
+							onDropView={(path) => moveView(path, { kind: "views" }, ["v:views"])}
+						/>
+						{viewsOpen && viewRows(placed.top, 1)}
+						{viewsOpen && placed.top.length === 0 && (
+							<div className="oe-tree-empty" style={{ paddingLeft: `${INDENT + 22}px` }}>
+								None here. Drag a view onto this heading to list it here.
+							</div>
+						)}
+					</section>
+				)}
 			</div>
 		</div>
 	);

@@ -1,10 +1,10 @@
 import type { BrowserSection } from "./tree";
 import type { EntityTypeDef, GroupDef } from "./types";
 
-/** Where the Entity Browser lists a view note: the top Views section, a group's section, or under a type's heading. */
+/** Where the Entity Browser lists a view note: the Views section (at the bottom), a group's section, or under a type's heading. */
 export type ViewSpot = { kind: "views" } | { kind: "group"; key: string } | { kind: "type"; key: string };
 
-/** The `place:` value for the top Views section. */
+/** The `place:` value for the Views section. */
 export const PLACE_VIEWS = "views";
 
 /**
@@ -60,7 +60,7 @@ export function placeFor(spot: ViewSpot, viewTypes: string[], types: EntityTypeD
 
 /** Where the browser shows each view, given the sections it's showing. */
 export interface PlacedViews<V> {
-	/** the top Views section */
+	/** the Views section, after the groups */
 	top: V[];
 	/** by section key: listed first in that section, under its heading */
 	sections: Map<string, V[]>;

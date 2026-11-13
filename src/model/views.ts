@@ -201,7 +201,7 @@ export interface ViewDef {
 	workflowBar?: true;
 	/**
 	 * where the Entity Browser lists the view note: a type key (under its heading), "@group" (in the group's
-	 * section) or "views" (the top Views section); unset: worked out from `types` (see viewPlace.ts)
+	 * section) or "views" (the Views section, at the bottom); unset: worked out from `types` (see viewPlace.ts)
 	 */
 	place?: string;
 }

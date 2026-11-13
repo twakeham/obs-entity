@@ -883,7 +883,7 @@ A left-sidebar view (ribbon `library`, command **Open entity browser**).
 #### Tabs
 
 A tab bar at the top (`role="tablist"`, icon and text) splits the browser in two (`tab` in the browser state, `"entities"` by default):
-- **Entities** (`library`): the view notes (`showViews`, see Views in the browser below), then the group sections and the notes in them. Everything below under Grouping, Rows and Reveal applies here.
+- **Entities** (`library`): the group sections and the notes in them, then the **Views** section (view notes not listed under a group or type; `showViews`, see Views in the browser below). Everything below under Grouping, Rows and Reveal applies here.
 - **Types** (`settings-2`; `tab: "configure"` in the browser state): the setup. It has the entity types section (`TypesSection`, §8.1), then **Workflows**, each switchable in View options.
 
 Each tab has its own toolbar contents, filters and match bar:
@@ -901,7 +901,7 @@ Each tab has its own toolbar contents, filters and match bar:
 #### Views in the browser
 
 View notes are listed with the notes they're about. Each view's spot (`model/viewPlace.ts`) is one of three:
-- **The top Views section.**
+- **The Views section,** at the bottom, after the groups.
 - **A group's section:** listed first, under the group heading.
 - **A type's heading:** listed first, above the notes.
 
@@ -927,7 +927,7 @@ View notes are listed with the notes they're about. Each view's spot (`model/vie
 - `ViewIndex.setPlace` edits just that line of the note's first block (`setBlockPlace`), so the rest keeps its formatting. It unfolds the target heading.
 - `place` is part of `ViewDef`, so saving the view from its tab keeps it.
 
-**The Views heading** stays while every view is listed elsewhere (count 0, "Drag a view here to list it at the top"), except while filtering. That way there's always somewhere to drop one back, and the list doesn't shift when a drag starts.
+**The Views heading** stays while every view is listed elsewhere (count 0, "None here. Drag a view onto this heading to list it here."), except while filtering. That way there's always somewhere to drop one back, and the list doesn't shift when a drag starts.
 
 #### Grouping
 
@@ -1335,7 +1335,7 @@ filters: { all: [{ field: status, op: is-not, value: done }] }
 | `highlight` | Conditional formatting rules, in priority order (see Highlight rules). Optional. |
 | `summary` | Column id → summary aggregation, shown in the summary row and group headers (see Summaries). Optional. |
 | `board` | The board layout's own settings (see Board). Kept whichever layout is shown. Optional. |
-| `place` | Where the Entity Browser lists the view note (§8.3 Views in the browser): a type key (under its heading), `"@group"` (in the group's section) or `"views"` (the top Views section). Optional: unset, it's worked out from `types`. Written by dragging the view in the browser or **Show under…**. |
+| `place` | Where the Entity Browser lists the view note (§8.3 Views in the browser): a type key (under its heading), `"@group"` (in the group's section) or `"views"` (the Views section, at the bottom). Optional: unset, it's worked out from `types`. Written by dragging the view in the browser or **Show under…**. |
 
 **Shared and per-layout settings.** Both layouts use `types`, `filters`, `sort`, `highlight`, `formats`, `summary` and the column definitions (roll-ups and formulas are defined once, in `columns`). The table alone uses the shown `columns` and their order, `group`, `widths`, `fill`, `freeze`, `density` and `wrap`; the board alone uses `board:`. Formats and summaries are kept for card fields that aren't table columns.
 

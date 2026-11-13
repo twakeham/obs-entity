@@ -258,7 +258,7 @@ Clicking a tab yourself sticks until you open something else. Open the browser w
 - **Views**, listed with what they show, each with a small **VIEW** tag:
   - A view of one type is listed under that type's heading (Quest board under Quests).
   - A view of types in one group is listed under the group (Campaign calendar under At the table).
-  - Anything wider is in the **Views** section at the top.
+  - Anything wider is in the **Views** section at the bottom.
   - **To put a view somewhere else,** drag it onto any group or type heading (e.g. Campaign calendar onto Campaigns), or onto **Views**. You can also right-click it and use **Show under…**. The choice is saved in the view note (`place:` in its block), so it syncs. Moving a view back to its automatic spot removes `place:`.
 - One section per group, with a heading per type. Group headings stand out (bold, on a faint band). A type heading's count is left out when it's the same as its group's just above.
 - Entities nest under their parent, using the type's parent fields, e.g. Lander and Design review under Apollo Moonshot.
@@ -310,7 +310,7 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
 
 **Creating and opening views:**
 - **New entity view** (command, the + on the browser's **Views** section, or "New table view of …" / "New board of …" / "New calendar of …" on a type or group heading): pick what it shows, Table, Board or Calendar, name it, and the note is created.
-- **Open entity view…** lists the view notes. The browser's **Entities** tab lists them too: under the type or group they show, or in **Views** at the top.
+- **Open entity view…** lists the view notes. The browser's **Entities** tab lists them too: under the type or group they show, or in **Views** at the bottom.
 - **Embed** a view in any note with `![[Active projects]]`, or paste the block anywhere.
 
 **Toolbar:**
