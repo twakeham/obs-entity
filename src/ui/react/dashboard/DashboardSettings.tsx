@@ -443,6 +443,9 @@ function CardData({ c, def, env, views, card, onChange }: Props & { c: Extract<D
 				)}
 				<Result text={card?.text} error={card?.error} />
 			</Section>
+			<Section title="Display as">
+				<FormatPick value={c.format} sample={card?.num} env={env} onChange={(format) => onChange({ ...c, format })} />
+			</Section>
 		</>
 	);
 }
@@ -652,14 +655,9 @@ function ButtonData({ c, onChange }: { c: Extract<DashComponent, { kind: "button
 // ---------------------------------------------------------------- the Style tab
 
 function StyleTab(props: Props) {
-	const { c, env, card, chart, onChange } = props;
+	const { c, env, chart, onChange } = props;
 	return (
 		<>
-			{c.kind === "card" && (
-				<Section title="Number">
-					<FormatPick value={c.format} sample={card?.num} env={env} onChange={(format) => onChange({ ...c, format })} />
-				</Section>
-			)}
 			{c.kind === "chart" && (
 				<Section title="Values">
 					<FormatPick value={c.format} sample={chart?.total} env={env} onChange={(format) => onChange({ ...c, format })} />

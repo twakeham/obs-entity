@@ -2150,8 +2150,9 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
         - lists are "Show up to [8] notes", Sorted by and With;
         - views pick their view, text is its Markdown, and buttons have their Label and On click.
         - Each ends with the live result: "= 5", "= 13 in 4 bars", "= 5 of 13", "5 of 5 shown", or the problem.
+      - **Display as** (cards): the number format, after Show.
     - **Style:**
-      - cards: **Number** (the format); charts: **Values** (the format); buttons: their **Button icon**;
+      - charts: **Values** (the format); buttons: their **Button icon**;
       - every component: **Default style** (`StyleFields`: fill, text colour, bold / italic / strike, icon; no icon for text, buttons and views), then **Conditional styling** (the views' `HighlightPanel`, with dashboard wording, without data bars or colour scales). A list's is **Row highlighting**;
       - **The format** is a preset (Automatic, Number, Whole number, One / Two decimal places, Currency, Percent, Compact) or **Custom pattern…**. "Looks like: 33,600 gp" shows the component's own value in it.
     - A "By <field>" chart title follows the field until it's changed by hand.

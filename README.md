@@ -466,8 +466,8 @@ A **dashboard** is a page you build from components on a grid: summary cards, ch
   - **Add** (left): drag a component onto the grid, or click it to add it at the bottom.
   - **The grid** (middle): drag components to move them, and their bottom-right corner to resize. Click one to select it.
   - **Settings** (right): the selected component's title (edit it at the top) and a **⋯** menu with **Duplicate** and **Delete**, then two tabs.
-    - **Data:** where its notes come from (**Types | View | Formula**; with Types, pick the types and add filter conditions right there) and what it shows (a card picks its field first, then a summary that fits it: Sum or Average for a number, Earliest or Latest for a date). Each part shows its live result: "→ 13 notes", "= 5".
-    - **Style:** the number format (presets, or a custom pattern, with an example of the value in it), the component's **Default style**, and **Conditional styling** (below).
+    - **Data:** where its notes come from (**Types | View | Formula**; with Types, pick the types and add filter conditions right there) and what it shows (a card picks its field first, then     a summary that fits it: Sum or Average for a number, Earliest or Latest for a date, then **Display as**, its number format: presets, or a custom pattern, with an example of the value in it). Each part shows its live result: "→ 13 notes", "= 5".
+        - **Style:** a chart's number format, the component's **Default style**, and **Conditional styling** (below).
   - Changes aren't saved until **Save**. **Discard** throws them away. Leaving the dashboard keeps the unsaved changes for when you come back.
 - **Where the notes come from** (summary cards, charts and lists), one of:
   - **Types and filters:** pick types or groups, and filter them just like a view.
