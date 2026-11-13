@@ -2778,13 +2778,18 @@ select.oe-status.has-color {
 
 .oe-browser-tabs {
 	display: flex;
+	flex-shrink: 0;
 	gap: 2px;
+	/* the same height as a view header, so it lines up with the editor beside it */
+	box-sizing: border-box;
+	height: var(--header-height);
 	margin-bottom: var(--size-4-2);
 	border-bottom: 1px solid var(--background-modifier-border);
 }
 
 .oe-browser-tabs button.oe-browser-tab {
 	flex: 1;
+	height: auto;
 	display: flex;
 	align-items: center;
 	justify-content: center;
