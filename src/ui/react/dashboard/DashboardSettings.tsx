@@ -408,28 +408,35 @@ function CardData({ c, def, env, views, card, onChange }: Props & { c: Extract<D
 						<textarea rows={3} className="oe-dash-code" aria-label="Formula" value={"formula" in c.value ? c.value.formula : ""} onChange={(e) => onChange({ ...c, value: { formula: e.target.value } })} />
 					</Row>
 				) : (
-					<div className="oe-dash-sentence">
-						<span>Show the</span>
-						<select className="dropdown" value={agg} aria-label="Summary" onChange={(e) => onChange({ ...c, value: { agg: e.target.value, ...(column.id !== "name" ? { column } : {}) } })}>
-							{aggs.map((o) => (
-								<option key={o.key} value={o.key}>
-									{o.label.toLowerCase()}
-								</option>
-							))}
-						</select>
-						<span>of</span>
-						<ColumnPick
-							label="Of"
-							value={column.id === "name" ? "" : column.id}
-							choices={choices}
-							first="notes"
-							onChange={(col) => {
-								const next = col ? summaryOptions(col) : [{ key: "count", label: "Count" }];
-								const keep = next.some((o) => o.key === agg) ? agg : (next[0]?.key ?? "count");
-								onChange({ ...c, value: col ? { agg: keep, column: col.def } : { agg: "count" } });
-							}}
-						/>
-					</div>
+					<>
+						<Row label="Field">
+							<ColumnPick
+								label="Field"
+								value={column.id === "name" ? "" : column.id}
+								choices={choices}
+								first="None: count the notes"
+								onChange={(col) => {
+									// The summary depends on the field: keep it if the new field has it (and one was chosen), else take the field's first.
+									const next = col ? summaryOptions(col).filter((o) => o.key !== "values") : [{ key: "count", label: "Count" }];
+									const keep = column.id !== "name" && next.some((o) => o.key === agg) ? agg : (next[0]?.key ?? "count");
+									// A number format means nothing for a date (and the other way round): drop it when that changes.
+									const format = (resolved.kind === "date") !== (col?.kind === "date") ? undefined : c.format;
+									onChange({ ...c, format, value: col ? { agg: keep, column: col.def } : { agg: "count" } });
+								}}
+							/>
+						</Row>
+						{column.id !== "name" && (
+							<Row label="Summary">
+								<select className="dropdown" value={agg} aria-label="Summary" onChange={(e) => onChange({ ...c, value: { agg: e.target.value, column } })}>
+									{aggs.map((o) => (
+										<option key={o.key} value={o.key}>
+											{o.label}
+										</option>
+									))}
+								</select>
+							</Row>
+						)}
+					</>
 				)}
 				<Result text={card?.text} error={card?.error} />
 			</Section>

@@ -2129,7 +2129,7 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
       - **Notes:** from **Types | View | Formula** (segmented buttons). With Types, the type chips (and "Add a type or group…") and the filter editor (`FiltersPanel`, "Only notes matching all of these conditions") are right in the panel, compact to fit it. A live count follows ("→ 13 notes", or the source's problem).
       - **Chart:** the chart type as six icon buttons, with its name under them.
       - **Show:**
-        - cards are a sentence, "Show the [count] of [notes]";
+        - cards pick their **Field** first ("None: count the notes", or a field), then the **Summary**, which offers only what fits that field (Sum, Average… for numbers; Earliest, Latest… for dates). Counting notes has no summary to choose. Changing the field keeps a summary it also has, else takes the field's first, and drops a number format when the field changes to or from a date;
         - charts have Measure (**Count | Sum | Average**, then "of" a number field), Bars or Slices by, Split by, By date and Every (**Week | Month | Year**), or Done when (its conditions, in the panel like the filters);
         - lists are "Show up to [8] notes", Sorted by and With;
         - views pick their view, text is its Markdown, and buttons have their Label and On click.
