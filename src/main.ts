@@ -38,8 +38,10 @@ import type { WorkflowsRequest } from "./ui/react/workflows/WorkflowManager";
 import { confirmRun, WorkflowPickerModal } from "./ui/modals/workflowModals";
 import { askForm } from "./ui/modals/workflowFormModal";
 import { initialDates } from "./model/calendarView";
-import { VIEW_BLOCK, ViewIndex } from "./services/viewIndex";
-import { NewViewModal, OpenViewModal } from "./ui/modals/viewModals";
+import { VIEW_BLOCK, ViewIndex, type NoteViewKind } from "./services/viewIndex";
+import { serializeDashboard, type DashboardDef } from "./model/dashboard";
+import { findViewBlocks, replaceViewBlock } from "./model/viewBlock";
+import { NameModal, NewViewModal, OpenViewModal } from "./ui/modals/viewModals";
 import { ViewBlock } from "./ui/views/viewBlock";
 import { ENTITY_VIEW, EntityViewView } from "./ui/views/EntityViewView";
 
@@ -587,6 +589,7 @@ export default class EntitiesPlugin extends Plugin {
 			today: Math.floor(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / 86_400_000),
 			resolve: (linkpath, sourcePath) => this.app.metadataCache.getFirstLinkpathDest(linkpath, sourcePath)?.path ?? null,
 			row: (path) => byPath.get(path),
+			all: () => rows,
 			incoming: (path) => this.relations.incomingOf(path).map((e) => ({ source: e.source, sourceType: e.sourceType, fieldKey: e.fieldKey })),
 			moment: moment as unknown as MomentLike,
 			locale: numberLocale(),
@@ -630,13 +633,47 @@ export default class EntitiesPlugin extends Plugin {
 
 	/** Write a view note in the views folder (numbered when the name is taken). */
 	async writeViewNote(name: string, def: ViewDef): Promise<TFile> {
+		return this.writeViewNoteText(name, this.viewNoteText(def), def.kind);
+	}
+
+	private async writeViewNoteText(name: string, text: string, kind: NoteViewKind): Promise<TFile> {
 		const first = await this.viewNotePath(name);
 		const stem = first.slice(0, -".md".length);
 		let path = first;
 		for (let n = 2; this.app.vault.getAbstractFileByPath(path); n++) path = `${stem} ${n}.md`;
-		const file = await this.app.vault.create(path, this.viewNoteText(def));
-		this.views.add(file.path, def.kind);
+		const file = await this.app.vault.create(path, text);
+		this.views.add(file.path, kind);
 		return file;
+	}
+
+	/** Unsaved dashboard edits, by note path, kept for the session (DESIGN §8.12). */
+	dashboardDrafts = new Map<string, DashboardDef>();
+	/** Dashboards that open in edit mode (just created). */
+	dashboardEditOnOpen = new Set<string>();
+
+	/** "New dashboard": ask for a name, create an empty dashboard in the views folder and open it to edit. */
+	newDashboard(): void {
+		new NameModal(this.app, "New dashboard", "Dashboard", "Create", async (name) => {
+			const text = `\`\`\`${VIEW_BLOCK}\n${stringifyYaml(serializeDashboard({ kind: "dashboard", components: [] }))}\`\`\`\n`;
+			const file = await this.writeViewNoteText(name, text, "dashboard");
+			this.dashboardEditOnOpen.add(file.path);
+			const leaf = this.app.workspace.getLeaf(this.settings.openInNewTab);
+			await this.openAsEntityView(leaf, file.path);
+		}).open();
+	}
+
+	/** Replace a view note's first `entity-view` block with `yaml`. False when the note or its block is gone. */
+	async writeViewBlock(path: string, yaml: string): Promise<boolean> {
+		const file = this.app.vault.getAbstractFileByPath(path);
+		if (!(file instanceof TFile)) return false;
+		let ok = false;
+		await this.app.vault.process(file, (text) => {
+			const block = findViewBlocks(text)[0];
+			const next = block ? replaceViewBlock(text, { lineStart: block.start, source: block.inner }, yaml) : null;
+			ok = next !== null;
+			return next ?? text;
+		});
+		return ok;
 	}
 
 	/** Where a view note of this name goes in the views folder (made if missing), before any numbering. */

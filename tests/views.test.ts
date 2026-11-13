@@ -515,6 +515,23 @@ describe("formula columns", () => {
 		const def = view({ columns: [{ formula: "[due] - today()", label: "Days left", id: "left", type: "number" }] });
 		expect(serializeView(def).columns).toEqual(["name", { formula: "[due] - today()", label: "Days left", id: "left", type: "number" }]);
 	});
+
+	it("query notes with notes(): by type key or name, by group, or every entity", () => {
+		const withAll: ViewContext = { ...ctx, all: () => ROWS };
+		const one = (formula: string, c: ViewContext = withAll) => {
+			const r = runView(view({ types: ["project"], columns: [{ formula, label: "Q", id: "q" }] }), ROWS, c).rows.find((x) => x.row.name === "Apollo")!.cells.q;
+			return r.error ? `!${r.error}` : r.text;
+		};
+		expect(one('count(notes("project"))')).toBe("4");
+		expect(one('count(notes("Projects"))')).toBe("4");
+		expect(one('join(name(notes("organisation")), ", ")')).toBe("Acme, Globex");
+		expect(one("count(notes())")).toBe(String(ROWS.length));
+		expect(one(`count(notes("@${T("deal").group}"))`)).toBe(String(ROWS.filter((r) => r.type.group === T("deal").group).length));
+		expect(one('count(filter(notes("project"), prop(item, "status") = "active"))')).toBe("1");
+		expect(one('sum(prop(notes("deal"), "value"))')).toBe("150");
+		expect(one('count(notes("planet"))')).toBe('!There\'s no type called "planet".');
+		expect(one('count(notes("project"))', ctx)).toBe("!notes() can't be used here.");
+	});
 });
 
 describe("highlight", () => {

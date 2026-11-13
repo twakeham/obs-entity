@@ -890,7 +890,7 @@ A tab bar at the top (`role="tablist"`, icon and text) splits the browser in two
 Each tab has its own toolbar contents, filters and match bar:
 - **Search and filters:** Entities uses `search`, `type`, `status` and `tag` (for notes and views). Types uses `configSearch` and `configType`; status and tags are only entities', so it has no such dropdowns.
 - **View options:** Entities shows the tree options and Show views. Types shows Show entity types / workflows.
-- **+ menu:** Entities offers New entity… and New view. Types offers New entity type, New group and New workflow.
+- **+ menu:** Entities offers New entity…, New view and New dashboard (§8.12). Types offers New entity type, New group and New workflow.
 - **Collapse all / Expand all:** these touch only the tab's own keys. The Types tab's keys are `t:*` and `w:*`; Entities' keys are `v:views`, the section and type headings, and the expanded note paths.
 - **While filtering:** the temporary collapse state is keyed by the tab as well as the filter, so switching tabs starts fresh.
 
@@ -963,7 +963,7 @@ View notes are listed with the notes they're about. Each view's spot (`model/vie
 
 #### Toolbar and filters
 
-- **Toolbar row** (per tab, see Tabs): search ("Search…": entities and views on Entities; entity types and workflows on Types), **View options** (the tree options and **Show views** on Entities; **Show entity types** and **Show workflows** on Types; `showViews` / `showTypes` / `showWorkflows` in the browser state), **Collapse all**, **Expand all**, **+** (New entity…, New view on Entities; New entity type, New group, New workflow on Types).
+- **Toolbar row** (per tab, see Tabs): search ("Search…": entities and views on Entities; entity types and workflows on Types), **View options** (the tree options and **Show views** on Entities; **Show entity types** and **Show workflows** on Types; `showViews` / `showTypes` / `showWorkflows` in the browser state), **Collapse all**, **Expand all**, **+** (New entity…, New view, New dashboard on Entities; New entity type, New group, New workflow on Types).
 - **Filter row:** Type, Status and Tag dropdowns on Entities; Type only on Types.
 - **Views** filter on Entities, **entity types and workflows** on Types (`model/browserFilter.ts`): a view by its name and the types it shows (`ViewIndex.types`, read from the block's `types` with its layout; a group or `*` view shows the group's or every type; status and tags are only entities', so with either set views are left out), a type by its name, plural or key (`typeMatches`), a workflow by its name or button label and whether it applies to the type (`inScope`: one for any note does). Sections with no matches hide.
 - **While filtering**, a bar shows the tab's match count and a **Clear** link (clearing that tab's search and filters); with nothing, "Nothing matches."
@@ -1400,7 +1400,7 @@ columns:
   | Text | `concat`, `text`, `upper`, `lower`, `trim`, `len`, `left`, `right`, `mid`, `replace`, `contains`, `startsWith`, `format` (column format patterns) |
   | Dates | `today`, `now`, `date(y, m, d)` / `date(text)`, `year`, `month`, `day`, `weekday` (1 Mon … 7 Sun), `dateAdd`, `dateDiff` (whole units, consistent with `dateAdd`), `startOf`, `endOf` (week / month / year) |
   | Lists | `count`, `first`, `last`, `join`, `includes`, `unique`, `sort`, `map(list, expr)`, `filter(list, cond)`; `item` is the current element |
-  | Links | `name(link)`, `prop(link, "Field")` (a linked note's field by label or key, or a built-in such as status) |
+  | Links | `name(link)`, `prop(link, "Field")` (a linked note's field by label or key, or a built-in such as status), `notes("type")` (every note of a type key or name, `"@group"`, or all with `notes()`; `ViewContext.all`, cached per context by `notesIn`; §8.12) |
 
   Each function has a signature, a description and an example in `FUNCTIONS`; the editor's autocomplete, hover help and reference panel use them.
 - **Types:** the result type is inferred (number, text, true/false, date, list, links, or "any", shown as text) and can be overridden.
@@ -2060,8 +2060,8 @@ components:
     kind: card
     title: Done
     at: [6, 0, 3, 2]
-    value: { formula: "[Done quests] / [All quests]" }
-    format: "0%"
+    value: { formula: "[Done quests] / [All quests] * 100" }
+    format: percent
   - id: soon
     kind: list
     title: Due soon
@@ -2117,6 +2117,32 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
 - **D1 (M8.1):** core. The kind, grid, view and edit modes, palette and settings, card, list, view, text and button components, sources (view, types and filters, formula), `notes()`, card formulas over cards.
 - **D2 (M8.2):** charts (bar, stacked bar, donut, line over time, progress; how they're drawn is decided then), card colour and icon rules (highlight styles), and click-through to the matching notes.
 - **D3 (M8.3):** dashboard filters (controls setting variables that sources use), `{this}` when embedded in a note, cross-filtering, and dashboards in packs (a TTRPG campaign dashboard).
+
+**Code (D1):**
+- **The model:** `model/dashboard.ts`.
+  - `parseDashboard` / `serializeDashboard`. Columns are read and written by `parseView` / `serializeView`, so they're the same forms as a view's.
+  - `newComponent` (a fresh id, at the bottom) and `readingOrder`.
+  - `runSource`: a source becomes a `ViewDef` (the saved view's columns kept, so its filters on roll-up and formula columns still work, plus the component's columns) and is run with `runView`.
+  - `evaluateDashboard`: every card and list in one pass, with runs shared by source.
+- **Formulas:**
+  - Card formulas and formula sources go through `evaluateDetached` (`model/views.ts`): a formula with no note, given names (the cards) and `notes()`.
+  - A cycle between cards reads "Circular reference: A → B → A." on each card in it.
+  - `summarize` now also returns the number behind its text (`value`, plus `date` for dates), so card formulas can use summaries.
+- **View notes:**
+  - `ViewIndex` keeps each view note's block (`viewDef(path)`, parsed and cached) and finds one by name (`find(name, from)`).
+  - `kind(path)` can be `"dashboard"`, and `icon(path)` gives its icon.
+  - A changed block counts as an update, so dashboards built on a view follow its edits.
+  - Dashboards aren't offered as toolbars in a workflow's Views list.
+- **Rendering:**
+  - `EntityViewView` and `ViewBlock` check `isDashboardRaw` before `parseView` and render `ui/react/dashboard/Dashboard.tsx`. The tab passes `save`; the embed passes `openEditor` (`plugin.openAsEntityView` in a new tab).
+  - After its own save the tab doesn't re-render, so the component keeps the saved definition as its base.
+  - Embedded views use `EntityTable` with `fill`, saving through `plugin.writeViewBlock`.
+  - Text uses `MarkdownRenderer.render` with its own `Component`.
+- **Editing:**
+  - In edit mode a component's contents get `pointer-events: none`, so it can be dragged and selected; the resize handle is left out of that rule.
+  - The palette drops through react-grid-layout's `dropConfig` (the dragged kind sets the drop size).
+  - react-grid-layout's CSS is copied, themed, into `styles.css`.
+  - `plugin.newDashboard()` (`NameModal`) writes an empty dashboard and marks it for `dashboardEditOnOpen`.
 ---
 
 ## 9. Validation rules

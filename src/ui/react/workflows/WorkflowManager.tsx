@@ -986,7 +986,8 @@ function ViewsTab({ wf, edit }: { wf: WorkflowDef; edit: (fn: (x: WorkflowDef) =
 			if (next.size) x.views = [...next];
 			else delete x.views;
 		});
-	const sorted = [...views].sort((a, b) => a.basename.localeCompare(b.basename, undefined, { numeric: true }));
+	// Dashboards have no toolbar of their own to offer workflows in.
+	const sorted = [...views].filter((f) => plugin.views.kind(f.path) !== "dashboard").sort((a, b) => a.basename.localeCompare(b.basename, undefined, { numeric: true }));
 	return (
 		<div className="oe-wf-views">
 			<div className="oe-tm-muted oe-wf-views-intro">
@@ -1005,7 +1006,7 @@ function ViewsTab({ wf, edit }: { wf: WorkflowDef; edit: (fn: (x: WorkflowDef) =
 			{sorted.map((f) => (
 				<label key={f.path} className={`oe-wf-views-row${wf.allViews ? " is-covered" : ""}`}>
 					<input type="checkbox" checked={!!wf.allViews || picked.has(f.path)} disabled={!!wf.allViews} onChange={(e) => toggle(f.path, e.target.checked)} />
-					<Icon name={VIEW_KIND_ICON[plugin.views.kind(f.path) ?? "table"] ?? "table"} />
+					<Icon name={plugin.views.icon(f.path)} />
 					<span className="oe-wf-views-name">{f.basename}</span>
 					<span className="oe-tm-muted">{f.parent && !f.parent.isRoot() ? f.parent.path : ""}</span>
 				</label>

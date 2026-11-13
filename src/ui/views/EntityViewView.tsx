@@ -2,9 +2,12 @@ import { Notice, TextFileView, parseYaml, stringifyYaml, type Menu, type TFile, 
 import { createRoot, type Root } from "react-dom/client";
 import type EntitiesPlugin from "../../main";
 import { findViewBlocks, replaceViewBlock } from "../../model/viewBlock";
-import { parseView, serializeView, unknownSources, VIEW_KIND_ICON, type ViewDef, type ViewKind } from "../../model/views";
+import { parseView, serializeView, unknownSources, VIEW_KIND_ICON, type ViewDef } from "../../model/views";
 import { PluginContext } from "../react/context";
 import { EntityTable } from "../react/table/EntityTable";
+import { Dashboard } from "../react/dashboard/Dashboard";
+import { DASHBOARD_ICON, isDashboardRaw, parseDashboard, serializeDashboard, type DashboardDef } from "../../model/dashboard";
+import type { NoteViewKind } from "../../services/viewIndex";
 
 export const ENTITY_VIEW = "obs-entities-view";
 
@@ -33,12 +36,12 @@ export class EntityViewView extends TextFileView {
 	}
 
 	getIcon(): string {
-		return VIEW_KIND_ICON[this.kind] ?? "table";
+		return this.kind === "dashboard" ? DASHBOARD_ICON : (VIEW_KIND_ICON[this.kind] ?? "table");
 	}
 
-	/** The layout shown, for the tab icon (it changes with the Table / Board / Calendar toggle). */
-	private kind: ViewKind = "table";
-	private setKind(kind: ViewKind): void {
+	/** The layout shown (or dashboard), for the tab icon (it changes with the Table / Board / Calendar toggle). */
+	private kind: NoteViewKind = "table";
+	private setKind(kind: NoteViewKind): void {
 		if (kind === this.kind) return;
 		this.kind = kind;
 		(this.leaf as unknown as { updateHeader?: () => void }).updateHeader?.();
@@ -125,13 +128,24 @@ export class EntityViewView extends TextFileView {
 			this.message("This entity view can't be shown", [`The view definition isn't valid YAML: ${(e as Error).message}`]);
 			return;
 		}
+		const path = this.file?.path ?? "";
+		if (isDashboardRaw(raw)) {
+			const { def, errors } = parseDashboard(raw);
+			this.setKind("dashboard");
+			this.root = createRoot(el);
+			this.root.render(
+				<PluginContext.Provider value={this.plugin}>
+					<Dashboard key={++this.generation} path={path} initial={def} errors={errors} save={(d) => this.saveDashboard(d)} />
+				</PluginContext.Provider>,
+			);
+			return;
+		}
 		const { def, errors } = parseView(raw);
 		const unknown = def ? unknownSources(def, this.plugin.settings.types, this.plugin.settings.groups) : [];
 		if (!def || unknown.length) {
 			this.message("This entity view can't be shown", [...errors, ...(unknown.length ? [`Unknown ${unknown.length === 1 ? "type" : "types"}: ${unknown.join(", ")}.`] : [])]);
 			return;
 		}
-		const path = this.file?.path ?? "";
 		this.setKind(def.kind);
 		this.root = createRoot(el);
 		this.root.render(
@@ -167,16 +181,25 @@ export class EntityViewView extends TextFileView {
 	 * can duplicate lines and break the YAML.
 	 */
 	private async saveDef(def: ViewDef): Promise<void> {
-		if (!this.block) return;
 		this.setKind(def.kind);
-		const yaml = stringifyYaml(serializeView(def));
+		await this.saveYaml(stringifyYaml(serializeView(def)));
+	}
+
+	/** Save a dashboard's definition into the block (false when the block couldn't be found). */
+	private async saveDashboard(def: DashboardDef): Promise<boolean> {
+		return this.saveYaml(stringifyYaml(serializeDashboard(def)));
+	}
+
+	private async saveYaml(yaml: string): Promise<boolean> {
+		if (!this.block) return false;
 		const next = replaceViewBlock(this.data, { lineStart: this.block.start, source: this.block.inner }, yaml);
 		if (next === null) {
 			new Notice("Couldn't save the view: its block changed in the meantime.");
-			return;
+			return false;
 		}
 		this.data = next;
 		this.block = { start: this.block.start, inner: yaml.replace(/\n+$/, "") };
 		await this.save();
+		return true;
 	}
 }

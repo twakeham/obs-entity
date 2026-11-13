@@ -26,7 +26,6 @@ import { statusColor, type PaletteColor } from "../../model/colors";
 import { Icon } from "./Icon";
 import { BOARD_ICON } from "../../model/board";
 import { CALENDAR_ICON, dateFields } from "../../model/calendarView";
-import { VIEW_KIND_ICON } from "../../model/views";
 import { buttonIcon, buttonLabel, cloneWorkflow, inScope, newTrigger, newWorkflow, noteless, onNotes, scopeTypes, triggerText, TRIGGER_ICONS, TRIGGER_LABELS, WORKFLOW_CATEGORIES, workflowProblems, type WorkflowDef } from "../../model/workflows";
 import { NotePickerModal } from "../modals/workflowModals";
 import { typeMatches, viewMatches, workflowMatches, type BrowserFilter } from "../../model/browserFilter";
@@ -256,6 +255,7 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 		} else {
 			m.addItem((i) => i.setTitle("New entity…").setIcon("book-plus").onClick(() => plugin.openCreateModal(null)));
 			m.addItem((i) => i.setTitle("New view").setIcon("table").onClick(() => plugin.newView()));
+			m.addItem((i) => i.setTitle("New dashboard").setIcon("layout-dashboard").onClick(() => plugin.newDashboard()));
 		}
 		m.showAtMouseEvent(evt.nativeEvent);
 	};
@@ -1004,9 +1004,9 @@ function ViewRow({ file, depth, active }: { file: TFile; depth: number; active: 
 			}}
 		>
 			<span className="oe-tree-toggle is-leaf" />
-			<Icon name={VIEW_KIND_ICON[plugin.views.kind(file.path) ?? "table"] ?? "table"} className="oe-tree-icon" />
+			<Icon name={plugin.views.icon(file.path)} className="oe-tree-icon" />
 			<span className="oe-tree-name">{file.basename}</span>
-			<span className="oe-view-tag">view</span>
+			<span className="oe-view-tag">{plugin.views.kind(file.path) === "dashboard" ? "dashboard" : "view"}</span>
 			<span className="oe-bend" />
 		</div>
 	);

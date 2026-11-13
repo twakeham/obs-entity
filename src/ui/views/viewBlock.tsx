@@ -7,6 +7,8 @@ import { removeWideButton, wideButton } from "./embedWide";
 import { parseView, serializeView, unknownSources, type ViewDef } from "../../model/views";
 import { PluginContext } from "../react/context";
 import { EntityTable } from "../react/table/EntityTable";
+import { Dashboard } from "../react/dashboard/Dashboard";
+import { isDashboardRaw, parseDashboard } from "../../model/dashboard";
 
 /**
  * One rendered `entity-view` block. The table edits a copy of the definition and saves it back into the
@@ -32,6 +34,19 @@ export class ViewBlock extends MarkdownRenderChild {
 			raw = this.source.trim() ? parseYaml(this.source) : null;
 		} catch (e) {
 			this.showError([`The view definition isn't valid YAML: ${(e as Error).message}`]);
+			return;
+		}
+		if (isDashboardRaw(raw)) {
+			const { def, errors } = parseDashboard(raw);
+			const path = this.ctx.sourcePath;
+			this.root = createRoot(el);
+			el.addClass("oe-dash-host");
+			this.watchFit();
+			this.root.render(
+				<PluginContext.Provider value={this.plugin}>
+					<Dashboard path={path} initial={def} errors={errors} openEditor={() => void this.plugin.openAsEntityView(this.plugin.app.workspace.getLeaf("tab"), path)} />
+				</PluginContext.Provider>,
+			);
 			return;
 		}
 		const { def, errors } = parseView(raw);

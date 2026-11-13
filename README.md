@@ -289,7 +289,7 @@ Clicking a tab yourself sticks until you open something else. Open the browser w
 - **+** starts a new workflow that isn't tied to any type yet (choose its types later, under Applies to). Right-click the heading for New workflow, **Recent runs** (every workflow's recent runs), and **Disable all workflows** / **Enable all workflows** (a master switch: each workflow keeps its own on or off, and Enable all brings them back as they were). Right-click a category (When created, When changed, Run on notes, Forms, Scheduled) to start a new workflow of that kind straight away (Scheduled offers On a schedule and On a date). Right-click a workflow to run it: **Fill in the form…** for a form that starts on its own, **Run on a note…** (pick the note) for buttons and forms on notes.
 
 **Toolbar and filters:**
-- **Toolbar:** search, View options, Collapse all, Expand all (each for the tab you're on) and **+**. On Entities, **+** offers New entity… and New view. On Types it offers New entity type, New group and New workflow.
+- **Toolbar:** search, View options, Collapse all, Expand all (each for the tab you're on) and **+**. On Entities, **+** offers New entity…, New view and New dashboard. On Types it offers New entity type, New group and New workflow.
 - **Search** on Entities finds entities (names and aliases) and views. On Types it finds entity types and workflows (names and button labels).
 - **Filters:** Entities has Type, Status and Tag dropdowns. **Type** also keeps the views that show that type (including views of its group, or of every type). Only entities have a status and tags, so **Status** or **Tag** leaves views out. Types has Type only: it keeps that entity type and the workflows that apply to it (including ones for any note).
 - **While filtering**, matches stay inside their hierarchy: parents that don't match are dimmed, and sections with no matches hide. A bar shows the tab's match count and **Clear**; nothing at all is "Nothing matches."
@@ -404,6 +404,7 @@ Right-click a selected row for the same actions; Esc clears the selection, and D
 - `dateDiff([Start], [Due], "weeks")`
 - `join(map([Team], name(item)), ", ")`
 - `prop([Project], "Due")` reads a field of the linked project.
+- `count(filter(notes("quest"), prop(item, "Status") = "active"))` counts the active quests: `notes("type")` gives every note of a type (or `notes("@group")`, or `notes()` for all).
 
 The editor:
 - **Colouring and checks:** syntax colouring, matching brackets, and errors underlined as you type.
@@ -415,7 +416,7 @@ The editor:
 
 In the table, formulas sort, filter, group, highlight, summarise and format like any other column. A row whose formula fails shows "–" with the reason in a tooltip. Double-click a formula cell, or right-click its header → **Edit formula…**, to change it.
 
-Functions: logic (`if`, `ifs`, `and`, `or`, `not`, `empty`, `coalesce`), maths (`round`, `floor`, `ceil`, `abs`, `min`, `max`, `sum`, `avg`, `pow`, `sqrt`, `mod`, `number`, `value`: a choice field's value), text (`concat`, `text`, `upper`, `lower`, `trim`, `len`, `left`, `right`, `mid`, `replace`, `contains`, `startsWith`, `format`), dates (`today`, `date`, `year`, `month`, `day`, `weekday`, `dateAdd`, `dateDiff`, `startOf`, `endOf`), lists (`list`, `count`, `first`, `last`, `join`, `includes`, `unique`, `sort`, `map`, `filter`) and links (`name`, `prop`).
+Functions: logic (`if`, `ifs`, `and`, `or`, `not`, `empty`, `coalesce`), maths (`round`, `floor`, `ceil`, `abs`, `min`, `max`, `sum`, `avg`, `pow`, `sqrt`, `mod`, `number`, `value`: a choice field's value), text (`concat`, `text`, `upper`, `lower`, `trim`, `len`, `left`, `right`, `mid`, `replace`, `contains`, `startsWith`, `format`), dates (`today`, `date`, `year`, `month`, `day`, `weekday`, `dateAdd`, `dateDiff`, `startOf`, `endOf`), lists (`list`, `count`, `first`, `last`, `join`, `includes`, `unique`, `sort`, `map`, `filter`) and links (`name`, `prop`, `notes`).
 
 **Full-tab views:** opening a view note shows it as an **entity view** tab: the table fills the whole tab, edge to edge, like the Entity types editor.
 - **Open as Markdown** (header button or ⋯) shows the note itself, e.g. to edit the definition or write notes below the block. **Open as entity view** switches back.
@@ -454,6 +455,33 @@ Any view can also be shown as a **calendar** of its notes by date: use the **Tab
 - **Editing:** drag an entry to another day to change its date (a spanning note moves its start and end together); drag a bar's start or end to change just that. In Week, dragging into another swimlane changes that field too (if dragging can change it). Double-click a day, or its **+**, to create a note with that date filled in. Right-click an entry for the usual menu plus **Clear date**. Ctrl/Cmd+Z undoes a move.
 - **No date** (button above the calendar) lists the notes without a date; drag one onto a day to give it that date. The footer counts the notes in the period shown: "12 in November · 3 without a date".
 - Dates have no times, and repeating events aren't supported. Calendars need real (Gregorian) dates.
+
+### Dashboards
+
+A **dashboard** is a page you build from components on a grid: summary cards, lists, views, text and buttons. Each one is a view note (marked **DASHBOARD** in the Entity Browser), so it syncs, opens as a tab and can be embedded in any note with `![[My dashboard]]`.
+
+- **New dashboard:** the Entity Browser's **+** (Entities tab) → **New dashboard**. Name it, and it opens ready to edit.
+- **View mode** (how it opens) just shows the components. Lists and views are live: click a note to open it, and edit in an embedded view as usual.
+- **Edit** (top right) switches to the editor:
+  - **Add** (left): drag a component onto the grid, or click it to add it at the bottom.
+  - **The grid** (middle): drag components to move them, and their bottom-right corner to resize. Click one to select it.
+  - **Settings** (right): the selected component's options, and **Duplicate** / **Delete**.
+  - Changes aren't saved until **Save**. **Discard** throws them away. Leaving the dashboard keeps the unsaved changes for when you come back.
+- **Where the notes come from** (summary cards and lists), one of:
+  - **Types and filters:** pick types or groups, and filter them just like a view.
+  - **A saved view:** uses that view's types, filters and sort.
+  - **A formula** giving notes, e.g. `filter(notes("quest"), prop(item, "Status") = "active")`.
+- **Summary card:** one value, with a title.
+  - **A summary of some notes:** how many there are, or a summary of a field: sum, average, median, min / max, earliest / latest, % filled, % of one choice, and so on.
+  - **A formula over other cards:** refer to them by title, e.g. `[Completed quests] / [All quests] * 100`.
+  - **Format:** optional, e.g. `currency`, `percent`, `#,##0 gp`.
+- **List:** the notes with their status, up to four fields, sorted and limited (with "+N more"). Click one to open it.
+- **View:** shows a view note, with its own toolbar.
+- **Text:** Markdown (headings, links, embeds).
+- **Button:** a label and icon that creates a note of a type, runs a workflow (forms open their form; buttons on notes ask which note), or opens a note or view.
+- **Narrow widths:** in a sidebar or on a phone, the components stack in reading order at full width.
+
+Charts, colour rules on cards, and dashboard-wide filters (e.g. pick a campaign and everything follows) are coming next.
 
 ## Workflows
 
@@ -611,6 +639,7 @@ src/
     formLayout.ts            custom form layouts: format, tidying, resolving against a type, field renames
     viewBlock.ts             find / rewrite an entity-view block inside a note (and its place: line)
     viewPlace.ts             where the Entity Browser lists a view note: place:, or worked out from its types
+    dashboard.ts             dashboards: parse / serialize, components, sources (view, types and filters, formula), card values and card formulas, lists
   services/
     entityIndex.ts           entities from the metadata cache
     relationIndex.ts         forward + inverse edges, groupsFor, mentions
@@ -625,8 +654,9 @@ src/
   ui/react/table/            EntityTable (toolbar, virtual rows, editing; hosts the board too), cells, popovers (filters, sort, group, columns)
   ui/react/board/            Board (buckets, swimlanes, cards, pointer drag and drop, keyboard), Buckets and Swimlanes panels
   ui/react/calendar/         CalendarView (Month, Week, Agenda, No date list, dragging), Dates panel
+  ui/react/dashboard/        Dashboard (grid with react-grid-layout, view and edit modes, card / list / view / text / button), DashboardSettings (the edit panel)
   ui/react/types/            Entity types view: TypeManager (sidebar, group editor, save), General/Fields/Relationships/Display/Layout tabs, Preview, controls
   ui/views/                  BrowserView (left sidebar), SidePanelView (right sidebar: connections or type preview), TypesView (main area), EntityViewView (view notes as full tabs), viewBlock (renders entity-view blocks in notes)
-tests/                       model, relations, typeEditing, tree, form, views, viewBlock, formats, formula, bulk, board, calendar, form layout, choice-value, workflow and pack tests
+tests/                       model, relations, typeEditing, tree, form, views, viewBlock, formats, formula, bulk, board, calendar, form layout, choice-value, workflow, pack and dashboard tests
 styles.css                   all classes prefixed `oe-`
 ```

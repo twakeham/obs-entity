@@ -811,6 +811,8 @@ export interface ViewContext {
 	/** resolve a link path written on `sourcePath` to a note path (null when no note exists) */
 	resolve(linkpath: string, sourcePath: string): string | null;
 	row(path: string): ViewRow | undefined;
+	/** every entity note, for notes() in formulas (unset: notes() can't be used) */
+	all?(): ViewRow[];
 	incoming(path: string): IncomingLink[];
 	/** for column formats: moment.js (date patterns), the number locale and the default currency */
 	moment?: MomentLike;
@@ -1585,6 +1587,40 @@ function cellValue(cell: Cell, col: ResolvedColumn): FValue {
 }
 
 /** A linked note's field (by key or label, or a built-in like status), for prop(). */
+/** notes() results per context and target: a context is made per index version, so it's never stale. */
+const notesCache = new WeakMap<ViewContext, Map<string, LinkValue[]>>();
+
+/**
+ * notes("type"): links to every entity of a type (key, name or plural, any case), of a group ("@key" or "@name"),
+ * or (null) every entity, sorted by name. Throws when the type or group doesn't exist.
+ */
+export function notesIn(target: string | null, ctx: ViewContext): LinkValue[] {
+	if (!ctx.all) return [];
+	let cache = notesCache.get(ctx);
+	if (!cache) notesCache.set(ctx, (cache = new Map()));
+	const key = target ?? "*";
+	const hit = cache.get(key);
+	if (hit) return hit;
+	const t = target?.trim().toLowerCase() ?? "";
+	let keep: (r: ViewRow) => boolean = () => true;
+	if (t.startsWith("@")) {
+		const g = ctx.groups.find((x) => x.key.toLowerCase() === t.slice(1) || x.name.toLowerCase() === t.slice(1));
+		if (!g) throw new Error(`There's no group called "${target!.slice(1)}".`);
+		keep = (r) => r.type.group === g.key;
+	} else if (t) {
+		const type = ctx.types.find((x) => x.key.toLowerCase() === t || x.name.toLowerCase() === t || (x.plural ?? "").toLowerCase() === t);
+		if (!type) throw new Error(`There's no type called "${target}".`);
+		keep = (r) => r.type.key === type.key;
+	}
+	const out = ctx
+		.all()
+		.filter(keep)
+		.map((r): LinkValue => ({ path: r.path, linktext: r.path.replace(/\.md$/, "").split("/").pop() ?? r.name, name: r.name }))
+		.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+	cache.set(key, out);
+	return out;
+}
+
 function propOf(link: LinkValue, name: string, ctx: ViewContext): FValue {
 	const row = link.path ? ctx.row(link.path) : undefined;
 	if (!row) return null;
@@ -1676,6 +1712,7 @@ function rowEnv(row: ViewRow, refs: Map<string, ResolvedColumn>, ctx: ViewContex
 			: {}),
 		today: ctx.today,
 		prop: (link, name) => propOf(link, name, ctx),
+		...(ctx.all ? { notes: (t: string | null) => notesIn(t, ctx) } : {}),
 		// value([Priority]): a choice's number (the field's values), else the column's number
 		value: (id) => {
 			const c = refs.get(id);
@@ -1741,6 +1778,30 @@ export function evaluateFormula(src: string, row: ViewRow, def: ViewDef, ctx: Vi
 	return evaluate(compiled.ast, rowEnv(row, refs, ctx, opts.old, opts.vars));
 }
 
+/**
+ * A formula with no note behind it (a dashboard's formula source, or a card formula over other cards): it can use
+ * `notes()`, `prop()`, dates and the names given in `names` (e.g. other cards by title), but no columns.
+ * Returns the compiled refs too (the names it uses). Throws a FormulaError.
+ */
+export function evaluateDetached(src: string, ctx: ViewContext, names: { name: string; value: FValue; type?: FType }[] = []): { value: FValue; uses: string[] } {
+	const columns: RefColumn[] = names.map((n) => ({ id: `name:${n.name}`, label: n.name, type: n.type ?? "any" }));
+	const compiled = compile(src, columns);
+	const byId = new Map(names.map((n) => [`name:${n.name}`, n.value]));
+	const env: EvalEnv = {
+		col: (id) => byId.get(id) ?? null,
+		today: ctx.today,
+		prop: (link, name) => propOf(link, name, ctx),
+		...(ctx.all ? { notes: (t: string | null) => notesIn(t, ctx) } : {}),
+		dateText: (d) => ctx.dates.format(d, "short"),
+		parseDate: (s) => {
+			const p = ctx.dates.parse(s);
+			return p?.ok ? p.value : null;
+		},
+		format: (v, pattern) =>
+			v instanceof DateVal ? (ctx.moment || pattern === RELATIVE ? formatDate(v.days, pattern, ctx.moment as MomentLike, ctx.today) : ctx.dates.format(v.days, "short")) : formatNumber(v, pattern, ctx.locale ?? "en", ctx.currency),
+	};
+	return { value: evaluate(compiled.ast, env), uses: compiled.refs.filter((r) => r.startsWith("name:")).map((r) => r.slice(5)) };
+}
 
 // ---------------------------------------------------------------- filters
 

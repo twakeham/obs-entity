@@ -6,6 +6,10 @@ import { defaultFormat, formatCell, type Cell, type LinkValue, type ResolvedColu
 export interface SummaryResult {
 	label: string;
 	text: string;
+	/** the number behind the text (percentages as a fraction, dates as days), for formulas over summaries; unset for lists of values */
+	value?: number;
+	/** `value` is a date */
+	date?: true;
 }
 
 export interface SummaryOption {
@@ -68,6 +72,7 @@ export function summaryApplies(col: ResolvedColumn, agg: string): boolean {
 
 const isEmpty = (v: unknown) => v === null || v === undefined || v === "" || (Array.isArray(v) && v.length === 0);
 const pct = (n: number, of: number) => (of ? `${Math.round((n / of) * 100)}%` : "–");
+const frac = (n: number, of: number) => (of ? { value: n / of } : {});
 
 /** Values of a list or links cell, as keys for counting distinct values. */
 function keysOf(v: unknown): string[] {
@@ -116,27 +121,37 @@ export function summarize(
 
 	if (agg.startsWith("percent:")) {
 		const want = agg.slice(8);
-		return { label: want, text: pct(values.filter((v) => v === want).length, total) };
+		const n = values.filter((v) => v === want).length;
+		return { label: want, text: pct(n, total), ...frac(n, total) };
 	}
 	switch (agg) {
 		case "count":
-			return { label: "Count", text: plain(col.id === "name" ? total : filled.length) };
+			{
+			const n = col.id === "name" ? total : filled.length;
+			return { label: "Count", text: plain(n), value: n };
+		}
 		case "empty":
-			return { label: "Empty", text: plain(total - filled.length) };
+			return { label: "Empty", text: plain(total - filled.length), value: total - filled.length };
 		case "filled":
-			return { label: "Filled", text: `${filled.length}/${total}` };
+			return { label: "Filled", text: `${filled.length}/${total}`, value: filled.length };
 		case "percent-filled":
-			return { label: "Filled", text: pct(filled.length, total) };
+			return { label: "Filled", text: pct(filled.length, total), ...frac(filled.length, total) };
 		case "unique":
-			return { label: "Unique", text: plain(new Set(values.flatMap(keysOf)).size) };
+			{
+			const n = new Set(values.flatMap(keysOf)).size;
+			return { label: "Unique", text: plain(n), value: n };
+		}
 		case "links":
-			return { label: "Total", text: plain(values.reduce<number>((n, v) => n + keysOf(v).length, 0)) };
+			{
+			const n = values.reduce<number>((k, v) => k + keysOf(v).length, 0);
+			return { label: "Total", text: plain(n), value: n };
+		}
 		case "checked":
-			return { label: "Checked", text: plain(values.filter((v) => v === true).length) };
+			return { label: "Checked", text: plain(values.filter((v) => v === true).length), value: values.filter((v) => v === true).length };
 		case "unchecked":
-			return { label: "Unchecked", text: plain(values.filter((v) => v !== true).length) };
+			return { label: "Unchecked", text: plain(values.filter((v) => v !== true).length), value: values.filter((v) => v !== true).length };
 		case "percent-checked":
-			return { label: "Checked", text: pct(values.filter((v) => v === true).length, total) };
+			return { label: "Checked", text: pct(values.filter((v) => v === true).length, total), ...frac(values.filter((v) => v === true).length, total) };
 		case "values": {
 			const counts = new Map<string, { n: number; order: number; text: string }>();
 			for (const c of cells) {
@@ -155,29 +170,30 @@ export function summarize(
 	if (col.kind === "date") {
 		switch (agg) {
 			case "earliest":
-				return { label: "Earliest", text: date(sorted[0]) };
+				return { label: "Earliest", text: date(sorted[0]), value: sorted[0], date: true };
 			case "latest":
-				return { label: "Latest", text: date(sorted[sorted.length - 1]) };
+				return { label: "Latest", text: date(sorted[sorted.length - 1]), value: sorted[sorted.length - 1], date: true };
 			case "range":
-				return { label: "Range", text: spanText(sorted[sorted.length - 1] - sorted[0]) };
+				return { label: "Range", text: spanText(sorted[sorted.length - 1] - sorted[0]), value: sorted[sorted.length - 1] - sorted[0] };
 		}
 		return null;
 	}
 	switch (agg) {
 		case "sum":
-			return { label: "Sum", text: num(sum) };
+			return { label: "Sum", text: num(sum), value: sum };
 		case "avg":
-			return { label: "Avg", text: num(sum / sorted.length) };
+			return { label: "Avg", text: num(sum / sorted.length), value: sum / sorted.length };
 		case "median": {
 			const m = sorted.length >> 1;
-			return { label: "Median", text: num(sorted.length % 2 ? sorted[m] : (sorted[m - 1] + sorted[m]) / 2) };
+			const med = sorted.length % 2 ? sorted[m] : (sorted[m - 1] + sorted[m]) / 2;
+			return { label: "Median", text: num(med), value: med };
 		}
 		case "min":
-			return { label: "Min", text: num(sorted[0]) };
+			return { label: "Min", text: num(sorted[0]), value: sorted[0] };
 		case "max":
-			return { label: "Max", text: num(sorted[sorted.length - 1]) };
+			return { label: "Max", text: num(sorted[sorted.length - 1]), value: sorted[sorted.length - 1] };
 		case "range":
-			return { label: "Range", text: num(sorted[sorted.length - 1] - sorted[0]) };
+			return { label: "Range", text: num(sorted[sorted.length - 1] - sorted[0]), value: sorted[sorted.length - 1] - sorted[0] };
 	}
 	return null;
 }

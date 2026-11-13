@@ -309,6 +309,16 @@ export const FUNCTIONS: FnDef[] = [
 	// Links
 	{ name: "name", cat: "Links", sig: "name(link)", desc: "The linked note's name (a list of names for several links).", example: "name([Owner])", min: 1, max: 1, ret: "text" },
 	{ name: "prop", cat: "Links", sig: 'prop(link, "Field")', desc: "A field of the linked note, by its label or key (a list for several links).", example: 'prop([Project], "Due")', min: 2, max: 2, ret: "any" },
+	{
+		name: "notes",
+		cat: "Links",
+		sig: 'notes("type")',
+		desc: 'Links to every note of a type (its key or name), of a group ("@group"), or every entity (notes()). Use with filter, count, sum and prop.',
+		example: 'count(filter(notes("quest"), prop(item, "Status") = "active"))',
+		min: 0,
+		max: 1,
+		ret: "links",
+	},
 	// Workflows
 	{ name: "old", cat: "Workflows", sig: "old([Field])", desc: "The field's value before the change that started the workflow (the current value for other triggers).", example: 'old([Status]) = "blocked"', min: 1, max: 1, ret: (a) => a[0], workflow: true },
 	{ name: "new", cat: "Workflows", sig: "new([Field])", desc: "The field's value after the change (the same as [Field]).", example: "new([Estimate]) - old([Estimate])", min: 1, max: 1, ret: (a) => a[0], workflow: true },
@@ -456,6 +466,8 @@ export interface EvalEnv {
 	parseDate: (s: string) => number | null;
 	/** format a number or date with a column format pattern */
 	format: (v: number | DateVal, pattern: string) => string;
+	/** notes("type"): links to every note of a type key or name, "@group", or (null) every entity; unset where there are no notes to ask */
+	notes?: (target: string | null) => FValue;
 }
 
 const MS_DAY = 86_400_000;
@@ -881,6 +893,15 @@ export function evaluate(ast: Node, env: EvalEnv): FValue {
 				};
 				if (v === null) return null;
 				return Array.isArray(v) ? v.map(one) : one(v);
+			}
+			case "notes": {
+				if (!env.notes) throw new FormulaError("notes() can't be used here.", n.from, n.to);
+				const target = A.length ? text(0).trim() : "";
+				try {
+					return env.notes(target || null);
+				} catch (e) {
+					throw new FormulaError(e instanceof Error ? e.message : String(e), A[0]?.from ?? n.from, A[0]?.to ?? n.to);
+				}
 			}
 		}
 		throw new FormulaError(`Unknown function ${n.fn}().`, n.from, n.nameTo);
