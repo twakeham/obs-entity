@@ -541,6 +541,9 @@ function ChartData({ c, env, views, chart, onChange }: Props & { c: Extract<Dash
 				)}
 				<Result text={chart && !chart.error ? (progress && chart.progress ? `${chart.progress.doneText} of ${chart.totalText}` : `${chart.totalText} in ${chart.bars.length} ${c.chart === "line" ? "steps" : c.chart === "donut" ? "slices" : "bars"}`) : undefined} error={chart?.error} />
 			</Section>
+			<Section title="Display as">
+				<FormatPick value={c.format} sample={chart?.total} env={env} onChange={(format) => onChange({ ...c, format })} />
+			</Section>
 			<div className="oe-dash-hint">{progress ? "In view mode, click the bar to open the done notes as a table." : `In view mode, click a ${c.chart === "donut" ? "slice" : c.chart === "line" ? "point" : "bar"} to open its notes as a table.`}</div>
 		</>
 	);
@@ -655,14 +658,9 @@ function ButtonData({ c, onChange }: { c: Extract<DashComponent, { kind: "button
 // ---------------------------------------------------------------- the Style tab
 
 function StyleTab(props: Props) {
-	const { c, env, chart, onChange } = props;
+	const { c, onChange } = props;
 	return (
 		<>
-			{c.kind === "chart" && (
-				<Section title="Values">
-					<FormatPick value={c.format} sample={chart?.total} env={env} onChange={(format) => onChange({ ...c, format })} />
-				</Section>
-			)}
 			{c.kind === "button" && (
 				<Section title="Button icon">
 					<Row label="Icon" hint="A Lucide icon name, e.g. plus, scroll, swords.">
