@@ -9,6 +9,7 @@ import {
 	DEFAULT_SIZE,
 	DEFAULT_BUTTON_LAYOUT,
 	DEFAULT_CARD_LAYOUT,
+	DEFAULT_LIST_LAYOUT,
 	chartLook,
 	evaluateDashboard,
 	GRID_COLS,
@@ -281,7 +282,7 @@ function ComponentBody({ c, card, list, chart, look, path, editing }: { c: DashC
 		case "chart":
 			return chart ? <Chart kind={c.chart} title={c.title || CHART_LABELS[c.chart]} icon={look?.box.icon} look={chartLook(c)} out={chart} open={(d) => void plugin.openDrill(d)} /> : null;
 		case "list":
-			return <ListBox c={c} out={list} icon={look?.box.icon} />;
+			return <ListBox c={c} out={list} look={look} />;
 		case "view":
 			return <ViewBox c={c} path={path} editing={editing} />;
 		case "text":
@@ -334,42 +335,100 @@ function CardBox({ c, out, look, editing }: { c: Extract<DashComponent, { kind: 
 	);
 }
 
-function ListBox({ c, out, icon }: { c: Extract<DashComponent, { kind: "list" }>; out?: ListOut; icon?: string }) {
+function ListBox({ c, out, look }: { c: Extract<DashComponent, { kind: "list" }>; out?: ListOut; look?: ComponentLook }) {
 	const plugin = usePlugin();
 	const rules = c.highlight ?? [];
 	const styleOf = (i: number | undefined) => (i === undefined ? undefined : rules[i]?.style);
+	const L = look?.list ?? DEFAULT_LIST_LAYOUT;
+	const icon = look?.box.icon;
+	const cols = out?.columns ?? [];
+	const marker = L.marker !== "none";
+	const right = L.fields === "right";
+	// Rows share the list's columns (subgrid), so fields at the right line up, under their names when shown.
+	const template = right ? `${marker ? "auto " : ""}minmax(0, 1fr)${cols.map(() => " minmax(0, max-content)").join("")}` : `${marker ? "auto " : ""}minmax(0, 1fr)`;
+	const more = out ? out.total - out.rows.length : 0;
+	const markerOf = (r: ListOut["rows"][number], i: number) =>
+		L.marker === "status" ? (
+			<StatusDot status={r.row.status} />
+		) : L.marker === "icon" ? (
+			<span className="oe-dash-list-marker" style={{ color: r.row.type.color }}>
+				<Icon name={r.row.type.icon} />
+			</span>
+		) : L.marker === "number" ? (
+			<span className="oe-dash-list-marker is-number">{i + 1}</span>
+		) : null;
 	return (
 		<div className="oe-dash-list-body">
-			<div className="oe-dash-head">
-				{icon && <Icon name={icon} className="oe-hl-icon" />}
-				<span className="oe-dash-head-title">{c.title || "List"}</span>
-				{out && !out.error && <span className="oe-dash-head-count">{out.total}</span>}
-			</div>
+			{L.header && (
+				<div className="oe-dash-head">
+					{icon && <Icon name={icon} className="oe-hl-icon" />}
+					<span className="oe-dash-head-title">{c.title || "List"}</span>
+					{L.count && out && !out.error && <span className="oe-dash-head-count">{out.total}</span>}
+				</div>
+			)}
 			{out?.error ? (
 				<div className="oe-dash-problem">{out.error}</div>
 			) : (
-				<div className="oe-dash-list">
-					{out?.rows.length === 0 && <div className="oe-dash-muted">No notes.</div>}
-					{out?.rows.map((r) => {
+				<div
+					className={`oe-dash-list is-${L.density} is-${L.display} is-fields-${L.fields}${L.dividers ? " has-dividers" : ""}${L.stripes ? " has-stripes" : ""}${L.header ? "" : " no-header"}`}
+					style={{ gridTemplateColumns: template }}
+				>
+					{L.fieldNames && right && cols.length > 0 && (out?.rows.length ?? 0) > 0 && (
+						<div className="oe-dash-list-row is-head" aria-hidden="true">
+							{marker && <span />}
+							<span>Name</span>
+							{cols.map((col) => (
+								<span key={col.id} className="oe-dash-list-field">
+									{col.label}
+								</span>
+							))}
+						</div>
+					)}
+					{out?.rows.length === 0 && <div className="oe-dash-muted oe-dash-list-wide">No notes.</div>}
+					{out?.rows.map((r, i) => {
 						const row = styleOf(r.hl?.[ROW_TARGET]);
+						const fields = cols.map((col) => {
+							const cell = styleOf(r.hl?.[col.id]);
+							const text = r.cells[col.id]?.text ?? "";
+							// On a second line, an empty field (and its name) is left out.
+							if (!right && !text) return null;
+							return (
+								<span key={col.id} className={`oe-dash-list-field ${hlClasses(cell)}`} title={col.label}>
+									{cell?.icon && <Icon name={cell.icon} className="oe-hl-icon" />}
+									{!right && L.fieldNames && <span className="oe-dash-list-fieldname">{col.label}</span>}
+									{text}
+								</span>
+							);
+						});
 						return (
 							<div key={r.row.path} className={`oe-dash-list-row ${hlClasses(row)}`} onClick={(e: ReactMouseEvent) => plugin.openPath(r.row.path, e.nativeEvent)}>
-								<StatusDot status={r.row.status} />
-								{row?.icon && <Icon name={row.icon} className="oe-hl-icon" />}
-								<span className="oe-dash-list-name">{r.row.name}</span>
-								{out.columns.map((col) => {
-									const cell = styleOf(r.hl?.[col.id]);
-									return (
-										<span key={col.id} className={`oe-dash-list-field ${hlClasses(cell)}`} title={col.label}>
-											{cell?.icon && <Icon name={cell.icon} className="oe-hl-icon" />}
-											{r.cells[col.id]?.text ?? ""}
+								{marker && markerOf(r, i)}
+								{right ? (
+									<>
+										<span className="oe-dash-list-name">
+											{row?.icon && <Icon name={row.icon} className="oe-hl-icon" />}
+											{r.row.name}
 										</span>
-									);
-								})}
+										{fields}
+									</>
+								) : (
+									<span className="oe-dash-list-main">
+										<span className="oe-dash-list-name">
+											{row?.icon && <Icon name={row.icon} className="oe-hl-icon" />}
+											{r.row.name}
+										</span>
+										{fields.some(Boolean) && <span className="oe-dash-list-fields">{fields}</span>}
+									</span>
+								)}
 							</div>
 						);
 					})}
-					{out && out.total > out.rows.length && <div className="oe-dash-muted">+{out.total - out.rows.length} more</div>}
+					{more > 0 && L.more === "text" && <div className="oe-dash-muted oe-dash-list-wide">+{more} more</div>}
+					{more > 0 && L.more === "link" && out?.drill && (
+						<a className="oe-dash-list-more oe-dash-list-wide" role="button" tabIndex={0} onClick={() => void plugin.openDrill(out.drill!)} onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), void plugin.openDrill(out.drill!))}>
+							+{more} more: open all {out.total}
+						</a>
+					)}
 				</div>
 			)}
 		</div>

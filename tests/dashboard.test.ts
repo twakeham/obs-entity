@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { isoDateAdapter } from "../src/model/dates";
 import { CRM_PACK, STARTER_PACK } from "../src/model/packs";
 import { extractEdges } from "../src/model/relations";
-import { chartLook, DEFAULT_BUTTON_LAYOUT, DEFAULT_CARD_LAYOUT, evaluateDashboard, newComponent, parseDashboard, readingOrder, runSource, serializeDashboard, type DashEnv } from "../src/model/dashboard";
+import { chartLook, DEFAULT_BUTTON_LAYOUT, DEFAULT_CARD_LAYOUT, DEFAULT_LIST_LAYOUT, evaluateDashboard, newComponent, parseDashboard, readingOrder, runSource, serializeDashboard, type DashEnv } from "../src/model/dashboard";
 import { parseView, type ViewContext, type ViewRow } from "../src/model/views";
 
 const TYPES = [...STARTER_PACK.types, ...CRM_PACK.types];
@@ -308,7 +308,33 @@ describe("dashboard styles: default styles, highlight rules and the notes behind
 		expect(out.highlightCounts).toEqual([2, 1]);
 		expect(out.rows.filter((r) => r.hl?.row === 0).map((r) => r.row.name)).toEqual(["Apollo", "Gemini"]);
 		expect(out.rows.find((r) => r.row.name === "Lander")!.hl).toEqual({ status: 1 });
-		expect(l.get("l")).toEqual({ box: { fill: "blue" }, matched: [2, 1] });
+		expect(l.get("l")).toEqual({ box: { fill: "blue" }, list: DEFAULT_LIST_LAYOUT, matched: [2, 1], boxMatched: [] });
+	});
+
+	it("lay out a list, let whole-list rules on card values change it, and open all its notes", () => {
+		const { def, errors } = parseDashboard({
+			kind: "dashboard",
+			components: [
+				{ id: "n", kind: "card", title: "Projects", source: { types: ["project"] }, value: { agg: "count" } },
+				{
+					id: "l",
+					kind: "list",
+					title: "Projects",
+					source: { types: ["project"] },
+					limit: 2,
+					layout: { density: "spacious", marker: "number", dividers: true, header: "no", more: "everywhere" },
+					highlight: [rule("row", "status", "any-of", ["active"], { text: "green" })],
+					boxHighlight: [{ ...rule("row", "card:n", ">", 3, { fill: "red" }), layout: { display: "cards", count: false } }, rule("row", "card:n", ">", 1, { fill: "blue" })],
+				},
+			],
+		});
+		expect(errors).toEqual([]);
+		const out = evaluateDashboard(def, env);
+		expect(out.looks.get("l")).toEqual({ box: { fill: "red" }, list: { ...DEFAULT_LIST_LAYOUT, density: "spacious", marker: "number", dividers: true, display: "cards", count: false }, matched: [2], boxMatched: [1, 1] });
+		expect(out.lists.get("l")!.drill!.paths).toHaveLength(4);
+		const saved = serializeDashboard(def).components as Record<string, unknown>[];
+		expect(saved[1]).toMatchObject({ layout: { density: "spacious", marker: "number", dividers: true }, boxHighlight: [{ layout: { display: "cards", count: false } }, {}] });
+		expect(parseDashboard({ kind: "dashboard", components: saved }).def).toEqual(def);
 	});
 
 	it("open the notes behind a card, but not a formula card's", () => {

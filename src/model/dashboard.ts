@@ -87,7 +87,7 @@ export interface CardLayout {
 export const DEFAULT_CARD_LAYOUT: Required<CardLayout> = { size: "m", align: "left", label: "above", caption: "", icon: "inline", accent: "none" };
 
 /** A dashboard's highlight rule: a card's or button's whole-component rules can also change its layout. */
-export type DashRule = HighlightRule & { layout?: CardLayout | ButtonLayout };
+export type DashRule = HighlightRule & { layout?: CardLayout | ButtonLayout | ListLayout };
 
 export const BUTTON_VARIANTS = ["solid", "soft", "outline", "plain"] as const;
 const BUTTON_SIZES = ["s", "m", "l"] as const;
@@ -111,6 +111,32 @@ export interface ButtonLayout {
 	state?: (typeof BUTTON_STATES)[number];
 }
 export const DEFAULT_BUTTON_LAYOUT: Required<ButtonLayout> = { variant: "solid", size: "m", width: "fill", align: "center", icon: "before", description: "", state: "enabled" };
+
+const LIST_DENSITIES = ["compact", "comfortable", "spacious"] as const;
+const LIST_DISPLAYS = ["rows", "cards"] as const;
+const LIST_MARKERS = ["status", "icon", "number", "none"] as const;
+const LIST_FIELDS_AT = ["right", "below"] as const;
+const LIST_MORE = ["text", "link", "hidden"] as const;
+
+/**
+ * How a list looks: spacing; plain rows or small boxed cards; dividers and stripes between rows; what's before each
+ * name (the status dot, type icon, a number, or nothing); a header row of field names; fields at the right (in
+ * columns) or on a second line; the title row and its count; and "+N more" as text, a link to the notes, or hidden.
+ * A whole-list rule (on card values) can change any of it.
+ */
+export interface ListLayout {
+	density?: (typeof LIST_DENSITIES)[number];
+	display?: (typeof LIST_DISPLAYS)[number];
+	dividers?: boolean;
+	stripes?: boolean;
+	marker?: (typeof LIST_MARKERS)[number];
+	fieldNames?: boolean;
+	fields?: (typeof LIST_FIELDS_AT)[number];
+	header?: boolean;
+	count?: boolean;
+	more?: (typeof LIST_MORE)[number];
+}
+export const DEFAULT_LIST_LAYOUT: Required<ListLayout> = { density: "compact", display: "rows", dividers: false, stripes: false, marker: "status", fieldNames: false, fields: "right", header: true, count: true, more: "text" };
 
 const CHART_COLORINGS = ["field", "one", "palette", "shades"] as const;
 const LEGEND_AT = ["right", "below"] as const;
@@ -211,7 +237,16 @@ export type DashComponent =
 			/** bars and slices: leave out the notes with no value ("No status") */
 			hideEmpty?: boolean;
 	  })
-	| (Base & { kind: "list"; source?: DashSource; fields: ColumnDef[]; sort: SortLevel[]; limit: number })
+	| (Base & {
+			kind: "list";
+			source?: DashSource;
+			fields: ColumnDef[];
+			sort: SortLevel[];
+			limit: number;
+			layout?: ListLayout;
+			/** whole-list rules, on card values (its `highlight` rules are on its notes, styling rows and fields) */
+			boxHighlight?: DashRule[];
+	  })
 	| (Base & { kind: "view"; view: string })
 	| (Base & { kind: "text"; text: string })
 	| (Base & { kind: "button"; label: string; icon?: string; action?: ButtonAction; layout?: ButtonLayout });
@@ -304,7 +339,7 @@ function parseStyle(raw: unknown): HighlightStyle | undefined {
 	return Object.keys(s).length ? s : undefined;
 }
 
-function parseHighlightRules(raw: unknown, errors: string[], where: string, layouts: "card" | "button" | null): DashRule[] {
+function parseHighlightRules(raw: unknown, errors: string[], where: string, layouts: "card" | "button" | "list" | null): DashRule[] {
 	if (raw === undefined || raw === null) return [];
 	const out: DashRule[] = [];
 	// One at a time, so each keeps its own layout (a rule with a problem is left out).
@@ -314,7 +349,7 @@ function parseHighlightRules(raw: unknown, errors: string[], where: string, layo
 		const r = def?.highlight?.[0];
 		// Dashboards style with highlight rules only (no data bars or colour scales).
 		if (!r || (r.kind && r.kind !== "highlight")) continue;
-		const layout = layouts && isObj(item) ? (layouts === "card" ? parseLayout(item.layout) : parseButtonLayout(item.layout, true)) : undefined;
+		const layout = layouts && isObj(item) ? (layouts === "card" ? parseLayout(item.layout) : layouts === "button" ? parseButtonLayout(item.layout, true) : parseListLayout(item.layout)) : undefined;
 		out.push(layout && r.target === ROW_TARGET ? { ...r, layout } : r);
 	}
 	return out;
@@ -351,6 +386,21 @@ function parseButtonLayout(raw: unknown, rule = false): ButtonLayout | undefined
 		...(rule && one(raw.state, BUTTON_STATES) ? { state: one(raw.state, BUTTON_STATES) } : {}),
 	};
 	return Object.keys(l).length ? l : undefined;
+}
+
+function parseListLayout(raw: unknown): ListLayout | undefined {
+	if (!isObj(raw)) return undefined;
+	const l: Record<string, unknown> = {};
+	const enums: [keyof ListLayout, readonly string[]][] = [
+		["density", LIST_DENSITIES],
+		["display", LIST_DISPLAYS],
+		["marker", LIST_MARKERS],
+		["fields", LIST_FIELDS_AT],
+		["more", LIST_MORE],
+	];
+	for (const [k, of] of enums) if (of.includes(raw[k] as string)) l[k] = raw[k];
+	for (const k of ["dividers", "stripes", "fieldNames", "header", "count"] as const) if (typeof raw[k] === "boolean") l[k] = raw[k];
+	return Object.keys(l).length ? (l as ListLayout) : undefined;
 }
 
 function parseChartLook(raw: unknown): ChartLook | undefined {
@@ -456,7 +506,9 @@ export function parseDashboard(raw: unknown): { def: DashboardDef; errors: strin
 			}
 			case "list": {
 				const fields = (Array.isArray(c.fields) ? c.fields : []).map((f) => parseOneColumn(f, errors, where)).filter((f): f is ColumnDef => !!f && f.id !== "name");
-				def.components.push({ ...base, kind, ...(source ? { source } : {}), fields, sort: parseSort(c.sort), limit: int(c.limit, 1, 500, LIST_LIMIT) });
+				const layout = parseListLayout(c.layout);
+				const boxHighlight = parseHighlightRules(c.boxHighlight, errors, where, "list");
+				def.components.push({ ...base, kind, ...(source ? { source } : {}), fields, sort: parseSort(c.sort), limit: int(c.limit, 1, 500, LIST_LIMIT), ...(layout ? { layout } : {}), ...(boxHighlight.length ? { boxHighlight } : {}) });
 				break;
 			}
 			case "view":
@@ -510,6 +562,8 @@ export function serializeDashboard(def: DashboardDef): Record<string, unknown> {
 				if (c.fields.length) out.fields = c.fields.map(columnOut);
 				if (c.sort.length) out.sort = c.sort.map((s) => ({ by: s.by, dir: s.dir }));
 				if (c.limit !== LIST_LIMIT) out.limit = c.limit;
+				if (c.layout && Object.keys(c.layout).length) out.layout = c.layout;
+				if (c.boxHighlight?.length) out.boxHighlight = highlightOut(c.boxHighlight);
 				break;
 			case "view":
 				out.view = c.view;
@@ -638,6 +692,8 @@ export interface ListOut {
 	total: number;
 	/** per highlight rule: how many of the notes it matches */
 	highlightCounts: number[];
+	/** all its notes (not just those shown), to open as a table */
+	drill?: Drill;
 	error?: string;
 }
 
@@ -717,27 +773,33 @@ export function evaluateDashboard(def: DashboardDef, env: DashEnv): { cards: Map
 		if ("error" in r) lists.set(c.id, { rows: [], columns: [], total: 0, highlightCounts: [], error: r.error });
 		else {
 			const columns = c.fields.map((f) => r.result.known.get(f.id) ?? r.result.columns.find((x) => x.id === f.id)).filter((x): x is ResolvedColumn => !!x);
-			lists.set(c.id, { rows: r.result.rows.slice(0, c.limit), columns, total: r.result.rows.length, highlightCounts: r.result.highlightCounts });
+			lists.set(c.id, { rows: r.result.rows.slice(0, c.limit), columns, total: r.result.rows.length, highlightCounts: r.result.highlightCounts, drill: drillOf(cardName(c) === c.id ? "List" : cardName(c), r.def, r.result.rows) });
 		}
 	}
 
 	const charts = new Map<string, ChartOut>();
 	for (const c of def.components) if (c.kind === "chart") charts.set(c.id, chartOf(c, env, run));
 
-	// Each component's look: its style, with the first matching rule on top (a list's rules style its rows instead).
+	// Each component's look: its style, with the first matching rule on top. A list's whole-list rules are its
+	// `boxHighlight` (its `highlight` rules style its rows, and `matched` counts their notes).
 	const looks = new Map<string, ComponentLook>();
 	for (const c of def.components) {
-		if (c.kind === "list") {
-			looks.set(c.id, { box: c.style ?? {}, matched: lists.get(c.id)?.highlightCounts ?? [] });
-			continue;
-		}
 		const { columns, cells } = valueColumns(def, cards, c);
-		const rules = c.highlight ?? [];
+		const rules = (c.kind === "list" ? c.boxHighlight : c.highlight) ?? [];
 		const matched = rules.map((r) => (matchesValues(r.when, columns, cells, env.ctx) ? 1 : 0));
 		const first = (target: string) => rules.find((r, i) => matched[i] && !r.off && r.target === target);
 		const valueRule = c.kind === "card" ? first(VALUE_ID) : undefined;
 		const boxRule = first(ROW_TARGET);
 		const set = <T extends object>(o: T | undefined) => Object.fromEntries(Object.entries(o ?? {}).filter(([, v]) => v !== undefined && v !== "")) as T;
+		if (c.kind === "list") {
+			looks.set(c.id, {
+				box: { ...c.style, ...boxRule?.style },
+				list: { ...DEFAULT_LIST_LAYOUT, ...set(c.layout), ...set(boxRule?.layout as ListLayout | undefined) },
+				matched: lists.get(c.id)?.highlightCounts ?? [],
+				boxMatched: matched,
+			});
+			continue;
+		}
 		const card =
 			c.kind === "card"
 				? (() => {
@@ -779,6 +841,10 @@ export interface ComponentLook {
 	card?: Required<CardLayout>;
 	/** a button's layout, its description filled in; `why` it's disabled (the rule's name) */
 	button?: Required<ButtonLayout> & { why?: string };
+	/** a list's layout */
+	list?: Required<ListLayout>;
+	/** whether each of a list's whole-list rules applies now (its `matched` counts the notes each row rule matches) */
+	boxMatched?: number[];
 	matched: number[];
 }
 

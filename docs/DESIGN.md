@@ -2120,6 +2120,14 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
     - Rules don't change these (the chart's conditional styling is its box's style only).
   - Drawn as SVG (`ui/react/dashboard/Chart.tsx`), sized to the cell. Value axes use round steps, and whole steps for counts. Each bar, slice, part and point has a tooltip, is focusable, and opens its notes on click or Enter. Progress opens the done notes.
 - **list:** the source's notes, top `limit` by `sort`. Each row shows its name and status dot plus up to three `fields`. Click opens the note.
+  - **Layout** (`layout`, `ListLayout`; `DEFAULT_LIST_LAYOUT` otherwise, which is how lists looked before):
+    - `density`: `compact`, `comfortable`, `spacious`; `display`: `rows` or `cards` (each row a small bordered box);
+    - `dividers` and `stripes` (alternate rows shaded; not over a highlighted row);
+    - `marker` before the name: `status` (the dot), `icon` (the type's icon in its colour), `number` (1, 2, 3) or `none`;
+    - `fields`: `right` (in columns: the list is a grid and its rows share its columns by subgrid, so fields line up) or `below` (a second line, empty fields left out); `fieldNames`: a header row of field names, or each field's name before it when below;
+    - `header` (the title row) and `count`;
+    - `more`: "+N more" as `text`, a `link` that opens all the list's notes as a table (`ListOut.drill`), or `hidden`.
+    - A whole-list rule (`boxHighlight`) can carry a `layout` too.
 - **view:** an embedded view note, using its own toolbar and scrolling inside the cell.
 - **text:** Markdown, rendered with Obsidian's renderer (headings, links, embeds).
 - **button:** a label and icon with one `action`:
@@ -2139,10 +2147,10 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
 **Styling** (every component; `style` and `highlight` in its block; built on the views' highlight rules, §8.10):
 - **Default style** (`style`): a highlight style (`fill`, `text`, `bold`, `italic`, `strike`, `icon`), the component's look when no rule applies.
 - **Rules** (`highlight`): `HighlightRule`s (`name`, `target`, `when`, `style`, `off`), first match wins. What a rule leaves unset comes from the default style.
-  - **On card values,** for every component but lists. Conditions use the filter engine on named values (`valueColumns`, `matchesValues`): every summary card's value by title (`card:<id>`, the formatted number as a number, a date as a date, otherwise text; a percentage as shown, 50 for 50%), and for a card its own as **Value** (`value`).
+  - **On card values,** for every component. Conditions use the filter engine on named values (`valueColumns`, `matchesValues`): every summary card's value by title (`card:<id>`, the formatted number as a number, a date as a date, otherwise text; a percentage as shown, 50 for 50%), and for a card its own as **Value** (`value`).
   - **Targets:** `row` styles the whole component. A card's rules can also target `value`, styling just the value, on top of the card's style.
   - Examples: a card turns red when Value < 3; a text banner turns purple when [Active quests] > 4; a button greys out when [Open quests] = 0.
-  - **Lists** instead have **row highlighting**: rules on their notes' fields, styling a row or one of its fields, run by `runView` (the list's own rules, not a saved view's). Their default style is the list's own look.
+  - **Lists** keep these whole-list rules in `boxHighlight`, because their `highlight` is **row highlighting**: rules on their notes' fields, styling a row or one of its fields, run by `runView` (the list's own rules, not a saved view's). `ComponentLook.matched` counts the notes each row rule matches; `boxMatched` says whether each whole-list rule applies.
   - Data bars and colour scales aren't offered.
 - **How it shows** (the views' `hlClasses`):
   - fill tints the component (or the value, as a pill), and text colours its title, value or text;
@@ -2185,7 +2193,8 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
       - cards: **Card**, the layout as segmented buttons (Size S / M / L / XL / Fit, Align as icons, Label, Icon, Accent) and a Caption box. A whole-card rule has the same options at its end as drop-downs starting at "Unchanged" (`HighlightPanel`'s `ruleExtra`);
       - charts: **Chart** (`ChartLookFields`), only what the chart type uses: Colours (Field / One / Palette / Shades) and a Colour swatch, toggles (Value labels, Gridlines, Legend, Total in middle, Smooth curve, Shade under, Dots, Rounded) and segmented buttons (Legend at, Hole, Show, Thickness). Setting one back to its default drops it from the block;
       - buttons: **Button**, the icon (the icon picker, with No icon), then the layout as segmented buttons (Variant, Size, Width, Align, Icon) and a Description box. A whole-button rule has these as drop-downs, plus Button: Enabled / Disabled (`LayoutFields` with `BUTTON_SPEC`; cards use it with `CARD_SPEC`);
-      - every component: **Default style** (`StyleFields`: fill, text colour, bold / italic / strike, icon; no icon for text, buttons and views), then **Conditional styling** (the views' `HighlightPanel`, with dashboard wording, without data bars or colour scales). A list's is **Row highlighting**;
+      - lists: **List** (`LIST_SPEC`): Spacing, Show as, Marker, Fields and +N more as segmented buttons, and switches for Dividers, Stripes, Field names, Title row and Count. In a whole-list rule, the switches are drop-downs (Unchanged / On / Off);
+      - every component: **Default style** (`StyleFields`: fill, text colour, bold / italic / strike, icon; no icon for text, buttons and views), then **Conditional styling** (the views' `HighlightPanel`, with dashboard wording, without data bars or colour scales). Lists then have **Row highlighting**;
       - **The format** is a preset (Automatic, Number, Whole number, One / Two decimal places, Currency, Percent, Compact) or **Custom pattern…**. "Looks like: 33,600 gp" shows the component's own value in it.
     - A "By <field>" chart title follows the field until it's changed by hand.
 - Edits are a **draft**, kept per note in `plugin.dashboardDrafts` for the session. **Save** writes the block; **Discard** drops the draft. Leaving with a draft keeps it, marked unsaved in the header.

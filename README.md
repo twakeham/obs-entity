@@ -467,7 +467,7 @@ A **dashboard** is a page you build from components on a grid: summary cards, ch
   - **The grid** (middle): drag components to move them, and their bottom-right corner to resize. Click one to select it.
   - **Settings** (right): the selected component's title (edit it at the top) and a **⋯** menu with **Duplicate** and **Delete**, then two tabs.
     - **Data:** where its notes come from (**Types | View | Formula**; with Types, pick the types and add filter conditions right there) and what it shows (a card picks its field first, then         a summary that fits it: Sum or Average for a number, Earliest or Latest for a date), then, for cards and charts, **Display as**: the number format (presets, or a custom pattern, with an example of the value in it). Each part shows its live result: "→ 13 notes", "= 5".
-        - **Style:** a card's **Card** layout, a chart's **Chart** options or a button's **Button** options, then the component's **Default style** and **Conditional styling** (below).
+        - **Style:** a card's **Card** layout, a chart's **Chart** options, a button's **Button** options or a list's **List** options, then the component's **Default style** and **Conditional styling** (below).
   - Changes aren't saved until **Save**. **Discard** throws them away. Leaving the dashboard keeps the unsaved changes for when you come back.
 - **Where the notes come from** (summary cards, charts and lists), one of:
   - **Types and filters:** pick types or groups, and filter them just like a view.
@@ -488,7 +488,7 @@ A **dashboard** is a page you build from components on a grid: summary cards, ch
 - **Styling** (every component, on the **Style** tab):
   - **Default style:** a fill, text colour, bold / italic / strikethrough and an icon (a quick choice, or **…** to search all icons). The component looks like this unless a rule applies.
   - **Conditional styling:** the same rules as a view's **Highlight**: name a rule, give it conditions, and pick its style. The first rule that applies wins, and drag reorders them. Conditions test the dashboard's summary cards by title, e.g. "[Active quests] > 4". A card can also test its own **Value**, and style the whole card or just its value (e.g. Value < 3 → red card).
-  - **Lists** have **row highlighting** instead: rules on their notes' fields that colour a row or a field, as in a view.
+  - **Lists** also have **row highlighting**: rules on their notes' fields that colour a row or a field, as in a view. Their **Conditional styling** rules are for the whole list.
   - Each rule says whether it applies now.
 - **Chart:** the notes as a picture.
   - **Bar**, **Horizontal bar** (for long labels) and **Donut**: one bar or slice per value of a field, e.g. Status or Priority. They come in the field's own order, with statuses in their colours.
@@ -505,6 +505,8 @@ A **dashboard** is a page you build from components on a grid: summary cards, ch
     - progress: show the percentage, "5 of 13", or both;
     - bar thickness (thin, normal, wide) and rounded corners.
 - **List:** the notes with their status, up to four fields, sorted and limited (with "+N more"). Click one to open it.
+  - **List style** (Style tab → **List**): spacing (compact, comfy, spacious); plain rows or small cards; dividers and stripes; the status dot, type icon, numbers or nothing before each name; fields at the right in columns (with a row of field names) or on a second line; the title row and count on or off; and "+N more" as text, a link that opens all the notes as a table, or hidden.
+  - A whole-list rule can change any of these, e.g. show as cards with an orange fill when [Active quests] > 4.
 - **View:** shows a view note, with its own toolbar.
 - **Text:** Markdown (headings, links, embeds).
 - **Button:** a label and icon that creates a note of a type, runs a workflow (forms open their form; buttons on notes ask which note), or opens a note or view.

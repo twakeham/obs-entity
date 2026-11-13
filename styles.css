@@ -9208,17 +9208,26 @@ button.oe-calv-more:hover {
 	color: var(--text-faint);
 }
 
+/* a list: a grid whose rows share its columns (subgrid): marker, name, then fields at the right */
 .oe-dash-list {
 	flex: 1;
 	min-height: 0;
 	overflow-y: auto;
 	padding-bottom: var(--size-4-1);
+	display: grid;
+	align-content: start;
+	column-gap: var(--size-4-2);
+}
+
+.oe-dash-list.no-header {
+	padding-top: var(--size-4-1);
 }
 
 .oe-dash-list-row {
-	display: flex;
+	grid-column: 1 / -1;
+	display: grid;
+	grid-template-columns: subgrid;
 	align-items: center;
-	gap: var(--size-4-2);
 	padding: 3px var(--size-4-3);
 	font-size: var(--font-ui-small);
 	cursor: pointer;
@@ -9228,21 +9237,136 @@ button.oe-calv-more:hover {
 	background: var(--background-modifier-hover);
 }
 
+.oe-dash-list-wide {
+	grid-column: 1 / -1;
+}
+
 .oe-dash-list-name {
-	flex: 1;
 	min-width: 0;
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
 
+.oe-dash-list-row .oe-dash-list-name .oe-hl-icon {
+	margin-right: 4px;
+	vertical-align: middle;
+}
+
 .oe-dash-list-field {
-	flex-shrink: 0;
-	max-width: 40%;
+	min-width: 0;
+	max-width: 14em;
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	color: var(--text-muted);
+}
+
+.oe-dash-list.is-fields-right .oe-dash-list-field {
+	text-align: right;
+}
+
+/* the header row of field names */
+.oe-dash-list-row.is-head {
+	cursor: default;
+	padding-top: 0;
+	padding-bottom: 2px;
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-semibold);
+	color: var(--text-faint);
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.oe-dash-list-row.is-head:hover {
+	background: none;
+}
+
+.oe-dash-list-row.is-head .oe-dash-list-field {
+	color: inherit;
+}
+
+/* fields on a second line, under the name */
+.oe-dash-list-main {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.oe-dash-list-fields {
+	display: flex;
+	gap: var(--size-4-3);
+	min-width: 0;
+	overflow: hidden;
+	font-size: var(--font-ui-smaller);
+}
+
+.oe-dash-list.is-fields-below .oe-dash-list-field {
+	max-width: none;
+	flex-shrink: 1;
+}
+
+.oe-dash-list-fieldname {
+	margin-right: 4px;
+	color: var(--text-faint);
+}
+
+/* markers: the type icon, or the row's number */
+.oe-dash-list-marker {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--text-muted);
+}
+
+.oe-dash-list-marker svg {
+	width: 14px;
+	height: 14px;
+}
+
+.oe-dash-list-marker.is-number {
+	min-width: 1.4em;
+	justify-content: flex-end;
+	color: var(--text-faint);
+	font-variant-numeric: tabular-nums;
+}
+
+/* spacing, dividers, stripes and card rows */
+.oe-dash-list.is-comfortable .oe-dash-list-row:not(.is-head) { padding-top: 6px; padding-bottom: 6px; }
+.oe-dash-list.is-spacious .oe-dash-list-row:not(.is-head) { padding-top: 10px; padding-bottom: 10px; font-size: var(--font-ui-medium); }
+
+.oe-dash-list.has-dividers .oe-dash-list-row:not(.is-head) + .oe-dash-list-row {
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.oe-dash-list.has-stripes .oe-dash-list-row:nth-child(even of .oe-dash-list-row:not(.is-head)):not(.oe-hl-fill):not(:hover) {
+	background-color: color-mix(in srgb, var(--text-normal) 5%, transparent);
+}
+
+.oe-dash-list.is-cards {
+	row-gap: 6px;
+	padding: 2px var(--size-4-2) var(--size-4-2);
+}
+
+.oe-dash-list.is-cards .oe-dash-list-row:not(.is-head) {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	padding-left: var(--size-4-2);
+	padding-right: var(--size-4-2);
+}
+
+.oe-dash-list.is-cards.has-dividers .oe-dash-list-row + .oe-dash-list-row {
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.oe-dash-list-more {
+	padding: var(--size-4-1) var(--size-4-3);
+	font-size: var(--font-ui-small);
+	color: var(--text-accent);
+	cursor: pointer;
+}
+
+.oe-dash-list-more:hover {
+	text-decoration: underline;
 }
 
 .oe-dash-view-body {

@@ -10,11 +10,13 @@ import {
 	COMPONENT_LABELS,
 	DEFAULT_BUTTON_LAYOUT,
 	DEFAULT_CARD_LAYOUT,
+	DEFAULT_LIST_LAYOUT,
 	VALUE_ID,
 	valueColumns,
 	cardName,
 	runSource,
 	type ButtonLayout,
+	type ListLayout,
 	type CardLayout,
 	type ChartLook,
 	type ChartSort,
@@ -723,6 +725,11 @@ function StyleTab(props: Props) {
 					<LayoutFields spec={BUTTON_SPEC} layout={(c.layout ?? {}) as Record<string, string>} onChange={(layout) => onChange({ ...c, layout: layout as ButtonLayout | undefined })} />
 				</Section>
 			)}
+			{c.kind === "list" && (
+				<Section title="List">
+					<LayoutFields spec={LIST_SPEC} layout={(c.layout ?? {}) as Record<string, string | boolean>} onChange={(layout) => onChange({ ...c, layout: layout as ListLayout | undefined })} />
+				</Section>
+			)}
 			<Section title="Default style">
 				<StyleFields
 					style={c.style ?? {}}
@@ -733,26 +740,35 @@ function StyleTab(props: Props) {
 						onChange({ ...c, style: Object.keys(style).length ? style : undefined } as DashComponent);
 					}}
 				/>
-				<div className="oe-dash-hint">{c.kind === "list" ? "The list's look. Rows and fields are styled by the rules below." : "The look when no rule below applies. What a rule leaves unset comes from here."}</div>
+				<div className="oe-dash-hint">The look when no rule below applies. What a rule leaves unset comes from here.</div>
 			</Section>
-			<Section title={c.kind === "list" ? "Row highlighting" : "Conditional styling"}>{c.kind === "list" ? <ListRules {...props} c={c} /> : <ValueRules {...props} />}</Section>
+			<Section title="Conditional styling">
+				<ValueRules {...props} />
+			</Section>
+			{c.kind === "list" && (
+				<Section title="Row highlighting">
+					<ListRules {...props} c={c} />
+				</Section>
+			)}
 		</>
 	);
 }
 
-/** Rules on card values (a card's own is Value): they style the whole component, or a card's value. */
+/** Rules on card values (a card's own is Value): they style the whole component, or a card's value. A list's are its `boxHighlight`. */
 function ValueRules({ c, def, env, cards, look, onChange }: Props) {
 	const { columns } = valueColumns(def, cards ?? new Map(), c);
 	const choices: ColumnChoice[] = columns.map((col) => ({ col, group: col.id === VALUE_ID ? "This card" : "Cards" }));
 	const isCard = c.kind === "card";
 	if (!choices.length) return <div className="oe-dash-settings-empty">Add a summary card to the dashboard: rules here test cards' values, e.g. [Overdue quests] &gt; 0.</div>;
 	const whole = isCard ? "Whole card" : `Whole ${COMPONENT_LABELS[c.kind].toLowerCase()}`;
+	const spec = isCard ? CARD_SPEC : c.kind === "button" ? BUTTON_SPEC : c.kind === "list" ? LIST_SPEC : null;
+	const rules = (c.kind === "list" ? c.boxHighlight : c.highlight) ?? [];
 	return (
 		<HighlightPanel
-			rules={c.highlight ?? []}
-			counts={look?.matched ?? []}
+			rules={rules}
+			counts={(c.kind === "list" ? look?.boxMatched : look?.matched) ?? []}
 			columns={isCard ? columns.filter((x) => x.id === VALUE_ID) : []}
-			onChange={(highlight) => onChange({ ...c, highlight: highlight.length ? highlight : undefined } as DashComponent)}
+			onChange={(next) => onChange((c.kind === "list" ? { ...c, boxHighlight: next.length ? next : undefined } : { ...c, highlight: next.length ? next : undefined }) as DashComponent)}
 			choices={choices}
 			ctx={env.ctx}
 			valuesOf={() => []}
@@ -769,13 +785,13 @@ function ValueRules({ c, def, env, cards, look, onChange }: Props) {
 				add: "Rule",
 			}}
 			ruleExtra={
-				isCard || c.kind === "button"
+				spec
 					? (r, set) =>
 							r.target === ROW_TARGET ? (
 								<LayoutFields
 									rule
-									spec={isCard ? CARD_SPEC : BUTTON_SPEC}
-									layout={((r as DashRule).layout ?? {}) as Record<string, string>}
+									spec={spec}
+									layout={((r as DashRule).layout ?? {}) as Record<string, string | boolean>}
 									onChange={(layout) => {
 										const { layout: _, ...rest } = r as DashRule;
 										set(layout ? ({ ...rest, layout } as DashRule) : rest);
@@ -933,14 +949,14 @@ const LAYOUT_OPTIONS = {
 const LAYOUT_NAMES: Record<Exclude<keyof CardLayout, "caption">, string> = { size: "Size", align: "Align", label: "Label", icon: "Icon", accent: "Accent" };
 
 type Choice = { value: string; label: string; icon?: string };
-/** What a layout editor shows: drop-down / segmented choices per key, rule-only keys, and one text key. */
+/** What a layout editor shows: drop-down / segmented choices (or "toggle" for on / off) per key, rule-only keys, and a text key. */
 interface LayoutSpec {
 	what: string;
-	options: Record<string, readonly Choice[]>;
+	options: Record<string, readonly Choice[] | "toggle">;
 	names: Record<string, string>;
-	defaults: Record<string, string>;
+	defaults: Record<string, string | boolean>;
 	ruleOnly?: string[];
-	text: { key: string; label: string; hint: string };
+	text?: { key: string; label: string; hint: string };
 }
 const ALIGN_CHOICES = LAYOUT_OPTIONS.align;
 const CARD_SPEC: LayoutSpec = {
@@ -985,58 +1001,121 @@ const BUTTON_SPEC: LayoutSpec = {
 	ruleOnly: ["state"],
 	text: { key: "description", label: "Description", hint: "A small second line under the label. Cards' [Title]s show their values." },
 };
+const LIST_SPEC: LayoutSpec = {
+	what: "List",
+	options: {
+		density: [
+			{ value: "compact", label: "Compact" },
+			{ value: "comfortable", label: "Comfy" },
+			{ value: "spacious", label: "Spacious" },
+		],
+		display: [
+			{ value: "rows", label: "Rows" },
+			{ value: "cards", label: "Cards" },
+		],
+		dividers: "toggle",
+		stripes: "toggle",
+		marker: [
+			{ value: "status", label: "Status" },
+			{ value: "icon", label: "Icon" },
+			{ value: "number", label: "1, 2, 3" },
+			{ value: "none", label: "None" },
+		],
+		fields: [
+			{ value: "right", label: "At the right" },
+			{ value: "below", label: "Below the name" },
+		],
+		fieldNames: "toggle",
+		header: "toggle",
+		count: "toggle",
+		more: [
+			{ value: "text", label: "Text" },
+			{ value: "link", label: "Link" },
+			{ value: "hidden", label: "Hidden" },
+		],
+	},
+	names: { density: "Spacing", display: "Show as", dividers: "Dividers", stripes: "Stripes", marker: "Marker", fields: "Fields", fieldNames: "Field names", header: "Title row", count: "Count", more: "+N more" },
+	defaults: DEFAULT_LIST_LAYOUT,
+};
 
 /**
- * A card's or button's layout: segmented buttons for the component's own, or (`rule`) drop-downs that start at
- * "Unchanged", for what a whole-component rule changes. Unset keys are dropped (undefined when nothing's set).
+ * A card's, button's or list's layout: segmented buttons and switches for the component's own, or (`rule`)
+ * drop-downs that start at "Unchanged", for what a whole-component rule changes. Unset keys are dropped (undefined
+ * when nothing's set), and so is a component's own setting put back to its default.
  */
-function LayoutFields({ spec, layout, onChange, rule }: { spec: LayoutSpec; layout: Record<string, string | undefined>; onChange: (l: Record<string, string> | undefined) => void; rule?: boolean }) {
-	const set = (patch: Record<string, string | undefined>) => {
+type LayoutValue = string | boolean | undefined;
+function LayoutFields({ spec, layout, onChange, rule }: { spec: LayoutSpec; layout: Record<string, LayoutValue>; onChange: (l: Record<string, string | boolean> | undefined) => void; rule?: boolean }) {
+	const set = (patch: Record<string, LayoutValue>) => {
 		const next: Record<string, unknown> = { ...layout, ...patch };
 		for (const k of Object.keys(next)) if (next[k] === undefined || next[k] === "") delete next[k];
-		onChange(Object.keys(next).length ? (next as Record<string, string>) : undefined);
+		onChange(Object.keys(next).length ? (next as Record<string, string | boolean>) : undefined);
 	};
 	const keys = Object.keys(spec.options).filter((k) => rule || !spec.ruleOnly?.includes(k));
 	const { text } = spec;
+	const label = (k: string) => `${spec.what} ${spec.names[k].toLowerCase()}`;
 	if (rule)
 		return (
 			<div className="oe-hl-grid oe-dash-rule-layout">
 				<span className="oe-hl-label oe-dash-rule-layout-head">{spec.what}</span>
 				<span />
-				{keys.map((k) => (
-					<Fragment key={k}>
-						<span className="oe-hl-label">{spec.names[k]}</span>
-						<select className="dropdown oe-pop-select" aria-label={`${spec.what} ${spec.names[k].toLowerCase()}`} value={layout[k] ?? ""} onChange={(e) => set({ [k]: e.target.value || undefined })}>
-							<option value="">Unchanged</option>
-							{spec.options[k].map((o) => (
-								<option key={o.value} value={o.value}>
-									{o.label}
-								</option>
-							))}
-						</select>
-					</Fragment>
-				))}
-				<span className="oe-hl-label">{text.label}</span>
-				<input type="text" className="oe-pop-input" aria-label={`${spec.what} ${text.label.toLowerCase()}`} placeholder="Unchanged" title={text.hint} value={layout[text.key] ?? ""} onChange={(e) => set({ [text.key]: e.target.value })} />
+				{keys.map((k) => {
+					const opts = spec.options[k];
+					const v = layout[k];
+					return (
+						<Fragment key={k}>
+							<span className="oe-hl-label">{spec.names[k]}</span>
+							<select
+								className="dropdown oe-pop-select"
+								aria-label={label(k)}
+								value={v === undefined ? "" : String(v)}
+								onChange={(e) => set({ [k]: e.target.value === "" ? undefined : opts === "toggle" ? e.target.value === "true" : e.target.value })}
+							>
+								<option value="">Unchanged</option>
+								{opts === "toggle" ? (
+									<>
+										<option value="true">On</option>
+										<option value="false">Off</option>
+									</>
+								) : (
+									opts.map((o) => (
+										<option key={o.value} value={o.value}>
+											{o.label}
+										</option>
+									))
+								)}
+							</select>
+						</Fragment>
+					);
+				})}
+				{text && (
+					<>
+						<span className="oe-hl-label">{text.label}</span>
+						<input type="text" className="oe-pop-input" aria-label={`${spec.what} ${text.label.toLowerCase()}`} placeholder="Unchanged" title={text.hint} value={String(layout[text.key] ?? "")} onChange={(e) => set({ [text.key]: e.target.value })} />
+					</>
+				)}
 			</div>
 		);
 	const d = spec.defaults;
 	return (
 		<>
-			{keys.map((k) => (
-				<Row key={k} label={spec.names[k]}>
-					<Segmented
-						label={`${spec.what} ${spec.names[k].toLowerCase()}`}
-						iconsOnly={k === "align"}
-						value={layout[k] ?? d[k]}
-						onChange={(v: string) => set({ [k]: v === d[k] ? undefined : v })}
-						options={[...spec.options[k]]}
-					/>
+			{keys.map((k) => {
+				const opts = spec.options[k];
+				const v = layout[k] ?? d[k];
+				return (
+					<Row key={k} label={spec.names[k]}>
+						{opts === "toggle" ? (
+							<Toggle label={label(k)} value={v === true} onChange={(on) => set({ [k]: on === d[k] ? undefined : on })} />
+						) : (
+							<Segmented label={label(k)} iconsOnly={k === "align"} value={String(v)} onChange={(s: string) => set({ [k]: s === d[k] ? undefined : s })} options={[...opts]} />
+						)}
+					</Row>
+				);
+			})}
+			{text && (
+				<Row label={text.label} hint={text.hint}>
+					<input type="text" aria-label={`${spec.what} ${text.label.toLowerCase()}`} placeholder="None" value={String(layout[text.key] ?? "")} onChange={(e) => set({ [text.key]: e.target.value })} />
 				</Row>
-			))}
-			<Row label={text.label} hint={text.hint}>
-				<input type="text" aria-label={`${spec.what} ${text.label.toLowerCase()}`} placeholder="None" value={layout[text.key] ?? ""} onChange={(e) => set({ [text.key]: e.target.value })} />
-			</Row>
+			)}
 		</>
 	);
 }
