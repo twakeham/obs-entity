@@ -1,4 +1,4 @@
-import { debounce, Keymap, MarkdownView, Menu, Notice, Plugin, TFile, WorkspaceLeaf, moment, normalizePath, stringifyYaml, type PaneType, type ViewState } from "obsidian";
+import { debounce, Events, Keymap, MarkdownView, Menu, Notice, Plugin, TFile, WorkspaceLeaf, moment, normalizePath, stringifyYaml, type PaneType, type ViewState } from "obsidian";
 import type { MomentLike } from "./model/formats";
 import { showDate, type FormatEnv } from "./model/fieldFormats";
 import { isoDateAdapter, type DateAdapter } from "./model/dates";
@@ -25,6 +25,7 @@ import { SIDE_PANEL_VIEW, SidePanelView } from "./ui/views/SidePanelView";
 import { BROWSER_VIEW, BrowserView } from "./ui/views/BrowserView";
 import type { EntityRecord } from "./services/entityIndex";
 import { TYPES_VIEW, TypesView } from "./ui/views/TypesView";
+import type { TypesRequest } from "./ui/react/types/TypeManager";
 import { PALETTE } from "./ui/react/types/controls";
 import { inferType, type InferNote } from "./model/inferType";
 import { isDirty, isGroupDirty, type GroupDraft, type TypeDraft } from "./model/typeEditing";
@@ -87,6 +88,8 @@ export default class EntitiesPlugin extends Plugin {
 	/** Workflows view drafts, kept for the session. */
 	workflowDrafts = new Map<string, WorkflowDef>();
 	groupDrafts = new Map<string, GroupDraft>();
+	/** "drafts": the Entity types view's drafts or selection changed (the Entity Browser's Entities section follows). */
+	typeEvents = new Events();
 	/** Nothing was saved when the plugin loaded: a new vault, offered the packs to start from. */
 	private firstRun = false;
 
@@ -377,8 +380,11 @@ export default class EntitiesPlugin extends Plugin {
 		this.openCreateModal(type, { fields: { [fieldKey]: value } });
 	}
 
-	/** Open the Entity Types view in the main area (reusing an existing tab), optionally on one type. */
-	async activateTypes(typeKey?: string | null): Promise<void> {
+	/**
+	 * Open the Entity Types view in the main area (reusing an existing tab), optionally on one type or group (its id:
+	 * a type key, "group:<key>", or a draft's "new:<n>"), or to do something (`request`: a new type or group, a copy…).
+	 */
+	async activateTypes(typeKey?: string | null, request?: TypesRequest): Promise<void> {
 		const { workspace } = this.app;
 		let leaf = workspace.getLeavesOfType(TYPES_VIEW)[0];
 		if (!leaf) {
@@ -387,8 +393,15 @@ export default class EntitiesPlugin extends Plugin {
 		}
 		await loadIfDeferred(leaf);
 		if (typeKey && leaf.view instanceof TypesView) leaf.view.update({ selected: typeKey });
+		if (request && leaf.view instanceof TypesView) leaf.view.showRequest(request);
 		await workspace.revealLeaf(leaf);
 		workspace.setActiveLeaf(leaf, { focus: true });
+	}
+
+	/** What the Entity types view shows (a type key, "group:<key>", "new:<n>"…), or null (no view open). */
+	shownType(): string | null {
+		const view = this.app.workspace.getLeavesOfType(TYPES_VIEW)[0]?.view;
+		return view instanceof TypesView ? view.state.selected : null;
 	}
 
 	/** Open the Workflows view in the main area (reusing an existing tab), optionally on a workflow or a new one for a type. */

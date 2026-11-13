@@ -1,5 +1,5 @@
-import { Menu, Modal, Notice, Setting, TFile, type App } from "obsidian";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
+import { Modal, Notice, Setting, TFile, type App } from "obsidian";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { STARTER_PACK, packWorkflows } from "../../../model/packs";
 import {
 	duplicateType,
@@ -43,9 +43,9 @@ import { LayoutTab } from "./LayoutTab";
 import { AddRelationshipDialog, RelationshipsTab } from "./RelationshipsTab";
 import { WorkflowsTab } from "./WorkflowsTab";
 import { inScope } from "../../../model/workflows";
+import type EntitiesPlugin from "../../../main";
 import { adoptFrontmatter, adoptionNeeded, type InferredType } from "../../../model/inferType";
 import { collectPackFiles, describeWritten, writePackFiles } from "../../../services/packFiles";
-import { ExportAppModal, ImportAppModal } from "../../modals/appModals";
 import { PackGalleryModal } from "../../modals/packGalleryModal";
 
 export interface TypesState {
@@ -100,6 +100,31 @@ const tabFor = (at: string): EditorTab =>
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
+/** What the Entity Browser asks the Entity types view to do: start a new type (in a group), a new group, a copy of a type, or an import. */
+export interface TypesRequest {
+	/** a group key, or true for the default group */
+	newType?: string | true;
+	newGroup?: true;
+	/** the key of the type to copy */
+	duplicate?: string;
+	importPack?: true;
+}
+
+/** Copy every type, group, workflow, view note and template as one pack (to paste into another vault). */
+export async function copyAllTypesAsPack(plugin: EntitiesPlugin): Promise<void> {
+	const { settings } = plugin;
+	const files = await collectPackFiles(plugin, settings.types, "all");
+	await navigator.clipboard.writeText(exportPack(settings.types, settings.groups, plugin.app.vault.getName(), settings.workflows, files));
+	const parts = [
+		plural(settings.types.length, "type"),
+		plural(settings.groups.length, "group"),
+		settings.workflows.length ? plural(settings.workflows.length, "workflow") : "",
+		files.views.length ? plural(files.views.length, "view") : "",
+		Object.keys(files.templates).length ? plural(Object.keys(files.templates).length, "template") : "",
+	].filter(Boolean);
+	new Notice(`Copied ${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]} as a pack.`);
+}
+
 export function TypeManager({
 	state,
 	setState,
@@ -107,6 +132,8 @@ export function TypeManager({
 	onPendingDone,
 	pendingType: typeRequest,
 	onPendingTypeDone,
+	request,
+	onRequestDone,
 	onPreview,
 }: {
 	state: TypesState;
@@ -116,6 +143,9 @@ export function TypeManager({
 	/** a type worked out from notes, to open as a new draft */
 	pendingType?: InferredType | null;
 	onPendingTypeDone?: () => void;
+	/** something to do, from the Entity Browser (a new type or group, a copy, an import) */
+	request?: TypesRequest | null;
+	onRequestDone?: () => void;
 	/** called after every render with what the side panel's preview shows */
 	onPreview?: (source: PreviewSource) => void;
 }) {
@@ -125,12 +155,10 @@ export function TypeManager({
 	const [drafts, setDraftsState] = useState<Map<string, TypeDraft>>(() => plugin.typeDrafts);
 	const [groupDrafts, setGroupDraftsState] = useState<Map<string, GroupDraft>>(() => plugin.groupDrafts);
 	const [fieldUid, setFieldUid] = useState<string | null>(null);
-	const [search, setSearch] = useState("");
 	const [wizard, setWizard] = useState(false);
 	const [importing, setImporting] = useState(false);
 	const [attempted, setAttempted] = useState<Set<string>>(new Set());
 	const [opts, setOpts] = useState({ rename: true, remove: false });
-	const [dragGroup, setDragGroup] = useState<string | null>(null);
 	/** the Save confirm dialog (notes would be affected) is open */
 	const [confirming, setConfirming] = useState(false);
 	const [, setTick] = useState(0);
@@ -355,36 +383,23 @@ export function TypeManager({
 		select(id);
 	};
 
-	const newMenu = (evt: MouseEvent) => {
-		const menu = new Menu();
-		menu.addItem((i) => i.setTitle("Type").setIcon("file-plus").onClick(() => addDraft(blankType())));
-		if (draft?.original)
-			menu.addItem((i) =>
-				i
-					.setTitle(`Duplicate “${draft.type.name}”`)
-					.setIcon("copy")
-					.onClick(() => addDraft(duplicateType(draft.type, allTypes.map((t) => t.key)))),
-			);
-		menu.addItem((i) => i.setTitle("Group").setIcon("folder-plus").onClick(addGroupDraft));
-		menu.addSeparator();
-		menu.addItem((i) => i.setTitle("Browse packs…").setIcon("package").onClick(() => new PackGalleryModal(plugin).open()));
-		menu.addItem((i) => i.setTitle("Import pack…").setIcon("import").onClick(() => setImporting(true)));
-		menu.addItem((i) =>
-			i
-				.setTitle("Copy all types as a pack")
-				.setIcon("clipboard-copy")
-				.onClick(async () => {
-					const files = await collectPackFiles(plugin, settings.types, "all");
-					await navigator.clipboard.writeText(exportPack(settings.types, settings.groups, plugin.app.vault.getName(), settings.workflows, files));
-					const parts = [plural(settings.types.length, "type"), plural(settings.groups.length, "group"), settings.workflows.length ? plural(settings.workflows.length, "workflow") : "", files.views.length ? plural(files.views.length, "view") : "", Object.keys(files.templates).length ? plural(Object.keys(files.templates).length, "template") : ""].filter(Boolean);
-					new Notice(`Copied ${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]} as a pack.`);
-				}),
-		);
-		menu.addSeparator();
-		menu.addItem((i) => i.setTitle("Import app…").setIcon("package-open").onClick(() => new ImportAppModal(plugin).open()));
-		menu.addItem((i) => i.setTitle("Export as an app…").setIcon("package").onClick(() => new ExportAppModal(plugin).open()));
-		menu.showAtMouseEvent(evt.nativeEvent);
-	};
+	// Requests from the Entity Browser's Entities section: a new type (in a group), a new group, a copy of a type, an import.
+	useEffect(() => {
+		if (!request) return;
+		onRequestDone?.();
+		if (request.newType) addDraft(blankType(typeof request.newType === "string" ? request.newType : undefined));
+		else if (request.newGroup) addGroupDraft();
+		else if (request.duplicate) {
+			const t = allTypes.find((x) => x.key === request.duplicate);
+			if (t) addDraft(duplicateType(t, allTypes.map((x) => x.key)));
+		} else if (request.importPack) setImporting(true);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [request]);
+
+	// The Entity Browser marks the open type and shows unsaved drafts: tell it when they change.
+	useEffect(() => {
+		plugin.typeEvents.trigger("drafts");
+	}, [drafts, groupDrafts, plugin]);
 
 	const exportJson = async () => {
 		if (!draft) return;
@@ -392,7 +407,7 @@ export function TypeManager({
 		const wfs = packWorkflows([type], settings.workflows, settings.types);
 		const files = await collectPackFiles(plugin, [type], "none");
 		await navigator.clipboard.writeText(exportPack([type], allGroups, undefined, wfs, files));
-		new Notice(`Copied “${draft.type.name}”${wfs.length ? ` and ${plural(wfs.length, "workflow")}` : ""}${files.templates[type.key] !== undefined ? " with its template" : ""} as JSON. Paste it into “New → Import pack…” in another vault.`);
+		new Notice(`Copied “${draft.type.name}”${wfs.length ? ` and ${plural(wfs.length, "workflow")}` : ""}${files.templates[type.key] !== undefined ? " with its template" : ""} as JSON. Paste it into Import pack… (the Entity browser's Entities menu) in another vault.`);
 	};
 
 	const deleteType = () => {
@@ -463,19 +478,6 @@ export function TypeManager({
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [typeRequest]);
 
-	/** Drag a group heading onto another to move it there. Saved straight away. */
-	const moveGroup = async (fromKey: string, toKey: string) => {
-		if (fromKey === toKey) return;
-		const list = settings.groups;
-		const from = list.findIndex((g) => g.key === fromKey);
-		const to = list.findIndex((g) => g.key === toKey);
-		if (from < 0 || to < 0) return;
-		const [g] = list.splice(from, 1);
-		list.splice(to, 0, g);
-		await plugin.saveSettings();
-		setTick((n) => n + 1);
-	};
-
 	// Re-render when settings are saved elsewhere (e.g. another type).
 	useEffect(() => {
 		const ref = plugin.index.on("updated", () => setTick((n) => n + 1));
@@ -503,93 +505,8 @@ export function TypeManager({
 	useEffect(() => onPreview?.({ api, group: !!groupDraft }));
 
 	const dirty = draft ? isDirty(draft) : false;
-	const q = search.trim().toLowerCase();
-	const listed = allTypes.filter((t) => !q || t.name.toLowerCase().includes(q) || t.key.includes(q) || t.plural.toLowerCase().includes(q));
-	const idOf = (t: EntityTypeDef) => {
-		for (const [id, d] of drafts) if (d.type === t) return id;
-		return t.key;
-	};
-	const groupIdOf = (g: GroupDef) => {
-		for (const [id, d] of groupDrafts) if (d.group === g) return id;
-		return `${GROUP_PREFIX}${g.key}`;
-	};
-	const ungrouped = listed.filter((t) => !allGroups.some((g) => g.key === t.group));
-
-	const typeRow = (t: EntityTypeDef) => {
-		const id = idOf(t);
-		const d = drafts.get(id);
-		const isNew = id.startsWith("new:");
-		const count = isNew ? 0 : plugin.index.ofType(t.key).length;
-		return (
-			<button key={id} data-type={t.key || id} className={`oe-tm-typeitem${id === selectedId ? " is-selected" : ""}`} style={{ "--oe-type-color": t.color } as CSSProperties} onClick={() => select(id)}>
-				<span className="oe-type-icon">
-					<Icon name={t.icon} />
-				</span>
-				<span className="oe-tm-typename">{t.name || "New type"}</span>
-				{isNew ? <span className="oe-tm-badge is-new">new</span> : t.pack !== STARTER_PACK.id && <span className="oe-tm-badge">custom</span>}
-				{d && isDirty(d) && <span className="oe-tm-dirty" aria-label="Unsaved changes" />}
-				<span className="oe-tm-count">{isNew ? "" : count}</span>
-			</button>
-		);
-	};
-
 	return (
 		<div className="oe-tm">
-			<aside className="oe-tm-sidebar">
-				<div className="oe-tm-sidebar-head">
-					<input type="search" placeholder="Search types…" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search types" />
-					<button className="mod-cta" onClick={newMenu} aria-label="New">
-						<Icon name="plus" /> New
-					</button>
-				</div>
-				<div className="oe-tm-typelist">
-					{allGroups.map((g) => {
-						const gid = groupIdOf(g);
-						const members = listed.filter((t) => t.group === g.key && g.key);
-						const gd = groupDrafts.get(gid);
-						const isNewGroup = gid.startsWith(`${GROUP_PREFIX}new:`);
-						if (q && !members.length) return null;
-						return (
-							<div
-								key={gid}
-								className={`oe-tm-typegroup${dragGroup && dragGroup !== g.key ? " is-drop-target" : ""}`}
-								onDragOver={(e) => dragGroup && !isNewGroup && e.preventDefault()}
-								onDrop={() => {
-									if (dragGroup && !isNewGroup) void moveGroup(dragGroup, g.key);
-									setDragGroup(null);
-								}}
-							>
-								<button
-									className={`oe-tm-typegroup-title${gid === selectedId ? " is-selected" : ""}`}
-									draggable={!isNewGroup}
-									onDragStart={() => setDragGroup(g.key)}
-									onDragEnd={() => setDragGroup(null)}
-									onClick={() => select(gid)}
-									data-group={g.key || gid}
-									title="Click to edit the group. Drag to reorder."
-								>
-									<Icon name={g.icon || "folder"} />
-									<span className="oe-tm-typename">{g.name || "New group"}</span>
-									{isNewGroup && <span className="oe-tm-badge is-new">new</span>}
-									{gd && isGroupDirty(gd) && <span className="oe-tm-dirty" aria-label="Unsaved changes" />}
-								</button>
-								{members.map(typeRow)}
-								{!members.length && !q && <div className="oe-tm-muted oe-tm-typegroup-empty">No types yet</div>}
-							</div>
-						);
-					})}
-					{ungrouped.length > 0 && (
-						<div className="oe-tm-typegroup">
-							<div className="oe-tm-typegroup-title is-static">
-								<Icon name="help-circle" />
-								<span className="oe-tm-typename">No group</span>
-							</div>
-							{ungrouped.map(typeRow)}
-						</div>
-					)}
-				</div>
-			</aside>
-
 			{groupDraft && selectedId ? (
 				<GroupEditor
 					key={selectedId}
@@ -704,7 +621,20 @@ export function TypeManager({
 				</EditorContext.Provider>
 			) : (
 				<main className="oe-tm-main">
-					<div className="oe-tm-empty oe-tm-bigempty">Select a type on the left, or create a new one.</div>
+					<div className="oe-tm-empty oe-tm-bigempty">
+						Choose a type or group under <b>Entities</b> in the Entity browser, or create one.
+						<div className="oe-tm-empty-actions">
+							<button className="mod-cta" onClick={() => addDraft(blankType())}>
+								<Icon name="file-plus" /> New type
+							</button>
+							<button onClick={addGroupDraft}>
+								<Icon name="folder-plus" /> New group
+							</button>
+							<button onClick={() => new PackGalleryModal(plugin).open()}>
+								<Icon name="package" /> Browse packs…
+							</button>
+						</div>
+					</div>
 				</main>
 			)}
 			{importing && (
@@ -803,7 +733,7 @@ function GroupEditor({
 		const files = await collectPackFiles(plugin, saved, { types: new Set(saved.map((t) => t.key)), groups: new Set([group.key]) });
 		await navigator.clipboard.writeText(exportPack(saved, settings.groups, group.name, wfs, files));
 		const parts = [plural(saved.length, "type"), wfs.length ? plural(wfs.length, "workflow") : "", files.views.length ? plural(files.views.length, "view") : "", Object.keys(files.templates).length ? plural(Object.keys(files.templates).length, "template") : ""].filter(Boolean);
-		new Notice(`Copied the ${group.name} group (${parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0]}) as a pack. Paste it into “New → Import pack…” in another vault.`);
+		new Notice(`Copied the ${group.name} group (${parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0]}) as a pack. Paste it into Import pack… (the Entity browser's Entities menu) in another vault.`);
 	};
 	const renames = statusRenames(draft);
 	// Notes whose status follows this group (types without their own statuses) and uses a renamed status.

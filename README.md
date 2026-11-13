@@ -98,7 +98,7 @@ On entity notes, a form built from the note's type replaces Obsidian's Propertie
 
 ## Packs and the first run
 
-In a new vault, a **Start from a pack** picker opens: choose a pack to start with, or **Start empty** (one empty group; make your own types). Later, **Browse packs…** (Entity types → **+ New**, or the settings tab) opens the same **gallery** to add more. Each pack is a card with what it's for, its types, and how many views and workflows it has; **Install** adds it straight away, beside your types: view notes go to your views folder (numbered when a name is taken), its workflows come in switched off, a key you already use gets a number (`project_2`), and a search shortcut another type uses is left off. General types (Person, Author, Topic) that you already have are reused rather than added twice.
+In a new vault, a **Start from a pack** picker opens: choose a pack to start with, or **Start empty** (one empty group; make your own types). Later, **Browse packs…** (right-click **Entities** in the Entity browser, or the settings tab) opens the same **gallery** to add more. Each pack is a card with what it's for, its types, and how many views and workflows it has; **Install** adds it straight away, beside your types: view notes go to your views folder (numbered when a name is taken), its workflows come in switched off, a key you already use gets a number (`project_2`), and a search shortcut another type uses is left off. General types (Person, Author, Topic) that you already have are reused rather than added twice.
 
 | Pack | Types | Views | Workflows |
 |---|---|---|---|
@@ -154,9 +154,12 @@ Opened from:
 - the settings tab
 - the file menu: **Configure the Person type**
 
-**Sidebar:** types are listed under their groups.
-- **Click a group heading** to edit the group. Drag headings to reorder groups.
-- **+ New** offers a type, a duplicate of the current one, a group, **Browse packs…** (the gallery), **Import pack…**, **Copy all types as a pack** (with every workflow, view note and template), **Import app…** and **Export as an app…** (see [Apps](#apps)).
+**Choosing a type or group:** in the Entity browser's **Entities** section (the view itself has no list). It lists your groups and, under each, its entity types with their note counts; new types and groups show **new**, and ones with unsaved changes a dot. The one open in the editor is highlighted.
+- **Click a group** to edit the group, its chevron to fold it. **Drag a group** onto another to reorder groups.
+- **Click a type** to edit it. Right-click it for New *note*, New table view, New workflow, or **Duplicate type**.
+- **+** on the Entities heading starts a new type. **Right-click the heading** for New entity type, New group, **Browse packs…** (the gallery), **Import pack…**, **Copy all types as a pack** (with every workflow, view note and template), **Import app…** and **Export as an app…** (see [Apps](#apps)). Right-click a group for **New entity type in this group**.
+- Search and the type filter cover entity types too; **View options → Show entity types** hides the section.
+- With nothing chosen, the view offers New type, New group and Browse packs.
 - **Group editor → Copy group as a pack:** the group's types, their workflows, the view notes that show only those types (or the group), and their templates.
 - **Packs and workflows:** a type's **Copy as JSON** includes the workflows that apply only to it (and any workflows they run), and its template file. Importing a pack opens its workflows as drafts in the Workflows view, **switched off**, so you can check them before turning them on. Its view notes are written to your views folder (numbered when the name is taken, `Overdue 2`), and workflows that show on those views follow them. Its templates are written to your templates folder; if a type's template file already exists with different text, the pack's is written as `Task 2.md` and the type uses it. If a type's key is already taken here (`task` → `task_2`), everything in the pack that refers to it follows: links, roll-ups, formulas, the workflows' types, conditions and steps, and the views' types, columns, filters and sorting. Saved layout components and notes aren't part of packs (apps carry the components).
 
@@ -224,7 +227,7 @@ Opened from:
 
 An **app** is the whole configuration in one file: every group, type, workflow, view note, template and saved layout component (not notes), with a name, version, author and description. Use it to set up another vault the same way, or to share a ready-made setup.
 
-- **Export as an app…** (settings → Apps, or **+ New** in the Entity types view): fill in the details (remembered for next time; the version is part of the file name, e.g. `Delivery Tracker 1.2.json`), then **Save…** opens the system's Save dialog.
+- **Export as an app…** (settings → Apps, or right-click **Entities** in the Entity browser): fill in the details (remembered for next time; the version is part of the file name, e.g. `Delivery Tracker 1.2.json`), then **Save…** opens the system's Save dialog.
 - **Import app…** (the same places): choose the file, see what it holds, then choose how to import it:
   - **Replace the current configuration:** the app's groups, types, workflows and saved components take the place of yours, with their keys as they are. View notes and templates with the same names are overwritten (a copy of each changed one goes to the trash first); other notes are left alone. It says first how many of your notes use types the app doesn't have (they're left as they are), and that unsaved changes in the Entity types and Workflows views are discarded. Starter types the app doesn't have don't come back.
   - **Add alongside:** like importing a pack (keys already taken get a number, `task` → `task_2`), and its saved components are added (ones you already have are skipped).
@@ -241,7 +244,7 @@ On a note that isn't an entity but has properties, the ⋯ menu (and the file me
 
 ## Entity browser
 
-A left sidebar tree of all entities, with your views and workflows above them. Open it with the **library** ribbon icon or **Open entity browser**.
+A left sidebar tree of all entities, with your entity types (**Entities**: groups and types, opened in the Entity types view), views and workflows above them. Open it with the **library** ribbon icon or **Open entity browser**.
 
 **Layout:**
 - One section per group, with a heading per type.
@@ -253,7 +256,7 @@ A left sidebar tree of all entities, with your views and workflows above them. O
   - **Children of other types:** nest under their parent (a campaign's sessions inside the campaign), or are **listed under their own type** (all sessions under Sessions, in a flat list; hover a note to see what it's in). With the second, **Nest under parents of the same type** keeps a city inside its region (switch it off for flat lists everywhere).
   - **Children in other groups:** stay in their own group, or nest under their parent.
   - **Show empty types.**
-  - **Show views** and **Show workflows**: turn either off for an entities-only browser.
+  - **Show entity types**, **Show views** and **Show workflows**: turn any off for an entities-only browser.
 
 **Rows:**
 - Each row shows the type icon, the name, a child count and a status dot. The subtitle shows as a tooltip.

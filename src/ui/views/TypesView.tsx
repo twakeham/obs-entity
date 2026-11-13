@@ -4,7 +4,7 @@ import type EntitiesPlugin from "../../main";
 import type { FieldDef } from "../../model/types";
 import type { InferredType } from "../../model/inferType";
 import { PluginContext } from "../react/context";
-import { DEFAULT_TYPES_STATE, TypeManager, type PendingField, type PreviewSource, type TypesState } from "../react/types/TypeManager";
+import { DEFAULT_TYPES_STATE, TypeManager, type PendingField, type PreviewSource, type TypesRequest, type TypesState } from "../react/types/TypeManager";
 
 export const TYPES_VIEW = "obs-entities-types";
 
@@ -42,6 +42,8 @@ export class TypesView extends ItemView {
 		this.root?.unmount();
 		this.root = null;
 		this.publish({ api: null, group: false });
+		// The Entity Browser stops marking the type that was open.
+		this.plugin.typeEvents.trigger("drafts");
 	}
 
 	/** The selected type as edited, for the side panel's preview. */
@@ -78,10 +80,19 @@ export class TypesView extends ItemView {
 		this.state = { ...this.state, ...patch };
 		this.render();
 		this.app.workspace.requestSaveLayout();
+		// The Entity Browser marks the open type.
+		this.plugin.typeEvents.trigger("drafts");
 	};
 
 	private pending: PendingField | null = null;
 	private pendingType: InferredType | null = null;
+	private request: TypesRequest | null = null;
+
+	/** Do something asked from the Entity Browser: a new type or group, a copy of a type, an import. */
+	showRequest(request: TypesRequest): void {
+		this.request = request;
+		this.render();
+	}
 
 	/** Open a type worked out from notes as a new draft (on its Fields tab). */
 	newType(inferred: InferredType): void {
@@ -112,6 +123,8 @@ export class TypesView extends ItemView {
 					onPendingDone={() => (this.pending = null)}
 					pendingType={this.pendingType}
 					onPendingTypeDone={() => (this.pendingType = null)}
+					request={this.request}
+					onRequestDone={() => (this.request = null)}
 					onPreview={this.publish}
 				/>
 			</PluginContext.Provider>,

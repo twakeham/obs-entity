@@ -621,30 +621,26 @@ A main-area tab, opened from:
 #### Layout
 
 ```
-┌──────────────┬──────────────────────────────────────────────────────┐
-│ [Search…][+] │  (icon) Person      ● Unsaved changes [Discard]      │
-│ PEOPLE       │  People · 42 notes · custom · person          [Save] │
-│  ● Person 42 │  [General] [Fields 9] [Relationships 4] [Display]    │
-│    Team   6  │ ──────────────────────────────────────────────────── │
-│ PLACES       │   … tab content (scrolls) …                          │
-│    Office 3  │                                                      │
-└──────────────┴──────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│  (icon) Person      ● Unsaved changes [Discard]      │
+│  People · 42 notes · custom · person          [Save] │
+│  [General] [Fields 9] [Relationships 4] [Display]    │
+│ ──────────────────────────────────────────────────── │
+│   … tab content (scrolls) …                          │
+└──────────────────────────────────────────────────────┘
 ```
 
-The header's top right holds the save controls while there are unsaved changes. The preview is in the side panel (§8.5), not in this view.
+The header's top right holds the save controls while there are unsaved changes. The preview is in the side panel (§8.5), not in this view. Types and groups are chosen in the Entity Browser's **Entities** section (below), like workflows; with nothing chosen the view shows **New type**, **New group** and **Browse packs…**.
 
-#### Type list (left)
+#### Choosing a type: the Entity Browser's Entities section
 
-- Search box, and **+ New**, which offers:
-  - a blank type (in the current type's group)
-  - duplicate the selected type
-  - a new group
-  - **Browse packs…** (the gallery, §8.1 Pack gallery)
-  - **Import pack…** (JSON paste or file)
-  - **Copy all types as a pack**
-  - **Import app…** and **Export as an app…** (§8.1 Apps)
-- Types are listed under their **group headings**. Each row shows the icon (in the type colour), name, note count, a `custom`/`new` badge, and an **orange dot when the type has unsaved changes**. Types whose group doesn't exist are listed under "No group".
-- **Group headings** can be clicked to open the group editor (below), and dragged onto another heading to reorder groups. The order is saved immediately.
+The view has no list of its own (it had a sidebar until the Workflows view's pattern was applied to it). The Entity Browser (§8.3) has an **Entities** section, above Views and Workflows (`TypesSection`; `showTypes` in the browser state, **View options → Show entity types**):
+- The heading (icon `shapes`, count of types): **+** starts a new type; right-click for **New entity type**, **New group**, **Browse packs…** (the gallery, §8.1 Pack gallery), **Import pack…** (JSON paste or file), **Copy all types as a pack**, **Import app…** and **Export as an app…** (§8.1 Apps).
+- A row per **group** (saved, and new drafts), with its types under it and their count: click opens the group editor (below), the chevron folds it (`t:group:<key>` in the collapsed keys), dragging onto another group reorders groups (saved immediately). Right-click: **Edit group**, **New entity type in this group**. Types whose group doesn't exist are listed under "No group".
+- A row per **type** (saved, as edited, and new drafts): icon in the type colour, name, note count; **new** for unsaved new types and a dot for unsaved changes; a tooltip with plural, key and note count. Click opens it. Right-click: **Open**, New *note*, New table view of …, New workflow for …, **Duplicate type**.
+- The type (or group) open in the view is highlighted: `plugin.shownType()` (the view's `selected`), kept current through `plugin.typeEvents` ("drafts", triggered when the view's drafts or selection change, and when it closes).
+- The browser's search and type filter cover types (`typeMatches`: name, plural or key; the type filter keeps that type; status and tag filters hide the section), and its matches count them.
+- Actions that need the editor (a new type or group, a duplicate, the import dialog) open the view with a request (`plugin.activateTypes(null, request)`, `TypesView.showRequest`, `TypesRequest`).
 
 #### Group editor
 
@@ -807,14 +803,14 @@ Shown in the **side panel** (§8.5) while the types view is the active main-area
 `model/gallery.ts` (`GALLERY`) bundles eight packs: Starter, Basic CRM (the CRM example plus deal stages and Interactions), Project delivery, Reading & library, Research, Personal knowledge, Home & assets, and last the flagship **TTRPG campaign** (`model/ttrpgPack.ts`): 11 types, 11 views, 16 workflows and 3 templates with views inside them, built to use most features (every field kind and trigger, layouts with frames, tabs, conditions and buttons, rules, smart defaults, valued and coloured choices, labelled and symmetric links, nesting and folder rules, bars, scales, boards with swimlanes, a calendar, a workflow toolbar). The README lists what it shows. Each has a `description` and `icon` (pack fields, kept by `parsePack`), types, groups, views and workflows (off when installed). A test installs each alone and all together and checks there are no type problems, every view parses and names only real columns (and a board has buckets), every layout places only what its type can (fields, built-ins, note items, buttons of workflows that apply), and no workflow has problems.
 - **Shared types:** `TypePack.shared` lists general types (person, author, topic) that, when the vault already has a type with that key, are used as they are: not added, not renamed, their template not written, and a pack group only they would use isn't added (`installPack`). The bundled packs define each shared type the same way, so any pack's views and workflows work with whichever came first.
 - **Shortcuts:** `installPack` leaves out search shortcuts another type already uses.
-- **The gallery** (`ui/modals/packGalleryModal.ts`): Entity types → **+ New → Browse packs…**, and **Browse packs…** in the settings tab's Entity types row. A card per pack: icon, name, description, its types (icon and plural), "N types · N views · N workflows", and **Install** (**Installed**, disabled, once a type from it exists: `type.pack`). Installing (`installGalleryPack`) is direct, like "Import entity types…": `installPack` beside the configuration, then the view notes and templates written (`writePackFiles`), the workflows added switched off, and a notice with what was added and any renamed keys.
+- **The gallery** (`ui/modals/packGalleryModal.ts`): the Entity Browser's **Entities** menu → **Browse packs…**, the Entity types view when nothing is chosen, and **Browse packs…** in the settings tab's Entity types row. A card per pack: icon, name, description, its types (icon and plural), "N types · N views · N workflows", and **Install** (**Installed**, disabled, once a type from it exists: `type.pack`). Installing (`installGalleryPack`) is direct, like "Import entity types…": `installPack` beside the configuration, then the view notes and templates written (`writePackFiles`), the workflows added switched off, and a notice with what was added and any renamed keys.
 - **First run:** with nothing saved (`loadData()` empty), `defaultSettings()` has no types, one empty "Entities" group, and the starter types in `deletedPackTypes` (so `mergeSettings` doesn't add them). Once the layout is ready, the gallery opens as **Start from a pack** (each card's button "Start with this", plus **Start empty**). Choosing a pack installs it; in a vault still as it started (`isPristine`) its groups replace the empty one; installing Starter lifts its keys from `deletedPackTypes`. Then the Entity Browser opens. Closing the picker any way saves the settings, so it isn't shown again.
 - Settings saved before the picker existed keep getting missing starter types, as before (`mergeSettings` reads them from `STARTER_PACK`).
 
 #### Apps (whole configuration)
 
 An **app** (`model/apps.ts`, `ui/modals/appModals.ts`) is a pack holding the whole configuration: `app: { name, version?, author?, description? }`, every group (empty ones too), type, workflow (with its on/off state), view note and template file, and `components` (the saved layout components, read with `readComponents`). Notes and plugin settings (folders, formats) aren't included.
-- **Where:** settings → **Apps** (Export as an app… / Import app…), and the Entity types view's **+ New** menu.
+- **Where:** settings → **Apps** (Export as an app… / Import app…), and the Entity Browser's **Entities** menu.
 - **Export:** a dialog for the details (prefilled from `settings.appDetails`, the last export or replace-import; first time: the vault's name and version 1.0) with a summary of what's included, then the system's Save dialog (`showSaveFilePicker`, suggested name `<name> <version>.json`; a download where there's no picker). The details are kept once saved.
 - **Import:** choose a file (an app or any pack); the dialog shows its details and contents, then **How to import**:
   - **Replace the current configuration** (`installApp(…, "replace")`): the app's groups, types, workflows and components replace the ones here, keys and ids as they are (installed against an empty configuration; an app without groups gets the "Entities" group). Starter types the app doesn't have are added to `deletedPackTypes`, so `mergeSettings` doesn't add them back. `appDetails` becomes the app's. Warnings: notes whose type the app doesn't have (left as they are), and unsaved edits in the Entity types and Workflows views (`unsavedEdits`; discarded with `discardEdits`, which remounts the Entity types view). View notes and templates with the app's names are **overwritten in place** when their text differs (same text: left); the old text goes to the trash first, as `<name> (before import).md`, written in the plugin's folder and trashed from there by the vault's trash setting (`trashCopy`), so no note appears in the vault. Overwriting rather than deleting keeps links to those notes, and workflows' Views lists, pointing at them; a deleted file's late `delete` event (system trash) would otherwise drop it from the imported workflows.
@@ -915,7 +911,7 @@ A left-sidebar view (ribbon `library`, command **Open entity browser**).
 
 #### Toolbar and filters
 
-- **Toolbar row:** search ("Search…": entities, views and workflows), **View options** (the tree options, plus **Show views** and **Show workflows**, `showViews` / `showWorkflows` in the browser state), **Collapse all**, **Expand all**, **+** (a menu: New entity…, New view, New workflow).
+- **Toolbar row:** search ("Search…": entities, entity types, views and workflows), **View options** (the tree options, plus **Show entity types**, **Show views** and **Show workflows**, `showTypes` / `showViews` / `showWorkflows` in the browser state), **Collapse all**, **Expand all**, **+** (a menu: New entity…, New view, New workflow).
 - **Filter row:** Type, Status and Tag dropdowns.
 - **Views and workflows** filter too (`model/browserFilter.ts`): a view by its name and the types it shows (`ViewIndex.types`, read from the block's `types` with its layout; a group or `*` view shows the group's or every type), a workflow by its name or button label and whether it applies to the type (`inScope`: one for any note does). Status and tags are only entities', so with either set, views and workflows are left out. Sections with no matches hide.
 - **While filtering**, a bar shows the match count (entities, views and workflows) and a **Clear** link; with nothing, "Nothing matches."
@@ -2193,7 +2189,7 @@ Drive a real Obsidian instance via the Chrome DevTools Protocol (Obsidian starte
 |---|---|---|---|
 | M1 ✅ | **Foundation** | Scaffold (TS, esbuild, React 19, vitest, deploy-to-test-vault script); settings with groups and types; starter pack; model modules (links, frontmatter, paths, templates, validation, card subtitle, ISO date adapter, packs); EntityIndex; EntityFactory; Create dialog with relation picker; Convert; Find entity; per-type commands; **Import entity types…** (paste a pack; brought forward from M3/M5 so types can be added before the editor exists) | Can define types (via an imported pack), create typed notes with links, find them |
 | M2 ✅ | **Relationships** | RelationIndex with inverses; `groupRelations`; `cardSections` (per-type card content); info card (both modes, later replaced by the properties form); Connections panel (list, filter, + Link, Mentioned in, Convert); Add/Remove link with Undo | Inverses visible on target notes; links editable without touching YAML |
-| M3 ✅ | **Entity Types view** | Full editor (§8.1): sidebar with groups, group editor (statuses with rename migration, reorder, delete when empty), General/Fields/Relationships/Display tabs, guided relationship dialog, drafts, validation, save bar with migrations, preview (dialog / picker / card, now the properties form), pack import/export, duplicate, reset to starter, delete; settings button, ribbon, command, file menu | Non-technical user can build a domain model end-to-end without editing JSON |
+| M3 ✅ | **Entity Types view** | Full editor (§8.1): sidebar with groups (later moved to the Entity Browser's Entities section), group editor (statuses with rename migration, reorder, delete when empty), General/Fields/Relationships/Display tabs, guided relationship dialog, drafts, validation, save bar with migrations, preview (dialog / picker / card, now the properties form), pack import/export, duplicate, reset to starter, delete; settings button, ribbon, command, file menu | Non-technical user can build a domain model end-to-end without editing JSON |
 | M4 ✅ | **Browser** | Groups (or one tree), type headings, hierarchies from parent fields (cross-group option), View menu, filters with dimmed context, reveal active, collapse semantics, row/heading context menus with "New child here", state persistence | Large vaults navigable; hierarchy correct for mixed types |
 | M4.5 ✅ | **Entity properties form** | Form replacing Obsidian's Properties block on entity notes (§8.4): typed controls, link pickers limited to allowed types, rejected invalid input, problems with fixes, Ctrl/Cmd+Z history, Other properties with "Add to type", Change type with move offer, Check entities command; info card removed (settings v3) | Values can only be entered in a form the type allows; problems from elsewhere are visible and fixable |
 | M4.6 ✅ | **Entity views: table** | View notes with an `entity-view` block (§8.10): source types, columns (fields, built-ins, incoming, roll-ups; formulas added later), filters with groups and relative dates, multi-level sort, group by, inline editing with the form's rules, virtualised rows, autosave, Save as…, New / Open view commands, browser Views section | Named views can be saved, reopened elsewhere, and used to edit entities |

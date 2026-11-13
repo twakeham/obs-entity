@@ -29,3 +29,10 @@ export function workflowMatches(wf: WorkflowDef, f: BrowserFilter, types: Entity
 	const t = types.find((x) => x.key === f.type);
 	return !!t && inScope(wf, t);
 }
+
+/** Whether an entity type matches: its name, plural or key has the search; with a type, it's that type. Status and tags are only entities'. */
+export function typeMatches(t: Pick<EntityTypeDef, "key" | "name" | "plural">, f: BrowserFilter): boolean {
+	if (f.status || f.tag) return false;
+	if (f.type && t.key !== f.type) return false;
+	return !f.query || [t.name, t.plural, t.key].some((s) => (s ?? "").toLowerCase().includes(f.query));
+}

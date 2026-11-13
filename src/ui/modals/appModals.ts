@@ -72,7 +72,7 @@ export class ExportAppModal extends Modal {
 		const s = this.plugin.settings;
 		contentEl.createEl("p", {
 			cls: "setting-item-description",
-			text: "Saves every group, type, workflow, view note, template and saved component in one file. Another vault imports it with Import app… (settings, or New in the Entity types view). Notes aren't included.",
+			text: "Saves every group, type, workflow, view note, template and saved component in one file. Another vault imports it with Import app… (settings, or the Entities menu in the Entity browser). Notes aren't included.",
 		});
 		const summary = contentEl.createEl("p", { cls: "oe-app-summary", text: "Counting…" });
 		void collectPackFiles(this.plugin, s.types, "all").then((files) => {

@@ -1378,84 +1378,6 @@ select.oe-status.has-color {
 	height: 14px;
 }
 
-/* sidebar */
-.oe-tm-sidebar {
-	width: 250px;
-	flex-shrink: 0;
-	display: flex;
-	flex-direction: column;
-	border-right: 1px solid var(--background-modifier-border);
-	background-color: var(--background-secondary);
-}
-
-.oe-tm-sidebar-head {
-	display: flex;
-	gap: var(--size-4-2);
-	padding: var(--size-4-3);
-	border-bottom: 1px solid var(--background-modifier-border);
-}
-
-.oe-tm-sidebar-head input {
-	flex: 1;
-	min-width: 0;
-}
-
-.oe-tm-typelist {
-	flex: 1;
-	overflow-y: auto;
-	padding: var(--size-4-2);
-}
-
-.oe-tm-typegroup + .oe-tm-typegroup {
-	margin-top: var(--size-4-3);
-}
-
-.oe-tm-typegroup-title {
-	font-size: var(--font-ui-smaller);
-	font-weight: var(--font-semibold);
-	text-transform: uppercase;
-	letter-spacing: 0.04em;
-	color: var(--text-faint);
-	padding: var(--size-4-1) var(--size-4-2);
-}
-
-.oe-tm .oe-tm-typeitem {
-	width: 100%;
-	height: auto;
-	justify-content: flex-start;
-	gap: var(--size-4-2);
-	padding: 5px var(--size-4-2);
-	background: transparent;
-	box-shadow: none;
-	border-radius: var(--radius-m);
-	color: var(--text-normal);
-	font-weight: var(--font-normal);
-	text-align: left;
-}
-
-.oe-tm .oe-tm-typeitem:hover {
-	background-color: var(--background-modifier-hover);
-}
-
-.oe-tm .oe-tm-typeitem.is-selected {
-	background-color: var(--background-modifier-active-hover);
-	font-weight: var(--font-semibold);
-}
-
-.oe-tm-typename {
-	flex: 1;
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.oe-tm-count {
-	color: var(--text-faint);
-	font-size: var(--font-ui-smaller);
-	font-variant-numeric: tabular-nums;
-}
-
 .oe-tm-dirty {
 	display: inline-block;
 	width: 8px;
@@ -2619,7 +2541,6 @@ select.oe-status.has-color {
 	margin-bottom: var(--size-4-2);
 }
 
-.oe-tm-typeitem .oe-type-icon,
 .oe-tm-title .oe-type-icon,
 .oe-tm-iconbtn .oe-type-icon {
 	--oe-type-color: inherit;
@@ -2637,52 +2558,6 @@ select.oe-status.has-color {
 
 
 /* ---------- Entity types view: groups, display tab, extras ---------- */
-button.oe-tm-typegroup-title,
-.oe-tm-typegroup-title.is-static {
-	display: flex;
-	align-items: center;
-	gap: var(--size-4-2);
-	width: 100%;
-	height: auto;
-	margin: 0;
-	border: none;
-	border-radius: var(--radius-s);
-	box-shadow: none;
-	background-color: transparent;
-	text-align: left;
-	cursor: pointer;
-}
-
-.oe-tm-typegroup-title.is-static {
-	cursor: default;
-}
-
-.oe-tm-typegroup-title:not(.is-static):hover {
-	color: var(--text-normal);
-	background-color: var(--background-modifier-hover);
-}
-
-.oe-tm-typegroup-title.is-selected {
-	color: var(--text-normal);
-	background-color: var(--background-modifier-active-hover);
-}
-
-.oe-tm-typegroup-title .oe-icon svg {
-	width: 12px;
-	height: 12px;
-}
-
-.oe-tm-typegroup.is-drop-target {
-	outline: 1px dashed var(--interactive-accent);
-	outline-offset: -1px;
-	border-radius: var(--radius-s);
-}
-
-.oe-tm-typegroup-empty {
-	padding: 2px var(--size-4-4) var(--size-4-1);
-	font-size: var(--font-ui-smaller);
-}
-
 .oe-tm-stack {
 	display: flex;
 	flex-direction: column;
@@ -3136,6 +3011,22 @@ button.oe-tm-typegroup-title,
 	font-size: var(--font-ui-smaller);
 	color: var(--text-faint);
 }
+/* Entities section: groups and entity types (their definitions) */
+.oe-typegroup-row .oe-tree-name {
+	font-weight: var(--font-medium);
+}
+.oe-typegroup-row.is-static {
+	cursor: default;
+}
+.oe-typegroup-row.is-drop-target {
+	outline: 1px dashed var(--interactive-accent);
+	outline-offset: -1px;
+}
+.oe-typegroup-row .oe-tree-count,
+.oe-type-row .oe-tree-count {
+	color: var(--text-faint);
+}
+
 /* "All 17 under Campaigns · show them": notes of this type listed under other headings. (Selectors strong enough to beat Obsidian's button style.) */
 .oe-tree button.oe-tree-elsewhere,
 .oe-tree button.oe-tree-elsewhere:hover {
@@ -7702,6 +7593,20 @@ button.oe-calv-more:hover {
 
 .oe-tm-main.oe-tm-empty {
 	padding: 0;
+}
+
+.oe-tm-empty-actions {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: var(--size-4-2);
+	margin-top: var(--size-4-4);
+}
+
+.oe-tm-empty-actions button {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-4-1);
 }
 
 .oe-wf-intro {

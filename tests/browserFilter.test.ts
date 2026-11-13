@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { viewMatches, workflowMatches, type BrowserFilter } from "../src/model/browserFilter";
+import { typeMatches, viewMatches, workflowMatches, type BrowserFilter } from "../src/model/browserFilter";
 import type { EntityTypeDef } from "../src/model/types";
 import { newWorkflow, type WorkflowDef } from "../src/model/workflows";
 
@@ -37,5 +37,16 @@ describe("browser filters on views and workflows", () => {
 		expect(viewMatches("Open tasks", ["task"], f({ tag: "x" }), TYPES)).toBe(false);
 		expect(workflowMatches(wf({ name: "A" }), f({ status: "done" }), TYPES)).toBe(false);
 		expect(workflowMatches(wf({ name: "A" }), f({ tag: "x" }), TYPES)).toBe(false);
+	});
+
+	it("match entity types by name, plural or key, and by the type filter", () => {
+		expect(typeMatches(TYPES[0], f({ query: "task" }))).toBe(true);
+		expect(typeMatches(TYPES[0], f({ query: "tasks" }))).toBe(true);
+		expect(typeMatches(TYPES[2], f({ query: "pers" }))).toBe(true);
+		expect(typeMatches(TYPES[2], f({ query: "task" }))).toBe(false);
+		expect(typeMatches(TYPES[0], f({ type: "task" }))).toBe(true);
+		expect(typeMatches(TYPES[0], f({ type: "project" }))).toBe(false);
+		expect(typeMatches(TYPES[0], f({ status: "done" }))).toBe(false);
+		expect(typeMatches(TYPES[0], f())).toBe(true);
 	});
 });

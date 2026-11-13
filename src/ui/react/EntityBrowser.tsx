@@ -12,7 +12,11 @@ import {
 	type BrowserSection,
 	type TreeNode,
 } from "../../model/tree";
-import { DEFAULT_STATUSES, type EntityTypeDef } from "../../model/types";
+import { DEFAULT_STATUSES, type EntityTypeDef, type GroupDef } from "../../model/types";
+import { isDirty, isGroupDirty, type GroupDraft, type TypeDraft } from "../../model/typeEditing";
+import type EntitiesPlugin from "../../main";
+import { PackGalleryModal } from "../modals/packGalleryModal";
+import { ExportAppModal, ImportAppModal } from "../modals/appModals";
 import type { EntityRecord } from "../../services/entityIndex";
 import { TypePickerModal } from "../components/entityPicker";
 import { usePlugin, useRelationsVersion } from "./context";
@@ -25,9 +29,9 @@ import { CALENDAR_ICON, dateFields } from "../../model/calendarView";
 import { VIEW_KIND_ICON } from "../../model/views";
 import { buttonIcon, buttonLabel, cloneWorkflow, inScope, newTrigger, newWorkflow, noteless, onNotes, scopeTypes, triggerText, TRIGGER_ICONS, TRIGGER_LABELS, WORKFLOW_CATEGORIES, workflowProblems, type WorkflowDef } from "../../model/workflows";
 import { NotePickerModal } from "../modals/workflowModals";
-import { viewMatches, workflowMatches, type BrowserFilter } from "../../model/browserFilter";
+import { typeMatches, viewMatches, workflowMatches, type BrowserFilter } from "../../model/browserFilter";
 import { openTryRun } from "./workflows/TryRun";
-import { ConfirmModal } from "./types/TypeManager";
+import { ConfirmModal, copyAllTypesAsPack, type TypesRequest } from "./types/TypeManager";
 
 export interface BrowserState extends BrowserOptions {
 	search: string;
@@ -41,12 +45,13 @@ export interface BrowserState extends BrowserOptions {
 	 * workflow category ("w:<category>") keys
 	 */
 	collapsed: string[];
-	/** list the view notes and the workflows (View options) */
+	/** list the entity types (the Entities section), the view notes and the workflows (View options) */
+	showTypes: boolean;
 	showViews: boolean;
 	showWorkflows: boolean;
 }
 
-export const DEFAULT_BROWSER_STATE: BrowserState = { ...DEFAULT_BROWSER_OPTIONS, search: "", type: "", status: "", tag: "", expanded: [], collapsed: [], showViews: true, showWorkflows: true };
+export const DEFAULT_BROWSER_STATE: BrowserState = { ...DEFAULT_BROWSER_OPTIONS, search: "", type: "", status: "", tag: "", expanded: [], collapsed: [], showTypes: true, showViews: true, showWorkflows: true };
 
 const INDENT = 14;
 const sKey = (s: BrowserSection) => `s:${s.key}`;
@@ -99,6 +104,7 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 	}, [sections, filtering, query, state.type, state.status, state.tag]);
 	const shownViews = !state.showViews ? [] : filtering ? views.filter((f) => viewMatches(f.basename, plugin.views.types(f.path), filter, types)) : views;
 	// What matches, for the count above the list.
+	const matchedTypes = state.showTypes && filtering ? listedTypes(plugin).filter((x) => typeMatches(x.t, filter)).length : 0;
 	const matchedWorkflows = state.showWorkflows && filtering ? [...plugin.settings.workflows.map((w) => plugin.workflowDrafts.get(w.id) ?? w), ...[...plugin.workflowDrafts.entries()].filter(([id]) => id.startsWith("new:")).map(([, w]) => w)].filter((w) => workflowMatches(w, filter, types)).length : 0;
 
 	const expanded = useMemo(() => new Set(state.expanded), [state.expanded]);
@@ -128,7 +134,7 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 		setFilterClosed({ key: filterKey, items: next });
 	};
 	const headingKeys = (list: BrowserSection[]) => list.flatMap((s) => [sKey(s), ...s.blocks.map(bKey)]);
-	const extraKeys = ["v:views", "w:workflows", ...WORKFLOW_CATEGORIES.map((c) => `w:${c.key}`)];
+	const extraKeys = ["t:types", ...groups.map((g) => `t:group:${g.key}`), "v:views", "w:workflows", ...WORKFLOW_CATEGORIES.map((c) => `w:${c.key}`)];
 	const collapseAll = () => {
 		if (filtering) setFilterClosed({ key: filterKey, items: new Set([...headingKeys(shown), ...extraKeys]) });
 		else setState({ expanded: [], collapsed: [...headingKeys(sections), ...extraKeys] });
@@ -187,6 +193,7 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 		opt("cross", "Children in other groups stay in their own group", state.crossGroup === "own", { crossGroup: "own" }, state.sections === "none" || state.children === "type");
 		opt("cross", "Children in other groups nest under their parent", state.crossGroup === "parent", { crossGroup: "parent" }, state.sections === "none" || state.children === "type");
 		opt("empty", "Show empty types", state.showEmpty, { showEmpty: !state.showEmpty });
+		opt("show", "Show entity types", state.showTypes, { showTypes: !state.showTypes });
 		opt("show", "Show views", state.showViews, { showViews: !state.showViews });
 		opt("show", "Show workflows", state.showWorkflows, { showWorkflows: !state.showWorkflows });
 		m.showAtMouseEvent(evt.nativeEvent);
@@ -202,13 +209,13 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 	const filters = [state.type, state.status, state.tag].filter(Boolean).length;
 	const groupSections = state.sections === "groups";
 	const base = (groupSections ? 1 : 0) + (state.typeHeadings ? 1 : 0);
-	const matches = shown.reduce((n, s) => n + s.count, 0) + shownViews.length + matchedWorkflows;
+	const matches = shown.reduce((n, s) => n + s.count, 0) + shownViews.length + matchedWorkflows + matchedTypes;
 	const viewsOpen = !isCollapsed("v:views");
 
 	return (
 		<div className="oe-browser">
 			<div className="oe-browser-toolbar">
-				<input type="search" className="oe-browser-search" placeholder="Search…" value={state.search} onChange={(e) => setState({ search: e.target.value })} aria-label="Search entities, views and workflows" />
+				<input type="search" className="oe-browser-search" placeholder="Search…" value={state.search} onChange={(e) => setState({ search: e.target.value })} aria-label="Search entities, entity types, views and workflows" />
 				<ToolButton icon="sliders-horizontal" label="View options" onClick={viewMenu} />
 				<ToolButton icon="chevrons-down-up" label="Collapse all" onClick={collapseAll} />
 				<ToolButton icon="chevrons-up-down" label="Expand all" onClick={expandAll} />
@@ -252,6 +259,7 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 			)}
 
 			<div className="oe-browser-list" ref={listRef}>
+				{state.showTypes && <TypesSection isCollapsed={isCollapsed} toggleHeading={toggleHeading} filter={filter} filtering={filtering} />}
 				{shownViews.length > 0 && (
 					<section className={`oe-bsection oe-bviews${viewsOpen ? "" : " is-collapsed"}`} data-section="views">
 						<Heading
@@ -607,6 +615,198 @@ function WorkflowsSection({
 						</div>
 					);
 				})}
+		</section>
+	);
+}
+
+/** The entity types in the browser's Entities section: saved ones (as edited) and new drafts, with their drafts. */
+function listedTypes(plugin: EntitiesPlugin) {
+	const { settings, typeDrafts } = plugin;
+	return [
+		...settings.types.map((t) => ({ id: t.key, t: typeDrafts.get(t.key)?.type ?? t, saved: t as EntityTypeDef | null, draft: typeDrafts.get(t.key) })),
+		...[...typeDrafts.entries()].filter(([id]) => id.startsWith("new:")).map(([id, d]) => ({ id, t: d.type, saved: null as EntityTypeDef | null, draft: d as TypeDraft | undefined })),
+	];
+}
+
+/**
+ * The Entities section: the groups and entity types themselves (their definitions), each opened in the Entity types
+ * view, with new and unsaved ones marked. The heading's menu starts types and groups, and imports and exports packs.
+ */
+function TypesSection({
+	isCollapsed,
+	toggleHeading,
+	filter,
+	filtering,
+}: {
+	isCollapsed: (key: string) => boolean;
+	toggleHeading: (key: string) => void;
+	filter: BrowserFilter;
+	filtering: boolean;
+}) {
+	const plugin = usePlugin();
+	const [, setTick] = useState(0);
+	const [dragGroup, setDragGroup] = useState<string | null>(null);
+	useEffect(() => {
+		const ref = plugin.typeEvents.on("drafts", () => setTick((t) => t + 1));
+		return () => plugin.typeEvents.offref(ref);
+	}, [plugin]);
+	const { settings } = plugin;
+	const shownId = plugin.shownType();
+	const types = listedTypes(plugin).filter((x) => !filtering || typeMatches(x.t, filter));
+	const groups = [
+		...settings.groups.map((g) => {
+			const id = `group:${g.key}`;
+			return { id, key: g.key, g: plugin.groupDrafts.get(id)?.group ?? g, saved: g as GroupDef | null, draft: plugin.groupDrafts.get(id) };
+		}),
+		...[...plugin.groupDrafts.entries()].filter(([id]) => id.startsWith("group:new:")).map(([id, d]) => ({ id, key: d.group.key, g: d.group, saved: null as GroupDef | null, draft: d as GroupDraft | undefined })),
+	];
+	if (filtering && !types.length) return null;
+	const open = !isCollapsed("t:types");
+	const ungrouped = types.filter((x) => !groups.some((g) => g.key && g.key === x.t.group));
+
+	const ask = (request: TypesRequest) => void plugin.activateTypes(null, request);
+	/** Drag a group onto another to move it there. Saved straight away. */
+	const moveGroup = async (fromKey: string, toKey: string) => {
+		const list = settings.groups;
+		const from = list.findIndex((g) => g.key === fromKey);
+		const to = list.findIndex((g) => g.key === toKey);
+		if (from < 0 || to < 0 || from === to) return;
+		const [g] = list.splice(from, 1);
+		list.splice(to, 0, g);
+		await plugin.saveSettings();
+		setTick((n) => n + 1);
+	};
+	const headingMenu = (evt: MouseEvent) => {
+		const m = new Menu();
+		m.addItem((i) => i.setSection("new").setTitle("New entity type").setIcon("file-plus").onClick(() => ask({ newType: true })));
+		m.addItem((i) => i.setSection("new").setTitle("New group").setIcon("folder-plus").onClick(() => ask({ newGroup: true })));
+		m.addItem((i) => i.setSection("pack").setTitle("Browse packs…").setIcon("package").onClick(() => new PackGalleryModal(plugin).open()));
+		m.addItem((i) => i.setSection("pack").setTitle("Import pack…").setIcon("import").onClick(() => ask({ importPack: true })));
+		m.addItem((i) => i.setSection("pack").setTitle("Copy all types as a pack").setIcon("clipboard-copy").onClick(() => void copyAllTypesAsPack(plugin)));
+		m.addItem((i) => i.setSection("app").setTitle("Import app…").setIcon("package-open").onClick(() => new ImportAppModal(plugin).open()));
+		m.addItem((i) => i.setSection("app").setTitle("Export as an app…").setIcon("package").onClick(() => new ExportAppModal(plugin).open()));
+		m.showAtMouseEvent(evt.nativeEvent);
+	};
+
+	const typeRow = ({ id, t, saved, draft }: ReturnType<typeof listedTypes>[number]) => {
+		const dirty = !!draft && isDirty(draft);
+		const notes = saved ? plugin.index.ofType(saved.key).length : 0;
+		const plural = (t.plural || t.name || "type").toLowerCase();
+		const menu = (evt: MouseEvent) => {
+			evt.preventDefault();
+			const m = new Menu();
+			m.addItem((i) => i.setSection("open").setTitle("Open").setIcon("shapes").onClick(() => void plugin.activateTypes(id)));
+			if (saved) {
+				m.addItem((i) => i.setSection("new").setTitle(`New ${saved.name.toLowerCase()}`).setIcon(saved.icon).onClick(() => plugin.openCreateModal(saved)));
+				m.addItem((i) => i.setSection("new").setTitle(`New table view of ${plural}`).setIcon("table").onClick(() => plugin.newView(saved.key)));
+				m.addItem((i) => i.setSection("new").setTitle(`New workflow for ${plural}`).setIcon("zap").onClick(() => void plugin.activateWorkflows({ newFor: saved.key })));
+				m.addItem((i) => i.setSection("edit").setTitle("Duplicate type").setIcon("copy").onClick(() => ask({ duplicate: saved.key })));
+			}
+			m.showAtMouseEvent(evt.nativeEvent);
+		};
+		return (
+			<div
+				key={id}
+				className={`oe-tree-row oe-type-row${shownId === id ? " is-active" : ""}`}
+				style={{ paddingLeft: `${2 * INDENT + 4}px`, "--oe-type-color": t.color } as CSSProperties}
+				data-type={t.key || id}
+				title={saved ? `${t.plural || t.name} · ${t.key} · ${notes} ${notes === 1 ? "note" : "notes"}${dirty ? " · unsaved changes" : ""}` : "New type, not saved yet"}
+				onClick={() => void plugin.activateTypes(id)}
+				onContextMenu={menu}
+			>
+				<span className="oe-tree-toggle is-leaf" />
+				<Icon name={t.icon || "file"} className="oe-tree-icon" />
+				<span className="oe-tree-name">{t.name || "New type"}</span>
+				{!saved && <span className="oe-tm-badge is-new">new</span>}
+				{dirty && <span className="oe-tm-dirty" aria-label="Unsaved changes" />}
+				{saved && <span className="oe-tree-count">{notes}</span>}
+				<span className="oe-bend" />
+			</div>
+		);
+	};
+
+	return (
+		<section className={`oe-bsection oe-btypes${open ? "" : " is-collapsed"}`} data-section="types">
+			<Heading
+				depth={0}
+				open={open}
+				icon="shapes"
+				title="Entities"
+				count={types.length}
+				className="oe-bsection-header"
+				onToggle={() => toggleHeading("t:types")}
+				onAdd={() => ask({ newType: true })}
+				addLabel="New entity type"
+				onMenu={headingMenu}
+			/>
+			{open &&
+				groups.map(({ id, key, g, saved, draft }) => {
+					const members = types.filter((x) => key && x.t.group === key);
+					if (filtering && !members.length) return null;
+					const gKey = `t:${id}`;
+					const gOpen = !isCollapsed(gKey);
+					const dirty = !!draft && isGroupDirty(draft);
+					const dropHere = !!dragGroup && !!saved && dragGroup !== saved.key;
+					return (
+						<div key={id} className="oe-bblock oe-btype-group" data-group={key || id}>
+							<div
+								className={`oe-tree-row oe-typegroup-row${shownId === id ? " is-active" : ""}${dropHere ? " is-drop-target" : ""}`}
+								style={{ paddingLeft: `${INDENT + 4}px` }}
+								draggable={!!saved}
+								onDragStart={() => saved && setDragGroup(saved.key)}
+								onDragEnd={() => setDragGroup(null)}
+								onDragOver={(e) => dropHere && e.preventDefault()}
+								onDrop={() => {
+									if (dragGroup && saved) void moveGroup(dragGroup, saved.key);
+									setDragGroup(null);
+								}}
+								title={saved ? "Click to edit the group. Drag to reorder groups." : "New group, not saved yet"}
+								onClick={() => void plugin.activateTypes(id)}
+								onContextMenu={(evt) => {
+									evt.preventDefault();
+									const m = new Menu();
+									m.addItem((i) => i.setSection("open").setTitle("Edit group").setIcon("folder-cog").onClick(() => void plugin.activateTypes(id)));
+									if (saved) m.addItem((i) => i.setSection("new").setTitle("New entity type in this group").setIcon("file-plus").onClick(() => ask({ newType: saved.key })));
+									m.showAtMouseEvent(evt.nativeEvent);
+								}}
+							>
+								<span
+									className="oe-tree-toggle"
+									onClick={(evt) => {
+										evt.stopPropagation();
+										toggleHeading(gKey);
+									}}
+								>
+									<Icon name={gOpen ? "chevron-down" : "chevron-right"} className="oe-tree-chevron" />
+								</span>
+								<Icon name={g.icon || "folder"} className="oe-tree-icon" />
+								<span className="oe-tree-name">{g.name || "New group"}</span>
+								{!saved && <span className="oe-tm-badge is-new">new</span>}
+								{dirty && <span className="oe-tm-dirty" aria-label="Unsaved changes" />}
+								<span className="oe-tree-count">{members.length}</span>
+								<span className="oe-bend" />
+							</div>
+							{gOpen && members.map(typeRow)}
+							{gOpen && !members.length && (
+								<div className="oe-tree-empty" style={{ paddingLeft: `${2 * INDENT + 22}px` }}>
+									No types yet
+								</div>
+							)}
+						</div>
+					);
+				})}
+			{open && ungrouped.length > 0 && (
+				<div className="oe-bblock oe-btype-group" data-group="">
+					<div className="oe-tree-row oe-typegroup-row is-static" style={{ paddingLeft: `${INDENT + 4}px` }}>
+						<span className="oe-tree-toggle is-leaf" />
+						<Icon name="help-circle" className="oe-tree-icon" />
+						<span className="oe-tree-name">No group</span>
+						<span className="oe-tree-count">{ungrouped.length}</span>
+						<span className="oe-bend" />
+					</div>
+					{ungrouped.map(typeRow)}
+				</div>
+			)}
 		</section>
 	);
 }
