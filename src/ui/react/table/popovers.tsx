@@ -1084,6 +1084,9 @@ export function HighlightPanel({
 									{targetLabel(r.target)} · {w.unit(n)}
 								</span>
 							</button>
+							<button className="clickable-icon oe-hl-caret" aria-label={isOpen ? "Collapse rule" : "Expand rule"} aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : i)}>
+								<Icon name={isOpen ? "chevron-down" : "chevron-right"} />
+							</button>
 							<button className="clickable-icon" aria-label="Remove rule" onClick={() => (set(i, null), setOpen(null))}>
 								<Icon name="x" />
 							</button>
