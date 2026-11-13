@@ -2140,6 +2140,12 @@ function passes(g: FilterGroup, cell: (id: string) => Cell, columns: Map<string,
 	return evalGroup(g, cell, columns, ctx, assume) ?? true;
 }
 
+/** Whether named values (a dashboard's card values) meet a filter group; `columns` say what kind each value is. */
+export function matchesValues(g: FilterGroup, columns: ResolvedColumn[], cells: Record<string, Cell>, ctx: Pick<ViewContext, "dates" | "today">): boolean {
+	const known = new Map(columns.map((c) => [c.id, c]));
+	return passes(g, (id) => cells[id] ?? EMPTY, known, ctx);
+}
+
 /** A roll-up cell shown as a share (%) of `total`; the roll-up's own value is kept in `raw`. */
 export function shareCell(raw: Cell, total: number): Cell {
 	const n = typeof raw.value === "number" && Number.isFinite(raw.value) ? raw.value : null;

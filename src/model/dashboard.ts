@@ -7,7 +7,14 @@ import {
 	emptyView,
 	evaluateDetached,
 	GROUP_PATH_SEP,
+	HIGHLIGHT_COLORS,
+	matchesValues,
 	NAME_COLUMN,
+	ROW_TARGET,
+	type Cell,
+	type HighlightRule,
+	type HighlightStyle,
+	type ValueKind,
 	parseView,
 	runView,
 	serializeView,
@@ -51,15 +58,10 @@ export interface Measure {
 	column?: ColumnDef;
 }
 
-/** A summary card's colour rule: when its value compares to `value`, colour the value or the card, and show an icon. */
-export interface CardRule {
-	op: "<" | "<=" | ">" | ">=" | "=" | "!=";
-	value: number;
-	color?: PaletteColor;
-	on: "value" | "card";
-	icon?: string;
-}
-export const RULE_OPS: CardRule["op"][] = ["<", "<=", ">", ">=", "=", "!="];
+/** A summary card's own value in conditions (`[Value]`); other cards are `card:<id>`, labelled by title. */
+export const VALUE_ID = "value";
+export const cardColumnId = (id: string) => `card:${id}`;
+const LEGACY_OPS = ["<", "<=", ">", ">=", "=", "!="];
 
 export interface GridAt {
 	x: number;
@@ -86,9 +88,16 @@ interface Base {
 	id: string;
 	at: GridAt;
 	title?: string;
+	/** the look when no highlight rule applies */
+	style?: HighlightStyle;
+	/**
+	 * conditional styling, first match wins (as in views): on card values for every component (a card's own is
+	 * `value`, and a card's rules can style just its value); a list's rules are on its notes, styling rows or fields
+	 */
+	highlight?: HighlightRule[];
 }
 export type DashComponent =
-	| (Base & { kind: "card"; source?: DashSource; value: CardValue; format?: string; rules?: CardRule[] })
+	| (Base & { kind: "card"; source?: DashSource; value: CardValue; format?: string })
 	| (Base & {
 			kind: "chart";
 			chart: ChartKind;
@@ -170,17 +179,42 @@ function parseAction(raw: unknown): ButtonAction | undefined {
 	return undefined;
 }
 
-function parseRules(raw: unknown, errors: string[], where: string): CardRule[] {
-	const out: CardRule[] = [];
+/** The colour rules cards had before they took highlight rules ("When < 3: red, the card"), as highlight rules. */
+function legacyRules(raw: unknown): HighlightRule[] {
+	const out: HighlightRule[] = [];
 	for (const r of Array.isArray(raw) ? raw : []) {
-		if (!isObj(r) || !RULE_OPS.includes(r.op as CardRule["op"]) || typeof r.value !== "number") {
-			errors.push(`${where}: a colour rule needs op (${RULE_OPS.join(" ")}) and a number value: ${JSON.stringify(r)}.`);
-			continue;
-		}
-		out.push({ op: r.op as CardRule["op"], value: r.value, ...(isPaletteColor(r.color) ? { color: r.color } : {}), on: r.on === "card" ? "card" : "value", ...(str(r.icon) ? { icon: str(r.icon) } : {}) });
+		if (!isObj(r) || !LEGACY_OPS.includes(String(r.op)) || typeof r.value !== "number") continue;
+		const color = isPaletteColor(r.color) ? r.color : undefined;
+		const card = r.on === "card";
+		const style: HighlightStyle = { ...(color ? (card ? { fill: color } : { text: color }) : {}), ...(str(r.icon) ? { icon: str(r.icon) } : {}) };
+		out.push({ target: card ? ROW_TARGET : VALUE_ID, when: { mode: "all", items: [{ field: VALUE_ID, op: String(r.op), value: r.value }] }, style });
 	}
 	return out;
 }
+
+function parseStyle(raw: unknown): HighlightStyle | undefined {
+	if (!isObj(raw)) return undefined;
+	const color = (v: unknown) => ((HIGHLIGHT_COLORS as readonly string[]).includes(String(v)) ? (v as HighlightStyle["fill"]) : undefined);
+	const s: HighlightStyle = {
+		...(color(raw.fill) ? { fill: color(raw.fill) } : {}),
+		...(color(raw.text) ? { text: color(raw.text) } : {}),
+		...(raw.bold === true ? { bold: true } : {}),
+		...(raw.italic === true ? { italic: true } : {}),
+		...(raw.strike === true ? { strike: true } : {}),
+		...(str(raw.icon) ? { icon: str(raw.icon) } : {}),
+	};
+	return Object.keys(s).length ? s : undefined;
+}
+
+function parseHighlightRules(raw: unknown, errors: string[], where: string): HighlightRule[] {
+	if (raw === undefined || raw === null) return [];
+	const { def, errors: e } = parseView({ highlight: raw });
+	errors.push(...e.map((m) => `${where}: ${m}`));
+	// Dashboards style with highlight rules only (no data bars or colour scales).
+	return (def?.highlight ?? []).filter((r) => !r.kind || r.kind === "highlight");
+}
+
+const highlightOut = (rules: HighlightRule[]) => serializeView({ ...emptyView(), highlight: rules }).highlight;
 
 function parseMeasure(raw: unknown, errors: string[], where: string): Measure {
 	if (!isObj(raw)) return { agg: "count" };
@@ -225,16 +259,17 @@ export function parseDashboard(raw: unknown): { def: DashboardDef; errors: strin
 		const w = int(a[2], 1, GRID_COLS, size.w);
 		const at: GridAt = { x: int(a[0], 0, GRID_COLS - w, 0), y: int(a[1], 0, 10_000, 0), w, h: int(a[3], 1, 100, size.h) };
 		const title = str(c.title);
-		const base = { id, at, ...(title ? { title } : {}) };
 		const where = title || `Component ${i + 1}`;
+		const style = parseStyle(c.style);
+		const highlight = [...parseHighlightRules(c.highlight, errors, where), ...(kind === "card" ? legacyRules(c.rules) : [])];
+		const base = { id, at, ...(title ? { title } : {}), ...(style ? { style } : {}), ...(highlight.length ? { highlight } : {}) };
 		const source = parseSource(c.source, errors, where);
 		switch (kind) {
 			case "card": {
 				const v = isObj(c.value) ? c.value : {};
 				const value: CardValue = str(v.formula) ? { formula: str(v.formula) } : { agg: str(v.agg) || "count", ...(v.column !== undefined ? { column: parseOneColumn(v.column, errors, where) ?? undefined } : {}) };
 				if ("column" in value && !value.column) delete value.column;
-				const rules = parseRules(c.rules, errors, where);
-				def.components.push({ ...base, kind, ...(source ? { source } : {}), value, ...(str(c.format) ? { format: str(c.format) } : {}), ...(rules.length ? { rules } : {}) });
+				def.components.push({ ...base, kind, ...(source ? { source } : {}), value, ...(str(c.format) ? { format: str(c.format) } : {}) });
 				break;
 			}
 			case "chart": {
@@ -285,12 +320,13 @@ export function serializeDashboard(def: DashboardDef): Record<string, unknown> {
 		const out: Record<string, unknown> = { id: c.id, kind: c.kind };
 		if (c.title) out.title = c.title;
 		out.at = [c.at.x, c.at.y, c.at.w, c.at.h];
+		if (c.style && Object.keys(c.style).length) out.style = c.style;
+		if (c.highlight?.length) out.highlight = highlightOut(c.highlight);
 		switch (c.kind) {
 			case "card":
 				if (c.source) out.source = sourceOut(c.source);
 				out.value = "formula" in c.value ? { formula: c.value.formula } : { agg: c.value.agg, ...(c.value.column ? { column: columnOut(c.value.column) } : {}) };
 				if (c.format) out.format = c.format;
-				if (c.rules?.length) out.rules = c.rules.map((r) => ({ op: r.op, value: r.value, ...(r.color ? { color: r.color } : {}), ...(r.on === "card" ? { on: "card" } : {}), ...(r.icon ? { icon: r.icon } : {}) }));
 				break;
 			case "chart":
 				out.chart = c.chart;
@@ -370,15 +406,16 @@ export type SourceRun = { result: ViewResult; def: ViewDef } | { error: string }
 /**
  * Run a source: its notes, with `extra` columns worked out (a card's value column, a list's fields) and sorted by
  * `sort` (else the source's own sort). `opts.group`: grouping levels (charts); `opts.filters`: more conditions the
- * notes must also meet (a progress chart's "done").
+ * notes must also meet (a progress chart's "done"); `opts.highlight`: rules styling the rows (a list's).
  */
-export function runSource(source: DashSource | undefined, extra: ColumnDef[], sort: SortLevel[], env: DashEnv, opts: { group?: GroupBy[]; filters?: FilterGroup } = {}): SourceRun {
+export function runSource(source: DashSource | undefined, extra: ColumnDef[], sort: SortLevel[], env: DashEnv, opts: { group?: GroupBy[]; filters?: FilterGroup; highlight?: HighlightRule[] } = {}): SourceRun {
 	if (!source) return { error: "Choose where its notes come from." };
 	const withColumns = (base: ViewDef): ViewDef => {
 		const columns = [...base.columns];
 		for (const c of extra) if (!columns.some((x) => x.id === c.id)) columns.push(c);
 		const filters = opts.filters ? { mode: "all" as const, items: [base.filters, opts.filters] } : base.filters;
-		return { ...base, kind: "table", group: opts.group ?? [], columns, sort: sort.length ? sort : base.sort, filters };
+		// The component's own highlight rules (a list's), not a saved view's.
+		return { ...base, kind: "table", group: opts.group ?? [], columns, sort: sort.length ? sort : base.sort, filters, highlight: opts.highlight ?? [] };
 	};
 	const go = (def: ViewDef, rows: ViewRow[] = env.rows): SourceRun => ({ result: runView(def, rows, env.ctx), def });
 	try {
@@ -408,14 +445,6 @@ export interface Drill {
 
 const drillOf = (title: string, def: ViewDef, rows: ResultRow[]): Drill => ({ title, def, paths: rows.map((r) => r.row.path) });
 
-/** The first colour rule a number meets. */
-export function cardRule(n: number | null, rules: CardRule[] | undefined): CardRule | null {
-	if (n === null || !rules) return null;
-	return (
-		rules.find((r) => (r.op === "<" ? n < r.value : r.op === "<=" ? n <= r.value : r.op === ">" ? n > r.value : r.op === ">=" ? n >= r.value : r.op === "=" ? n === r.value : n !== r.value)) ?? null
-	);
-}
-
 export interface CardOut {
 	text: string;
 	value: FValue;
@@ -426,10 +455,8 @@ export interface CardOut {
 	count?: number;
 	/** the error is a circular reference (passed on as is, not as "[X] has a problem") */
 	cycle?: true;
-	/** the value as a number to compare (a percentage as shown, 0–100), for colour rules */
+	/** the value as a number to compare (a percentage as shown, 0–100), for highlight conditions */
 	num?: number;
-	/** the colour rule it meets */
-	rule?: CardRule;
 	/** its notes, to open as a table (cards with a source) */
 	drill?: Drill;
 }
@@ -441,6 +468,8 @@ export interface ListOut {
 	columns: ResolvedColumn[];
 	/** how many notes match, before the limit */
 	total: number;
+	/** per highlight rule: how many of the notes it matches */
+	highlightCounts: number[];
 	error?: string;
 }
 
@@ -454,10 +483,10 @@ const formatValue = (v: FValue, format: string | undefined, ctx: ViewContext): s
 	return toText(v, { dateText: (d) => ctx.dates.format(d, "short") });
 };
 
-/** Every card's value, every list's notes and every chart's bars, in one pass (sources shared by several components run once). */
-export function evaluateDashboard(def: DashboardDef, env: DashEnv): { cards: Map<string, CardOut>; lists: Map<string, ListOut>; charts: Map<string, ChartOut> } {
+/** Every card's value, every list's notes, every chart's bars and every component's look, in one pass (sources shared by several components run once). */
+export function evaluateDashboard(def: DashboardDef, env: DashEnv): { cards: Map<string, CardOut>; lists: Map<string, ListOut>; charts: Map<string, ChartOut>; looks: Map<string, ComponentLook> } {
 	const runs = new Map<string, SourceRun>();
-	const run = (source: DashSource | undefined, extra: ColumnDef[], sort: SortLevel[], opts: { group?: GroupBy[]; filters?: FilterGroup } = {}) => {
+	const run = (source: DashSource | undefined, extra: ColumnDef[], sort: SortLevel[], opts: { group?: GroupBy[]; filters?: FilterGroup; highlight?: HighlightRule[] } = {}) => {
 		const key = JSON.stringify([source ?? null, extra, sort, opts]);
 		let r = runs.get(key);
 		if (!r) runs.set(key, (r = runSource(source, extra, sort, env, opts)));
@@ -508,8 +537,6 @@ export function evaluateDashboard(def: DashboardDef, env: DashEnv): { cards: Map
 				}
 			}
 		}
-		const rule = cardRule(out.num ?? null, c.rules);
-		if (rule && !out.error) out.rule = rule;
 		cards.set(c.id, out);
 		return out;
 	};
@@ -518,17 +545,69 @@ export function evaluateDashboard(def: DashboardDef, env: DashEnv): { cards: Map
 	const lists = new Map<string, ListOut>();
 	for (const c of def.components) {
 		if (c.kind !== "list") continue;
-		const r = run(c.source, c.fields, c.sort);
-		if ("error" in r) lists.set(c.id, { rows: [], columns: [], total: 0, error: r.error });
+		const r = run(c.source, c.fields, c.sort, c.highlight?.length ? { highlight: c.highlight } : {});
+		if ("error" in r) lists.set(c.id, { rows: [], columns: [], total: 0, highlightCounts: [], error: r.error });
 		else {
 			const columns = c.fields.map((f) => r.result.known.get(f.id) ?? r.result.columns.find((x) => x.id === f.id)).filter((x): x is ResolvedColumn => !!x);
-			lists.set(c.id, { rows: r.result.rows.slice(0, c.limit), columns, total: r.result.rows.length });
+			lists.set(c.id, { rows: r.result.rows.slice(0, c.limit), columns, total: r.result.rows.length, highlightCounts: r.result.highlightCounts });
 		}
 	}
 
 	const charts = new Map<string, ChartOut>();
 	for (const c of def.components) if (c.kind === "chart") charts.set(c.id, chartOf(c, env, run));
-	return { cards, lists, charts };
+
+	// Each component's look: its style, with the first matching rule on top (a list's rules style its rows instead).
+	const looks = new Map<string, ComponentLook>();
+	for (const c of def.components) {
+		if (c.kind === "list") {
+			looks.set(c.id, { box: c.style ?? {}, matched: lists.get(c.id)?.highlightCounts ?? [] });
+			continue;
+		}
+		const { columns, cells } = valueColumns(def, cards, c);
+		const rules = c.highlight ?? [];
+		const matched = rules.map((r) => (matchesValues(r.when, columns, cells, env.ctx) ? 1 : 0));
+		const first = (target: string) => rules.find((r, i) => matched[i] && !r.off && r.target === target);
+		const valueRule = c.kind === "card" ? first(VALUE_ID) : undefined;
+		looks.set(c.id, { box: { ...c.style, ...first(ROW_TARGET)?.style }, ...(valueRule ? { value: valueRule.style } : {}), matched });
+	}
+	return { cards, lists, charts, looks };
+}
+
+/** How a component looks now: its box's style, a card's value's own style, and whether each rule matches (1 / 0, or rows). */
+export interface ComponentLook {
+	box: HighlightStyle;
+	value?: HighlightStyle;
+	matched: number[];
+}
+
+const valueKind = (v: FValue): ValueKind => (typeof v === "number" ? "number" : v instanceof DateVal ? "date" : typeof v === "boolean" ? "bool" : "text");
+const valueCell = (v: FValue, text: string): Cell =>
+	v === null || v === undefined || v === ""
+		? { value: null, text: "", sort: null }
+		: typeof v === "number"
+			? { value: v, text, sort: v }
+			: v instanceof DateVal
+				? { value: v.days, text, sort: v.days }
+				: typeof v === "boolean"
+					? { value: v, text, sort: v ? 1 : 0 }
+					: { value: text, text, sort: text.toLowerCase() };
+
+/**
+ * What highlight conditions on a dashboard can test: every card's value, by title (`card:<id>`), and for a card its
+ * own as Value. Percentages are compared as shown (50 for 50%). A card that has no value yet is a number.
+ */
+export function valueColumns(def: DashboardDef, cards: Map<string, CardOut>, self?: DashComponent): { columns: ResolvedColumn[]; cells: Record<string, Cell> } {
+	const columns: ResolvedColumn[] = [];
+	const cells: Record<string, Cell> = {};
+	const add = (id: string, label: string, out: CardOut | undefined) => {
+		const v = out?.error ? null : out?.num !== undefined ? out.num : (out?.value ?? null);
+		const kind: ValueKind = v === null ? "number" : valueKind(v);
+		columns.push({ def: { kind: "formula", id, formula: "", label }, id, label, kind, editable: false });
+		cells[id] = valueCell(v, out?.text ?? "");
+	};
+	if (self?.kind === "card") add(VALUE_ID, "Value", cards.get(self.id));
+	for (const c of def.components) if (c.kind === "card" && c.id !== self?.id) add(cardColumnId(c.id), cardName(c), cards.get(c.id));
+	return { columns, cells };
 }
 
 // ---------------------------------------------------------------- charts

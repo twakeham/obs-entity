@@ -947,15 +947,86 @@ function Swatches({ value, kind, onChange }: { value: HighlightColor | undefined
 	);
 }
 
-/** Conditional formatting rules: an ordered list, first match wins; each rule expands to its editor. */
+/** The words a highlight panel uses (a view's rows by default; a dashboard component says "card" and "matches"). */
+export interface HighlightWording {
+	empty: string;
+	whole: string;
+	parts: string;
+	when: string;
+	whenEmpty: string;
+	unit: (n: number) => string;
+	wholeHint: string;
+	partHint: string;
+	add: string;
+}
+const ROW_WORDING: HighlightWording = {
+	empty: "No rules yet. Colour the rows or cells that match conditions, e.g. overdue tasks in red.",
+	whole: "Whole row",
+	parts: "Cells in column",
+	when: "Apply when rows match",
+	whenEmpty: "No conditions: every row matches.",
+	unit: (n) => (n === 1 ? "1 row" : `${n} rows`),
+	wholeHint: "Row icons show before the name.",
+	partHint: "Anything this rule leaves unset (e.g. no fill) comes from the row's rule.",
+	add: "Highlight rule",
+};
+
+/** A highlight style's controls: fill and text colours, bold / italic / strikethrough, and an icon (unless `noIcon`). */
+export function StyleFields({ style, onChange, noIcon }: { style: HighlightStyle; onChange: (patch: Partial<HighlightStyle>) => void; noIcon?: boolean }) {
+	return (
+		<div className="oe-hl-grid">
+			<span className="oe-hl-label">Fill</span>
+			<Swatches kind="fill" value={style.fill} onChange={(fill) => onChange({ fill })} />
+			<span className="oe-hl-label">Text</span>
+			<Swatches kind="text" value={style.text} onChange={(text) => onChange({ text })} />
+			<span className="oe-hl-label">Style</span>
+			<span className="oe-hl-swatches">
+				{(
+					[
+						["bold", "bold", "Bold"],
+						["italic", "italic", "Italic"],
+						["strike", "strikethrough", "Strikethrough"],
+					] as const
+				).map(([k, icon, label]) => (
+					<button key={k} className={`clickable-icon oe-hl-toggle${style[k] ? " is-active" : ""}`} aria-label={label} aria-pressed={!!style[k]} onClick={() => onChange({ [k]: !style[k] })}>
+						<Icon name={icon} />
+					</button>
+				))}
+			</span>
+			{!noIcon && (
+				<>
+					<span className="oe-hl-label">Icon</span>
+					<span className="oe-hl-swatches">
+						<button className={`clickable-icon oe-hl-toggle${!style.icon ? " is-active" : ""}`} aria-label="No icon" onClick={() => onChange({ icon: undefined })}>
+							<Icon name="ban" />
+						</button>
+						{HIGHLIGHT_ICONS.map((ic) => (
+							<button key={ic} className={`clickable-icon oe-hl-toggle${style.icon === ic ? " is-active" : ""}`} aria-label={ICON_LABEL[ic] ?? ic} onClick={() => onChange({ icon: ic })}>
+								<Icon name={ic} />
+							</button>
+						))}
+					</span>
+				</>
+			)}
+		</div>
+	);
+}
+
+/**
+ * Conditional formatting rules: an ordered list, first match wins; each rule expands to its editor. `wording` changes
+ * its words (dashboards); `viz: false` leaves out data bars and colour scales.
+ */
 export function HighlightPanel({
 	rules,
 	counts,
 	columns,
 	initialOpen,
 	onChange,
+	wording,
+	viz = true,
 	...rest
-}: FilterProps & { rules: HighlightRule[]; counts: number[]; columns: ResolvedColumn[]; initialOpen?: number; onChange: (rules: HighlightRule[]) => void }) {
+}: FilterProps & { rules: HighlightRule[]; counts: number[]; columns: ResolvedColumn[]; initialOpen?: number; onChange: (rules: HighlightRule[]) => void; wording?: Partial<HighlightWording>; viz?: boolean }) {
+	const w = { ...ROW_WORDING, ...wording };
 	const { choices } = rest;
 	const [open, setOpen] = useState<number | null>(initialOpen ?? (rules.length === 1 ? 0 : null));
 	const [drag, setDrag] = useState<number | null>(null);
@@ -965,10 +1036,10 @@ export function HighlightPanel({
 		for (const k of Object.keys(style) as (keyof HighlightStyle)[]) if (style[k] === undefined || style[k] === false) delete style[k];
 		set(i, { ...rules[i], style });
 	};
-	const targetLabel = (t: string) => (t === ROW_TARGET ? "Row" : (columns.find((c) => c.id === t)?.label ?? t));
+	const targetLabel = (t: string) => (t === ROW_TARGET ? w.whole : (columns.find((c) => c.id === t)?.label ?? t));
 	return (
 		<div className="oe-hlpanel">
-			{rules.length === 0 && <div className="oe-pop-empty">No rules yet. Colour the rows or cells that match conditions, e.g. overdue tasks in red.</div>}
+			{rules.length === 0 && <div className="oe-pop-empty">{w.empty}</div>}
 			{rules.length > 1 && <div className="oe-pop-hint">The first matching rule wins. Drag to reorder.</div>}
 			{rules.map((r, i) => {
 				const isOpen = open === i;
@@ -1010,7 +1081,7 @@ export function HighlightPanel({
 							<button className="oe-hl-title" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : i)}>
 								<span className="oe-hl-name">{r.name || ruleSummary(r, choices)}</span>
 								<span className="oe-hl-meta">
-									{targetLabel(r.target)} · {n === 1 ? "1 row" : `${n} rows`}
+									{targetLabel(r.target)} · {w.unit(n)}
 								</span>
 							</button>
 							<button className="clickable-icon" aria-label="Remove rule" onClick={() => (set(i, null), setOpen(null))}>
@@ -1033,55 +1104,29 @@ export function HighlightPanel({
 								<div className="oe-hl-grid">
 									<span className="oe-hl-label">Name</span>
 									<input type="text" className="oe-pop-input" value={r.name ?? ""} placeholder="Optional, e.g. Overdue" aria-label="Rule name" onChange={(e) => set(i, { ...r, name: e.target.value || undefined })} />
-									<span className="oe-hl-label">Apply to</span>
-									<span className="oe-condition">
-										<select className="dropdown oe-pop-select" value={r.target} aria-label="Apply to" onChange={(e) => set(i, { ...r, target: e.target.value })}>
-											<option value={ROW_TARGET}>Whole row</option>
-											<optgroup label="Cells in column">
-												{columns.map((c) => (
-													<option key={c.id} value={c.id}>
-														{c.label}
-													</option>
-												))}
-												{hidden && <option value={r.target}>{r.target} (not shown)</option>}
-											</optgroup>
-										</select>
-										{hidden && <span className="oe-pop-hint">That column isn't shown, so this rule has no effect.</span>}
-									</span>
+									{(columns.length > 0 || hidden) && (
+										<>
+											<span className="oe-hl-label">Apply to</span>
+											<span className="oe-condition">
+												<select className="dropdown oe-pop-select" value={r.target} aria-label="Apply to" onChange={(e) => set(i, { ...r, target: e.target.value })}>
+													<option value={ROW_TARGET}>{w.whole}</option>
+													<optgroup label={w.parts}>
+														{columns.map((c) => (
+															<option key={c.id} value={c.id}>
+																{c.label}
+															</option>
+														))}
+														{hidden && <option value={r.target}>{r.target} (not shown)</option>}
+													</optgroup>
+												</select>
+												{hidden && <span className="oe-pop-hint">That column isn't shown, so this rule has no effect.</span>}
+											</span>
+										</>
+									)}
 								</div>
-								<GroupEditor group={r.when} depth={0} onChange={(when) => set(i, { ...r, when })} {...rest} heading="Apply when rows match" emptyText="No conditions: every row matches." />
-								<div className="oe-hl-grid">
-									<span className="oe-hl-label">Fill</span>
-									<Swatches kind="fill" value={r.style.fill} onChange={(fill) => setStyle(i, { fill })} />
-									<span className="oe-hl-label">Text</span>
-									<Swatches kind="text" value={r.style.text} onChange={(text) => setStyle(i, { text })} />
-									<span className="oe-hl-label">Style</span>
-									<span className="oe-hl-swatches">
-										{(
-											[
-												["bold", "bold", "Bold"],
-												["italic", "italic", "Italic"],
-												["strike", "strikethrough", "Strikethrough"],
-											] as const
-										).map(([k, icon, label]) => (
-											<button key={k} className={`clickable-icon oe-hl-toggle${r.style[k] ? " is-active" : ""}`} aria-label={label} aria-pressed={!!r.style[k]} onClick={() => setStyle(i, { [k]: !r.style[k] })}>
-												<Icon name={icon} />
-											</button>
-										))}
-									</span>
-									<span className="oe-hl-label">Icon</span>
-									<span className="oe-hl-swatches">
-										<button className={`clickable-icon oe-hl-toggle${!r.style.icon ? " is-active" : ""}`} aria-label="No icon" onClick={() => setStyle(i, { icon: undefined })}>
-											<Icon name="ban" />
-										</button>
-										{HIGHLIGHT_ICONS.map((ic) => (
-											<button key={ic} className={`clickable-icon oe-hl-toggle${r.style.icon === ic ? " is-active" : ""}`} aria-label={ICON_LABEL[ic] ?? ic} onClick={() => setStyle(i, { icon: ic })}>
-												<Icon name={ic} />
-											</button>
-										))}
-									</span>
-								</div>
-								<div className="oe-pop-hint">{r.target === ROW_TARGET ? "Row icons show before the name." : "Anything this rule leaves unset (e.g. no fill) comes from the row's rule."}</div>
+								<GroupEditor group={r.when} depth={0} onChange={(when) => set(i, { ...r, when })} {...rest} heading={w.when} emptyText={w.whenEmpty} />
+								<StyleFields style={r.style} onChange={(patch) => setStyle(i, patch)} />
+								<div className="oe-pop-hint">{r.target === ROW_TARGET ? w.wholeHint : w.partHint}</div>
 							</div>
 						)}
 					</div>
@@ -1095,9 +1140,9 @@ export function HighlightPanel({
 						setOpen(rules.length);
 					}}
 				>
-					<Icon name="plus" /> Highlight rule
+					<Icon name="plus" /> {w.add}
 				</button>
-				{(["bar", "scale"] as const).map((k) => {
+				{(viz ? (["bar", "scale"] as const) : []).map((k) => {
 					const first = columns.find(isMeasurable);
 					return (
 						<button

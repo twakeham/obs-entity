@@ -15,6 +15,7 @@ import {
 	serializeDashboard,
 	STACK_BELOW,
 	type CardOut,
+	type ComponentLook,
 	type ChartOut,
 	type ComponentKind,
 	type DashComponent,
@@ -22,13 +23,14 @@ import {
 	type DashEnv,
 	type ListOut,
 } from "../../../model/dashboard";
-import { serializeView } from "../../../model/views";
+import { ROW_TARGET, serializeView } from "../../../model/views";
 import { buttonLabel, inScope, noteless, workflowProblems } from "../../../model/workflows";
 import { NotePickerModal } from "../../modals/workflowModals";
 import { usePlugin, useRelationsVersion } from "../context";
 import { StatusDot } from "../EntityBrowser";
 import { Icon } from "../Icon";
 import { EntityTable } from "../table/EntityTable";
+import { hlClasses } from "../table/popovers";
 import { DashboardSettings } from "./DashboardSettings";
 import { Chart } from "./Chart";
 
@@ -121,17 +123,20 @@ export function Dashboard({ path, initial, errors, save, openEditor }: { path: s
 		el.scrollIntoView({ block: "nearest", behavior: "smooth" });
 	});
 
-	const box = (c: DashComponent) => (
-		<div
-			key={c.id}
-			data-dash-id={c.id}
-			className={`oe-dash-item oe-dash-${c.kind}${editing && selected === c.id ? " is-selected" : ""}`}
-			onClick={editing ? () => setSelected(c.id) : undefined}
-			style={stacked ? { height: `${c.at.h * ROW_HEIGHT + (c.at.h - 1) * MARGIN}px` } : undefined}
-		>
-			<ComponentBody c={c} card={out.cards.get(c.id)} list={out.lists.get(c.id)} chart={out.charts.get(c.id)} path={path} editing={editing} />
-		</div>
-	);
+	const box = (c: DashComponent) => {
+		const look = out.looks.get(c.id);
+		return (
+			<div
+				key={c.id}
+				data-dash-id={c.id}
+				className={`oe-dash-item oe-dash-${c.kind}${editing && selected === c.id ? " is-selected" : ""} ${hlClasses(look?.box)}`}
+				onClick={editing ? () => setSelected(c.id) : undefined}
+				style={stacked ? { height: `${c.at.h * ROW_HEIGHT + (c.at.h - 1) * MARGIN}px` } : undefined}
+			>
+				<ComponentBody c={c} card={out.cards.get(c.id)} list={out.lists.get(c.id)} chart={out.charts.get(c.id)} look={look} path={path} editing={editing} />
+			</div>
+		);
+	};
 	const chosen = def.components.find((c) => c.id === selected) ?? null;
 	const startEdit = () => (canEdit ? setEditing(true) : openEditor?.());
 
@@ -239,6 +244,8 @@ export function Dashboard({ path, initial, errors, save, openEditor }: { path: s
 								env={env}
 								path={path}
 								card={out.cards.get(chosen.id)}
+								cards={out.cards}
+								look={out.looks.get(chosen.id)}
 								chart={out.charts.get(chosen.id)}
 								list={out.lists.get(chosen.id)}
 								onChange={setComponent}
@@ -263,15 +270,15 @@ export function Dashboard({ path, initial, errors, save, openEditor }: { path: s
 }
 
 /** A component's contents (the same in view and edit mode; in edit mode they don't take clicks). */
-function ComponentBody({ c, card, list, chart, path, editing }: { c: DashComponent; card?: CardOut; list?: ListOut; chart?: ChartOut; path: string; editing: boolean }) {
+function ComponentBody({ c, card, list, chart, look, path, editing }: { c: DashComponent; card?: CardOut; list?: ListOut; chart?: ChartOut; look?: ComponentLook; path: string; editing: boolean }) {
 	const plugin = usePlugin();
 	switch (c.kind) {
 		case "card":
-			return <CardBox c={c} out={card} editing={editing} />;
+			return <CardBox c={c} out={card} look={look} editing={editing} />;
 		case "chart":
-			return chart ? <Chart kind={c.chart} title={c.title || CHART_LABELS[c.chart]} out={chart} open={(d) => void plugin.openDrill(d)} /> : null;
+			return chart ? <Chart kind={c.chart} title={c.title || CHART_LABELS[c.chart]} icon={look?.box.icon} out={chart} open={(d) => void plugin.openDrill(d)} /> : null;
 		case "list":
-			return <ListBox c={c} out={list} />;
+			return <ListBox c={c} out={list} icon={look?.box.icon} />;
 		case "view":
 			return <ViewBox c={c} path={path} editing={editing} />;
 		case "text":
@@ -281,14 +288,14 @@ function ComponentBody({ c, card, list, chart, path, editing }: { c: DashCompone
 	}
 }
 
-function CardBox({ c, out, editing }: { c: Extract<DashComponent, { kind: "card" }>; out?: CardOut; editing: boolean }) {
+function CardBox({ c, out, look, editing }: { c: Extract<DashComponent, { kind: "card" }>; out?: CardOut; look?: ComponentLook; editing: boolean }) {
 	const plugin = usePlugin();
-	const rule = out?.rule;
-	const tint = rule?.color ? ` oe-c-${rule.color}` : "";
 	const drill = !editing && out?.drill && out.drill.paths.length ? out.drill : null;
+	// A rule on the value styles just the value; the card's own style (and its icon) applies otherwise.
+	const icon = look?.value?.icon ?? look?.box.icon;
 	return (
 		<div
-			className={`oe-dash-card-body${rule?.on === "card" && rule.color ? ` is-tinted${tint}` : ""}${drill ? " is-clickable" : ""}`}
+			className={`oe-dash-card-body${drill ? " is-clickable" : ""}`}
 			title={out?.count !== undefined ? `${out.count} note${out.count === 1 ? "" : "s"}${drill ? ": click to open them as a table" : ""}` : undefined}
 			role={drill ? "button" : undefined}
 			tabIndex={drill ? 0 : undefined}
@@ -299,8 +306,8 @@ function CardBox({ c, out, editing }: { c: Extract<DashComponent, { kind: "card"
 			{out?.error ? (
 				<div className="oe-dash-problem">{out.error}</div>
 			) : (
-				<div className={`oe-dash-card-value${rule?.on !== "card" && rule?.color ? ` is-coloured${tint}` : ""}`}>
-					{rule?.icon && <Icon name={rule.icon} className={`oe-dash-card-icon${tint}`} />}
+				<div className={`oe-dash-card-value ${hlClasses(look?.value)}`}>
+					{icon && <Icon name={icon} className="oe-hl-icon oe-dash-card-icon" />}
 					<span>{out?.text || "–"}</span>
 				</div>
 			)}
@@ -308,11 +315,14 @@ function CardBox({ c, out, editing }: { c: Extract<DashComponent, { kind: "card"
 	);
 }
 
-function ListBox({ c, out }: { c: Extract<DashComponent, { kind: "list" }>; out?: ListOut }) {
+function ListBox({ c, out, icon }: { c: Extract<DashComponent, { kind: "list" }>; out?: ListOut; icon?: string }) {
 	const plugin = usePlugin();
+	const rules = c.highlight ?? [];
+	const styleOf = (i: number | undefined) => (i === undefined ? undefined : rules[i]?.style);
 	return (
 		<div className="oe-dash-list-body">
 			<div className="oe-dash-head">
+				{icon && <Icon name={icon} className="oe-hl-icon" />}
 				<span className="oe-dash-head-title">{c.title || "List"}</span>
 				{out && !out.error && <span className="oe-dash-head-count">{out.total}</span>}
 			</div>
@@ -321,17 +331,25 @@ function ListBox({ c, out }: { c: Extract<DashComponent, { kind: "list" }>; out?
 			) : (
 				<div className="oe-dash-list">
 					{out?.rows.length === 0 && <div className="oe-dash-muted">No notes.</div>}
-					{out?.rows.map((r) => (
-						<div key={r.row.path} className="oe-dash-list-row" onClick={(e: ReactMouseEvent) => plugin.openPath(r.row.path, e.nativeEvent)}>
-							<StatusDot status={r.row.status} />
-							<span className="oe-dash-list-name">{r.row.name}</span>
-							{out.columns.map((col) => (
-								<span key={col.id} className="oe-dash-list-field" title={col.label}>
-									{r.cells[col.id]?.text ?? ""}
-								</span>
-							))}
-						</div>
-					))}
+					{out?.rows.map((r) => {
+						const row = styleOf(r.hl?.[ROW_TARGET]);
+						return (
+							<div key={r.row.path} className={`oe-dash-list-row ${hlClasses(row)}`} onClick={(e: ReactMouseEvent) => plugin.openPath(r.row.path, e.nativeEvent)}>
+								<StatusDot status={r.row.status} />
+								{row?.icon && <Icon name={row.icon} className="oe-hl-icon" />}
+								<span className="oe-dash-list-name">{r.row.name}</span>
+								{out.columns.map((col) => {
+									const cell = styleOf(r.hl?.[col.id]);
+									return (
+										<span key={col.id} className={`oe-dash-list-field ${hlClasses(cell)}`} title={col.label}>
+											{cell?.icon && <Icon name={cell.icon} className="oe-hl-icon" />}
+											{r.cells[col.id]?.text ?? ""}
+										</span>
+									);
+								})}
+							</div>
+						);
+					})}
 					{out && out.total > out.rows.length && <div className="oe-dash-muted">+{out.total - out.rows.length} more</div>}
 				</div>
 			)}

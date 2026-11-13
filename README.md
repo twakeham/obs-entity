@@ -467,7 +467,7 @@ A **dashboard** is a page you build from components on a grid: summary cards, ch
   - **The grid** (middle): drag components to move them, and their bottom-right corner to resize. Click one to select it.
   - **Settings** (right): the selected component's title (edit it at the top) and a **⋯** menu with **Duplicate** and **Delete**, then two tabs.
     - **Data:** where its notes come from (**Types | View | Formula**; with Types, pick the types and add filter conditions right there) and what it shows (a card picks its field first, then a summary that fits it: Sum or Average for a number, Earliest or Latest for a date). Each part shows its live result: "→ 13 notes", "= 5".
-    - **Style:** the number format (presets, or a custom pattern, with an example of the value in it) and, for cards, the colour rules.
+    - **Style:** the number format (presets, or a custom pattern, with an example of the value in it), the component's **Default style**, and **Conditional styling** (below).
   - Changes aren't saved until **Save**. **Discard** throws them away. Leaving the dashboard keeps the unsaved changes for when you come back.
 - **Where the notes come from** (summary cards, charts and lists), one of:
   - **Types and filters:** pick types or groups, and filter them just like a view.
@@ -477,7 +477,11 @@ A **dashboard** is a page you build from components on a grid: summary cards, ch
   - **A summary of some notes:** how many there are, or a summary of a field: sum, average, median, min / max, earliest / latest, % filled, % of one choice, and so on.
   - **A formula over other cards:** refer to them by title, e.g. `[Completed quests] / [All quests] * 100`.
   - **Format:** optional, e.g. `currency`, `percent`, `#,##0 gp`.
-  - **Colour rules:** e.g. "When < 3: red, the card" and "When ≥ 10: green, the value, with a tick". The first rule the value meets colours the value or the whole card, and can add an icon. Percentages compare as shown (50 for 50%).
+- **Styling** (every component, on the **Style** tab):
+  - **Default style:** a fill, text colour, bold / italic / strikethrough and an icon. The component looks like this unless a rule applies.
+  - **Conditional styling:** the same rules as a view's **Highlight**: name a rule, give it conditions, and pick its style. The first rule that applies wins, and drag reorders them. Conditions test the dashboard's summary cards by title, e.g. "[Active quests] > 4". A card can also test its own **Value**, and style the whole card or just its value (e.g. Value < 3 → red card).
+  - **Lists** have **row highlighting** instead: rules on their notes' fields that colour a row or a field, as in a view.
+  - Each rule says whether it applies now.
 - **Chart:** the notes as a picture.
   - **Bar**, **Horizontal bar** (for long labels) and **Donut**: one bar or slice per value of a field, e.g. Status or Priority. They come in the field's own order, with statuses in their colours.
   - **Stacked bar:** each bar is split by a second field, e.g. priority split by status.
@@ -648,7 +652,7 @@ src/
     formLayout.ts            custom form layouts: format, tidying, resolving against a type, field renames
     viewBlock.ts             find / rewrite an entity-view block inside a note (and its place: line)
     viewPlace.ts             where the Entity Browser lists a view note: place:, or worked out from its types
-    dashboard.ts             dashboards: parse / serialize, components, sources (view, types and filters, formula), card values, card formulas and colour rules, charts, lists, drill-downs
+    dashboard.ts             dashboards: parse / serialize, components, sources (view, types and filters, formula), card values and card formulas, styles (default style and highlight rules), charts, lists, drill-downs
   services/
     entityIndex.ts           entities from the metadata cache
     relationIndex.ts         forward + inverse edges, groupsFor, mentions

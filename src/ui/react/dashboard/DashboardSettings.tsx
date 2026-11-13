@@ -6,11 +6,12 @@ import {
 	CHART_LABELS,
 	COMPONENT_ICONS,
 	COMPONENT_LABELS,
-	RULE_OPS,
+	VALUE_ID,
+	valueColumns,
 	cardName,
 	runSource,
 	type CardOut,
-	type CardRule,
+	type ComponentLook,
 	type ChartKind,
 	type ChartOut,
 	type DashComponent,
@@ -21,7 +22,6 @@ import {
 	type Measure,
 	type TimeStep,
 } from "../../../model/dashboard";
-import { PALETTE, PALETTE_LABELS, type PaletteColor } from "../../../model/colors";
 import { formatNumber } from "../../../model/formats";
 import { summaryOptions } from "../../../model/summary";
 import {
@@ -29,18 +29,18 @@ import {
 	cellOf,
 	columnFromId,
 	emptyView,
-	HIGHLIGHT_ICONS,
 	NAME_COLUMN,
 	resolveColumn,
 	sourceTypes,
 	type ColumnDef,
+	type HighlightStyle,
 	type ResolvedColumn,
 	type ViewDef,
 } from "../../../model/views";
 import { noteless, onNotes } from "../../../model/workflows";
 import { usePlugin } from "../context";
 import { Icon } from "../Icon";
-import { FiltersPanel, type ColumnChoice } from "../table/popovers";
+import { FiltersPanel, HighlightPanel, StyleFields, type ColumnChoice } from "../table/popovers";
 
 type Props = {
 	c: DashComponent;
@@ -49,6 +49,9 @@ type Props = {
 	path: string;
 	/** the component's worked-out value or notes, for live results next to its settings */
 	card?: CardOut;
+	/** every card's value (for conditions on them) and this component's look (which rules apply now) */
+	cards?: Map<string, CardOut>;
+	look?: ComponentLook;
 	chart?: ChartOut;
 	list?: ListOut;
 	onChange: (c: DashComponent) => void;
@@ -648,36 +651,106 @@ function ButtonData({ c, onChange }: { c: Extract<DashComponent, { kind: "button
 
 // ---------------------------------------------------------------- the Style tab
 
-function StyleTab({ c, env, card, chart, onChange }: Props) {
-	if (c.kind === "card")
-		return (
-			<>
+function StyleTab(props: Props) {
+	const { c, env, card, chart, onChange } = props;
+	return (
+		<>
+			{c.kind === "card" && (
 				<Section title="Number">
 					<FormatPick value={c.format} sample={card?.num} env={env} onChange={(format) => onChange({ ...c, format })} />
 				</Section>
-				<Section title="Colour rules">
-					<RulesSettings rules={c.rules ?? []} onChange={(rules) => onChange({ ...c, rules: rules.length ? rules : undefined })} />
+			)}
+			{c.kind === "chart" && (
+				<Section title="Values">
+					<FormatPick value={c.format} sample={chart?.total} env={env} onChange={(format) => onChange({ ...c, format })} />
 				</Section>
-			</>
-		);
-	if (c.kind === "chart")
-		return (
-			<Section title="Values">
-				<FormatPick value={c.format} sample={chart?.total} env={env} onChange={(format) => onChange({ ...c, format })} />
+			)}
+			{c.kind === "button" && (
+				<Section title="Button icon">
+					<Row label="Icon" hint="A Lucide icon name, e.g. plus, scroll, swords.">
+						<div className="oe-dash-row">
+							{c.icon && <Icon name={c.icon} />}
+							<input type="text" value={c.icon ?? ""} aria-label="Icon" placeholder="None" onChange={(e) => onChange({ ...c, icon: e.target.value.trim() || undefined })} />
+						</div>
+					</Row>
+				</Section>
+			)}
+			<Section title="Default style">
+				<StyleFields
+					style={c.style ?? {}}
+					noIcon={c.kind === "text" || c.kind === "button" || c.kind === "view"}
+					onChange={(patch) => {
+						const style = { ...c.style, ...patch };
+						for (const k of Object.keys(style) as (keyof HighlightStyle)[]) if (style[k] === undefined || style[k] === false) delete style[k];
+						onChange({ ...c, style: Object.keys(style).length ? style : undefined } as DashComponent);
+					}}
+				/>
+				<div className="oe-dash-hint">{c.kind === "list" ? "The list's look. Rows and fields are styled by the rules below." : "The look when no rule below applies. What a rule leaves unset comes from here."}</div>
 			</Section>
-		);
-	if (c.kind === "button")
-		return (
-			<Section title="Icon">
-				<Row label="Icon" hint="A Lucide icon name, e.g. plus, scroll, swords.">
-					<div className="oe-dash-row">
-						{c.icon && <Icon name={c.icon} />}
-						<input type="text" value={c.icon ?? ""} aria-label="Icon" placeholder="None" onChange={(e) => onChange({ ...c, icon: e.target.value.trim() || undefined })} />
-					</div>
-				</Row>
-			</Section>
-		);
-	return <div className="oe-dash-settings-empty">No style options for {COMPONENT_LABELS[c.kind].toLowerCase()}s yet.</div>;
+			<Section title={c.kind === "list" ? "Row highlighting" : "Conditional styling"}>{c.kind === "list" ? <ListRules {...props} c={c} /> : <ValueRules {...props} />}</Section>
+		</>
+	);
+}
+
+/** Rules on card values (a card's own is Value): they style the whole component, or a card's value. */
+function ValueRules({ c, def, env, cards, look, onChange }: Props) {
+	const { columns } = valueColumns(def, cards ?? new Map(), c);
+	const choices: ColumnChoice[] = columns.map((col) => ({ col, group: col.id === VALUE_ID ? "This card" : "Cards" }));
+	const isCard = c.kind === "card";
+	if (!choices.length) return <div className="oe-dash-settings-empty">Add a summary card to the dashboard: rules here test cards' values, e.g. [Overdue quests] &gt; 0.</div>;
+	const whole = isCard ? "Whole card" : `Whole ${COMPONENT_LABELS[c.kind].toLowerCase()}`;
+	return (
+		<HighlightPanel
+			rules={c.highlight ?? []}
+			counts={look?.matched ?? []}
+			columns={isCard ? columns.filter((x) => x.id === VALUE_ID) : []}
+			onChange={(highlight) => onChange({ ...c, highlight: highlight.length ? highlight : undefined } as DashComponent)}
+			choices={choices}
+			ctx={env.ctx}
+			valuesOf={() => []}
+			viz={false}
+			wording={{
+				empty: isCard ? "No rules yet. Style the card, or just its value, when it meets conditions: e.g. Value < 3 in red." : "No rules yet. Style it when cards meet conditions: e.g. [Overdue quests] > 0 in red.",
+				whole,
+				parts: "Just part of it",
+				when: "Apply when",
+				whenEmpty: "No conditions: it always applies.",
+				unit: (n) => (n ? "applies now" : "doesn't apply now"),
+				wholeHint: "What it leaves unset comes from the default style.",
+				partHint: "Styles just the value, on top of the card's style.",
+				add: "Rule",
+			}}
+		/>
+	);
+}
+
+/** A list's rules: on its notes' fields, styling each row or one of its fields, as in a view. */
+function ListRules({ c, env, list, onChange }: Props & { c: Extract<DashComponent, { kind: "list" }> }) {
+	const { ctx } = env;
+	const lookup = { types: ctx.types, groups: ctx.groups };
+	const sdef = sourceViewDef(c.source, env);
+	const choices = useMemo(() => [{ col: resolveColumn(NAME_COLUMN, sdef, lookup), group: "Built-in" }, ...columnChoices(sdef, lookup)], [sdef, ctx]);
+	return (
+		<HighlightPanel
+			rules={c.highlight ?? []}
+			counts={list?.highlightCounts ?? []}
+			columns={list?.columns ?? []}
+			onChange={(highlight) => onChange({ ...c, highlight: highlight.length ? highlight : undefined })}
+			choices={choices}
+			ctx={ctx}
+			valuesOf={valuesFor(sdef, choices, env)}
+			viz={false}
+			wording={{
+				empty: "No rules yet. Colour the rows or fields that match conditions, e.g. overdue quests in red.",
+				parts: "A field",
+				when: "Apply when notes match",
+				whenEmpty: "No conditions: every note matches.",
+				unit: (n) => (n === 1 ? "1 note" : `${n} notes`),
+				wholeHint: "Row icons show before the name.",
+				partHint: "Anything this rule leaves unset comes from the row's rule.",
+			}}
+		/>
+	);
 }
 
 const FORMATS: { value: string; label: string }[] = [
@@ -730,68 +803,6 @@ function FormatPick({ value, sample, env, onChange }: { value?: string; sample?:
 				</Row>
 			)}
 			{example && <div className="oe-dash-result">Looks like: {example}</div>}
-		</>
-	);
-}
-
-/** A card's colour rules: the first that its value meets colours the value or the card, with an optional icon. */
-function RulesSettings({ rules, onChange }: { rules: CardRule[]; onChange: (r: CardRule[]) => void }) {
-	const set = (i: number, patch: Partial<CardRule>) => onChange(rules.map((r, j) => (j === i ? { ...r, ...patch } : r)));
-	return (
-		<>
-			{rules.length === 0 && <div className="oe-dash-muted-label">No rules: the value shows in the usual colour.</div>}
-			{rules.map((r, i) => (
-				<div key={i} className="oe-dash-rule">
-					<div className="oe-dash-row">
-						<span className="oe-dash-muted-label">When</span>
-						<select className="dropdown oe-dash-op" value={r.op} aria-label="Comparison" onChange={(e) => set(i, { op: e.target.value as CardRule["op"] })}>
-							{RULE_OPS.map((o) => (
-								<option key={o} value={o}>
-									{o}
-								</option>
-							))}
-						</select>
-						<input type="number" value={r.value} aria-label="Value" onChange={(e) => set(i, { value: Number(e.target.value) || 0 })} />
-						<button className="clickable-icon" aria-label="Remove rule" onClick={() => onChange(rules.filter((_, j) => j !== i))}>
-							<Icon name="x" />
-						</button>
-					</div>
-					<div className="oe-dash-row">
-						<select className="dropdown" value={r.color ?? ""} aria-label="Colour" onChange={(e) => set(i, { color: (e.target.value || undefined) as PaletteColor | undefined })}>
-							<option value="">No colour</option>
-							{PALETTE.map((p) => (
-								<option key={p} value={p}>
-									{PALETTE_LABELS[p]}
-								</option>
-							))}
-						</select>
-						<Segmented
-							label="What it colours"
-							value={r.on}
-							onChange={(on: CardRule["on"]) => set(i, { on })}
-							options={[
-								{ value: "value", label: "Value" },
-								{ value: "card", label: "Card" },
-							]}
-						/>
-					</div>
-					<div className="oe-dash-row">
-						<select className="dropdown" value={r.icon ?? ""} aria-label="Icon" onChange={(e) => set(i, { icon: e.target.value || undefined })}>
-							<option value="">No icon</option>
-							{HIGHLIGHT_ICONS.map((ic) => (
-								<option key={ic} value={ic}>
-									{ic.replace(/-/g, " ")}
-								</option>
-							))}
-						</select>
-						{r.icon && <Icon name={r.icon} className={r.color ? `oe-c-${r.color} oe-dash-rule-icon` : "oe-dash-rule-icon"} />}
-					</div>
-				</div>
-			))}
-			<button onClick={() => onChange([...rules, { op: "<", value: 0, color: "red", on: "value" }])}>
-				<Icon name="plus" /> Add rule
-			</button>
-			<div className="oe-dash-hint">The first rule the value meets applies. Percentages compare as shown (50 for 50%).</div>
 		</>
 	);
 }

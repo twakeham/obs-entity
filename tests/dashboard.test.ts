@@ -214,38 +214,74 @@ describe("dashboard charts", () => {
 		expect(err({ chart: "stacked", by: "status" })).toBe("Choose a field to split each bar by.");
 	});
 
-	it("round-trip charts and card rules", () => {
+	it("round-trip charts and component styles", () => {
+		const highlight = [{ target: "row", when: { all: [{ field: "value", op: "<", value: 3 }] }, style: { fill: "red", icon: "flame" } }];
 		const raw = {
 			kind: "dashboard",
 			components: [
 				{ id: "c", kind: "chart", at: [0, 0, 6, 5], chart: "stacked", source: { types: ["project"] }, by: "type", split: "status", measure: { agg: "sum", column: "budget" }, format: "currency" },
 				{ id: "p", kind: "chart", at: [6, 0, 6, 5], chart: "progress", source: { types: ["project"] }, done: DONE },
 				{ id: "l", kind: "chart", at: [0, 5, 6, 5], chart: "line", source: { types: ["project"] }, by: "due", every: "week" },
-				{ id: "k", kind: "card", at: [6, 5, 3, 2], source: { types: ["project"] }, value: { agg: "count" }, rules: [{ op: "<", value: 3, color: "red", on: "card", icon: "flame" }, { op: ">=", value: 3, color: "green" }] },
+				{ id: "k", kind: "card", at: [6, 5, 3, 2], style: { text: "blue", bold: true }, highlight, source: { types: ["project"] }, value: { agg: "count" } },
 			],
 		};
 		const { def, errors } = parseDashboard(raw);
 		expect(errors).toEqual([]);
 		expect(serializeDashboard(def)).toEqual(raw);
-		expect(parseDashboard({ kind: "dashboard", components: [{ kind: "card", rules: [{ op: "~", value: 1 }] }] }).errors).toEqual(['Component 1: a colour rule needs op (< <= > >= = !=) and a number value: {"op":"~","value":1}.']);
 	});
 });
 
-describe("dashboard cards: colour rules and the notes behind them", () => {
-	it("pick the first matching rule, comparing percentages as shown", () => {
-		const { def } = parseDashboard({
-			kind: "dashboard",
-			components: [
-				{ id: "n", kind: "card", source: { types: ["project"] }, value: { agg: "count" }, rules: [{ op: "<", value: 3, color: "red" }, { op: ">=", value: 3, color: "green", on: "card" }] },
-				{ id: "pct", kind: "card", source: { types: ["project"] }, value: { agg: "percent:active", column: "status" }, rules: [{ op: ">=", value: 50, color: "blue" }] },
-				{ id: "f", kind: "card", value: { formula: "2 + 2" }, rules: [{ op: "=", value: 4, icon: "star", on: "value" }] },
-			],
-		});
-		const { cards } = evaluateDashboard(def, env);
-		expect(cards.get("n")!.rule).toMatchObject({ color: "green", on: "card" });
-		expect(cards.get("pct")!.num).toBe(50);
-		expect(cards.get("pct")!.rule).toMatchObject({ color: "blue" });
-		expect(cards.get("f")!.rule).toMatchObject({ icon: "star" });
+describe("dashboard styles: default styles, highlight rules and the notes behind cards", () => {
+	const looks = (components: Record<string, unknown>[]) => {
+		const { def, errors } = parseDashboard({ kind: "dashboard", components });
+		expect(errors).toEqual([]);
+		return evaluateDashboard(def, env);
+	};
+	const rule = (target: string, field: string, op: string, value: unknown, style: Record<string, unknown>) => ({ target, when: { all: [{ field, op, value }] }, style });
+
+	it("turn the colour rules cards used to have into highlight rules", () => {
+		const { def } = parseDashboard({ kind: "dashboard", components: [{ id: "n", kind: "card", value: { agg: "count" }, rules: [{ op: "<", value: 3, color: "red", on: "card", icon: "flame" }, { op: ">=", value: 3, color: "green" }] }] });
+		const c = def.components[0];
+		expect(c.highlight).toEqual([
+			{ target: "row", when: { mode: "all", items: [{ field: "value", op: "<", value: 3 }] }, style: { fill: "red", icon: "flame" } },
+			{ target: "value", when: { mode: "all", items: [{ field: "value", op: ">=", value: 3 }] }, style: { text: "green" } },
+		]);
+		expect(serializeDashboard(def).components).toMatchObject([{ highlight: [{ target: "row" }, { target: "value" }] }]);
+		expect((serializeDashboard(def).components as Record<string, unknown>[])[0].rules).toBeUndefined();
+	});
+
+	it("layer the first matching rule over the default style, and style a card's value on its own", () => {
+		const { looks: l } = looks([
+			{ id: "n", kind: "card", title: "Projects", source: { types: ["project"] }, value: { agg: "count" }, style: { fill: "grey", bold: true }, highlight: [rule("row", "value", ">=", 4, { fill: "green" }), rule("row", "value", ">=", 1, { fill: "red" }), rule("value", "value", ">", 3, { text: "blue", icon: "star" })] },
+			{ id: "pct", kind: "card", source: { types: ["project"] }, value: { agg: "percent:active", column: "status" }, highlight: [rule("row", "value", ">=", 50, { text: "orange" })] },
+		]);
+		expect(l.get("n")).toEqual({ box: { fill: "green", bold: true }, value: { text: "blue", icon: "star" }, matched: [1, 1, 1] });
+		// Percentages compare as shown.
+		expect(l.get("pct")!.box).toEqual({ text: "orange" });
+	});
+
+	it("let any component test the cards' values by title, and skip rules that are off", () => {
+		const { looks: l } = looks([
+			{ id: "n", kind: "card", title: "Projects", source: { types: ["project"] }, value: { agg: "count" } },
+			{ id: "t", kind: "text", text: "Hi", style: { italic: true }, highlight: [{ ...rule("row", "card:n", ">", 10, { fill: "red" }) }, { ...rule("row", "card:n", "=", 4, { fill: "yellow" }), off: true }, rule("row", "card:n", "=", 4, { text: "green" })] },
+		]);
+		expect(l.get("t")).toEqual({ box: { italic: true, text: "green" }, matched: [0, 1, 1] });
+	});
+
+	it("style a list's rows and fields with rules on its notes", () => {
+		const { lists, looks: l } = looks([{ id: "l", kind: "list", source: { types: ["project"] }, fields: ["status"], style: { fill: "blue" }, highlight: [rule("row", "status", "any-of", ["active"], { text: "green" }), rule("status", "status", "any-of", ["done"], { strike: true })] }]);
+		const out = lists.get("l")!;
+		expect(out.highlightCounts).toEqual([2, 1]);
+		expect(out.rows.filter((r) => r.hl?.row === 0).map((r) => r.row.name)).toEqual(["Apollo", "Gemini"]);
+		expect(out.rows.find((r) => r.row.name === "Lander")!.hl).toEqual({ status: 1 });
+		expect(l.get("l")).toEqual({ box: { fill: "blue" }, matched: [2, 1] });
+	});
+
+	it("open the notes behind a card, but not a formula card's", () => {
+		const { cards } = looks([
+			{ id: "n", kind: "card", source: { types: ["project"] }, value: { agg: "count" } },
+			{ id: "f", kind: "card", value: { formula: "2 + 2" } },
+		]);
 		expect(cards.get("n")!.drill!.paths).toEqual(["Apollo.md", "Gemini.md", "Lander.md", "Mercury.md"]);
 		expect(cards.get("f")!.drill).toBeUndefined();
 	});

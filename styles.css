@@ -4097,7 +4097,8 @@ select.oe-status.has-color {
 	background-color: color-mix(in srgb, var(--oe-hl-fill) 16%, var(--background-primary));
 }
 
-.oe-popover button.oe-hl-title {
+.oe-popover button.oe-hl-title,
+.oe-dash-settings button.oe-hl-title {
 	display: flex;
 	flex: 1;
 	align-items: baseline;
@@ -4154,7 +4155,8 @@ select.oe-status.has-color {
 	gap: 4px;
 }
 
-.oe-popover button.oe-hl-swatch {
+.oe-popover button.oe-hl-swatch,
+.oe-dash-settings button.oe-hl-swatch {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
@@ -4171,21 +4173,25 @@ select.oe-status.has-color {
 	cursor: pointer;
 }
 
-.oe-popover button.oe-hl-swatch.is-fill {
+.oe-popover button.oe-hl-swatch.is-fill,
+.oe-dash-settings button.oe-hl-swatch.is-fill {
 	background-color: color-mix(in srgb, var(--oe-hl) 35%, var(--background-primary));
 	border-color: color-mix(in srgb, var(--oe-hl) 60%, transparent);
 }
 
-.oe-popover button.oe-hl-swatch.is-active {
+.oe-popover button.oe-hl-swatch.is-active,
+.oe-dash-settings button.oe-hl-swatch.is-active {
 	box-shadow: 0 0 0 2px var(--background-secondary), 0 0 0 4px var(--interactive-accent);
 }
 
-.oe-popover button.oe-hl-swatch svg {
+.oe-popover button.oe-hl-swatch svg,
+.oe-dash-settings button.oe-hl-swatch svg {
 	width: 12px;
 	height: 12px;
 }
 
-.oe-popover .clickable-icon.oe-hl-toggle.is-active {
+.oe-popover .clickable-icon.oe-hl-toggle.is-active,
+.oe-dash-settings .clickable-icon.oe-hl-toggle.is-active {
 	background-color: color-mix(in srgb, var(--interactive-accent) 20%, transparent);
 	color: var(--text-normal);
 }
@@ -9411,15 +9417,6 @@ circle.oe-chart-hit:focus-visible {
 	background: var(--background-modifier-hover);
 }
 
-.oe-dash-card-body.is-tinted {
-	background: color-mix(in srgb, var(--oe-c) 16%, var(--background-primary));
-	box-shadow: inset 3px 0 0 var(--oe-c);
-}
-
-.oe-dash-card-body.is-tinted.is-clickable:hover {
-	background: color-mix(in srgb, var(--oe-c) 24%, var(--background-primary));
-}
-
 .oe-dash-card-value {
 	display: flex;
 	align-items: center;
@@ -9432,10 +9429,6 @@ circle.oe-chart-hit:focus-visible {
 	text-overflow: ellipsis;
 }
 
-.oe-dash-card-value.is-coloured {
-	color: var(--oe-c);
-}
-
 .oe-dash-card-icon {
 	display: inline-flex;
 	color: var(--oe-c, var(--text-muted));
@@ -9444,28 +9437,6 @@ circle.oe-chart-hit:focus-visible {
 .oe-dash-card-icon svg {
 	width: 0.8em;
 	height: 0.8em;
-}
-
-/* the edit panel's colour rules */
-.oe-dash-rule {
-	padding: var(--size-4-1) 0;
-	border-bottom: 1px solid var(--background-modifier-border);
-	margin-bottom: var(--size-4-1);
-}
-
-.oe-dash-rule input[type="number"] {
-	width: 70px;
-	flex: 1;
-}
-
-.oe-dash-rule .oe-dash-op {
-	flex: 0 0 auto;
-	width: 58px;
-}
-
-.oe-dash-muted-label {
-	font-size: var(--font-ui-small);
-	color: var(--text-muted);
 }
 
 /* a dashboard's drill-down tab */
@@ -9721,7 +9692,119 @@ circle.oe-chart-hit:focus-visible {
 	color: var(--text-error);
 }
 
-.oe-dash-rule-icon {
-	display: inline-flex;
-	color: var(--oe-c, var(--text-muted));
+/* component styles: a default style and highlight rules (the view highlight classes, on dashboard parts) */
+.oe-dash-item.oe-hl-fill {
+	background-color: color-mix(in srgb, var(--oe-hl-fill) 14%, var(--background-primary));
+	border-color: color-mix(in srgb, var(--oe-hl-fill) 45%, var(--background-modifier-border));
+}
+
+.oe-dash-item.oe-hl-text .oe-dash-text-body :is(h1, h2, h3, h4, h5, h6, p, li, strong, em),
+.oe-dash-item.oe-hl-text .oe-dash-head-title,
+.oe-dash-item.oe-hl-text .oe-dash-list-name {
+	color: var(--oe-hl-text);
+}
+
+.oe-dash-item.oe-hl-italic .oe-dash-text-body,
+.oe-dash-item.oe-hl-strike .oe-dash-card-value,
+.oe-dash-item.oe-hl-strike .oe-dash-head-title {
+	text-decoration: inherit;
+}
+
+.oe-dash-card-value.oe-hl-fill {
+	align-self: flex-start;
+	max-width: 100%;
+	padding: 0 var(--size-4-2);
+	border-radius: var(--radius-s);
+	background-color: color-mix(in srgb, var(--oe-hl-fill) 22%, transparent);
+}
+
+.oe-dash-card-value .oe-dash-card-icon {
+	margin-right: 0;
+}
+
+.oe-dash-list-row.oe-hl-fill,
+.oe-dash-list-field.oe-hl-fill {
+	background-color: color-mix(in srgb, var(--oe-hl-fill) 16%, transparent);
+}
+
+.oe-dash-list-field.oe-hl-fill {
+	padding: 0 4px;
+	border-radius: var(--radius-s);
+}
+
+.oe-dash-list-field.oe-hl-text,
+.oe-dash-list-row.oe-hl-text .oe-dash-list-field {
+	color: var(--oe-hl-text);
+}
+
+.oe-dash-head .oe-hl-icon,
+.oe-dash-list-row .oe-hl-icon {
+	margin-right: 0;
+}
+
+.oe-dash-item.oe-hl-fill .oe-dash-button-body {
+	background-color: var(--oe-hl-fill);
+	color: var(--text-on-accent);
+}
+
+.oe-dash-item.oe-hl-text .oe-dash-button-body {
+	color: var(--oe-hl-text);
+}
+
+.oe-dash-item.oe-dash-button.oe-hl-fill {
+	background-color: transparent;
+	border-color: transparent;
+}
+
+/* the view highlight panel, inline in the narrow settings panel */
+.oe-dash-settings {
+	overflow-x: hidden;
+}
+
+.oe-dash-settings .oe-hlpanel {
+	font-size: var(--font-ui-small);
+}
+
+.oe-dash-settings .oe-hl-head {
+	min-width: 0;
+	padding: 4px;
+	gap: 4px;
+}
+
+/* the rule's name and what it applies to stack, so the heading fits */
+.oe-dash-settings button.oe-hl-title {
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 0;
+}
+
+.oe-dash-settings .oe-hl-name,
+.oe-dash-settings .oe-hl-meta {
+	max-width: 100%;
+	margin-left: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.oe-dash-settings .oe-hl-body {
+	padding: 6px;
+}
+
+.oe-dash-settings .oe-hl-grid {
+	grid-template-columns: 44px minmax(0, 1fr);
+}
+
+.oe-dash-settings .oe-hlpanel select.oe-pop-select,
+.oe-dash-settings .oe-hlpanel input.oe-pop-input {
+	max-width: 100%;
+	height: 26px;
+	font-size: var(--font-ui-small);
+}
+
+.oe-dash-settings .oe-hlpanel button.oe-pop-link,
+.oe-dash-settings .oe-hlpanel .oe-filter-group button {
+	height: auto;
+	padding: 2px 8px;
+	font-size: var(--font-ui-small);
 }

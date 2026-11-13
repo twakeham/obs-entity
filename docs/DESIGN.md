@@ -2087,7 +2087,7 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
   - From a source: `value: { agg, column? }`, using the table summary row's aggregations (`summarize`). Count, sum, average, median, min / max, earliest / latest, % filled, % of a choice, and so on. `column` is a field key, a built-in, or a roll-up or formula column object as in views; without it, `count` counts notes.
   - Or `value: { formula }`, with no source: a formula over other cards, referred to by title (`[All quests]`), and `notes()`. Cards are evaluated in dependency order; a cycle is a problem shown on the card.
   - `format` uses the display format patterns (§8.10 Formats).
-  - **Colour rules** (`rules`): `{ op, value, color?, on: value | card, icon? }`, with `op` one of `< <= > >= = !=` and a number. The first rule the value meets applies (`cardRule`). It colours the value's text, or tints the whole card (a wash of the colour and a coloured left edge), and can show a highlight icon before the value. Values compare as shown: percentages as 0–100 (`CardOut.num`), dates not at all.
+  - **Styling:** see Styling below (cards can style just their value). Values compare as shown: percentages as 0–100 (`CardOut.num`).
   - **Clicking** a card with a source opens its notes as a table (below).
 - **chart:** a chart of a source's notes (`chart`):
   - `bar`, `hbar` (horizontal, for long labels), `stacked` and `donut` group the notes by `by` (any field or built-in; links and multiple choices count a note once per value). Groups come in the field's order (statuses in status order, choices in choice order) using the view grouping, with "No …" for empty ones. `stacked` splits each bar by `split`, its parts in that field's order.
@@ -2105,6 +2105,22 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
   - `{ open: <note> }` opens a note or view.
 
 **`notes()` formula function** (everywhere formulas run: table columns, workflows, dashboards). `notes("quest")`, `notes("@table")` or `notes()` returns links to every note of that type, group, or all. It combines with `filter`, `map`, `prop`, `count`, `sum`, e.g. `count(filter(notes("quest"), prop(item, "Status") = "active"))`. Results are cached per evaluation pass, so a column using it doesn't rescan the vault for every row.
+
+**Styling** (every component; `style` and `highlight` in its block; built on the views' highlight rules, §8.10):
+- **Default style** (`style`): a highlight style (`fill`, `text`, `bold`, `italic`, `strike`, `icon`), the component's look when no rule applies.
+- **Rules** (`highlight`): `HighlightRule`s (`name`, `target`, `when`, `style`, `off`), first match wins. What a rule leaves unset comes from the default style.
+  - **On card values,** for every component but lists. Conditions use the filter engine on named values (`valueColumns`, `matchesValues`): every summary card's value by title (`card:<id>`, the formatted number as a number, a date as a date, otherwise text; a percentage as shown, 50 for 50%), and for a card its own as **Value** (`value`).
+  - **Targets:** `row` styles the whole component. A card's rules can also target `value`, styling just the value, on top of the card's style.
+  - Examples: a card turns red when Value < 3; a text banner turns purple when [Active quests] > 4; a button greys out when [Open quests] = 0.
+  - **Lists** instead have **row highlighting**: rules on their notes' fields, styling a row or one of its fields, run by `runView` (the list's own rules, not a saved view's). Their default style is the list's own look.
+  - Data bars and colour scales aren't offered.
+- **How it shows** (the views' `hlClasses`):
+  - fill tints the component (or the value, as a pill), and text colours its title, value or text;
+  - bold, italic and strikethrough apply;
+  - the icon shows before the title (charts, lists) or the value (cards);
+  - a button's fill becomes its colour.
+- **Evaluation:** `evaluateDashboard` returns `looks` (`ComponentLook`: the box style, a card's value style, and per rule whether it applies now, or for lists how many notes match).
+- **Older notes:** cards' older colour rules (`rules: [{ op, value, color, on, icon }]`) are read as highlight rules on Value and written back as `highlight`.
 
 **The notes behind a card, bar or slice** (`Drill`: a title, the definition its source ran with, and the exact note paths):
 - In view mode, clicking opens them as a table in a new tab (`DrillView`, `obs-entities-drill`). The table runs on the definition with `only` set to those paths. `ViewDef.only` is honoured by `runView` and never written to a note.
@@ -2135,10 +2151,8 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
         - views pick their view, text is its Markdown, and buttons have their Label and On click.
         - Each ends with the live result: "= 5", "= 13 in 4 bars", "= 5 of 13", "5 of 5 shown", or the problem.
     - **Style:**
-      - cards: **Number** (the format) and **Colour rules**;
-      - charts: **Values** (the format);
-      - buttons: their icon;
-      - the other kinds say there are no style options yet. Later styling options go here.
+      - cards: **Number** (the format); charts: **Values** (the format); buttons: their **Button icon**;
+      - every component: **Default style** (`StyleFields`: fill, text colour, bold / italic / strike, icon; no icon for text, buttons and views), then **Conditional styling** (the views' `HighlightPanel`, with dashboard wording, without data bars or colour scales). A list's is **Row highlighting**;
       - **The format** is a preset (Automatic, Number, Whole number, One / Two decimal places, Currency, Percent, Compact) or **Custom pattern…**. "Looks like: 33,600 gp" shows the component's own value in it.
     - A "By <field>" chart title follows the field until it's changed by hand.
 - Edits are a **draft**, kept per note in `plugin.dashboardDrafts` for the session. **Save** writes the block; **Discard** drops the draft. Leaving with a draft keeps it, marked unsaved in the header.
@@ -2183,7 +2197,7 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
   - It builds `ChartBar`s (with `parts` for stacked bars), each with its measure, formatted text, colour and `Drill`.
   - Lines bucket the date cells with `stepOf` / `nextStep`.
 - **Colours:** the status tone table moved from `EntityBits.tsx` to `model/colors.ts` (`statusTone`, `statusPaint`) so charts share it.
-- **Cards:** `evaluateDashboard` also returns `charts`. Cards carry `num`, `rule` and `drill`.
+- **Cards:** `evaluateDashboard` also returns `charts`. Cards carry `num` and `drill`.
 - **Tests:** `tests/dashboard.test.ts` covers every chart, the error messages, rules, drills and round trips.
 - **Drill tabs:** `ui/views/DrillView.tsx` and `plugin.openDrill`.
 ---

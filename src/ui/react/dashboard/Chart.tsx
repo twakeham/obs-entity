@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Icon } from "../Icon";
 import type { PaletteColor } from "../../../model/colors";
 import type { ChartBar, ChartKind, ChartOut, ChartPart, Drill } from "../../../model/dashboard";
 
@@ -61,7 +62,7 @@ const hit = (n: number) => (n > 0 ? " oe-chart-hit" : " oe-chart-hit is-empty");
 
 const clip = (s: string, chars: number) => (s.length > chars ? `${s.slice(0, Math.max(1, chars - 1))}…` : s);
 
-export function Chart({ kind, title, out, open }: { kind: ChartKind; title: string; out: ChartOut; open: (d: Drill) => void }) {
+export function Chart({ kind, title, icon, out, open }: { kind: ChartKind; title: string; icon?: string; out: ChartOut; open: (d: Drill) => void }) {
 	const { ref, w, h } = useSize();
 	let body: ReactNode = null;
 	if (!out.error && w > 0 && h > 0) {
@@ -75,6 +76,7 @@ export function Chart({ kind, title, out, open }: { kind: ChartKind; title: stri
 	return (
 		<div className="oe-dash-chart-body">
 			<div className="oe-dash-head">
+				{icon && <Icon name={icon} className="oe-hl-icon" />}
 				<span className="oe-dash-head-title">{title}</span>
 				{!out.error && kind !== "progress" && <span className="oe-dash-head-count" title={out.measureLabel}>{out.totalText}</span>}
 			</div>
