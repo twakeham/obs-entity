@@ -478,10 +478,13 @@ export function LinkValues({
 	thisText.current = about;
 	const singleRef = useRef(single);
 	singleRef.current = single;
+	const targetsRef = useRef(targets);
+	targetsRef.current = targets;
 	useEffect(() => {
 		if (!ref.current) return;
 		const s = new EntitySuggest(plugin.app, ref.current, plugin, {
-			targets,
+			// Read at each search: the targets can change while it's open (a dashboard filter's types).
+			targets: () => targetsRef.current,
 			allowCreate: false,
 			exclude: () => new Set(latest.current),
 			onPick: (e: EntityRecord) => onChangeRef.current(singleRef.current ? [e.path] : [...latest.current, e.path]),

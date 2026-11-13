@@ -86,7 +86,8 @@ export interface ExtraSuggestion {
 }
 
 export interface EntitySuggestOptions {
-	targets?: RelationTarget[];
+	/** the types to offer (a function: read at each search, for targets that change while the picker's open) */
+	targets?: RelationTarget[] | (() => RelationTarget[] | undefined);
 	/** paths to hide from suggestions (already chosen, or the note itself) */
 	exclude?: () => Set<string>;
 	onPick: (entity: EntityRecord) => void;
@@ -112,16 +113,21 @@ export class EntitySuggest extends AbstractInputSuggest<EntitySuggestion> {
 		this.limit = 30;
 	}
 
+	private targets(): RelationTarget[] | undefined {
+		const t = this.opts.targets;
+		return typeof t === "function" ? t() : t;
+	}
+
 	getSuggestions(query: string): EntitySuggestion[] {
 		const exclude = this.opts.exclude?.() ?? new Set<string>();
-		const pool = this.plugin.index.matching(this.opts.targets).filter((e) => !exclude.has(e.path));
+		const pool = this.plugin.index.matching(this.targets()).filter((e) => !exclude.has(e.path));
 		const results: EntitySuggestion[] = searchEntities(pool, query, 30).map((m) => ({ kind: "entity", ...m }));
 		const extra = this.opts.extra?.();
 		if (extra && extra.label.toLowerCase().includes(query.trim().toLowerCase())) results.unshift({ kind: "extra", ...extra });
 		const name = query.trim();
-		const exact = this.plugin.index.matching(this.opts.targets).some((e) => e.name.toLowerCase() === name.toLowerCase());
+		const exact = this.plugin.index.matching(this.targets()).some((e) => e.name.toLowerCase() === name.toLowerCase());
 		if ((this.opts.allowCreate ?? true) && name && !exact) {
-			const candidates = typesForTargets(this.plugin, this.opts.targets);
+			const candidates = typesForTargets(this.plugin, this.targets());
 			if (candidates.length > 0 && candidates.length <= 3) {
 				for (const type of candidates) results.push({ kind: "create", type, name, candidates });
 			} else if (candidates.length > 3) {
