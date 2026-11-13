@@ -413,7 +413,7 @@ export function EntityBrowser({ state, setState, activePath }: { state: BrowserS
 													icon={t.icon}
 													color={t.color}
 													title={t.plural || t.name}
-													count={allElsewhere ? b.nested : b.count}
+													count={allElsewhere ? b.nested : groupSections && !elsewhere && b.count === s.count ? null : b.count}
 													countElsewhere={allElsewhere}
 													countTitle={elsewhere ? `${allElsewhere ? `All ${b.nested}` : `${b.nested} more`} ${plural} listed under ${under}` : undefined}
 													className="oe-bblock-header"
@@ -904,7 +904,8 @@ function Heading({
 	icon: string;
 	color?: string;
 	title: ReactNode;
-	count: number;
+	/** null: no count (it would repeat the one just above) */
+	count: number | null;
 	/** the count's tooltip, and whether it counts notes listed elsewhere (shown faint) */
 	countTitle?: string;
 	countElsewhere?: boolean;
@@ -951,9 +952,11 @@ function Heading({
 			<Icon name={open ? "chevron-down" : "chevron-right"} className="oe-tree-chevron" />
 			<Icon name={icon} className="oe-bheading-icon" />
 			<span className="oe-bheading-title">{title}</span>
-			<span className={`oe-bheading-count${countElsewhere ? " is-elsewhere" : ""}`} title={countTitle}>
-				{count}
-			</span>
+			{count !== null && (
+				<span className={`oe-bheading-count${countElsewhere ? " is-elsewhere" : ""}`} title={countTitle}>
+					{count}
+				</span>
+			)}
 			{/* The end slot (the + button, or nothing): the same width on every row, so the counts line up. */}
 			<span className="oe-bend">
 				{onAdd && (
@@ -1002,6 +1005,8 @@ function ViewRow({ file, depth, active }: { file: TFile; depth: number; active: 
 			<span className="oe-tree-toggle is-leaf" />
 			<Icon name={VIEW_KIND_ICON[plugin.views.kind(file.path) ?? "table"] ?? "table"} className="oe-tree-icon" />
 			<span className="oe-tree-name">{file.basename}</span>
+			<span className="oe-view-tag">view</span>
+			<span className="oe-bend" />
 		</div>
 	);
 }

@@ -255,12 +255,12 @@ Each tab has its own search, filters, View options, **+** menu, and Collapse/Exp
 Clicking a tab yourself sticks until you open something else. Open the browser with the **library** ribbon icon or **Open entity browser**.
 
 **Layout (Entities tab):**
-- **Views**, listed with what they show:
+- **Views**, listed with what they show, each with a small **VIEW** tag:
   - A view of one type is listed under that type's heading (Quest board under Quests).
   - A view of types in one group is listed under the group (Campaign calendar under At the table).
   - Anything wider is in the **Views** section at the top.
   - **To put a view somewhere else,** drag it onto any group or type heading (e.g. Campaign calendar onto Campaigns), or onto **Views**. You can also right-click it and use **Show under…**. The choice is saved in the view note (`place:` in its block), so it syncs. Moving a view back to its automatic spot removes `place:`.
-- One section per group, with a heading per type.
+- One section per group, with a heading per type. Group headings stand out (bold, on a faint band). A type heading's count is left out when it's the same as its group's just above.
 - Entities nest under their parent, using the type's parent fields, e.g. Lander and Design review under Apollo Moonshot.
 - Notes are listed under the heading of the type at the top of their branch: a campaign's sessions are under **Campaigns**. Their own type's heading still shows, with how many there are (faint) and a line such as **All 17 under Campaigns · show them**, which filters the browser to that type (each with what it's under). A type with some notes of its own and some under other headings shows **+3 more under Projects · show them** after its own.
 - The **View** menu (sliders button) changes this:

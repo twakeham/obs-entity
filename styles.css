@@ -2873,7 +2873,7 @@ select.oe-status.has-color {
 }
 
 .oe-bsection + .oe-bsection {
-	margin-top: var(--size-4-1);
+	margin-top: var(--size-4-3);
 }
 
 .oe-bheading {
@@ -2894,11 +2894,20 @@ select.oe-status.has-color {
 	color: var(--text-normal);
 }
 
+/* Top-level headings (groups, Views, and the Types tab's sections) stand out from the type headings under them. */
 .oe-bsection-header {
+	--oe-type-color: var(--text-normal);
 	font-size: var(--font-ui-smaller);
-	font-weight: var(--font-semibold);
+	font-weight: var(--font-bold);
 	text-transform: uppercase;
-	letter-spacing: 0.04em;
+	letter-spacing: 0.06em;
+	color: var(--text-normal);
+	background-color: color-mix(in srgb, var(--text-normal) 6%, transparent);
+	margin-bottom: 2px;
+}
+
+.oe-bsection-header:hover {
+	background-color: color-mix(in srgb, var(--text-normal) 11%, transparent);
 }
 
 .oe-bblock-header {
@@ -3050,6 +3059,24 @@ select.oe-status.has-color {
 .oe-tree-count {
 	font-size: var(--font-ui-smaller);
 	color: var(--text-faint);
+}
+
+/* Marks a view note among the notes it's listed with. */
+.oe-view-tag {
+	flex: none;
+	padding: 0 5px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	font-size: 9px;
+	line-height: 14px;
+	font-weight: var(--font-semibold);
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	color: var(--text-faint);
+}
+
+.oe-view-row .oe-tree-name {
+	flex: 1;
 }
 
 .oe-tree-empty {

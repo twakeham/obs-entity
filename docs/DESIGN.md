@@ -916,7 +916,7 @@ View notes are listed with the notes they're about. Each view's spot (`model/vie
 **Where it's shown** (`placeViews`, among the sections and headings actually shown, so filtering and view options are respected):
 - With no heading for its type (type headings off, no notes and not Show empty types, or filtered out), a view goes to its type's group section.
 - With no section for its group (Sections: none, or filtered out), it goes to Views.
-- Rows are indented like the level they're in. A heading's count stays its notes' count.
+- Rows are indented like the level they're in, and end with a small **VIEW** tag (`.oe-view-tag`) so they stand apart from the notes around them. A heading's count stays its notes' count.
 
 **Moving a view:**
 - **Drag** its row (`application/x-oe-view`, carrying the path) onto a group heading, a type heading or the Views heading. Any heading is allowed, not just the view's own types. The heading under the pointer is highlighted (`.oe-bheading.is-drop-target`).
@@ -932,7 +932,8 @@ View notes are listed with the notes they're about. Each view's spot (`model/vie
 #### Grouping
 
 - **Sections:** one section per group, in group order (default). Alternatively, **Sections: none** shows one tree.
-- **Type headings** (on by default): inside a section, each type gets a collapsible heading with a count. Entities are listed under the heading of their root's type. With headings off, roots are listed directly.
+- **Type headings** (on by default): inside a section, each type gets a collapsible heading with a count. Entities are listed under the heading of their root's type. With headings off, roots are listed directly. A type heading leaves its count out when it's the same as its group heading's just above (every note in the group is under it, e.g. a campaign's sessions and quests under Campaigns), so the number isn't shown twice.
+- **Top-level headings** (groups, Views, and the Types tab's Entities and Workflows) stand out from the type headings under them: bold, uppercase, normal text colour, on a faint band (`color-mix` of the text colour), with more space between sections.
 - **Hierarchy:** a **forest** built from each type's `parentFields`. An entity's parent is the first parent field (in priority order) whose target exists. Siblings sort by type order, then `order`, then name (numeric-aware: "Chapter 2" before "Chapter 10").
 - **Children of other types** (`children`): **nest under their parent** (default, `"parent"`), or are **listed under their own type** (`"type"`): a note whose parent is of another type is a root under its own type's heading, in name order, and its row's tooltip starts "In <parent>" (`TreeNode.parent`, kept through filtering). With that, **Nest under parents of the same type** (`sameTypeNesting`, on by default) keeps same-type trees (a city in its region); off, every type is a flat list. The cross-group options don't apply then (same-type parents share a group), so they're disabled.
 - **Children whose parent is in another group** have two options:
