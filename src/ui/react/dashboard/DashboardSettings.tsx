@@ -30,19 +30,17 @@ import {
 	columnFromId,
 	emptyView,
 	HIGHLIGHT_ICONS,
-	isGroup,
 	NAME_COLUMN,
 	resolveColumn,
 	sourceTypes,
 	type ColumnDef,
-	type FilterGroup,
 	type ResolvedColumn,
 	type ViewDef,
 } from "../../../model/views";
 import { noteless, onNotes } from "../../../model/workflows";
 import { usePlugin } from "../context";
 import { Icon } from "../Icon";
-import { FiltersPanel, Popover, type ColumnChoice } from "../table/popovers";
+import { FiltersPanel, type ColumnChoice } from "../table/popovers";
 
 type Props = {
 	c: DashComponent;
@@ -229,26 +227,6 @@ const valuesFor = (sdef: ViewDef, choices: ColumnChoice[], env: DashEnv) => (id:
 	return [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 };
 
-/** How many conditions a filter group has, nested groups included. */
-const conditionCount = (g: FilterGroup | undefined): number => (g ? g.items.reduce((n, i) => n + (isGroup(i) ? conditionCount(i) : 1), 0) : 0);
-const conditionsText = (n: number) => (n === 0 ? "no filters" : `${n} filter${n === 1 ? "" : "s"}`);
-
-/** A one-line summary with an Edit… button that opens its editor in a popover. */
-function Summary({ text, label, children, wide }: { text: string; label: string; children: ReactNode; wide?: boolean }) {
-	const [anchor, setAnchor] = useState<DOMRect | null>(null);
-	return (
-		<div className="oe-dash-summary">
-			<span className="oe-dash-summary-text">{text}</span>
-			<button onClick={(e) => setAnchor(e.currentTarget.getBoundingClientRect())}>Edit…</button>
-			{anchor && (
-				<Popover anchor={anchor} onClose={() => setAnchor(null)} label={label} className={`oe-dash-pop${wide ? " is-wide" : ""}`}>
-					{children}
-				</Popover>
-			)}
-		</div>
-	);
-}
-
 // ---------------------------------------------------------------- the Data tab
 
 function DataTab(props: Props) {
@@ -309,7 +287,6 @@ function NotesSection({ source, env, views, onChange }: { source: DashSource | u
 	const types = qdef.types.filter((t) => t !== "*");
 	const label = (t: string) => (t.startsWith("@") ? `${ctx.groups.find((g) => `@${g.key}` === t)?.name ?? t} (group)` : (ctx.types.find((x) => x.key === t)?.plural ?? t));
 	const setTypes = (next: string[]) => onChange({ kind: "query", def: { ...qdef, types: next.length ? next : ["*"] } });
-	const typesText = types.length ? types.map(label).join(", ") : "Every type";
 	return (
 		<Section title="Notes">
 			<Row label="From">
@@ -325,9 +302,8 @@ function NotesSection({ source, env, views, onChange }: { source: DashSource | u
 				/>
 			</Row>
 			{mode === "query" && (
-				<Row label="Which">
-					<Summary text={`${typesText} · ${conditionsText(conditionCount(qdef.filters))}`} label="Types and filters" wide>
-						<div className="oe-dash-pop-title">Types</div>
+				<>
+					<Row label="Types">
 						<div className="oe-dash-chips">
 							{types.length === 0 && <span className="oe-dash-chip is-all">Every type</span>}
 							{types.map((t) => (
@@ -354,9 +330,11 @@ function NotesSection({ source, env, views, onChange }: { source: DashSource | u
 								</optgroup>
 							))}
 						</select>
-						<FiltersPanel filters={qdef.filters} onChange={(filters) => onChange({ kind: "query", def: { ...qdef, filters } })} choices={choices} ctx={ctx} valuesOf={valuesFor(qdef, choices, env)} heading="Only notes that match" />
-					</Summary>
-				</Row>
+					</Row>
+					<div className="oe-dash-filters">
+						<FiltersPanel filters={qdef.filters} onChange={(filters) => onChange({ kind: "query", def: { ...qdef, filters } })} choices={choices} ctx={ctx} valuesOf={valuesFor(qdef, choices, env)} heading="Only notes matching" />
+					</div>
+				</>
 			)}
 			{source?.kind === "view" && (
 				<Row label="View" hint="Uses the view's types, filters and sort.">
@@ -481,7 +459,6 @@ function ChartData({ c, env, views, chart, onChange }: Props & { c: Extract<Dash
 		const auto = !c.title || c.title.toLowerCase() === `by ${old.toLowerCase()}`;
 		onChange({ ...c, by: col?.def, ...(auto && col ? { title: `By ${col.label.toLowerCase()}` } : {}) });
 	};
-	const n = conditionCount(c.done);
 	return (
 		<>
 			<Section title="Chart">
@@ -537,19 +514,17 @@ function ChartData({ c, env, views, chart, onChange }: Props & { c: Extract<Dash
 					</Row>
 				)}
 				{progress && (
-					<Row label="Done when">
-						<Summary text={n ? `${n} condition${n === 1 ? "" : "s"}` : "Not set"} label="Done when" wide>
-							<FiltersPanel
-								filters={c.done ?? { mode: "all", items: [] }}
-								onChange={(done) => onChange({ ...c, done })}
-								choices={choices}
-								ctx={ctx}
-								valuesOf={valuesFor(sdef, choices, env)}
-								heading="Done when a note matches"
-								emptyText="Add a condition, e.g. Status is done."
-							/>
-						</Summary>
-					</Row>
+					<div className="oe-dash-filters">
+						<FiltersPanel
+							filters={c.done ?? { mode: "all", items: [] }}
+							onChange={(done) => onChange({ ...c, done })}
+							choices={choices}
+							ctx={ctx}
+							valuesOf={valuesFor(sdef, choices, env)}
+							heading="Done when matching"
+							emptyText="Add a condition, e.g. Status is done."
+						/>
+					</div>
 				)}
 				<Result text={chart && !chart.error ? (progress && chart.progress ? `${chart.progress.doneText} of ${chart.totalText}` : `${chart.totalText} in ${chart.bars.length} ${c.chart === "line" ? "steps" : c.chart === "donut" ? "slices" : "bars"}`) : undefined} error={chart?.error} />
 			</Section>

@@ -2126,11 +2126,11 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
     - Each tab has titled sections that fold (remembered for the session). Short settings are a label and a control on one line; text, formulas and lists take the full width.
     - **Data:**
       - **Value** (cards): from **Some notes | Other cards** (a formula).
-      - **Notes:** from **Types | View | Formula** (segmented buttons). Types and filters are a one-line summary, "Quests · 1 filter", with **Edit…** opening the type chips and `FiltersPanel` in a popover. A live count follows ("→ 13 notes", or the source's problem).
+      - **Notes:** from **Types | View | Formula** (segmented buttons). With Types, the type chips (and "Add a type or group…") and the filter editor (`FiltersPanel`, "Only notes matching all of these conditions") are right in the panel, compact to fit it. A live count follows ("→ 13 notes", or the source's problem).
       - **Chart:** the chart type as six icon buttons, with its name under them.
       - **Show:**
         - cards are a sentence, "Show the [count] of [notes]";
-        - charts have Measure (**Count | Sum | Average**, then "of" a number field), Bars or Slices by, Split by, By date and Every (**Week | Month | Year**), or Done when (a summary with **Edit…**, like the filters);
+        - charts have Measure (**Count | Sum | Average**, then "of" a number field), Bars or Slices by, Split by, By date and Every (**Week | Month | Year**), or Done when (its conditions, in the panel like the filters);
         - lists are "Show up to [8] notes", Sorted by and With;
         - views pick their view, text is its Markdown, and buttons have their Label and On click.
         - Each ends with the live result: "= 5", "= 13 in 4 bars", "= 5 of 13", "5 of 5 shown", or the problem.

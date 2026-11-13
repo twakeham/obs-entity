@@ -9012,8 +9012,32 @@ button.oe-calv-more:hover {
 	padding: 2px;
 }
 
-.oe-dash-settings .oe-filters {
-	margin-bottom: var(--size-4-3);
+/* the filter editor, inline in the settings panel (it's sized for popovers elsewhere) */
+.oe-dash-filters {
+	margin: var(--size-4-1) 0 var(--size-4-2);
+	font-size: var(--font-ui-small);
+}
+
+.oe-dash-filters select.oe-pop-select {
+	max-width: 100%;
+	height: 26px;
+	font-size: var(--font-ui-small);
+}
+
+.oe-dash-filters input {
+	max-width: 100%;
+	font-size: var(--font-ui-small);
+}
+
+.oe-dash-filters .oe-filter-group-head {
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+}
+
+.oe-dash-settings .oe-dash-filters button {
+	height: auto;
+	padding: 2px 8px;
+	font-size: var(--font-ui-small);
 }
 
 /* components */
@@ -9684,49 +9708,6 @@ circle.oe-chart-hit:focus-visible {
 
 .oe-dash-sentence input[type="number"] {
 	width: 64px;
-}
-
-.oe-dash-summary {
-	display: flex;
-	align-items: center;
-	gap: var(--size-4-2);
-	min-width: 0;
-}
-
-.oe-dash-summary-text {
-	flex: 1;
-	min-width: 0;
-	font-size: var(--font-ui-small);
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-
-.oe-dash-summary button {
-	flex-shrink: 0;
-	font-size: var(--font-ui-small);
-}
-
-.oe-dash-pop {
-	padding: var(--size-4-3);
-	width: 340px;
-	max-height: 70vh;
-	overflow-y: auto;
-}
-
-.oe-dash-pop.is-wide {
-	width: 480px;
-}
-
-.oe-dash-pop-title {
-	margin-bottom: var(--size-4-1);
-	font-size: var(--font-ui-small);
-	font-weight: var(--font-semibold);
-}
-
-.oe-dash-pop > select {
-	width: 100%;
-	margin-bottom: var(--size-4-3);
 }
 
 .oe-dash-result {
