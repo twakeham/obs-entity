@@ -35,6 +35,7 @@ import { colorClass } from "../EntityBits";
 import { usePlugin } from "../context";
 import { CalendarPopover } from "../Calendar";
 import { Icon } from "../Icon";
+import { IconPicker } from "../types/controls";
 
 /** A floating panel under an anchor. Closes on outside click, Esc or scrolling the page behind it. */
 export function Popover({ anchor, onClose, className, children, label }: { anchor: DOMRect; onClose: () => void; className?: string; children: ReactNode; label: string }) {
@@ -53,7 +54,7 @@ export function Popover({ anchor, onClose, className, children, label }: { ancho
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 	useEffect(() => {
-		const outside = (t: EventTarget | null) => t instanceof Node && !ref.current?.contains(t) && !(t instanceof Element && t.closest(".suggestion-container, .menu, .modal-container"));
+		const outside = (t: EventTarget | null) => t instanceof Node && !ref.current?.contains(t) && !(t instanceof Element && t.closest(".suggestion-container, .menu, .modal-container, .oe-tm-popover"));
 		// A text box saves on blur: blur it before closing so typed values aren't lost.
 		const closeNow = () => {
 			const a = document.activeElement;
@@ -65,7 +66,7 @@ export function Popover({ anchor, onClose, className, children, label }: { ancho
 		// view's editor shifts its scroll as the view opens a panel or changes height (e.g. a filter edit).
 		const scroll = (e: Event) => outside(e.target) && closeNow();
 		const key = (e: KeyboardEvent) => {
-			if (e.key !== "Escape" || document.querySelector(".suggestion-container")) return;
+			if (e.key !== "Escape" || document.querySelector(".suggestion-container, .oe-tm-popover")) return;
 			// Esc in a box with unsaved typing cancels the typing first.
 			if (e.target instanceof HTMLElement && e.target.dataset.dirty === "1") return;
 			e.stopPropagation();
@@ -1005,6 +1006,7 @@ export function StyleFields({ style, onChange, noIcon }: { style: HighlightStyle
 								<Icon name={ic} />
 							</button>
 						))}
+						<IconPicker compact value={style.icon ?? ""} active={!!style.icon && !(HIGHLIGHT_ICONS as readonly string[]).includes(style.icon)} color="var(--text-normal)" onChange={(icon) => onChange({ icon: icon || undefined })} />
 					</span>
 				</>
 			)}

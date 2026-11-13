@@ -364,7 +364,9 @@ const ICON_LIMIT = 168;
 
 /** Icon button that opens a searchable grid of Lucide icons. */
 /** `empty`: what to show when no icon is chosen (default: the "file" icon, which types fall back to) */
-export function IconPicker({ value, color, onChange, empty }: { value: string; color: string; onChange: (v: string) => void; empty?: string }) {
+/** `compact`: a small icon button instead (in a row of icon choices): it shows the icon when `active`, else "more". */
+/** `clearable`: the grid starts with "No icon" (picks ""). */
+export function IconPicker({ value, color, onChange, empty, compact, active, clearable }: { value: string; color: string; onChange: (v: string) => void; empty?: string; compact?: boolean; active?: boolean; clearable?: boolean }) {
 	const [open, setOpen] = useState(false);
 	const [q, setQ] = useState("");
 	const ref = useRef<HTMLDivElement>(null);
@@ -440,12 +442,18 @@ export function IconPicker({ value, color, onChange, empty }: { value: string; c
 		return () => app.keymap.popScope(scope);
 	}, [open, app]);
 	return (
-		<div className="oe-tm-iconpicker" ref={ref}>
-			<button ref={btnRef} className="oe-tm-iconbtn" aria-label="Choose icon" aria-expanded={open} onClick={() => setOpen(!open)} style={{ "--oe-type-color": color } as CSSProperties}>
-				<span className="oe-type-icon">{value || !empty ? <Icon name={value} /> : null}</span>
-				<span className="oe-tm-iconname">{value || empty || "file"}</span>
-				<Icon name="chevron-down" />
-			</button>
+		<div className={`oe-tm-iconpicker${compact ? " is-compact" : ""}`} ref={ref}>
+			{compact ? (
+				<button ref={btnRef} className={`clickable-icon oe-hl-toggle${active ? " is-active" : ""}`} aria-label={active ? `Icon: ${value}. Choose another…` : "More icons…"} title={active ? value : "More icons…"} aria-expanded={open} onClick={() => setOpen(!open)}>
+					<Icon name={active && value ? value : "more-horizontal"} />
+				</button>
+			) : (
+				<button ref={btnRef} className="oe-tm-iconbtn" aria-label="Choose icon" aria-expanded={open} onClick={() => setOpen(!open)} style={{ "--oe-type-color": color } as CSSProperties}>
+					<span className="oe-type-icon">{value || !empty ? <Icon name={value} /> : null}</span>
+					<span className="oe-tm-iconname">{value || empty || "file"}</span>
+					<Icon name="chevron-down" />
+				</button>
+			)}
 			{open &&
 				createPortal(
 					<div ref={popRef} className="oe-tm-popover" role="dialog" aria-label="Icons" style={pos ? { left: pos.left, top: pos.top } : { left: -10000, top: 0 }}
@@ -468,6 +476,11 @@ export function IconPicker({ value, color, onChange, empty }: { value: string; c
 							}}
 						/>
 						<div className="oe-tm-icongrid" style={{ "--oe-type-color": color } as CSSProperties}>
+							{clearable && !q.trim() && (
+								<button className={`oe-tm-iconcell${!value ? " is-active" : ""}`} title="No icon" aria-label="No icon" onClick={() => pick("")}>
+									<Icon name="ban" />
+								</button>
+							)}
 							{matches.slice(0, ICON_LIMIT).map((id) => (
 								<button key={id} className={`oe-tm-iconcell${id === value ? " is-active" : ""}`} title={id} aria-label={id} onClick={() => pick(id)}>
 									<Icon name={id} />

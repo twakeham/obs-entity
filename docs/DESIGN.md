@@ -1587,7 +1587,7 @@ highlight:
 - **Hover and selection** still show: they're mixed over the fill. A row fill also covers the checkbox and filler cells.
 - **Editing:**
   - The toolbar's **Highlight (n)** button (n counts enabled rules) opens the rule list. Each rule shows a sample, its name (or a summary of its first condition), its target and how many shown rows match.
-  - Rules can be turned on and off, reordered by dragging, removed, and expanded to edit (click the title or the caret beside ×; one is open at a time): name, apply to (whole row or a column), conditions, fill and text swatches, B / I / S toggles and icon.
+  - Rules can be turned on and off, reordered by dragging, removed, and expanded to edit (click the title or the caret beside ×; one is open at a time): name, apply to (whole row or a column), conditions, fill and text swatches, B / I / S toggles and icon (ten quick choices, then **…** to search every Lucide icon with the type editor's `IconPicker`, `compact`; a chosen icon from there shows in its place).
   - Right-clicking a header gives **Highlight cells…**, which adds a cell rule for that column, with a condition on it and a yellow fill, and opens it.
 - `runView` returns each row's matching rule per target (`hl`) and a match count per rule. Boards and calendars use row rules to colour cards and entries (and a future gallery will).
 
@@ -2162,7 +2162,7 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
       - **Display as** (cards and charts): the number format, after Show.
     - **Style:**
       - cards: **Card**, the layout as segmented buttons (Size S / M / L / XL / Fit, Align as icons, Label, Icon, Accent) and a Caption box. A whole-card rule has the same options at its end as drop-downs starting at "Unchanged" (`HighlightPanel`'s `ruleExtra`);
-      - buttons: their **Button icon**;
+      - buttons: their **Button icon** (the icon picker, with No icon);
       - every component: **Default style** (`StyleFields`: fill, text colour, bold / italic / strike, icon; no icon for text, buttons and views), then **Conditional styling** (the views' `HighlightPanel`, with dashboard wording, without data bars or colour scales). A list's is **Row highlighting**;
       - **The format** is a preset (Automatic, Number, Whole number, One / Two decimal places, Currency, Percent, Compact) or **Custom pattern…**. "Looks like: 33,600 gp" shows the component's own value in it.
     - A "By <field>" chart title follows the field until it's changed by hand.

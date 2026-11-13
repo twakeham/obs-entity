@@ -365,7 +365,7 @@ filters: { all: [{ field: status, op: any-of, value: [idea, active] }] }
   - an optional name
   - what it applies to: the whole row, or one column's cells
   - conditions, built like filters, which can use fields that aren't shown
-  - a style: fill colour, text colour, bold / italic / strikethrough, and an optional icon
+  - a style: fill colour, text colour, bold / italic / strikethrough, and an optional icon (one of the quick choices, or **…** to search all of Obsidian's icons)
 - The colours come from the theme, so they work in light and dark mode.
 - **The first matching rule wins:** drag rules to reorder them. A cell rule sits on top of the row's rule. What it leaves unset (e.g. no fill) comes from the row's rule.
 - Rules can be switched off without deleting them. Each rule shows how many rows it matches.
@@ -486,7 +486,7 @@ A **dashboard** is a page you build from components on a grid: summary cards, ch
     - **Caption:** a small line under the value. `[Value]` and other cards' titles in brackets show their values, e.g. "of [All quests]" → "of 13".
     - A rule that styles the whole card can change any of these too, e.g. make it XL when Value < 3.
 - **Styling** (every component, on the **Style** tab):
-  - **Default style:** a fill, text colour, bold / italic / strikethrough and an icon. The component looks like this unless a rule applies.
+  - **Default style:** a fill, text colour, bold / italic / strikethrough and an icon (a quick choice, or **…** to search all icons). The component looks like this unless a rule applies.
   - **Conditional styling:** the same rules as a view's **Highlight**: name a rule, give it conditions, and pick its style. The first rule that applies wins, and drag reorders them. Conditions test the dashboard's summary cards by title, e.g. "[Active quests] > 4". A card can also test its own **Value**, and style the whole card or just its value (e.g. Value < 3 → red card).
   - **Lists** have **row highlighting** instead: rules on their notes' fields that colour a row or a field, as in a view.
   - Each rule says whether it applies now.

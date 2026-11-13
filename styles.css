@@ -1786,7 +1786,8 @@ select.oe-status.has-color {
 	position: relative;
 }
 
-.oe-tm .oe-tm-iconbtn {
+.oe-tm .oe-tm-iconbtn,
+.oe-dash-settings .oe-tm-iconbtn {
 	gap: var(--size-4-2);
 	padding: 0 var(--size-4-2) 0 4px;
 }

@@ -47,6 +47,7 @@ import { noteless, onNotes } from "../../../model/workflows";
 import { usePlugin } from "../context";
 import { Icon } from "../Icon";
 import { FiltersPanel, HighlightPanel, StyleFields, type ColumnChoice } from "../table/popovers";
+import { IconPicker } from "../types/controls";
 
 type Props = {
 	c: DashComponent;
@@ -674,11 +675,8 @@ function StyleTab(props: Props) {
 			)}
 			{c.kind === "button" && (
 				<Section title="Button icon">
-					<Row label="Icon" hint="A Lucide icon name, e.g. plus, scroll, swords.">
-						<div className="oe-dash-row">
-							{c.icon && <Icon name={c.icon} />}
-							<input type="text" value={c.icon ?? ""} aria-label="Icon" placeholder="None" onChange={(e) => onChange({ ...c, icon: e.target.value.trim() || undefined })} />
-						</div>
+					<Row label="Icon">
+						<IconPicker clearable value={c.icon ?? ""} color="var(--text-normal)" empty="No icon" onChange={(v) => onChange({ ...c, icon: v || undefined })} />
 					</Row>
 				</Section>
 			)}
