@@ -3,6 +3,8 @@ import { createRoot, type Root } from "react-dom/client";
 import type EntitiesPlugin from "../../main";
 import { PluginContext } from "../react/context";
 import { DEFAULT_BROWSER_STATE, EntityBrowser, type BrowserState } from "../react/EntityBrowser";
+import { TYPES_VIEW } from "./TypesView";
+import { WORKFLOWS_VIEW } from "./WorkflowsView";
 
 export const BROWSER_VIEW = "obs-entities-browser";
 
@@ -35,11 +37,21 @@ export class BrowserView extends ItemView {
 		this.contentEl.addClass("oe-browser-view");
 		this.root = createRoot(this.contentEl);
 		this.activePath = this.app.workspace.getActiveFile()?.path ?? null;
+		// Follow what's open: an entity note shows the Entities tab; a view note, the entity types
+		// editor or the workflows editor shows Configure. Only on change, so a tab clicked by hand stays.
 		this.registerEvent(
 			this.app.workspace.on("file-open", (file) => {
 				if (!file) return;
 				this.activePath = file.path;
-				this.render();
+				const tab = this.plugin.index.get(file.path) ? "entities" : this.plugin.views.has(file.path) ? "configure" : null;
+				if (tab && tab !== this.state.tab) this.update({ tab });
+				else this.render();
+			}),
+		);
+		this.registerEvent(
+			this.app.workspace.on("active-leaf-change", (leaf) => {
+				const type = leaf?.view.getViewType();
+				if ((type === TYPES_VIEW || type === WORKFLOWS_VIEW) && this.state.tab !== "configure") this.update({ tab: "configure" });
 			}),
 		);
 		this.registerEvent(

@@ -2776,6 +2776,47 @@ select.oe-status.has-color {
 	height: 100%;
 }
 
+.oe-browser-tabs {
+	display: flex;
+	gap: 2px;
+	margin-bottom: var(--size-4-2);
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.oe-browser-tabs button.oe-browser-tab {
+	flex: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--size-4-1);
+	padding: var(--size-4-1) var(--size-4-2);
+	background: none;
+	box-shadow: none;
+	border: none;
+	border-bottom: 2px solid transparent;
+	border-radius: var(--radius-s) var(--radius-s) 0 0;
+	margin-bottom: -1px;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	cursor: pointer;
+}
+
+.oe-browser-tabs button.oe-browser-tab:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.oe-browser-tabs button.oe-browser-tab.is-active {
+	color: var(--text-normal);
+	font-weight: var(--font-semibold);
+	border-bottom-color: var(--interactive-accent);
+}
+
+.oe-browser-tabs button.oe-browser-tab svg {
+	width: var(--icon-s);
+	height: var(--icon-s);
+}
+
 .oe-browser-toolbar,
 .oe-browser-filters {
 	display: flex;
