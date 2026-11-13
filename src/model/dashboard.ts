@@ -89,6 +89,48 @@ export const DEFAULT_CARD_LAYOUT: Required<CardLayout> = { size: "m", align: "le
 /** A dashboard's highlight rule: a card's whole-card rules can also change its layout. */
 export type DashRule = HighlightRule & { layout?: CardLayout };
 
+const CHART_COLORINGS = ["field", "one", "palette", "shades"] as const;
+const LEGEND_AT = ["right", "below"] as const;
+const HOLES = ["pie", "thick", "normal", "thin"] as const;
+const PROGRESS_SHOW = ["both", "percent", "count"] as const;
+const THICKNESSES = ["thin", "normal", "wide"] as const;
+export const CHART_SORTS = ["field", "desc", "asc", "az"] as const;
+export type ChartSort = (typeof CHART_SORTS)[number];
+
+/**
+ * How a chart looks (each key optional; `chartLook` fills in the defaults, which are how charts looked before they had
+ * options). `colors`: the field's own colours, `one` colour (`color`, else the accent colour), a `palette` colour per
+ * bar or slice, or `shades` of one colour. Lines and progress bars only take `color`.
+ */
+export interface ChartLook {
+	colors?: (typeof CHART_COLORINGS)[number];
+	color?: PaletteColor;
+	/** each bar's, slice's (in the legend) or point's value on the chart */
+	values?: boolean;
+	/** gridlines and the value axis (bars, stacked bars, lines) */
+	grid?: boolean;
+	/** stacked bars' and donuts' legend */
+	legend?: boolean;
+	/** a donut's legend: at the right or below (unset: whichever fits the cell) */
+	legendAt?: (typeof LEGEND_AT)[number];
+	hole?: (typeof HOLES)[number];
+	/** the total in a donut's middle */
+	total?: boolean;
+	smooth?: boolean;
+	area?: boolean;
+	dots?: boolean;
+	/** a progress bar's text: the percentage, "5 of 13", or both */
+	show?: (typeof PROGRESS_SHOW)[number];
+	/** bars' thickness, or a progress bar's */
+	thickness?: (typeof THICKNESSES)[number];
+	rounded?: boolean;
+}
+
+/** A chart's look with every default filled in (line charts don't show values unless asked). */
+export function chartLook(c: { chart: ChartKind; look?: ChartLook }): Required<Omit<ChartLook, "color" | "legendAt">> & Pick<ChartLook, "color" | "legendAt"> {
+	return { colors: "field", values: c.chart !== "line", grid: true, legend: true, hole: "normal", total: true, smooth: false, area: true, dots: true, show: "both", thickness: "normal", rounded: false, ...c.look };
+}
+
 export interface GridAt {
 	x: number;
 	y: number;
@@ -138,6 +180,13 @@ export type DashComponent =
 			/** progress: the conditions a note meets when it's done */
 			done?: FilterGroup;
 			format?: string;
+			look?: ChartLook;
+			/** bars and slices: their order (the field's own, by value, or by label) */
+			sort?: ChartSort;
+			/** bars and slices: only the biggest N, the rest as one "Other" */
+			top?: number;
+			/** bars and slices: leave out the notes with no value ("No status") */
+			hideEmpty?: boolean;
 	  })
 	| (Base & { kind: "list"; source?: DashSource; fields: ColumnDef[]; sort: SortLevel[]; limit: number })
 	| (Base & { kind: "view"; view: string })
@@ -265,6 +314,22 @@ function parseLayout(raw: unknown): CardLayout | undefined {
 	return Object.keys(l).length ? l : undefined;
 }
 
+function parseChartLook(raw: unknown): ChartLook | undefined {
+	if (!isObj(raw)) return undefined;
+	const l: Record<string, unknown> = {};
+	const enums: [keyof ChartLook, readonly string[]][] = [
+		["colors", CHART_COLORINGS],
+		["legendAt", LEGEND_AT],
+		["hole", HOLES],
+		["show", PROGRESS_SHOW],
+		["thickness", THICKNESSES],
+	];
+	for (const [k, of] of enums) if (of.includes(raw[k] as string)) l[k] = raw[k];
+	if (isPaletteColor(raw.color)) l.color = raw.color;
+	for (const k of ["values", "grid", "legend", "total", "smooth", "area", "dots", "rounded"] as const) if (typeof raw[k] === "boolean") l[k] = raw[k];
+	return Object.keys(l).length ? (l as ChartLook) : undefined;
+}
+
 function parseMeasure(raw: unknown, errors: string[], where: string): Measure {
 	if (!isObj(raw)) return { agg: "count" };
 	const agg = raw.agg === "sum" || raw.agg === "avg" ? raw.agg : "count";
@@ -329,6 +394,9 @@ export function parseDashboard(raw: unknown): { def: DashboardDef; errors: strin
 				const split = parseOneColumn(c.split, errors, where);
 				const every: TimeStep | undefined = c.every === "week" || c.every === "year" || c.every === "month" ? c.every : undefined;
 				const done = parseFilters(c.done, errors, where);
+				const look = parseChartLook(c.look);
+				const sort = (CHART_SORTS as readonly string[]).includes(str(c.sort)) && c.sort !== "field" ? (c.sort as ChartSort) : undefined;
+				const top = typeof c.top === "number" && c.top >= 1 ? int(c.top, 1, 100, 1) : undefined;
 				def.components.push({
 					...base,
 					kind,
@@ -340,6 +408,10 @@ export function parseDashboard(raw: unknown): { def: DashboardDef; errors: strin
 					measure: parseMeasure(c.measure, errors, where),
 					...(done ? { done } : {}),
 					...(str(c.format) ? { format: str(c.format) } : {}),
+					...(look ? { look } : {}),
+					...(sort ? { sort } : {}),
+					...(top ? { top } : {}),
+					...(c.hideEmpty === true ? { hideEmpty: true } : {}),
 				});
 				break;
 			}
@@ -388,6 +460,10 @@ export function serializeDashboard(def: DashboardDef): Record<string, unknown> {
 				if (c.measure.agg !== "count") out.measure = { agg: c.measure.agg, ...(c.measure.column ? { column: columnOut(c.measure.column) } : {}) };
 				if (c.done) out.done = filtersOut(c.done);
 				if (c.format) out.format = c.format;
+				if (c.sort && c.sort !== "field") out.sort = c.sort;
+				if (c.top) out.top = c.top;
+				if (c.hideEmpty) out.hideEmpty = true;
+				if (c.look && Object.keys(c.look).length) out.look = c.look;
 				break;
 			case "list":
 				if (c.source) out.source = sourceOut(c.source);
@@ -806,21 +882,49 @@ function chartOf(c: Extract<DashComponent, { kind: "chart" }>, env: DashEnv, run
 	let series: ChartOut["series"] = [];
 	if (split) {
 		const order = run(c.source, extra, [], { group: [{ by: split.id }] });
-		if (!("error" in order)) series = (order.result.groups ?? []).map((g) => ({ key: g.key, label: labelOf(split, g.label), color: colorOf(split, g.key) }));
+		if (!("error" in order)) series = (order.result.groups ?? []).filter((g) => !(c.hideEmpty && !g.label)).map((g) => ({ key: g.key, label: labelOf(split, g.label), color: colorOf(split, g.key) }));
 	}
 	const lastKey = (k: string) => k.split(GROUP_PATH_SEP).pop() ?? k;
-	const bars: ChartBar[] = (grouped.result.groups ?? []).map((g) => {
-		const value = measure(g.rows);
-		const label = labelOf(by, g.label);
+	type Group = { key: string; label: string; empty: boolean; rows: ResultRow[]; value: number; color: PaletteColor | null; childRows: (s: string) => ResultRow[] };
+	let groups: Group[] = (grouped.result.groups ?? []).map((g) => ({
+		key: g.key,
+		label: labelOf(by, g.label),
+		empty: !g.label,
+		rows: g.rows,
+		value: measure(g.rows),
+		color: colorOf(by, g.key),
+		childRows: (s: string) => g.children?.find((x) => lastKey(x.key) === s)?.rows ?? [],
+	}));
+	let shownTotal = head;
+	if (c.hideEmpty && groups.some((g) => g.empty)) {
+		groups = groups.filter((g) => !g.empty);
+		// The total is over the notes shown (a note in several groups counts once).
+		const t = measure([...new Set(groups.flatMap((g) => g.rows))]);
+		shownTotal = { ...head, total: t, totalText: fmt(t) };
+	}
+	if (c.sort === "desc") groups.sort((a, b) => b.value - a.value);
+	else if (c.sort === "asc") groups.sort((a, b) => a.value - b.value);
+	else if (c.sort === "az") groups.sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: "base" }));
+	// Top N: the biggest N stay (in the order above); the rest become one "Other".
+	if (c.top && groups.length > c.top) {
+		const keep = new Set([...groups].sort((a, b) => b.value - a.value).slice(0, c.top));
+		const rest = groups.filter((g) => !keep.has(g));
+		const rows = [...new Set(rest.flatMap((g) => g.rows))];
+		groups = groups.filter((g) => keep.has(g));
+		groups.push({ key: OTHER_KEY, label: `Other (${rest.length})`, empty: false, rows, value: measure(rows), color: "grey", childRows: (s) => [...new Set(rest.flatMap((g) => g.childRows(s)))] });
+	}
+	const bars: ChartBar[] = groups.map((g) => {
 		const parts: ChartPart[] = split
 			? series.map((s) => {
-					const child = g.children?.find((x) => lastKey(x.key) === s.key);
-					const rows = child?.rows ?? [];
+					const rows = g.childRows(s.key);
 					const v = measure(rows);
-					return { key: s.key, label: s.label, value: v, text: fmt(v), color: s.color, drill: drillOf(`${title} · ${label} · ${s.label}`, drillDef, rows) };
+					return { key: s.key, label: s.label, value: v, text: fmt(v), color: s.color, drill: drillOf(`${title} · ${g.label} · ${s.label}`, drillDef, rows) };
 				})
 			: [];
-		return { key: g.key, label, value, text: fmt(value), color: colorOf(by, g.key), drill: drillOf(`${title} · ${label}`, drillDef, g.rows), parts };
+		return { key: g.key, label: g.label, value: g.value, text: fmt(g.value), color: g.color, drill: drillOf(`${title} · ${g.label}`, drillDef, g.rows), parts };
 	});
-	return { ...head, bars, series };
+	return { ...shownTotal, bars, series };
 }
+
+/** The key of the "Other" bar or slice that top N gathers the rest into. */
+export const OTHER_KEY = "\u0000other";

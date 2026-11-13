@@ -2104,6 +2104,20 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
   - `progress`: the notes meeting `done` (a filter group, e.g. Status is done) against all of them, as a bar with "38%" and "5 of 13".
   - `measure`: `{ agg: count }` (default), or `sum` / `avg` of a number `column`. `format` formats the values.
   - Colours: a status's own colour, else its tone's (done green, active blue, on hold orange: `statusPaint`, the same as status dots); a choice's colour; otherwise the accent colour for bars, and a fixed cycle of palette colours for donut slices and stacked parts.
+  - **Order and size** (bars and slices; not lines or progress):
+    - `sort`: `field` (default, the field's own order), `desc` / `asc` by value, or `az` by label;
+    - `top: N` keeps the N biggest, in that order, and gathers the rest into one grey "Other (n)" bar or slice (`OTHER_KEY`), which opens all their notes;
+    - `hideEmpty` leaves out the "No …" group (and a stacked chart's "No …" parts). The total is then over the notes shown.
+  - **Look** (`look`, `ChartLook`; `chartLook` fills in defaults, which are how charts looked before they had options):
+    - `colors`: `field` (the above), `one` (`color`, else the accent colour), `palette` (a palette colour each, in the cycle) or `shades` of `color`, fading to 30%. Lines and progress bars take just `color`;
+    - `values`: value labels (bars, points, or a donut's legend; default on, but off for lines);
+    - `grid`: gridlines and the value axis (bars, stacked bars, lines);
+    - `legend` (stacked bars, donuts), and a donut's `legendAt`: `right` or `below` (unset: whichever fits the cell);
+    - donuts: `hole` (`pie`, `thick`, `normal`, `thin`) and `total` (the total in the middle);
+    - lines: `smooth` (a monotone curve, which never overshoots its points), `area` (shading under it) and `dots`. Hidden dots are still there, invisible, to hover and click;
+    - progress: `show` (`both`, `percent`, `count`);
+    - `thickness` (`thin`, `normal`, `wide`) of bars or a progress bar, and `rounded` bar corners.
+    - Rules don't change these (the chart's conditional styling is its box's style only).
   - Drawn as SVG (`ui/react/dashboard/Chart.tsx`), sized to the cell. Value axes use round steps, and whole steps for counts. Each bar, slice, part and point has a tooltip, is focusable, and opens its notes on click or Enter. Progress opens the done notes.
 - **list:** the source's notes, top `limit` by `sort`. Each row shows its name and status dot plus up to three `fields`. Click opens the note.
 - **view:** an embedded view note, using its own toolbar and scrolling inside the cell.
@@ -2155,13 +2169,14 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
       - **Chart:** the chart type as six icon buttons, with its name under them.
       - **Show:**
         - cards pick their **Field** first ("None: count the notes", or a field), then the **Summary**, which offers only what fits that field (Sum, Average… for numbers; Earliest, Latest… for dates). Counting notes has no summary to choose. Changing the field keeps a summary it also has, else takes the field's first, and drops a number format when the field changes to or from a date;
-        - charts have Measure (**Count | Sum | Average**, then "of" a number field), Bars or Slices by, Split by, By date and Every (**Week | Month | Year**), or Done when (its conditions, in the panel like the filters);
+        - charts have Measure (**Count | Sum | Average**, then "of" a number field), Bars or Slices by, Split by, By date and Every (**Week | Month | Year**), or Done when (its conditions, in the panel like the filters). Bars and slices also have **Sort** (The field's order, Largest first, Smallest first, A–Z), "Show only the top [all]" and a "Hide notes with no <field>" toggle;
         - lists are "Show up to [8] notes", Sorted by and With;
         - views pick their view, text is its Markdown, and buttons have their Label and On click.
         - Each ends with the live result: "= 5", "= 13 in 4 bars", "= 5 of 13", "5 of 5 shown", or the problem.
       - **Display as** (cards and charts): the number format, after Show.
     - **Style:**
       - cards: **Card**, the layout as segmented buttons (Size S / M / L / XL / Fit, Align as icons, Label, Icon, Accent) and a Caption box. A whole-card rule has the same options at its end as drop-downs starting at "Unchanged" (`HighlightPanel`'s `ruleExtra`);
+      - charts: **Chart** (`ChartLookFields`), only what the chart type uses: Colours (Field / One / Palette / Shades) and a Colour swatch, toggles (Value labels, Gridlines, Legend, Total in middle, Smooth curve, Shade under, Dots, Rounded) and segmented buttons (Legend at, Hole, Show, Thickness). Setting one back to its default drops it from the block;
       - buttons: their **Button icon** (the icon picker, with No icon);
       - every component: **Default style** (`StyleFields`: fill, text colour, bold / italic / strike, icon; no icon for text, buttons and views), then **Conditional styling** (the views' `HighlightPanel`, with dashboard wording, without data bars or colour scales). A list's is **Row highlighting**;
       - **The format** is a preset (Automatic, Number, Whole number, One / Two decimal places, Currency, Percent, Compact) or **Custom pattern…**. "Looks like: 33,600 gp" shows the component's own value in it.

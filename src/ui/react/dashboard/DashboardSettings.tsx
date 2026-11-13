@@ -2,6 +2,7 @@ import { Menu } from "obsidian";
 import { Fragment, useMemo, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import {
 	CARD_SIZES,
+	chartLook,
 	CHART_ICONS,
 	CHART_KINDS,
 	CHART_LABELS,
@@ -13,6 +14,8 @@ import {
 	cardName,
 	runSource,
 	type CardLayout,
+	type ChartLook,
+	type ChartSort,
 	type CardOut,
 	type CardSize,
 	type ComponentLook,
@@ -46,8 +49,8 @@ import {
 import { noteless, onNotes } from "../../../model/workflows";
 import { usePlugin } from "../context";
 import { Icon } from "../Icon";
-import { FiltersPanel, HighlightPanel, StyleFields, type ColumnChoice } from "../table/popovers";
-import { IconPicker } from "../types/controls";
+import { FiltersPanel, HighlightPanel, StyleFields, Swatches, type ColumnChoice } from "../table/popovers";
+import { IconPicker, Toggle } from "../types/controls";
 
 type Props = {
 	c: DashComponent;
@@ -533,6 +536,38 @@ function ChartData({ c, env, views, chart, onChange }: Props & { c: Extract<Dash
 						<ColumnPick label="Split by" value={c.split?.id ?? ""} choices={groupChoices} first="Choose a field…" onChange={(col) => onChange({ ...c, split: col?.def })} />
 					</Row>
 				)}
+				{!progress && c.chart !== "line" && (
+					<>
+						<Row label="Sort">
+							<select className="dropdown" aria-label="Sort" value={c.sort ?? "field"} onChange={(e) => onChange({ ...c, sort: e.target.value === "field" ? undefined : (e.target.value as ChartSort) })}>
+								<option value="field">The field's order</option>
+								<option value="desc">Largest first</option>
+								<option value="asc">Smallest first</option>
+								<option value="az">A–Z</option>
+							</select>
+						</Row>
+						<div className="oe-dash-sentence">
+							<span>Show only the top</span>
+							<input
+								type="number"
+								min={1}
+								max={100}
+								aria-label="Show only the top"
+								placeholder="all"
+								value={c.top ?? ""}
+								onChange={(e) => {
+									const n = Math.round(Number(e.target.value));
+									onChange({ ...c, top: e.target.value && n >= 1 ? Math.min(100, n) : undefined });
+								}}
+							/>
+						</div>
+						{c.top && <div className="oe-dash-hint">The rest are one "Other" {c.chart === "donut" ? "slice" : "bar"}. Empty: all of them.</div>}
+						<div className="oe-dash-sentence">
+							<Toggle label="Hide empty" value={!!c.hideEmpty} onChange={(v) => onChange({ ...c, hideEmpty: v || undefined })} />
+							<span>Hide notes with no {groupChoices.find((x) => x.col.id === c.by?.id)?.col.label.toLowerCase() ?? "value"}</span>
+						</div>
+					</>
+				)}
 				{progress && (
 					<div className="oe-dash-filters">
 						<FiltersPanel
@@ -673,6 +708,11 @@ function StyleTab(props: Props) {
 					<CardLayoutFields layout={c.layout ?? {}} onChange={(layout) => onChange({ ...c, layout })} />
 				</Section>
 			)}
+			{c.kind === "chart" && (
+				<Section title="Chart">
+					<ChartLookFields c={c} onChange={(look) => onChange({ ...c, look })} />
+				</Section>
+			)}
 			{c.kind === "button" && (
 				<Section title="Button icon">
 					<Row label="Icon">
@@ -741,6 +781,125 @@ function ValueRules({ c, def, env, cards, look, onChange }: Props) {
 					: undefined
 			}
 		/>
+	);
+}
+
+type ChartC = Extract<DashComponent, { kind: "chart" }>;
+
+/**
+ * A chart's look (DESIGN §8.12): only what its kind uses. A setting put back to the kind's default is dropped, so
+ * the block only keeps what's changed.
+ */
+function ChartLookFields({ c, onChange }: { c: ChartC; onChange: (l: ChartLook | undefined) => void }) {
+	const k = c.chart;
+	const L = chartLook(c);
+	const dflt = chartLook({ chart: k });
+	const set = (patch: Partial<ChartLook>) => {
+		const next: Record<string, unknown> = { ...c.look, ...patch };
+		for (const key of Object.keys(next)) if (next[key] === undefined || next[key] === (dflt as Record<string, unknown>)[key]) delete next[key];
+		onChange(Object.keys(next).length ? (next as ChartLook) : undefined);
+	};
+	const bars = k === "bar" || k === "hbar" || k === "stacked";
+	const grouped = bars || k === "donut";
+	const oneColour = !grouped || L.colors === "one" || L.colors === "shades";
+	const toggle = (key: "values" | "grid" | "legend" | "total" | "smooth" | "area" | "dots" | "rounded", label: string) => (
+		<Row label={label}>
+			<Toggle label={label} value={L[key]} onChange={(v) => set({ [key]: v })} />
+		</Row>
+	);
+	return (
+		<>
+			{grouped && (
+				<Row label="Colours">
+					<Segmented
+						label="Colours"
+						value={L.colors}
+						onChange={(colors: ChartLook["colors"]) => set({ colors })}
+						options={[
+							{ value: "field", label: "Field" },
+							{ value: "one", label: "One" },
+							{ value: "palette", label: "Palette" },
+							{ value: "shades", label: "Shades" },
+						]}
+					/>
+				</Row>
+			)}
+			{grouped && L.colors === "field" && <div className="oe-dash-hint">Statuses and choices in their own colours{k === "donut" || k === "stacked" ? ", others from the palette" : ", others in the accent colour"}.</div>}
+			{oneColour && (
+				<Row label="Colour" hint={L.color ? undefined : "None: the accent colour."}>
+					<Swatches kind="fill" value={L.color} onChange={(color) => set({ color })} />
+				</Row>
+			)}
+			{k !== "progress" && toggle("values", k === "donut" ? "Values in legend" : "Value labels")}
+			{(k === "bar" || k === "stacked" || k === "line") && toggle("grid", "Gridlines")}
+			{(k === "stacked" || k === "donut") && toggle("legend", "Legend")}
+			{k === "donut" && L.legend && (
+				<Row label="Legend at">
+					<Segmented
+						label="Legend at"
+						value={L.legendAt ?? "auto"}
+						onChange={(v: string) => set({ legendAt: v === "auto" ? undefined : (v as ChartLook["legendAt"]) })}
+						options={[
+							{ value: "auto", label: "Auto" },
+							{ value: "right", label: "Right" },
+							{ value: "below", label: "Below" },
+						]}
+					/>
+				</Row>
+			)}
+			{k === "donut" && (
+				<Row label="Hole">
+					<Segmented
+						label="Hole"
+						value={L.hole}
+						onChange={(hole: ChartLook["hole"]) => set({ hole })}
+						options={[
+							{ value: "pie", label: "Pie" },
+							{ value: "thick", label: "Thick" },
+							{ value: "normal", label: "Normal" },
+							{ value: "thin", label: "Thin" },
+						]}
+					/>
+				</Row>
+			)}
+			{k === "donut" && L.hole !== "pie" && toggle("total", "Total in middle")}
+			{k === "line" && (
+				<>
+					{toggle("smooth", "Smooth curve")}
+					{toggle("area", "Shade under")}
+					{toggle("dots", "Dots")}
+				</>
+			)}
+			{k === "progress" && (
+				<Row label="Show">
+					<Segmented
+						label="Show"
+						value={L.show}
+						onChange={(show: ChartLook["show"]) => set({ show })}
+						options={[
+							{ value: "both", label: "Both" },
+							{ value: "percent", label: "38%" },
+							{ value: "count", label: "5 of 13" },
+						]}
+					/>
+				</Row>
+			)}
+			{(bars || k === "progress") && (
+				<Row label="Thickness">
+					<Segmented
+						label="Thickness"
+						value={L.thickness}
+						onChange={(thickness: ChartLook["thickness"]) => set({ thickness })}
+						options={[
+							{ value: "thin", label: "Thin" },
+							{ value: "normal", label: "Normal" },
+							{ value: "wide", label: "Wide" },
+						]}
+					/>
+				</Row>
+			)}
+			{bars && toggle("rounded", "Rounded")}
+		</>
 	);
 }
 

@@ -496,6 +496,14 @@ A **dashboard** is a page you build from components on a grid: summary cards, ch
   - **Line over time:** notes per week, month or year by a date field, with empty periods shown as zero.
   - **Progress:** how many of the notes are done ("Done when" is a filter, e.g. Status is completed), as a bar with "38%" and "5 of 13".
   - Each can count the notes, or sum or average a number field (e.g. sum of Reward gold). Hover for the numbers.
+  - **Bars and slices** can be sorted (the field's order, largest or smallest first, A–Z), cut to the top N with the rest as "Other", and leave out notes with no value ("No priority").
+  - **Chart style** (Style tab → **Chart**; only what the chart type uses):
+    - **Colours:** the field's own (statuses and choices in their colours), one colour, a palette colour each, or shades of one colour;
+    - value labels, gridlines and the legend, on or off (a donut's legend at the right or below);
+    - donuts: pie, thick, normal or thin ring, and the total in the middle;
+    - lines: smooth curve, shading under it, dots;
+    - progress: show the percentage, "5 of 13", or both;
+    - bar thickness (thin, normal, wide) and rounded corners.
 - **List:** the notes with their status, up to four fields, sorted and limited (with "+N more"). Click one to open it.
 - **View:** shows a view note, with its own toolbar.
 - **Text:** Markdown (headings, links, embeds).

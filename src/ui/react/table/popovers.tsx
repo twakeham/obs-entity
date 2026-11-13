@@ -926,7 +926,7 @@ function VizBody({ r, columns, onChange }: { r: HighlightRule; columns: Resolved
 	);
 }
 
-function Swatches({ value, kind, onChange }: { value: HighlightColor | undefined; kind: "fill" | "text"; onChange: (c: HighlightColor | undefined) => void }) {
+export function Swatches({ value, kind, onChange }: { value: HighlightColor | undefined; kind: "fill" | "text"; onChange: (c: HighlightColor | undefined) => void }) {
 	return (
 		<span className="oe-hl-swatches" role="radiogroup" aria-label={kind === "fill" ? "Fill colour" : "Text colour"}>
 			<button className={`oe-hl-swatch is-none${!value ? " is-active" : ""}`} role="radio" aria-checked={!value} aria-label="None" onClick={() => onChange(undefined)}>

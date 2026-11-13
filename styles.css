@@ -9352,19 +9352,19 @@ circle.oe-chart-hit:focus-visible {
 
 .oe-chart-line {
 	fill: none;
-	stroke: var(--interactive-accent);
+	stroke: var(--oe-c, var(--interactive-accent));
 	stroke-width: 2px;
 	stroke-linejoin: round;
 }
 
 .oe-chart-area-fill {
-	fill: var(--interactive-accent);
+	fill: var(--oe-c, var(--interactive-accent));
 	opacity: 0.12;
 }
 
 .oe-chart-point {
 	fill: var(--background-primary);
-	stroke: var(--interactive-accent);
+	stroke: var(--oe-c, var(--interactive-accent));
 	stroke-width: 2px;
 }
 
@@ -9432,6 +9432,20 @@ circle.oe-chart-hit:focus-visible {
 	flex-shrink: 0;
 }
 
+.oe-chart-donut.is-alone {
+	justify-content: center;
+}
+
+/* a line's dots switched off: still there (invisible, a little bigger) to hover and click */
+.oe-chart-point.is-hidden {
+	fill: transparent;
+	stroke: none;
+}
+
+.oe-chart-progress.is-thin .oe-chart-progress-track { height: 5px; }
+.oe-chart-progress.is-wide .oe-chart-progress-track { height: 18px; border-radius: 9px; }
+.oe-chart-progress.is-wide .oe-chart-progress-done { border-radius: 9px; }
+
 .oe-chart-donut .oe-chart-legend.is-list {
 	align-self: stretch;
 	flex: 1;
@@ -9463,7 +9477,7 @@ circle.oe-chart-hit:focus-visible {
 .oe-chart-progress-done {
 	height: 100%;
 	border-radius: 5px;
-	background: var(--interactive-accent);
+	background: var(--oe-c, var(--interactive-accent));
 }
 
 .oe-chart-progress-text {

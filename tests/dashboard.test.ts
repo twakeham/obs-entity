@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { isoDateAdapter } from "../src/model/dates";
 import { CRM_PACK, STARTER_PACK } from "../src/model/packs";
 import { extractEdges } from "../src/model/relations";
-import { DEFAULT_CARD_LAYOUT, evaluateDashboard, newComponent, parseDashboard, readingOrder, runSource, serializeDashboard, type DashEnv } from "../src/model/dashboard";
+import { chartLook, DEFAULT_CARD_LAYOUT, evaluateDashboard, newComponent, parseDashboard, readingOrder, runSource, serializeDashboard, type DashEnv } from "../src/model/dashboard";
 import { parseView, type ViewContext, type ViewRow } from "../src/model/views";
 
 const TYPES = [...STARTER_PACK.types, ...CRM_PACK.types];
@@ -146,6 +146,40 @@ describe("dashboard charts", () => {
 		return evaluateDashboard(def, env).charts;
 	};
 	const bars = (out: ReturnType<typeof charts> extends Map<string, infer V> ? V : never) => out.bars.map((b) => [b.label, b.value, b.color]);
+
+	it("sort bars by value or label, keep the biggest N with the rest as Other, and hide empty groups", () => {
+		const base = { id: "c", kind: "chart", chart: "bar", source: { types: ["project", "organisation"] }, by: "status" };
+		const labels = (extra: Record<string, unknown>) => charts([{ ...base, ...extra }]).get("c")!.bars.map((b) => `${b.label}:${b.value}`);
+		expect(labels({})).toEqual(["idea:1", "active:3", "done:1"]);
+		expect(labels({ sort: "desc" })).toEqual(["active:3", "idea:1", "done:1"]);
+		expect(labels({ sort: "asc" })).toEqual(["idea:1", "done:1", "active:3"]);
+		expect(labels({ sort: "az" })).toEqual(["active:3", "done:1", "idea:1"]);
+		// Top keeps the field's order among the biggest, and Other opens all the rest.
+		const top = charts([{ ...base, top: 1 }]).get("c")!;
+		expect(top.bars.map((b) => [b.label, b.value, b.color])).toEqual([
+			["active", 3, "blue"],
+			["Other (2)", 2, "grey"],
+		]);
+		expect(top.bars[1].drill.paths.sort()).toEqual(["Lander.md", "Mercury.md"]);
+		const due = { id: "c", kind: "chart", chart: "donut", source: { types: ["project"] }, by: "due", every: "month" };
+		const all = charts([due]).get("c")!;
+		expect(all.bars.some((b) => b.label === "No due")).toBe(true);
+		const hidden = charts([{ ...due, hideEmpty: true }]).get("c")!;
+		expect(hidden.bars.some((b) => b.label === "No due")).toBe(false);
+		expect([all.total, hidden.total]).toEqual([4, 3]);
+	});
+
+	it("read and write a chart's look, sort, top and hide-empty, dropping what it doesn't know", () => {
+		const raw = { kind: "dashboard", components: [{ id: "c", kind: "chart", chart: "donut", by: "status", sort: "desc", top: 5, hideEmpty: true, look: { colors: "shades", color: "purple", hole: "pie", legend: false, legendAt: "below", values: "yes", bogus: 1, smooth: true } }] };
+		const { def } = parseDashboard(raw);
+		const c = def.components[0];
+		expect(c).toMatchObject({ sort: "desc", top: 5, hideEmpty: true, look: { colors: "shades", color: "purple", hole: "pie", legend: false, legendAt: "below", smooth: true } });
+		expect(c.kind === "chart" && c.look).not.toHaveProperty("values");
+		expect(parseDashboard({ kind: "dashboard", components: serializeDashboard(def).components }).def).toEqual(def);
+		expect(c.kind === "chart" && chartLook(c)).toMatchObject({ colors: "shades", values: true, grid: true, hole: "pie" });
+		expect(chartLook({ chart: "line" }).values).toBe(false);
+		expect(parseDashboard({ kind: "dashboard", components: [{ id: "c", kind: "chart", chart: "bar", sort: "field", top: 0 }] }).def.components[0]).not.toHaveProperty("sort");
+	});
 
 	it("count notes per group, in the field's order, coloured like their status", () => {
 		const out = charts([{ id: "c", kind: "chart", chart: "bar", source: { types: ["project"] }, by: "status" }]).get("c")!;

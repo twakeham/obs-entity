@@ -8,6 +8,7 @@ import {
 	COMPONENT_LABELS,
 	DEFAULT_SIZE,
 	DEFAULT_CARD_LAYOUT,
+	chartLook,
 	evaluateDashboard,
 	GRID_COLS,
 	newComponent,
@@ -277,7 +278,7 @@ function ComponentBody({ c, card, list, chart, look, path, editing }: { c: DashC
 		case "card":
 			return <CardBox c={c} out={card} look={look} editing={editing} />;
 		case "chart":
-			return chart ? <Chart kind={c.chart} title={c.title || CHART_LABELS[c.chart]} icon={look?.box.icon} out={chart} open={(d) => void plugin.openDrill(d)} /> : null;
+			return chart ? <Chart kind={c.chart} title={c.title || CHART_LABELS[c.chart]} icon={look?.box.icon} look={chartLook(c)} out={chart} open={(d) => void plugin.openDrill(d)} /> : null;
 		case "list":
 			return <ListBox c={c} out={list} icon={look?.box.icon} />;
 		case "view":
