@@ -2088,6 +2088,15 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
   - Or `value: { formula }`, with no source: a formula over other cards, referred to by title (`[All quests]`), and `notes()`. Cards are evaluated in dependency order; a cycle is a problem shown on the card.
   - `format` uses the display format patterns (§8.10 Formats).
   - **Styling:** see Styling below (cards can style just their value). Values compare as shown: percentages as 0–100 (`CardOut.num`).
+  - **Layout** (`layout`, `CardLayout`; each key optional, `DEFAULT_CARD_LAYOUT` otherwise):
+    - `size`: `s`, `m` (default), `l`, `xl` or `fit`. Fit grows the value to fill the card by CSS container units: the card's height, and its width over the value's length in characters (`--oe-chars`);
+    - `align`: `left`, `center` or `right`;
+    - `label` (the title): `above`, `below` or `hidden`;
+    - `caption`: a small line under the value. `[Value]` and other cards' `[Title]`s (any case) become their values as shown (`fillCaption`); unknown names stay as written;
+    - `icon`: `inline` (before the value) or `side` (a large tile at the left);
+    - `accent`: `none`, `left` or `top`, an edge in the card's colour.
+    - The side tile and accent take the value rule's colour, else the card's (text, then fill), else the accent colour.
+    - A whole-card (`row`) rule can carry its own `layout`, laid over the card's when it applies (e.g. a red, XL card when Value < 3). Value rules' layouts are dropped.
   - **Clicking** a card with a source opens its notes as a table (below).
 - **chart:** a chart of a source's notes (`chart`):
   - `bar`, `hbar` (horizontal, for long labels), `stacked` and `donut` group the notes by `by` (any field or built-in; links and multiple choices count a note once per value). Groups come in the field's order (statuses in status order, choices in choice order) using the view grouping, with "No …" for empty ones. `stacked` splits each bar by `split`, its parts in that field's order.
@@ -2119,7 +2128,7 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
   - bold, italic and strikethrough apply;
   - the icon shows before the title (charts, lists) or the value (cards);
   - a button's fill becomes its colour.
-- **Evaluation:** `evaluateDashboard` returns `looks` (`ComponentLook`: the box style, a card's value style, and per rule whether it applies now, or for lists how many notes match).
+- **Evaluation:** `evaluateDashboard` returns `looks` (`ComponentLook`: the box style, a card's value style and its layout with the caption filled in, and per rule whether it applies now, or for lists how many notes match).
 - **Older notes:** cards' older colour rules (`rules: [{ op, value, color, on, icon }]`) are read as highlight rules on Value and written back as `highlight`.
 
 **The notes behind a card, bar or slice** (`Drill`: a title, the definition its source ran with, and the exact note paths):
@@ -2152,6 +2161,7 @@ Each source is turned into a `ViewDef` and run with `runView`. Results are cache
         - Each ends with the live result: "= 5", "= 13 in 4 bars", "= 5 of 13", "5 of 5 shown", or the problem.
       - **Display as** (cards and charts): the number format, after Show.
     - **Style:**
+      - cards: **Card**, the layout as segmented buttons (Size S / M / L / XL / Fit, Align as icons, Label, Icon, Accent) and a Caption box. A whole-card rule has the same options at its end as drop-downs starting at "Unchanged" (`HighlightPanel`'s `ruleExtra`);
       - buttons: their **Button icon**;
       - every component: **Default style** (`StyleFields`: fill, text colour, bold / italic / strike, icon; no icon for text, buttons and views), then **Conditional styling** (the views' `HighlightPanel`, with dashboard wording, without data bars or colour scales). A list's is **Row highlighting**;
       - **The format** is a preset (Automatic, Number, Whole number, One / Two decimal places, Currency, Percent, Compact) or **Custom pattern…**. "Looks like: 33,600 gp" shows the component's own value in it.

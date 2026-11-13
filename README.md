@@ -467,7 +467,7 @@ A **dashboard** is a page you build from components on a grid: summary cards, ch
   - **The grid** (middle): drag components to move them, and their bottom-right corner to resize. Click one to select it.
   - **Settings** (right): the selected component's title (edit it at the top) and a **⋯** menu with **Duplicate** and **Delete**, then two tabs.
     - **Data:** where its notes come from (**Types | View | Formula**; with Types, pick the types and add filter conditions right there) and what it shows (a card picks its field first, then         a summary that fits it: Sum or Average for a number, Earliest or Latest for a date), then, for cards and charts, **Display as**: the number format (presets, or a custom pattern, with an example of the value in it). Each part shows its live result: "→ 13 notes", "= 5".
-        - **Style:** the component's **Default style** and **Conditional styling** (below); a button's icon.
+        - **Style:** a card's **Card** layout, the component's **Default style** and **Conditional styling** (below); a button's icon.
   - Changes aren't saved until **Save**. **Discard** throws them away. Leaving the dashboard keeps the unsaved changes for when you come back.
 - **Where the notes come from** (summary cards, charts and lists), one of:
   - **Types and filters:** pick types or groups, and filter them just like a view.
@@ -477,6 +477,14 @@ A **dashboard** is a page you build from components on a grid: summary cards, ch
   - **A summary of some notes:** how many there are, or a summary of a field: sum, average, median, min / max, earliest / latest, % filled, % of one choice, and so on.
   - **A formula over other cards:** refer to them by title, e.g. `[Completed quests] / [All quests] * 100`.
   - **Format:** optional, e.g. `currency`, `percent`, `#,##0 gp`.
+  - **Card layout** (Style tab → **Card**):
+    - **Size** of the value: S, M, L, XL, or **Fit** to fill the card;
+    - **Align:** left, centre or right;
+    - **Label:** above or below the value, or hidden;
+    - **Icon:** before the value, or as a large tile at the side;
+    - **Accent:** a coloured left or top edge;
+    - **Caption:** a small line under the value. `[Value]` and other cards' titles in brackets show their values, e.g. "of [All quests]" → "of 13".
+    - A rule that styles the whole card can change any of these too, e.g. make it XL when Value < 3.
 - **Styling** (every component, on the **Style** tab):
   - **Default style:** a fill, text colour, bold / italic / strikethrough and an icon. The component looks like this unless a rule applies.
   - **Conditional styling:** the same rules as a view's **Highlight**: name a rule, give it conditions, and pick its style. The first rule that applies wins, and drag reorders them. Conditions test the dashboard's summary cards by title, e.g. "[Active quests] > 4". A card can also test its own **Value**, and style the whole card or just its value (e.g. Value < 3 → red card).

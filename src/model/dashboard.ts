@@ -63,6 +63,32 @@ export const VALUE_ID = "value";
 export const cardColumnId = (id: string) => `card:${id}`;
 const LEGACY_OPS = ["<", "<=", ">", ">=", "=", "!="];
 
+export const CARD_SIZES = ["s", "m", "l", "xl", "fit"] as const;
+export type CardSize = (typeof CARD_SIZES)[number];
+const CARD_ALIGNS = ["left", "center", "right"] as const;
+const CARD_LABELS = ["above", "below", "hidden"] as const;
+const CARD_ICONS = ["inline", "side"] as const;
+const CARD_ACCENTS = ["none", "left", "top"] as const;
+
+/**
+ * How a summary card lays out: its value's size ("fit" grows it to fill the card), alignment, where its label goes,
+ * a caption under the value (`[Value]` and other cards' `[Title]`s are replaced by their values), its icon inline
+ * before the value or large at the side, and an accent edge in its colour. A card has one; a whole-card rule can
+ * change any of it.
+ */
+export interface CardLayout {
+	size?: CardSize;
+	align?: (typeof CARD_ALIGNS)[number];
+	label?: (typeof CARD_LABELS)[number];
+	caption?: string;
+	icon?: (typeof CARD_ICONS)[number];
+	accent?: (typeof CARD_ACCENTS)[number];
+}
+export const DEFAULT_CARD_LAYOUT: Required<CardLayout> = { size: "m", align: "left", label: "above", caption: "", icon: "inline", accent: "none" };
+
+/** A dashboard's highlight rule: a card's whole-card rules can also change its layout. */
+export type DashRule = HighlightRule & { layout?: CardLayout };
+
 export interface GridAt {
 	x: number;
 	y: number;
@@ -94,10 +120,10 @@ interface Base {
 	 * conditional styling, first match wins (as in views): on card values for every component (a card's own is
 	 * `value`, and a card's rules can style just its value); a list's rules are on its notes, styling rows or fields
 	 */
-	highlight?: HighlightRule[];
+	highlight?: DashRule[];
 }
 export type DashComponent =
-	| (Base & { kind: "card"; source?: DashSource; value: CardValue; format?: string })
+	| (Base & { kind: "card"; source?: DashSource; value: CardValue; format?: string; layout?: CardLayout })
 	| (Base & {
 			kind: "chart";
 			chart: ChartKind;
@@ -206,15 +232,38 @@ function parseStyle(raw: unknown): HighlightStyle | undefined {
 	return Object.keys(s).length ? s : undefined;
 }
 
-function parseHighlightRules(raw: unknown, errors: string[], where: string): HighlightRule[] {
+function parseHighlightRules(raw: unknown, errors: string[], where: string, layouts: boolean): DashRule[] {
 	if (raw === undefined || raw === null) return [];
-	const { def, errors: e } = parseView({ highlight: raw });
-	errors.push(...e.map((m) => `${where}: ${m}`));
-	// Dashboards style with highlight rules only (no data bars or colour scales).
-	return (def?.highlight ?? []).filter((r) => !r.kind || r.kind === "highlight");
+	const out: DashRule[] = [];
+	// One at a time, so each keeps its own layout (a rule with a problem is left out).
+	for (const item of Array.isArray(raw) ? raw : [raw]) {
+		const { def, errors: e } = parseView({ highlight: Array.isArray(raw) ? [item] : item });
+		errors.push(...e.map((m) => `${where}: ${m}`));
+		const r = def?.highlight?.[0];
+		// Dashboards style with highlight rules only (no data bars or colour scales).
+		if (!r || (r.kind && r.kind !== "highlight")) continue;
+		const layout = layouts && isObj(item) ? parseLayout(item.layout) : undefined;
+		out.push(layout && r.target === ROW_TARGET ? { ...r, layout } : r);
+	}
+	return out;
 }
 
-const highlightOut = (rules: HighlightRule[]) => serializeView({ ...emptyView(), highlight: rules }).highlight;
+const highlightOut = (rules: DashRule[]) =>
+	(serializeView({ ...emptyView(), highlight: rules }).highlight as Record<string, unknown>[]).map((o, i) => (rules[i].layout && rules[i].target === ROW_TARGET && Object.keys(rules[i].layout!).length ? { ...o, layout: rules[i].layout } : o));
+
+function parseLayout(raw: unknown): CardLayout | undefined {
+	if (!isObj(raw)) return undefined;
+	const one = <T extends string>(v: unknown, of: readonly T[]) => (of.includes(v as T) ? (v as T) : undefined);
+	const l: CardLayout = {
+		...(one(raw.size, CARD_SIZES) ? { size: one(raw.size, CARD_SIZES) } : {}),
+		...(one(raw.align, CARD_ALIGNS) ? { align: one(raw.align, CARD_ALIGNS) } : {}),
+		...(one(raw.label, CARD_LABELS) ? { label: one(raw.label, CARD_LABELS) } : {}),
+		...(str(raw.caption) ? { caption: str(raw.caption) } : {}),
+		...(one(raw.icon, CARD_ICONS) ? { icon: one(raw.icon, CARD_ICONS) } : {}),
+		...(one(raw.accent, CARD_ACCENTS) ? { accent: one(raw.accent, CARD_ACCENTS) } : {}),
+	};
+	return Object.keys(l).length ? l : undefined;
+}
 
 function parseMeasure(raw: unknown, errors: string[], where: string): Measure {
 	if (!isObj(raw)) return { agg: "count" };
@@ -261,7 +310,7 @@ export function parseDashboard(raw: unknown): { def: DashboardDef; errors: strin
 		const title = str(c.title);
 		const where = title || `Component ${i + 1}`;
 		const style = parseStyle(c.style);
-		const highlight = [...parseHighlightRules(c.highlight, errors, where), ...(kind === "card" ? legacyRules(c.rules) : [])];
+		const highlight = [...parseHighlightRules(c.highlight, errors, where, kind === "card"), ...(kind === "card" ? legacyRules(c.rules) : [])];
 		const base = { id, at, ...(title ? { title } : {}), ...(style ? { style } : {}), ...(highlight.length ? { highlight } : {}) };
 		const source = parseSource(c.source, errors, where);
 		switch (kind) {
@@ -269,7 +318,8 @@ export function parseDashboard(raw: unknown): { def: DashboardDef; errors: strin
 				const v = isObj(c.value) ? c.value : {};
 				const value: CardValue = str(v.formula) ? { formula: str(v.formula) } : { agg: str(v.agg) || "count", ...(v.column !== undefined ? { column: parseOneColumn(v.column, errors, where) ?? undefined } : {}) };
 				if ("column" in value && !value.column) delete value.column;
-				def.components.push({ ...base, kind, ...(source ? { source } : {}), value, ...(str(c.format) ? { format: str(c.format) } : {}) });
+				const layout = parseLayout(c.layout);
+				def.components.push({ ...base, kind, ...(source ? { source } : {}), value, ...(str(c.format) ? { format: str(c.format) } : {}), ...(layout ? { layout } : {}) });
 				break;
 			}
 			case "chart": {
@@ -327,6 +377,7 @@ export function serializeDashboard(def: DashboardDef): Record<string, unknown> {
 				if (c.source) out.source = sourceOut(c.source);
 				out.value = "formula" in c.value ? { formula: c.value.formula } : { agg: c.value.agg, ...(c.value.column ? { column: columnOut(c.value.column) } : {}) };
 				if (c.format) out.format = c.format;
+				if (c.layout && Object.keys(c.layout).length) out.layout = c.layout;
 				break;
 			case "chart":
 				out.chart = c.chart;
@@ -568,15 +619,39 @@ export function evaluateDashboard(def: DashboardDef, env: DashEnv): { cards: Map
 		const matched = rules.map((r) => (matchesValues(r.when, columns, cells, env.ctx) ? 1 : 0));
 		const first = (target: string) => rules.find((r, i) => matched[i] && !r.off && r.target === target);
 		const valueRule = c.kind === "card" ? first(VALUE_ID) : undefined;
-		looks.set(c.id, { box: { ...c.style, ...first(ROW_TARGET)?.style }, ...(valueRule ? { value: valueRule.style } : {}), matched });
+		const boxRule = first(ROW_TARGET);
+		const card =
+			c.kind === "card"
+				? (() => {
+						const set = (o: CardLayout | undefined) => Object.fromEntries(Object.entries(o ?? {}).filter(([, v]) => v !== undefined && v !== "")) as CardLayout;
+						const l = { ...DEFAULT_CARD_LAYOUT, ...set(c.layout), ...set(boxRule?.layout) };
+						return { ...l, caption: l.caption ? fillCaption(l.caption, def, cards, c) : "" };
+					})()
+				: undefined;
+		looks.set(c.id, { box: { ...c.style, ...boxRule?.style }, ...(valueRule ? { value: valueRule.style } : {}), ...(card ? { card } : {}), matched });
 	}
 	return { cards, lists, charts, looks };
 }
 
-/** How a component looks now: its box's style, a card's value's own style, and whether each rule matches (1 / 0, or rows). */
+/** A card's caption with `[Value]` (its own value) and other cards' `[Title]`s replaced by their values as shown. */
+export function fillCaption(caption: string, def: DashboardDef, cards: Map<string, CardOut>, self: DashComponent): string {
+	return caption.replace(/\[([^\]]+)\]/g, (all, name: string) => {
+		const key = name.trim().toLowerCase();
+		const other = key === VALUE_ID ? self : def.components.find((x) => x.kind === "card" && cardName(x).toLowerCase() === key);
+		if (!other) return all;
+		const out = cards.get(other.id);
+		return out && !out.error && out.text ? out.text : "–";
+	});
+}
+
+/**
+ * How a component looks now: its box's style, a card's value's own style and its layout (the caption filled in),
+ * and whether each rule matches (1 / 0, or rows).
+ */
 export interface ComponentLook {
 	box: HighlightStyle;
 	value?: HighlightStyle;
+	card?: Required<CardLayout>;
 	matched: number[];
 }
 

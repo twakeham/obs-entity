@@ -1,22 +1,27 @@
 import { Menu } from "obsidian";
-import { useMemo, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import {
+	CARD_SIZES,
 	CHART_ICONS,
 	CHART_KINDS,
 	CHART_LABELS,
 	COMPONENT_ICONS,
 	COMPONENT_LABELS,
+	DEFAULT_CARD_LAYOUT,
 	VALUE_ID,
 	valueColumns,
 	cardName,
 	runSource,
+	type CardLayout,
 	type CardOut,
+	type CardSize,
 	type ComponentLook,
 	type ChartKind,
 	type ChartOut,
 	type DashComponent,
 	type DashboardDef,
 	type DashEnv,
+	type DashRule,
 	type DashSource,
 	type ListOut,
 	type Measure,
@@ -31,6 +36,7 @@ import {
 	emptyView,
 	NAME_COLUMN,
 	resolveColumn,
+	ROW_TARGET,
 	sourceTypes,
 	type ColumnDef,
 	type HighlightStyle,
@@ -661,6 +667,11 @@ function StyleTab(props: Props) {
 	const { c, onChange } = props;
 	return (
 		<>
+			{c.kind === "card" && (
+				<Section title="Card">
+					<CardLayoutFields layout={c.layout ?? {}} onChange={(layout) => onChange({ ...c, layout })} />
+				</Section>
+			)}
 			{c.kind === "button" && (
 				<Section title="Button icon">
 					<Row label="Icon" hint="A Lucide icon name, e.g. plus, scroll, swords.">
@@ -716,7 +727,102 @@ function ValueRules({ c, def, env, cards, look, onChange }: Props) {
 				partHint: "Styles just the value, on top of the card's style.",
 				add: "Rule",
 			}}
+			ruleExtra={
+				isCard
+					? (r, set) =>
+							r.target === ROW_TARGET ? (
+								<CardLayoutFields
+									rule
+									layout={(r as DashRule).layout ?? {}}
+									onChange={(layout) => {
+										const { layout: _, ...rest } = r as DashRule;
+										set(layout ? ({ ...rest, layout } as DashRule) : rest);
+									}}
+								/>
+							) : null
+					: undefined
+			}
 		/>
+	);
+}
+
+const SIZE_LABELS: Record<CardSize, string> = { s: "S", m: "M", l: "L", xl: "XL", fit: "Fit" };
+const LAYOUT_OPTIONS = {
+	size: CARD_SIZES.map((v) => ({ value: v, label: SIZE_LABELS[v] })),
+	align: [
+		{ value: "left", label: "Left", icon: "align-left" },
+		{ value: "center", label: "Centre", icon: "align-center" },
+		{ value: "right", label: "Right", icon: "align-right" },
+	],
+	label: [
+		{ value: "above", label: "Above" },
+		{ value: "below", label: "Below" },
+		{ value: "hidden", label: "Hidden" },
+	],
+	icon: [
+		{ value: "inline", label: "Before value" },
+		{ value: "side", label: "At the side" },
+	],
+	accent: [
+		{ value: "none", label: "None" },
+		{ value: "left", label: "Left edge" },
+		{ value: "top", label: "Top edge" },
+	],
+} as const satisfies Record<Exclude<keyof CardLayout, "caption">, readonly { value: string; label: string; icon?: string }[]>;
+const LAYOUT_NAMES: Record<Exclude<keyof CardLayout, "caption">, string> = { size: "Size", align: "Align", label: "Label", icon: "Icon", accent: "Accent" };
+
+/**
+ * A summary card's layout: segmented buttons for the card's own, or (`rule`) drop-downs that start at "Unchanged",
+ * for what a whole-card rule changes. Unset keys are dropped (undefined when nothing's set).
+ */
+function CardLayoutFields({ layout, onChange, rule }: { layout: CardLayout; onChange: (l: CardLayout | undefined) => void; rule?: boolean }) {
+	const set = (patch: Partial<CardLayout>) => {
+		const next: Record<string, unknown> = { ...layout, ...patch };
+		for (const k of Object.keys(next)) if (next[k] === undefined || next[k] === "") delete next[k];
+		onChange(Object.keys(next).length ? (next as CardLayout) : undefined);
+	};
+	const keys = Object.keys(LAYOUT_OPTIONS) as (keyof typeof LAYOUT_OPTIONS)[];
+	const captionHint = "[Value] and other cards' [Title]s show their values, e.g. of [All quests].";
+	if (rule)
+		return (
+			<div className="oe-hl-grid oe-dash-rule-layout">
+				<span className="oe-hl-label oe-dash-rule-layout-head">Card</span>
+				<span />
+				{keys.map((k) => (
+					<Fragment key={k}>
+						<span className="oe-hl-label">{LAYOUT_NAMES[k]}</span>
+						<select className="dropdown oe-pop-select" aria-label={`Card ${LAYOUT_NAMES[k].toLowerCase()}`} value={layout[k] ?? ""} onChange={(e) => set({ [k]: e.target.value || undefined })}>
+							<option value="">Unchanged</option>
+							{LAYOUT_OPTIONS[k].map((o) => (
+								<option key={o.value} value={o.value}>
+									{o.label}
+								</option>
+							))}
+						</select>
+					</Fragment>
+				))}
+				<span className="oe-hl-label">Caption</span>
+				<input type="text" className="oe-pop-input" aria-label="Card caption" placeholder="Unchanged" title={captionHint} value={layout.caption ?? ""} onChange={(e) => set({ caption: e.target.value })} />
+			</div>
+		);
+	const d = DEFAULT_CARD_LAYOUT;
+	return (
+		<>
+			{keys.map((k) => (
+				<Row key={k} label={LAYOUT_NAMES[k]}>
+					<Segmented
+						label={`Card ${LAYOUT_NAMES[k].toLowerCase()}`}
+						iconsOnly={k === "align"}
+						value={(layout[k] ?? d[k]) as string}
+						onChange={(v: string) => set({ [k]: v === d[k] ? undefined : v })}
+						options={[...LAYOUT_OPTIONS[k]] as { value: string; label: string; icon?: string }[]}
+					/>
+				</Row>
+			))}
+			<Row label="Caption" hint={captionHint}>
+				<input type="text" aria-label="Card caption" placeholder="None" value={layout.caption ?? ""} onChange={(e) => set({ caption: e.target.value })} />
+			</Row>
+		</>
 	);
 }
 

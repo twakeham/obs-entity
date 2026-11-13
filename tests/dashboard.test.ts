@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { isoDateAdapter } from "../src/model/dates";
 import { CRM_PACK, STARTER_PACK } from "../src/model/packs";
 import { extractEdges } from "../src/model/relations";
-import { evaluateDashboard, newComponent, parseDashboard, readingOrder, runSource, serializeDashboard, type DashEnv } from "../src/model/dashboard";
+import { DEFAULT_CARD_LAYOUT, evaluateDashboard, newComponent, parseDashboard, readingOrder, runSource, serializeDashboard, type DashEnv } from "../src/model/dashboard";
 import { parseView, type ViewContext, type ViewRow } from "../src/model/views";
 
 const TYPES = [...STARTER_PACK.types, ...CRM_PACK.types];
@@ -255,7 +255,7 @@ describe("dashboard styles: default styles, highlight rules and the notes behind
 			{ id: "n", kind: "card", title: "Projects", source: { types: ["project"] }, value: { agg: "count" }, style: { fill: "grey", bold: true }, highlight: [rule("row", "value", ">=", 4, { fill: "green" }), rule("row", "value", ">=", 1, { fill: "red" }), rule("value", "value", ">", 3, { text: "blue", icon: "star" })] },
 			{ id: "pct", kind: "card", source: { types: ["project"] }, value: { agg: "percent:active", column: "status" }, highlight: [rule("row", "value", ">=", 50, { text: "orange" })] },
 		]);
-		expect(l.get("n")).toEqual({ box: { fill: "green", bold: true }, value: { text: "blue", icon: "star" }, matched: [1, 1, 1] });
+		expect(l.get("n")).toEqual({ box: { fill: "green", bold: true }, value: { text: "blue", icon: "star" }, card: DEFAULT_CARD_LAYOUT, matched: [1, 1, 1] });
 		// Percentages compare as shown.
 		expect(l.get("pct")!.box).toEqual({ text: "orange" });
 	});
@@ -290,5 +290,35 @@ describe("dashboard styles: default styles, highlight rules and the notes behind
 		const r = runSource({ kind: "formula", formula: 'filter(notes("project"), prop(item, "status") = "active")' }, [], [], env);
 		expect("def" in r && r.def.only).toEqual(["Apollo.md", "Gemini.md"]);
 		expect("result" in r && r.result.rows.map((x) => x.row.name)).toEqual(["Apollo", "Gemini"]);
+	});
+
+	it("lay out a card, with a caption naming cards, and let a whole-card rule change it", () => {
+		const { looks: l } = looks([
+			{ id: "all", kind: "card", title: "All projects", source: { types: ["project"] }, value: { agg: "count" } },
+			{
+				id: "act",
+				kind: "card",
+				title: "Active",
+				source: { types: ["project"] },
+				value: { agg: "percent:active", column: "status" },
+				layout: { size: "xl", align: "center", caption: "[Value] of [all projects] · [Nope]", accent: "left", bogus: 1 },
+				highlight: [
+					{ ...rule("value", "value", ">", 0, { text: "red" }), layout: { size: "s" } },
+					{ ...rule("row", "value", ">=", 50, { fill: "green" }), layout: { label: "hidden", icon: "side", caption: "" } },
+				],
+			},
+		]);
+		expect(l.get("all")!.card).toEqual(DEFAULT_CARD_LAYOUT);
+		// A value rule's layout is dropped; the whole-card rule's leaves the rest as the card has it.
+		expect(l.get("act")!.card).toEqual({ size: "xl", align: "center", label: "hidden", caption: "50% of 4 · [Nope]", icon: "side", accent: "left" });
+	});
+
+	it("keep a card's layout and its rules' layouts when saved", () => {
+		const raw = { kind: "dashboard", components: [{ id: "c", kind: "card", value: { agg: "count" }, layout: { size: "fit", label: "below", size2: "x", accent: "purple" }, highlight: [{ ...rule("row", "value", ">", 1, { fill: "red" }), layout: { accent: "top" } }, { ...rule("value", "value", ">", 1, {}), layout: { size: "s" } }] }] };
+		const { def } = parseDashboard(raw);
+		const out = (serializeDashboard(def).components as Record<string, unknown>[])[0];
+		expect(out.layout).toEqual({ size: "fit", label: "below" });
+		expect((out.highlight as Record<string, unknown>[]).map((h) => h.layout)).toEqual([{ accent: "top" }, undefined]);
+		expect(parseDashboard({ kind: "dashboard", components: [out] }).def).toEqual(def);
 	});
 });

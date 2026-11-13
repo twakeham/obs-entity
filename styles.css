@@ -9089,10 +9089,23 @@ button.oe-calv-more:hover {
 
 .oe-dash-card-body {
 	display: flex;
-	flex-direction: column;
-	justify-content: center;
+	align-items: center;
+	gap: var(--size-4-3);
 	height: 100%;
 	padding: var(--size-4-2) var(--size-4-3);
+}
+
+.oe-dash-card-main {
+	flex: 1;
+	min-width: 0;
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+}
+
+.oe-dash-card-main > * {
+	max-width: 100%;
 }
 
 .oe-dash-card-title {
@@ -9720,6 +9733,97 @@ circle.oe-chart-hit:focus-visible {
 
 .oe-dash-card-value .oe-dash-card-icon {
 	margin-right: 0;
+}
+
+/* summary card layout: value size, alignment, caption, side icon and accent edge */
+.oe-dash-card-body.is-size-s .oe-dash-card-value { font-size: 1.3em; }
+.oe-dash-card-body.is-size-l .oe-dash-card-value { font-size: 2.6em; }
+.oe-dash-card-body.is-size-xl .oe-dash-card-value { font-size: 3.4em; }
+
+/* Fit: as big as the card allows, by its height and by its width over the value's length in characters. */
+.oe-dash-card-body.is-size-fit .oe-dash-card-main {
+	container-type: size;
+}
+
+.oe-dash-card-body.is-size-fit .oe-dash-card-value {
+	font-size: max(1em, min(55cqh, calc(150cqw / var(--oe-chars, 4))));
+	line-height: 1.1;
+}
+
+.oe-dash-card-body.is-align-center .oe-dash-card-main {
+	align-items: center;
+	text-align: center;
+}
+
+.oe-dash-card-body.is-align-right .oe-dash-card-main {
+	align-items: flex-end;
+	text-align: right;
+}
+
+.oe-dash-card-body.is-align-center .oe-dash-card-value.oe-hl-fill { align-self: center; }
+.oe-dash-card-body.is-align-right .oe-dash-card-value.oe-hl-fill { align-self: flex-end; }
+
+.oe-dash-card-caption {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.oe-dash-card-side {
+	flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 2.6em;
+	height: 2.6em;
+	border-radius: var(--radius-m);
+	color: var(--oe-tone, var(--text-muted));
+	background-color: color-mix(in srgb, var(--oe-tone, var(--text-muted)) 15%, transparent);
+}
+
+.oe-dash-card-side .oe-icon {
+	display: flex;
+	width: 55%;
+	height: 55%;
+}
+
+.oe-dash-card-side svg {
+	width: 100%;
+	height: 100%;
+}
+
+.oe-dash-card-body.is-size-s .oe-dash-card-side { width: 2em; height: 2em; }
+.oe-dash-card-body.is-size-l .oe-dash-card-side { width: 3.2em; height: 3.2em; }
+.oe-dash-card-body.is-size-xl .oe-dash-card-side { width: 3.8em; height: 3.8em; }
+
+.oe-dash-card-body.is-size-fit .oe-dash-card-side {
+	width: auto;
+	height: min(75%, 6em);
+	aspect-ratio: 1;
+}
+
+.oe-dash-card-body.is-accent-left {
+	box-shadow: inset 4px 0 0 var(--oe-tone, var(--interactive-accent));
+	padding-left: calc(var(--size-4-3) + 2px);
+}
+
+.oe-dash-card-body.is-accent-top {
+	box-shadow: inset 0 4px 0 var(--oe-tone, var(--interactive-accent));
+	padding-top: calc(var(--size-4-2) + 2px);
+}
+
+/* a whole-card rule's layout, under its style */
+.oe-dash-rule-layout {
+	margin-top: var(--size-4-2);
+	padding-top: var(--size-4-2);
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.oe-dash-rule-layout-head {
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
 }
 
 .oe-dash-list-row.oe-hl-fill,

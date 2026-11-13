@@ -1,5 +1,5 @@
 import { Component, MarkdownRenderer, Notice, stringifyYaml } from "obsidian";
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
 import ReactGridLayout, { useContainerWidth, type Layout } from "react-grid-layout";
 import {
 	CHART_LABELS,
@@ -7,6 +7,7 @@ import {
 	COMPONENT_KINDS,
 	COMPONENT_LABELS,
 	DEFAULT_SIZE,
+	DEFAULT_CARD_LAYOUT,
 	evaluateDashboard,
 	GRID_COLS,
 	newComponent,
@@ -30,7 +31,7 @@ import { usePlugin, useRelationsVersion } from "../context";
 import { StatusDot } from "../EntityBrowser";
 import { Icon } from "../Icon";
 import { EntityTable } from "../table/EntityTable";
-import { hlClasses } from "../table/popovers";
+import { cssColor, hlClasses } from "../table/popovers";
 import { DashboardSettings } from "./DashboardSettings";
 import { Chart } from "./Chart";
 
@@ -291,26 +292,42 @@ function ComponentBody({ c, card, list, chart, look, path, editing }: { c: DashC
 function CardBox({ c, out, look, editing }: { c: Extract<DashComponent, { kind: "card" }>; out?: CardOut; look?: ComponentLook; editing: boolean }) {
 	const plugin = usePlugin();
 	const drill = !editing && out?.drill && out.drill.paths.length ? out.drill : null;
+	const L = look?.card ?? DEFAULT_CARD_LAYOUT;
 	// A rule on the value styles just the value; the card's own style (and its icon) applies otherwise.
 	const icon = look?.value?.icon ?? look?.box.icon;
+	const side = !!icon && L.icon === "side";
+	// The side icon and the accent edge take the card's colour: the value's, else the card's (text, then fill).
+	const tone = look?.value?.text ?? look?.value?.fill ?? look?.box.text ?? look?.box.fill;
+	const text = out?.text || "–";
+	const title = <div className="oe-dash-card-title">{c.title || out?.label || "Card"}</div>;
 	return (
 		<div
-			className={`oe-dash-card-body${drill ? " is-clickable" : ""}`}
+			className={`oe-dash-card-body${drill ? " is-clickable" : ""} is-size-${L.size} is-align-${L.align}${side ? " has-side-icon" : ""}${L.accent !== "none" ? ` is-accent-${L.accent}` : ""}`}
+			style={{ ...(tone ? { "--oe-tone": cssColor(tone) } : {}), "--oe-chars": text.length + (icon && !side ? 1.3 : 0) } as CSSProperties}
 			title={out?.count !== undefined ? `${out.count} note${out.count === 1 ? "" : "s"}${drill ? ": click to open them as a table" : ""}` : undefined}
 			role={drill ? "button" : undefined}
 			tabIndex={drill ? 0 : undefined}
 			onClick={drill ? () => void plugin.openDrill(drill) : undefined}
 			onKeyDown={drill ? (e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), void plugin.openDrill(drill)) : undefined}
 		>
-			<div className="oe-dash-card-title">{c.title || out?.label || "Card"}</div>
-			{out?.error ? (
-				<div className="oe-dash-problem">{out.error}</div>
-			) : (
-				<div className={`oe-dash-card-value ${hlClasses(look?.value)}`}>
-					{icon && <Icon name={icon} className="oe-hl-icon oe-dash-card-icon" />}
-					<span>{out?.text || "–"}</span>
+			{side && (
+				<div className="oe-dash-card-side" aria-hidden="true">
+					<Icon name={icon} />
 				</div>
 			)}
+			<div className="oe-dash-card-main">
+				{L.label === "above" && title}
+				{out?.error ? (
+					<div className="oe-dash-problem">{out.error}</div>
+				) : (
+					<div className={`oe-dash-card-value ${hlClasses(look?.value)}`}>
+						{icon && !side && <Icon name={icon} className="oe-hl-icon oe-dash-card-icon" />}
+						<span>{text}</span>
+					</div>
+				)}
+				{L.label === "below" && title}
+				{L.caption && !out?.error && <div className="oe-dash-card-caption">{L.caption}</div>}
+			</div>
 		</div>
 	);
 }

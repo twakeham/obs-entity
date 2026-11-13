@@ -1024,8 +1024,19 @@ export function HighlightPanel({
 	onChange,
 	wording,
 	viz = true,
+	ruleExtra,
 	...rest
-}: FilterProps & { rules: HighlightRule[]; counts: number[]; columns: ResolvedColumn[]; initialOpen?: number; onChange: (rules: HighlightRule[]) => void; wording?: Partial<HighlightWording>; viz?: boolean }) {
+}: FilterProps & {
+	rules: HighlightRule[];
+	counts: number[];
+	columns: ResolvedColumn[];
+	initialOpen?: number;
+	onChange: (rules: HighlightRule[]) => void;
+	wording?: Partial<HighlightWording>;
+	viz?: boolean;
+	/** more settings at the end of a highlight rule (a dashboard card's layout) */
+	ruleExtra?: (r: HighlightRule, onChange: (r: HighlightRule) => void) => ReactNode;
+}) {
 	const w = { ...ROW_WORDING, ...wording };
 	const { choices } = rest;
 	const [open, setOpen] = useState<number | null>(initialOpen ?? (rules.length === 1 ? 0 : null));
@@ -1129,6 +1140,7 @@ export function HighlightPanel({
 								</div>
 								<GroupEditor group={r.when} depth={0} onChange={(when) => set(i, { ...r, when })} {...rest} heading={w.when} emptyText={w.whenEmpty} />
 								<StyleFields style={r.style} onChange={(patch) => setStyle(i, patch)} />
+								{ruleExtra?.(r, (nr) => set(i, nr))}
 								<div className="oe-pop-hint">{r.target === ROW_TARGET ? w.wholeHint : w.partHint}</div>
 							</div>
 						)}
