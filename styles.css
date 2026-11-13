@@ -8707,3 +8707,9 @@ button.oe-calv-more:hover {
 .oe-wf select.oe-wf-run-pick {
 	max-width: 22em;
 }
+/* The editors' header has a bottom border, like the Entity Browser's tab bar beside it. */
+.workspace-leaf-content[data-type="obs-entities-types"] > .view-header,
+.workspace-leaf-content[data-type="obs-entities-workflows"] > .view-header {
+	box-sizing: border-box;
+	border-bottom: 1px solid var(--background-modifier-border);
+}
