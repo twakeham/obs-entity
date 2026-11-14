@@ -11,10 +11,10 @@ A short wizard asks four questions:
 
 ![Adding a relationship](../images/getting-started/add-relationship.png)
 
-1. **What does a task link to?** Choose **Person**. (A field can link to several types, a whole group, or any entity.)
-2. **What's the link called on a task?** `Assignee`.
-3. **What should a person call the other side?** `Tasks`. This is the **inverse** label: Grace's note will list her tasks under *Tasks*, even though only the task stores the link.
-4. **How many people per task?** **One**.
+1. **What can a task link to?** Choose **Person**. (A field can link to several types, a whole group, or any entity.)
+2. **What's the link called here?** `Assignee`.
+3. **What's it called on the other note?** `Tasks`. This is the **inverse** label: Grace's note will list her tasks under *Tasks*, even though only the task stores the link.
+4. **How many?** **One**.
 
 A summary at the bottom says what you've set up. Click **Add relationship**, then **Save**.
 
@@ -51,7 +51,7 @@ Tasks often come out of meetings. Add one more type to link them to:
 2. Give it fields:
    - **Date** — a **Date** field. Make it required (on its **General** tab): every meeting needs a date.
    - **Agenda** — a **List** field, for one item per line.
-3. On its **Relationships** tab, add **Attendees**: links to **Person**, inverse label `Meetings`, and **Several** per meeting.
+3. On its **Relationships** tab, add **Attendees**: links to **Person**, called `Meetings` on the other note, and **Many** per meeting.
 4. Save it.
 
 Then give Task a **Meeting** relationship: links to **Meeting**, inverse label `Actions`, one per task. Now a meeting lists the tasks that came out of it under *Actions*.

@@ -40,8 +40,8 @@ Now give people an **Open tasks** count: how many tasks assigned to them aren't 
 1. Open the Person type's **Fields** tab, **Add field** and choose **Roll-up** (*worked out from linked notes*).
 2. Label it `Open tasks`, and open its **Roll-up** tab.
 3. **From:** *Tasks (linking here)* — the tasks whose Assignee is this person. A roll-up can follow the note's own link fields, or links pointing at it from another type.
-4. **Show:** *Count*.
-5. **Only the linked notes that match:** click **Add a condition…**, then **Add condition**, and set it to **Status — is none of — done**.
+4. **Calculate:** *Count*.
+5. **Only include:** click **Add a condition…**, then **Add condition**, and set it to **Status — is none of — done**.
 
 ![The roll-up settings](../images/getting-started/rollup.png)
 

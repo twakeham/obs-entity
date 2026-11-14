@@ -61,7 +61,7 @@ Priority already says **Medium** — that's the default you set — and the stat
 ![The new task](../images/getting-started/task-note.png)
 
 ::: tip Other ways to create entities
-- Each type has its own command (**Create Task**), which you can give a hotkey.
+- Each type has its own command (**Create task**), which you can give a hotkey.
 - **Convert current note to entity** turns an ordinary note into one.
 - **Ctrl/Cmd+Enter** creates the note from any field in the dialog.
 - Link fields offer **Create "…"** when you type a name that doesn't exist yet — you'll see them in the next part.

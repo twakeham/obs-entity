@@ -30,7 +30,7 @@ Add a few more the same way:
 | Component | Settings |
 |---|---|
 | **Summary card** "Overdue" | Tasks; Status is none of *done*; Due is before *today*. On **Style → Conditional styling**, add a rule *Value > 0* with a red fill. |
-| **Summary card** "Done" | Tasks; **Show** the field *Status*, summarised as *% done*. |
+| **Summary card** "Done" | Tasks; **Field** *Status*, **Summary** *% done*. |
 | **Chart** "Tasks by status" | Tasks; a **Donut** by *Status*. Statuses keep their colours. |
 | **List** "Due next" | Tasks; Status is none of *done*; fields *Priority* and *Due*; sorted by Due; at most 6. |
 | **Button** "New task" | Action: create a new *Task*. |
