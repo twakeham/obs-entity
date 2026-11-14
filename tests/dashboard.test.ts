@@ -264,6 +264,19 @@ describe("dashboard charts", () => {
 		expect(errors).toEqual([]);
 		expect(serializeDashboard(def)).toEqual(raw);
 	});
+
+	it("round-trip the Name column wherever a component uses one", () => {
+		const raw = {
+			kind: "dashboard",
+			components: [
+				{ id: "c", kind: "chart", at: [0, 0, 6, 5], chart: "hbar", source: { types: ["project"] }, by: "name", measure: { agg: "sum", column: "budget" } },
+				{ id: "k", kind: "card", at: [6, 0, 3, 2], source: { types: ["project"] }, value: { agg: "unique", column: "name" } },
+			],
+		};
+		const { def, errors } = parseDashboard(raw);
+		expect(errors).toEqual([]);
+		expect(serializeDashboard(def)).toEqual(raw);
+	});
 });
 
 describe("dashboard styles: default styles, highlight rules and the notes behind cards", () => {

@@ -322,7 +322,7 @@ function parseOneColumn(raw: unknown, errors: string[], where: string): ColumnDe
 	return def?.columns.find((c) => c.id !== "name") ?? (raw === "name" ? NAME_COLUMN : null);
 }
 
-const columnOut = (c: ColumnDef): unknown => (c.id === "name" ? "name" : serializeView({ ...emptyView(), columns: [NAME_COLUMN, c] }).columns as unknown[])[1] ?? c.id;
+const columnOut = (c: ColumnDef): unknown => (c.id === "name" ? "name" : ((serializeView({ ...emptyView(), columns: [NAME_COLUMN, c] }).columns as unknown[])[1] ?? c.id));
 
 function parseSource(raw: unknown, errors: string[], where: string): DashSource | undefined {
 	if (!isObj(raw)) return undefined;
