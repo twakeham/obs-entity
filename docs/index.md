@@ -5,9 +5,6 @@ hero:
   name: Obsidian Entities
   text: Your own kinds of notes, linked, counted and automated
   tagline: Define people, projects, tasks, books or anything else, with typed fields and relationships. Browse them, build views and dashboards over them, and let workflows do the busywork. Everything stays ordinary Markdown.
-  image:
-    src: /hero.png
-    alt: A dashboard of tasks
   actions:
     - theme: brand
       text: Get started
