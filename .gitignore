@@ -3,3 +3,5 @@ main.js
 *.map
 .vault-path
 data.json
+docs/.vitepress/dist/
+docs/.vitepress/cache/
