@@ -489,7 +489,9 @@ function CardData({ c, def, env, views, card, onChange }: Props & { c: Extract<D
 	const choices = useMemo(() => columnChoices(sdef, lookup), [sdef, ctx]);
 	const column = !isFormula && "agg" in c.value ? (c.value.column ?? NAME_COLUMN) : NAME_COLUMN;
 	const resolved = column.id === "name" ? resolveColumn(NAME_COLUMN, sdef, lookup) : (choices.find((x) => x.col.id === column.id)?.col ?? resolveColumn(column, sdef, lookup));
-	const aggs = summaryOptions(resolved).filter((o) => o.key !== "values");
+	// Choices (status too) also offer "% <value>": the share of notes with that value.
+	const cardAggs = (col: ResolvedColumn) => summaryOptions(col, col.kind === "choice" ? (col.options ?? []).slice(0, 12) : []).filter((o) => o.key !== "values");
+	const aggs = cardAggs(resolved);
 	const agg = "agg" in c.value ? c.value.agg : "count";
 	const others = def.components.filter((x) => x.kind === "card" && x.id !== c.id).map(cardName);
 	const setMode = (m: "summary" | "formula") => {
@@ -540,7 +542,7 @@ function CardData({ c, def, env, views, card, onChange }: Props & { c: Extract<D
 								first="None: count the notes"
 								onChange={(col) => {
 									// The summary depends on the field: keep it if the new field has it (and one was chosen), else take the field's first.
-									const next = col ? summaryOptions(col).filter((o) => o.key !== "values") : [{ key: "count", label: "Count" }];
+									const next = col ? cardAggs(col) : [{ key: "count", label: "Count" }];
 									const keep = column.id !== "name" && next.some((o) => o.key === agg) ? agg : (next[0]?.key ?? "count");
 									// A number format means nothing for a date (and the other way round): drop it when that changes.
 									const format = (resolved.kind === "date") !== (col?.kind === "date") ? undefined : c.format;
