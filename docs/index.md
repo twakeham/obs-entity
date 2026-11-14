@@ -17,7 +17,7 @@ hero:
       link: /guide/introduction
     - theme: alt
       text: Reference
-      link: /reference/notes
+      link: /reference/notes 
 
 features:
   - icon: 🧩

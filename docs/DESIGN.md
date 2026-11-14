@@ -65,7 +65,7 @@ It is distilled from **Story Forge**, a worldbuilding / tabletop campaign plugin
 - Domain-specific views (timelines, kanban boards, maps, family trees). §8.9 lists them as optional modules.
 - Custom calendars. Dates are ISO `YYYY-MM-DD`; §4.4 defines an extension point.
 - Database-style storage, a sync server, or multi-vault sharing beyond JSON import/export.
-- Replacing Obsidian Bases or Dataview. The plugin produces data they can query.
+- Replacing Obsidian Bases or Dataview. The plugin produces data they can query. Notes are data.
 
 ### Principles
 
