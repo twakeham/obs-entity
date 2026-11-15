@@ -36,7 +36,7 @@ Tasks link to the meeting they came out of. Show them in the meeting's note:
 
 The table now shows just the kick-off's actions. The filter is saved into the block as `value: ["{this}"]`, and the block, which is plain text, can be copied into any other meeting, where it shows that meeting's actions.
 
-<!-- SHOT file="guides/views-in-notes-meeting-actions.png" vault="Entities Tutorial" alt="The Project kick-off note with a table of its five actions under an Actions heading, and the Filters panel open showing Meeting links to any of This note" how="Open Entities/Work/Meetings/Project kick-off.md. At the end of the note add a line '## Actions' and under it the entity-view block from the guide (kind: table, types: [task], columns: [name, status, assignee, due, priority], sort by due asc) plus filters: all: - { field: meeting, op: links-any, value: ['{this}'] }. Put the cursor at the top of the note so the block renders in Live Preview. Click the table's Filters button so the panel shows the condition 'Meeting — links to any of — [This note]' pill. Crop to the note pane: the Actions heading, the table toolbar, the open Filters panel and the rows (Book the venue, Set up the repository, Draft the budget, Write the project brief, Build the prototype)." -->
+![The Project kick-off note with a table of its five actions under an Actions heading, and the Filters panel open showing Meeting links to any of This note](../images/guides/views-in-notes-meeting-actions.png)
 
 A view block directly in a note spans the pane's full width, so wide tables have room. To change the block by hand, choose **⋯ → Edit definition**, which shows the note in Source mode.
 
@@ -92,7 +92,7 @@ Templates are where views in notes pay off: put a block in the Person template, 
 A template is used when a note is created. Ada, Alan, Grace and Katherine were created before you changed it, so paste the same `## Open tasks` block into their notes too. Each one shows that person's own tasks.
 :::
 
-<!-- SHOT file="guides/views-in-notes-person-tasks.png" vault="Entities Tutorial" alt="Ada Lovelace's note with an Open tasks heading and a table of her two open tasks, Order laptops and Review the brief, with Days left" how="Open Entities/Work/People/Ada Lovelace.md. At the end of the note add '## Open tasks' and the entity-view block from step 2 of the guide (types: [task], columns: [name, status, due, priority, days_left], sort by due asc, filters: assignee links-any {this} and status none-of done). Put the cursor at the top so the block renders in Live Preview. The table should show Order laptops (negative Days left) and Review the brief. Crop to the note pane from the properties form down to the table's footer." -->
+![Ada Lovelace's note with an Open tasks heading and a table of her two open tasks, Order laptops and Review the brief, with Days left](../images/guides/views-in-notes-person-tasks.png)
 
 Because each note has its own copy of the block, you can change one person's table (add a column, group by Priority) without touching the others. The flip side: to change them all later, you edit each note. If you'd rather change them in one place, embed a saved view instead.
 

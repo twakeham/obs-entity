@@ -28,7 +28,7 @@ See [Filter controls](/reference/dashboards#filter-controls) for each control's 
 3. In its settings, click the title and rename it `Priority`.
 4. Under **Filter**, click the **Choice** control. Set **From** to **Tasks**, **Field** to **Priority** (it starts on Status), and **Pick** to **Several**.
 
-<!-- SHOT file="guides/dashboard-filters-priority-settings.png" vault="Entities Tutorial" alt="The Team dashboard in edit mode with the new Priority filter selected; its Data tab shows the Choice control, From Tasks, Field Priority, Pick Several, and the Use it section" how="Open Entities/Views/Team dashboard.md and click Edit. Add a Filter component, drag it to the empty space at the top right of the grid (columns 9–11 of the first row, next to the New task button) and size it 3 wide × 1 high. In the Settings panel rename its title to Priority; under Filter choose the Choice control, From: Tasks, Field: Priority, Pick: Several. Then select the Open tasks card and add the condition Priority — is any of — filter button (so it shows the Priority pill), and select the Priority filter again so its Use it section says 'Used by Open tasks'. Capture the whole dashboard tab (Add panel, grid and Settings panel) with the Priority filter selected. Discard afterwards if the guide's later steps aren't wanted in the vault." -->
+![The Team dashboard in edit mode with the new Priority filter selected; its Data tab shows the Choice control, From Tasks, Field Priority, Pick Several, and the Use it section](../images/guides/dashboard-filters-priority-settings.png)
 
 5. Select the **Open tasks** card. Under **Only notes matching**, click **Add condition** and set it to **Priority — is any of —**, then click the **filter button** next to the value. The value becomes a *Priority* pill.
 6. Do the same for **Overdue**, the **Tasks by status** chart and the **Due next** list.
@@ -65,7 +65,7 @@ In a formula, a filter is its value: a Note filter gives the note as a link, so 
 
 Pick *Ada Lovelace* and the card says *Manager*; clear the filter and it says *Whole team*. The `if(empty(…))` matters: with nothing picked, `[Person]` is empty.
 
-<!-- SHOT file="guides/dashboard-filters-caption-formula.png" vault="Entities Tutorial" alt="The Team dashboard in view mode filtered to Ada Lovelace and High priority: Open tasks 1 with the caption Priority: High, Overdue 1 in red, and a Role card showing Manager" how="Open Entities/Views/Team dashboard.md. Set it up as in the guide: a Priority filter (Choice, From Tasks, Field Priority, Pick Several) at the top right, used in Priority — is any of conditions on Open tasks, Overdue, Tasks by status and Due next; Open tasks' Style → Card → Caption 'Priority: [Priority]'; and a Summary card titled Role, Value From: Other cards, formula if(empty([Person]), 'Whole team', prop([Person], 'Role')) with double quotes, placed in the empty space at the right of the cards row. Save and leave edit mode. Pick Ada Lovelace in Person and High in Priority. Capture the dashboard tab's content area, cropped to the filters row and the cards row (the chart and list may be included if they fit)." -->
+![The Team dashboard in view mode filtered to Ada Lovelace and High priority: Open tasks 1 with the caption Priority: High, Overdue 1 in red, and a Role card showing Manager](../images/guides/dashboard-filters-caption-formula.png)
 
 Formulas see the other filters too: a Choice filter gives the choice (or a list, with **Several**), Dates gives `[from, to]`, and so on. See [Formulas in dashboards](/reference/formulas#formulas-in-dashboards).
 
@@ -84,7 +84,7 @@ Formulas see the other filters too: a Choice filter gives the choice (or a list,
 
 Open *Alan Turing*: the dashboard's **Person** filter starts on *Alan Turing*, and every component follows. Embedded in a note, a **Note** filter for that note's type starts on that note. The Priority filter isn't a Note filter, so it starts with nothing picked.
 
-<!-- SHOT file="guides/dashboard-filters-person-note.png" vault="Entities Tutorial" alt="Alan Turing's note with the Team dashboard embedded full width under a Work heading, its Person filter already set to Alan Turing" how="Open Entities/Work/People/Alan Turing.md. At the end of the note add '## Work' and on the next line ![[Team dashboard|wide]]. Make sure nothing has been picked in this embed before (if the Person filter isn't on Alan, pick Alan Turing). Leave Priority empty. Put the cursor at the top of the note so the embed renders. Capture the note pane from the Work heading down through the dashboard: the Person filter showing Alan Turing, the cards, the Tasks by status donut (doing and done) and the Due next list." -->
+![Alan Turing's note with the Team dashboard embedded full width under a Work heading, its Person filter already set to Alan Turing](../images/guides/dashboard-filters-person-note.png)
 
 `|wide` spreads the dashboard across the pane, as the note's normal width is often too narrow for the grid (below 600 pixels, components stack one above the other). The **Full width** button at the top right of the embed switches it on and off. The embed's **Edit** button opens the dashboard in a new tab.
 

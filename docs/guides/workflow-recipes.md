@@ -67,7 +67,7 @@ A few things to watch when you build it:
 
 Open *Weekly check-in* and press **Follow up** in the strip at the top of its form. Type an answer and the new task appears in the meeting's *Actions*. Run on several meetings at once, the question offers **Same answer for the other N notes**.
 
-<!-- SHOT file="guides/workflow-recipes-follow-up.png" vault="Entities Tutorial" alt="The Follow up workflow: an Ask a question step, a Create a note step for a task linked through Meeting, and a notice" how="In the Entity Browser's Types tab, right-click Meeting and choose New workflow for meetings. Build the Follow up workflow exactly as in the recipe (Run on notes, button Follow up with the list-plus icon; Ask a question with Question 'What needs doing after {[Name]}?', One line, Default 'Follow up on {[Name]}', Call it 'Task name'; Create a note with Type Task, Name '{[Task name]}', field Due = +7d, Link Meeting, Open it No, If it exists Create another, Call it 'New task'; Show a notice 'Added {name([New task])} to {[Name]}'). Save. Fold the When and Only if sections so the Do section with all three steps is visible. Crop to the workflow editor's Do section, including the folded When line above it." -->
+![The Follow up workflow: an Ask a question step, a Create a note step for a task linked through Meeting, and a notice](../images/guides/workflow-recipes-follow-up.png)
 
 **Variations:**
 
@@ -113,7 +113,7 @@ This one finds the next meeting once, then moves every selected task to it: one 
 
 With **Once for the selection** there's no single "this note", so steps that change tasks go inside a **For each** over `[Selected notes]` (a new For each starts that way). The If is true only when **Find notes** found a meeting. The whole thing is one entry in the run log, with one **Undo**.
 
-<!-- SHOT file="guides/workflow-recipes-next-meeting.png" vault="Entities Tutorial" alt="The Move to next meeting workflow: a Find notes step, then an If holding a For each over the selected notes" how="In the Entity Browser's Types tab, right-click Task and choose New workflow for tasks. Build Move to next meeting exactly as in the recipe: Run on notes, button Move to next meeting, On several notes = Once for the selection; Only if Status is none of done; Do: Find notes (Notes Meeting, That match Date is after today and Status is none of cancelled, Sorted by Date Ascending, Keep The first one, Call it Next meeting); If with A formula [Next meeting], Then: For each (List [Selected notes], Items are Tasks, Call each Task) containing Set a field Meeting to the formula [Next meeting], then Show a notice 'Moved {count([Selected notes])} tasks to {name([Next meeting])}'; Otherwise: Show a notice 'No meeting is planned after today.' Save. Fold When and Only if. Crop to the Do section so the Find notes card and the nested If / For each (steps 2.1 and 2.1.1) are all visible." -->
+![The Move to next meeting workflow: a Find notes step, then an If holding a For each over the selected notes](../images/guides/workflow-recipes-next-meeting.png)
 
 ::: tip Each note, or once for the selection?
 Choose **Each note** when every note is handled on its own. Choose **Once for the selection** when something should happen once: one search, one new note that links them all, one notice. See [Run on notes](/reference/triggers#each-note-or-once-for-the-selection).
@@ -140,7 +140,7 @@ Choose **Each note** when every note is handled on its own. Choose **Once for th
 4. Back on the **Editor** tab, add the steps:
 
 - **Do:**
-  1. **Create a note** · **Type** *Meeting* · **Name** `{format([Date], "YYYY-MM-DD")} {[Title]}` · **Fields:** *Date* `[Date]`, *Attendees* `[Attendees]`, *Status* *held* · **Body** **Use the type's template** · **Open it** **No** · **Call it** `New meeting`
+  1. **Create a note** · **Type** *Meeting* · **Name** `{format([Date], "YYYY-MM-DD")} {[Title]}` · **Fields:** *Date* `[Date]`, *Attendees* `[Attendees]`, *Status* *held* · **Body** switched on, so it reads *From the type's template* · **Open it** **No** · **Call it** `New meeting`
   2. **Add text to a note** · **On** *New meeting* · **Text** `{[Summary]}` · **Where** **Under a heading** · **Heading** `## Notes`
   3. **For each** · **List** `[Action items]` · **Items are** **Values (text, numbers, dates)** · **Call each** `Action`
      - **Create a note** · **Type** *Task* · **Name** `{[Action]}` · **Fields:** *Meeting* `[New meeting]`, *Due* `[Date] + 7` · **Call it** `New task`
@@ -150,7 +150,7 @@ The answers are named by their labels: `[Date]`, `[Attendees]` and so on. In a f
 
 Open it with **Fill in a form…** in the command palette, **Workflow: Log a meeting**, or the ribbon icon. **Ctrl/Cmd+Enter** sends it. For one-click access, add a **Button** to the *Team dashboard* with **On click** **Run a workflow** (see [Dashboards](/reference/dashboards#buttons)).
 
-<!-- SHOT file="guides/workflow-recipes-log-meeting.png" vault="Entities Tutorial" alt="The Log a meeting form, filled in with a title, date, two attendees, a summary and two action items" how="Build the Log a meeting form workflow exactly as in the recipe (no Applies to; Form trigger with Title Log a meeting, icon notebook-pen, Button Log meeting; form fields Title (Text, required), Date (Date, required, default relative today), Attendees (Relation to Person, Many), Summary (Long text), Action items (List); the four steps), save it and switch it On. Run the command 'Fill in a form…' and choose Log a meeting. Fill in Title 'Design review', leave Date as today, pick Ada Lovelace and Grace Hopper as Attendees, Summary 'Agreed the new layout.', and add two Action items 'Update the mock-ups' and 'Book user tests'. Do not send it. Crop to the form window." -->
+![The Log a meeting form, filled in with a title, date, two attendees, a summary and two action items](../images/guides/workflow-recipes-log-meeting.png)
 
 **Variations:** set each task's *Assignee* with a **Relation** field on the form called `Owner` (**How many links** **One**), and *Assignee* `[Owner]` in the task's fields. The *Project delivery* [pack](/guides/packs) has a *Log a meeting* form that also adds a line to the project's note.
 
@@ -197,7 +197,7 @@ Click the flask, **Try on a note…**, and pick a note. Nothing is saved. It sho
 
 A test run can't stop to ask, so **Confirm** steps count as Yes, **Ask a question** takes its **Default**, and a form uses its fields' defaults. A form with no type is tried with **Try it…**. For scheduled and date workflows, a test run is the way to see what they'd do without waiting.
 
-<!-- SHOT file="guides/workflow-recipes-try-run.png" vault="Entities Tutorial" alt="A test run of Push back a week, showing a task's Due date before and after" how="Build and save the Push back a week workflow from the recipe (Applies to Task, Run on notes, Each note, Only if Status is none of done, Set a field Due to the formula dateAdd(coalesce([Due], today()), 1, 'weeks') with double quotes around weeks). In the editor's header click the flask (Try on a note…) and pick a task that isn't done and has a Due date. Capture the test-run result showing the task's Due before → after and the summary line (It would change 1 note). Crop to the test-run panel or window." -->
+![A test run of Push back a week, showing a task's Due date before and after](../images/guides/workflow-recipes-try-run.png)
 
 ### Read the run log
 

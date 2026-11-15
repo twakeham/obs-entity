@@ -25,7 +25,7 @@ Say a colleague wants your task tracker. Everything in it lives in the **Work** 
 2. Under **More**, click **Copy group as a pack**.
 3. A notice says what it copied, such as *Copied the Work group (3 types, 1 workflow and 2 views) as a pack.*
 
-<!-- SHOT file="guides/sharing-copy-group.png" vault="Entities Tutorial" alt="The group editor for Work, with Copy group as a pack under More" how="On the Entity Browser's Types tab, click the Work group so the group editor opens in the Entity types view. Scroll down so the Statuses list and the More section (Copy group as a pack and Delete group buttons) are both visible. Don't click either button. Crop to the editor panel." -->
+![The group editor for Work, with Copy group as a pack under More](../images/guides/sharing-copy-group.png)
 
 The pack holds:
 
@@ -61,7 +61,7 @@ In the other vault:
 4. Each type opens as a **draft** in the Entity types view, marked **new** in the Entity Browser. Look each one over and click **Save**. Discard a draft and that type isn't added.
 5. The pack's workflows open as drafts in the Workflows view, switched off. Save each one, then switch it **On** when you're happy with it.
 
-<!-- SHOT file="guides/sharing-import-pack.png" vault="Entities Tutorial" alt="The Import a pack dialog, with a pack pasted in" how="In the Entities Tutorial vault, open the Work group's editor and click Copy group as a pack. Then right-click the Entities heading on the Entity Browser's Types tab, choose Import pack…, and paste (Ctrl+V) into the box so the start of the JSON shows. Do NOT click Import; cancel afterwards. Crop to the dialog." -->
+![The Import a pack dialog, with a pack pasted in](../images/guides/sharing-import-pack.png)
 
 If the other vault already has types with the same keys, the pack's get numbered keys (`task_2`), and everything in the pack follows them. A pack you copy doesn't list any **shared** types, so even a Person becomes `person_2` if the vault already has one. See [Keys already taken](/reference/packs#keys-already-taken).
 
@@ -106,7 +106,7 @@ An app is your whole configuration in one file, for setting up another vault the
 
 The details are remembered, so next time you only need to bump the version.
 
-<!-- SHOT file="guides/sharing-export-app.png" vault="Entities Tutorial" alt="The Export as an app window, filled in" how="Right-click the Entities heading on the Entity Browser's Types tab and choose Export as an app…. Wait for the 'Includes …' summary line to fill in. Set Name to Work tracker, Version 1.0, Author Tim, and Description 'People, tasks and meetings, with a team dashboard.'. Don't click Save…. Crop to the modal." -->
+![The Export as an app window, filled in](../images/guides/sharing-export-app.png)
 
 ## Import an app
 
@@ -122,7 +122,7 @@ The details are remembered, so next time you only need to bump the version.
 4. If any of the app's workflows were on when it was exported, **Switch on its workflows** appears. Leave it off to check them first, or turn it on to keep each one as it was.
 5. Click **Replace configuration** or **Add to configuration**.
 
-<!-- SHOT file="guides/sharing-import-app.png" vault="Entities Tutorial" alt="The Import an app window, showing the app's details and the How to import options" how="First export an app from the Entities Tutorial vault (Export as an app…, Name Work tracker, Version 1.0, Description 'People, tasks and meetings, with a team dashboard.', Save… to a folder outside the vault). Turn on the Date completed tasks workflow before exporting so the Switch on its workflows toggle appears. Then choose Import app…, click Choose a file… and pick that file. Leave How to import on Replace the current configuration so its warnings show. Do NOT click Replace configuration; cancel afterwards. Crop to the modal." -->
+![The Import an app window, showing the app's details and the How to import options](../images/guides/sharing-import-app.png)
 
 Before you replace, read the warnings. The window says how many of your notes use types the app doesn't have (they're left alone, but aren't entities until a type with their key exists) and how many unsaved changes in the Entity types and Workflows views will be lost.
 

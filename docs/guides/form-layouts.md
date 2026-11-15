@@ -69,7 +69,7 @@ The *Completed* date only means something once a task is done. Put it in a frame
 
 The frame gets an eye badge reading *Status is any of done*. On a task, it appears as soon as you set the status to *done* (with the date your *Date completed tasks* workflow filled in), and disappears again if you set it back.
 
-<!-- SHOT file="guides/form-layouts-show-only-when.png" vault="Entities Tutorial" alt="The Layout tab with the Completion frame selected and its Show only when condition" how="In the Entities Tutorial vault, open the Task type (Entity Browser > Types > Task) and its Layout tab. Build the layout described on this page if it isn't there yet: Start from fields; rename the frame Details; add 2 columns above it; drag Details into the left column; add a Frame in the right column captioned Schedule and move Due and Days left into it; add a Frame captioned Completion below the columns holding Completed, with Show only when Status is any of done. Select the Completion frame so the right-hand settings pane shows Caption, Icon, Accent colour, Style, Header and the Show only when panel with the condition. Capture the whole type editor (palette, layout and settings), not the rest of Obsidian." -->
+![The Layout tab with the Completion frame selected and its Show only when condition](../images/guides/form-layouts-show-only-when.png)
 
 A few things to know about conditions:
 
@@ -125,7 +125,7 @@ Long text fields also have a **Height**. **Edit field** jumps to the field on th
 
 Click **Save**. Open a task to see the result:
 
-<!-- SHOT file="guides/form-layouts-task-form.png" vault="Entities Tutorial" alt="A done task's properties form with the Overview tab: Details and Schedule side by side, and the Completion frame" how="With the Task layout from this page saved (Name at the top; a tab group Overview / More; in Overview a 2 columns element holding the Details frame [Priority, Assignee, Meeting; icon info, accent the type's colour] and the Schedule frame [Due, Days left; icon calendar, Header Soft], then the Completion frame [Completed, shown only when Status is any of done]; in More: Related, Tags, Aliases, Created, Modified with labels Above; slot settings: Days left label Beside, Assignee placeholder Who's doing it?, Priority custom help text High means this week., Completed read-only), open a task whose status is done (set one to done if needed so the workflow fills Completed) in Live Preview, in a wide enough pane that the columns sit side by side. Overview tab open. Crop to the properties form only." -->
+![A done task's properties form with the Overview tab: Details and Schedule side by side, and the Completion frame](../images/guides/form-layouts-task-form.png)
 
 ## What the create dialog shows
 
@@ -138,9 +138,9 @@ The create dialog uses the same layout, with a few differences:
 - **Show only when…** works as you fill the dialog in. A new task starts as *todo*, so the *Completion* frame stays hidden.
 - Read-only slots can still be filled in. Calculated fields, Type, Subtitle, Created, Modified, Related and Aliases aren't part of the dialog.
 
-For the Task form, select the *More* tab and turn off **Show in the create dialog**. The dialog then asks for the name, status and the *Overview* fields, and keeps the rest one click away.
+For the Task form, select the *More* tab and turn off **Show in the create dialog**. The dialog then asks for the name, status and the *Overview* fields. The *More* tab only holds things the dialog doesn't ask for anyway (Created, Modified, Related and Aliases), so there's no **Show N more fields** link: had it held fields, they'd be behind one. Tags is still offered at the bottom.
 
-<!-- SHOT file="guides/form-layouts-create-dialog.png" vault="Entities Tutorial" alt="The New task dialog using the Task layout" how="With the Task layout from this page saved, and the More tab's Show in the create dialog turned off, run Obsidian Entities: Create task from the command palette. The New task dialog should show Status at the top, the Name box placed by the layout, the Overview/More tabs (or just Overview), the Details and Schedule frames side by side, and a Show N more fields link. Type a name such as Plan the launch. Crop to the modal." -->
+![The New task dialog using the Task layout](../images/guides/form-layouts-create-dialog.png)
 
 ::: tip Hide what you haven't placed
 Fields you don't place are listed in an **Other fields** frame at the end of the form. To leave them off the form altogether, select nothing on the layout and turn on **Hide fields that aren't placed**. Notes keep their values.

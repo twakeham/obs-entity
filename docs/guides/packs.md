@@ -25,13 +25,13 @@ The picker only opens once per vault. You can still add any pack later.
 2. Right-click the **Entities** heading at the top and choose **Browse packs…**.
 3. In the **Entity packs** window, click **Install** on a pack.
 
-<!-- SHOT file="guides/packs-entities-menu.png" vault="Entities Tutorial" alt="The Entities heading's right-click menu, with Browse packs…, Import pack… and the app options" how="Open the Entity Browser (left ribbon), switch to the Types tab, right-click the Entities heading at the top of the tab so its menu shows New entity type, New group, Browse packs…, Import pack…, Copy all types as a pack, Import app… and Export as an app…. Crop to the browser sidebar and the open menu." -->
+![The Entities heading's right-click menu, with Browse packs…, Import pack… and the app options](../images/guides/packs-entities-menu.png)
 
 A notice says what was added. The button changes to **Installed**, and the window stays open so you can add another.
 
 **Browse packs…** is also in **Settings → Obsidian Entities → Entity types**, and on the Entity types view when no type is open.
 
-<!-- SHOT file="guides/packs-gallery.png" vault="Entities Tutorial" alt="The Entity packs window, with a card for each pack and its Install button" how="In the Entity Browser's Types tab, right-click the Entities heading and choose Browse packs…. Don't install anything. Make the window large enough to show at least the first two rows of cards (Starter, Basic CRM, Project delivery, Reading & library) with their type chips, counts and Install buttons. Crop to the modal." -->
+![The Entity packs window, with a card for each pack and its Install button](../images/guides/packs-gallery.png)
 
 ## Which pack?
 
@@ -81,7 +81,7 @@ Here's what happened:
 
 So you now have two types called *Task*: yours under **Work**, and the pack's under **Delivery**. That's fine, but confusing; the next sections show how to tidy it up.
 
-<!-- SHOT file="guides/packs-after-install.png" vault="Entities Tutorial" alt="The Types tab after installing Project delivery, with the Work, Delivery and Governance groups and two Task types" how="Use a throwaway COPY of the Entities Tutorial vault (installing changes the vault). In it, right-click the Entities heading on the Entity Browser's Types tab, choose Browse packs…, and click Install on Project delivery. Close the window. Expand the Work, Delivery and Governance groups so Person, Task and Meeting show under Work, Project, Milestone and Task under Delivery, and Risk, Meeting and Decision under Governance. Crop to the browser sidebar." -->
+![The Types tab after installing Project delivery, with the Work, Delivery and Governance groups and two Task types](../images/guides/packs-after-install.png)
 
 A few more things can clash:
 

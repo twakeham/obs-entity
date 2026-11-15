@@ -26,7 +26,7 @@ A fixed date is rarely useful: next month it's in the past. A relative date is w
 3. Type `today+7d` in the box. Beside it, the editor shows the date that gives today, such as *Today that's 22/11/2026*.
 4. Click **Save**.
 
-<!-- SHOT file="guides/defaults-relative.png" vault="Entities Tutorial" alt="The Due field's General tab, with Default set to Relative to today and today+7d typed in" how="Entity Browser → Types tab → click Task → Fields tab → click Due. On the General tab set Default to 'Relative to today' and type today+7d, so the 'Today that's …' line shows. Crop to the field's panel on the right (General tab), from the tab strip down to the Show in the create dialog row. Click Discard afterwards if the vault should stay as in the tutorial." -->
+![The Due field's General tab, with Default set to Relative to today and today+7d typed in](../images/guides/defaults-relative.png)
 
 Write `today`, then `+` or `-` a number and a unit:
 
@@ -50,7 +50,7 @@ In the tracker, say you want to see tasks by the kind of work. People already ha
 3. Two dropdowns appear. In the first choose **Assignee**, the relation field to follow; in the second choose **Role**, the field to copy from the linked note.
 4. Click **Save**.
 
-<!-- SHOT file="guides/defaults-linked.png" vault="Entities Tutorial" alt="A Role field whose default is From a linked note: Assignee note's Role" how="Entity Browser → Types tab → click Task → Fields tab → Add field → Choice, label it Role, add choices Manager, Designer, Developer, Tester on its Choices tab. Back on its General tab set Default to 'From a linked note', then pick Assignee in the first dropdown and Role in the second (they read 'Assignee  note's  Role'). Crop to the field's General tab. Save the type (the next shot of the create dialog uses this field)." -->
+![A Role field whose default is From a linked note: Assignee note's Role](../images/guides/defaults-linked.png)
 
 Now create a task and pick **Grace Hopper** as its Assignee. Role fills in with *Developer* straight away.
 
@@ -89,7 +89,7 @@ Create a task now (**Obsidian Entities: Create entity → Task**). Each kind of 
 | **From a linked note** | Empty until you set the link, then filled in. Changing the link fills it in again, unless you've set the field yourself. |
 | **The next number** | Empty, with the number it will get as a placeholder, such as *Next: TASK-0042*. Leave it empty to take the number, or type your own. A required field with this default doesn't need filling in. |
 
-<!-- SHOT file="guides/defaults-create-dialog.png" vault="Entities Tutorial" alt="The create dialog for a task, with Due a week ahead, Priority Medium, Role copied from the assignee and Code showing Next: TASK-0001" how="Needs the Due default from the first shot saved, plus the Role field (linked default) and a Code text field with Default 'The next number' (pattern TASK-{n}, 4 digits), all saved on Task. Then Ctrl/Cmd+P → 'Obsidian Entities: Create entity' → Task. Type the name 'Book the venue', pick Grace Hopper in Assignee so Role fills in with Developer. Leave Code empty so its placeholder 'Next: TASK-0001' shows. Crop to the dialog." -->
+![The create dialog for a task, with Due a week ahead, Priority Medium, Role copied from the assignee and Code showing Next: TASK-0001](../images/guides/defaults-create-dialog.png)
 
 Fields that aren't in the create dialog get their defaults too, as do notes made without it: **Create "…"** in a link picker, a workflow's **Create a note** step, and so on.
 

@@ -79,7 +79,7 @@ A task due on the 18th that starts on the 20th is flagged on Due: *Must be on or
 
 Put the rule on one of the two dates only, usually the later one. Then the problem shows once, on the field you're most likely to change.
 
-<!-- SHOT file="guides/validation-due-rules.png" vault="Entities Tutorial" alt="Due's Validation tab with Required, Dates allowed and a comparison with Start" how="In the Entities Tutorial vault, open the Task type (Entity Browser > Types > Task). On the Fields tab, add a Date field labelled Start if it isn't there, then select Due and open its Validation tab. Set: Required on; Dates allowed From empty, to today+1y (so the 'Today that's ...' hint shows); Compared with another date: on or after, Start. Capture the type editor with the field list on the left and Due's Validation tab on the right; crop to the type editor." -->
+![Due's Validation tab with Required, Dates allowed and a comparison with Start](../images/guides/validation-due-rules.png)
 
 ## Check the format with a pattern
 
@@ -117,7 +117,7 @@ If Grace's email is the same as Ada's, both notes are flagged: *Must be unique: 
 | **Tables** | The cell is outlined in red or orange. Hover over it to read the problem. |
 | **Create dialog** | A broken rule shows as soon as you type the value. Empty required fields are flagged when you click **Create**. Either way, a notice says what's wrong (*Required: Due*, or *Please fix: Due, Email*), a layout's tabs switch to the first problem, and the note isn't created. |
 
-<!-- SHOT file="guides/validation-form-problem.png" vault="Entities Tutorial" alt="A task's properties form with Due outlined in red because it's before Start" how="With the Start field and Due's rules from this page in place, open a task (e.g. Write the project brief) in Live Preview. Set Start to a date after Due so Due breaks 'on or after Start'. Hover over the red problem icon beside Due so its tooltip 'Must be on or after Start (...)' is visible, and make sure the '1 problem' button shows in the form's top row. Crop to the properties form." -->
+![A task's properties form with Due outlined in red because it's before Start](../images/guides/validation-form-problem.png)
 
 To fix a problem, change the value: pick a later due date, fill in the assignee, correct the email. The outline goes as soon as the value fits. Broken rules have no one-click **Fix** button, because only you know the right value. If the rule itself is wrong, change it on the field's **Validation** tab instead.
 
@@ -134,7 +134,7 @@ After adding rules, check the notes you already have:
 
 If nothing needs fixing, a notice says so: *No problems found in 24 entities.*
 
-<!-- SHOT file="guides/validation-check-entities.png" vault="Entities Tutorial" alt="The Check entities list showing tasks and people with problems" how="With the rules from this page in place (Due required with a comparison to Start, Assignee required when Status is doing, Person Email with the @example\.com$ pattern and Unique), make a few notes break them: e.g. a task with Start after Due, a doing task with no Assignee, and two people sharing an email or one with a gmail address. Then run Obsidian Entities: Check entities from the command palette. Capture the modal with several entries, each showing its problems. Crop to the modal." -->
+![The Check entities list showing tasks and people with problems](../images/guides/validation-check-entities.png)
 
 Check entities lists every kind of problem, not just broken rules: values of the wrong kind, choices that aren't allowed, links to the wrong type, and so on. See [Values that don't fit the type](/reference/notes#values-that-don-t-fit-the-type).
 
