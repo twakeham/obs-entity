@@ -48,10 +48,6 @@ const features = [
 				</a>
 			</li>
 		</ul>
-		<p class="more">
-			…and much more: a gallery of ready-made packs, views inside notes, validation and smart defaults, and sharing your setup as a pack or app.
-			<a :href="withBase('/guide/introduction')">See everything →</a>
-		</p>
 	</div>
 </template>
 
@@ -111,11 +107,6 @@ const features = [
 .hero-features {
 	width: 100%;
 	max-width: 560px;
-	padding: 20px 20px 16px;
-	border: 1px solid var(--vp-c-divider);
-	border-radius: 16px;
-	background: var(--vp-c-bg-soft);
-	box-shadow: 0 24px 64px -24px rgba(100, 108, 255, 0.3);
 }
 ul {
 	list-style: none;
@@ -163,18 +154,5 @@ li a:hover {
 	font-size: 13.5px;
 	line-height: 20px;
 	color: var(--vp-c-text-2);
-}
-.more {
-	margin: 10px 10px 0;
-	padding-top: 12px;
-	border-top: 1px solid var(--vp-c-divider);
-	font-size: 13.5px;
-	line-height: 20px;
-	color: var(--vp-c-text-2);
-}
-.more a {
-	font-weight: 500;
-	color: var(--vp-c-brand-1);
-	white-space: nowrap;
 }
 </style>
